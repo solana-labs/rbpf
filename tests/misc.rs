@@ -23,6 +23,8 @@
 extern crate solana_rbpf;
 
 use std::io::{Error, ErrorKind};
+use std::fs::File;
+use std::io::Read;
 use solana_rbpf::assembler::assemble;
 use solana_rbpf::helpers;
 use solana_rbpf::{EbpfVmRaw, EbpfVmNoData, EbpfVmMbuff, EbpfVmFixedMbuff};
@@ -691,3 +693,21 @@ fn test_get_last_instruction_count() {
     println!("count {:?}", vm.get_last_instruction_count());
     assert!(vm.get_last_instruction_count() == 1);
 }
+
+#[test]
+fn test_set_elf() {
+    let mut file = File::open("noop.o").expect("file open failed");
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+
+    let mut vm = EbpfVmNoData::new(None).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.set_elf(&elf).unwrap();
+    vm.execute_program().unwrap();
+    println!("count {:?}", vm.get_last_instruction_count());
+
+
+}
+
+
+
