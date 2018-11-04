@@ -700,13 +700,41 @@ fn test_set_elf() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVmNoData::new(None).unwrap();
+    let mut vm = EbpfVmRaw::new(None).unwrap();
+    let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 114];
     vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
     vm.set_elf(&elf).unwrap();
-    vm.execute_program().unwrap();
+    vm.execute_program(&mut mem).unwrap();
     println!("count {:?}", vm.get_last_instruction_count());
+}
 
+#[test]
+#[should_panic(expected = "Error: Load segfault (insn #2),")]
+fn test_null_string() {
+    let prog = &[
+        0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r1 = 0
+        0x85, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // call 1
+        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    ];
+    let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 114];
 
+    let mut vm = EbpfVmRaw::new(Some(prog)).unwrap();
+    vm.execute_program(&mut mem).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "Error, Unterminated string")]
+fn test_unterminated_string() {
+    let prog = &[
+        0x85, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // call 1
+        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    ];
+    let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 114];
+
+    let mut vm = EbpfVmRaw::new(Some(prog)).unwrap();
+    vm.execute_program(&mut mem).unwrap();
 }
 
 

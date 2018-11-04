@@ -38,15 +38,13 @@ use std::io::{Error, ErrorKind};
 use byteorder::{ByteOrder, LittleEndian};
 use std::io::Cursor;
 use elfkit::types;
-use relocator::relocate_elf;
-use disassembler::disassemble;
 
 pub mod assembler;
 pub mod disassembler;
 pub mod ebpf;
 pub mod helpers;
 pub mod insn_builder;
-pub mod relocator;
+pub mod bpf_elf;
 mod asm_parser;
 #[cfg(not(windows))]
 mod jit;
@@ -180,11 +178,8 @@ impl<'a> EbpfVmMbuff<'a> {
 
     /// Load a new eBPF program into the virtual machine instance.
     pub fn set_elf(&mut self, elf_bytes: &'a [u8]) -> Result<(), Error> {
-        //(self.verifier)(prog)?; // TODO
-
-        let mut reader = Cursor::new(elf_bytes);
-        let mut elf = elfkit::Elf::from_reader(&mut reader).expect("from_reader");
-        elf.load_all(&mut reader).expect("load_all");
+        let elf = bpf_elf::load(elf_bytes)?;
+        (self.verifier)(bpf_elf::get_text_section(&elf)?);
         self.elf = Some(elf);
         Ok(())
     }
@@ -370,31 +365,20 @@ impl<'a> EbpfVmMbuff<'a> {
     pub fn execute_program(&mut self, mem: &[u8], mbuff: &[u8]) -> Result<u64, Error> {
         const U32MAX: u64 = u32::MAX as u64;
 
-        let progt: Vec<u8>;
-        let rodata: Vec<u8>;
-        if let Some(elf) = self.elf {
-            let elf = match self.elf {
-                Some(elf) => elf,
-                None => Err(Error::new(ErrorKind::Other,
-                        "Error: No program or ELF provided"))?,
-            };
-            let (progv, rodatav) = relocate_elf(elf)?;
-            progt = progv;
-            rodata = rodatav;
-        } else {
-            progt = match self.prog { 
-                 Some(prog) => prog.to_vec(),
-                 None => Err(Error::new(ErrorKind::Other,
-                             "Error: No program set, call prog_set() to load one"))?,
-            };
-            rodata = Vec::new();
-        }
-        let prog = progt.as_slice();
-
-        // disassemble(&prog);
-        // println!("rodata({:?}): {:?}", rodata.as_ptr(), rodata);
-
         let stack = vec![0u8;ebpf::STACK_SIZE];
+
+        let mut rodata = Vec::new();
+
+        let prog =
+        if let Some(ref elf) = self.elf {
+            rodata.extend(bpf_elf::get_rodata(&elf)?);
+            bpf_elf::get_text_section(&elf)?
+        } else if let Some(ref prog) = self.prog {
+            prog
+        } else {
+            Err(Error::new(ErrorKind::Other,
+                            "Error: No program set, call prog_set() to load one"))?
+        };
 
         // R1 points to beginning of memory area, R10 to stack
         let mut reg: [u64;11] = [
@@ -408,10 +392,10 @@ impl<'a> EbpfVmMbuff<'a> {
         }
 
         let check_mem_load = | addr: u64, len: usize, insn_ptr: usize | {
-            EbpfVmMbuff::check_mem(addr, len, "load", insn_ptr, mbuff, mem, &stack)
+            EbpfVmMbuff::check_mem(addr, len, "Load", insn_ptr, mbuff, mem, &stack, &rodata)
         };
         let check_mem_store = | addr: u64, len: usize, insn_ptr: usize | {
-            EbpfVmMbuff::check_mem(addr, len, "store", insn_ptr, mbuff, mem, &stack)
+            EbpfVmMbuff::check_mem(addr, len, "Store", insn_ptr, mbuff, mem, &stack, &[])
         };
 
         // Loop on instructions
@@ -679,11 +663,16 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::CALL       => if let Some(function) = self.helpers.get(&(insn.imm as u32)) {
                     reg[0] = function(reg[1], reg[2], reg[3], reg[4], reg[5]);
                 } else if 1 == insn.imm as u32 {
-                    // TODO check memory
-                    //let ptr: *const u8 = reg[1] as *const u8;
+                    // Helper function index 1 built in for now, need to switch to symbol relocations instead
+                    // and provide the user with a way to register a function of any type and do
+                    // their own memory checks
+                    EbpfVmMbuff::check_string(reg[1], "Load", insn_ptr, mbuff, mem, &stack, &rodata)?;
                     let c_buf: *const c_char = reg[1] as *const c_char;
                     let c_str: &CStr = unsafe { CStr::from_ptr(c_buf) };
-                    let str_slice: &str = c_str.to_str().unwrap();
+                    let str_slice: &str = match c_str.to_str() {
+                        Ok(slice) => slice,
+                        Err(e) => Err(Error::new(ErrorKind::Other, "Error: Cannot print invalid string"))?,
+                    };
                     println!("{:?}", str_slice);
                 } else {
                     Err(Error::new(ErrorKind::Other, format!("Error: unknown helper function (id: {:#x})", insn.imm as u32)))?;
@@ -701,27 +690,64 @@ impl<'a> EbpfVmMbuff<'a> {
         unreachable!()
     }
 
-    fn check_mem(addr: u64, len: usize, access_type: &str, insn_ptr: usize,
-                 mbuff: &[u8], mem: &[u8], stack: &[u8]) -> Result<(), Error> {
-                     return Ok(())
-        // if mbuff.as_ptr() as u64 <= addr && addr + len as u64 <= mbuff.as_ptr() as u64 + mbuff.len() as u64 {
-        //     return Ok(())
-        // }
-        // if mem.as_ptr() as u64 <= addr && addr + len as u64 <= mem.as_ptr() as u64 + mem.len() as u64 {
-        //     return Ok(())
-        // }
-        // if stack.as_ptr() as u64 <= addr && addr + len as u64 <= stack.as_ptr() as u64 + stack.len() as u64 {
-        //     return Ok(())
-        // }
+    fn get_mem_region(addr: u64, len: usize, access_type: &str, insn_ptr: usize,
+                      mbuff: &'a[u8], mem: &'a[u8], stack: &'a[u8], rodata: &'a [&[u8]]) -> Result<&'a[u8], Error> {
+        if mbuff.as_ptr() as u64 <= addr && addr + len as u64 <= mbuff.as_ptr() as u64 + mbuff.len() as u64 {
+            return Ok(mbuff);
+        }
+        if mem.as_ptr() as u64 <= addr && addr + len as u64 <= mem.as_ptr() as u64 + mem.len() as u64 {
+            return Ok(mem)
+        }
+        if stack.as_ptr() as u64 <= addr && addr + len as u64 <= stack.as_ptr() as u64 + stack.len() as u64 {
+            return Ok(stack)
+        }
+        for region in rodata.iter() {
+            if region.as_ptr() as u64 <= addr && addr + len as u64 <= region.as_ptr() as u64 + region.len() as u64 {
+                return Ok(region);
+            }
+        }
+        
+        let mut rodata_string = "".to_string();
+        if !rodata.is_empty() {
+            rodata_string =  " rodata".to_string();
+            for region in rodata.iter() {
+                rodata_string = format!("{} {:#x}/{:#x}", rodata_string, region.as_ptr() as u64, region.len());
+            }
+        }
 
-        // Err(Error::new(ErrorKind::Other, format!(
-        //     "Error: out of bounds memory {} (insn #{:?}), addr {:#x}, size {:?}\nmbuff: {:#x}/{:#x}, mem: {:#x}/{:#x}, stack: {:#x}/{:#x}",
-        //     access_type, insn_ptr, addr, len,
-        //     mbuff.as_ptr() as u64, mbuff.len(),
-        //     mem.as_ptr() as u64, mem.len(),
-        //     stack.as_ptr() as u64, stack.len()
-        // )))
+        Err(Error::new(ErrorKind::Other, format!(
+            "Error: {} segfault (insn #{:?}) addr {:#x}/{:?} mbuff {:#x}/{:#x} mem {:#x}/{:#x} stack {:#x}/{:#x}{}",
+            access_type, insn_ptr, addr, len,
+            mbuff.as_ptr() as u64, mbuff.len(),
+            mem.as_ptr() as u64, mem.len(),
+            stack.as_ptr() as u64, stack.len(),
+            rodata_string
+        )))
     }
+
+    fn check_mem(addr: u64, len: usize, access_type: &str, insn_ptr: usize,
+                 mbuff: &[u8], mem: &[u8], stack: &[u8], rodata: &[&[u8]]) -> Result<(), Error> {
+       let region = EbpfVmMbuff::get_mem_region(addr, len, access_type, insn_ptr, mbuff, mem, stack, rodata)?;
+       Ok(())
+    }
+
+    fn check_string(addr: u64, access_type: &str, insn_ptr: usize,
+                    mbuff: &[u8], mem: &[u8], stack: &[u8], rodata: &[&[u8]]) -> Result<(), Error> {
+        let region = EbpfVmMbuff::get_mem_region(addr, 1, access_type, insn_ptr, mbuff, mem, stack, rodata)?;
+        let c_buf: *const c_char = addr as *const c_char;
+        let max_size = (region.as_ptr() as u64 + region.len() as u64) - addr;
+        println!("addr {:#x} end {:#x} maxsize {:#?}", addr, region.as_ptr() as u64 + region.len() as u64, max_size);
+        unsafe {
+            for i in 0..max_size {
+                println!("i {} char {:?}", i, std::ptr::read(c_buf.offset(i as isize)));
+                if std::ptr::read(c_buf.offset(i as isize)) == 0 {
+                    return Ok(());
+                }
+            }
+       }
+       Err(Error::new(ErrorKind::Other, "Error, Unterminated string"))
+    }
+
 
     /// JIT-compile the loaded program. No argument required for this.
     ///
