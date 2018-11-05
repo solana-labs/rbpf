@@ -13,6 +13,7 @@ use disassembler::disassemble;
 //     R_BPF_64_32 = 10,
 // }
 
+///
 pub fn load(elf_bytes: &[u8]) -> Result<(elfkit::Elf), Error> {
         let mut reader = Cursor::new(elf_bytes);
         let mut elf = match elfkit::Elf::from_reader(&mut reader) {
@@ -53,7 +54,8 @@ pub fn get_text_section<'a>(elf: &'a elfkit::Elf) -> Result<&'a [u8], Error> {
         })
 }
 
-pub fn validate(elf: &elfkit::Elf) -> Result<(), Error> {
+///
+pub fn validate(_elf: &elfkit::Elf) -> Result<(), Error> {
     //TODO
     Ok(())
 }
@@ -67,6 +69,7 @@ fn content_to_bytes<'a>(section: &'a elfkit::section::Section) -> Result<&'a [u8
     }
 }
 
+///
 pub fn get_rodata<'a>(elf: &'a elfkit::Elf) -> Result<Vec<&'a [u8]>, Error> {
     let rodata: Result<Vec<_>, _> = elf
             .sections

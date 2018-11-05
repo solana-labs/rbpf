@@ -779,7 +779,7 @@ impl<'a> JitMemory<'a> {
                     if let Some(helper) = helpers.get(&(insn.imm as u32)) {
                         // We reserve RCX for shifts
                         emit_mov(self, R9, RCX);
-                        emit_call(self, *helper as usize);
+                        emit_call(self, helper.function as usize);
                     } else {
                         Err(Error::new(ErrorKind::Other,
                                        format!("[JIT] Error: unknown helper function (id: {:#x})",

@@ -290,7 +290,7 @@ fn test_jit_call() {
         call 0
         exit").unwrap();
     let mut vm = EbpfVmNoData::new(Some(&prog)).unwrap();
-    vm.register_helper(0, helpers::gather_bytes).unwrap();
+    vm.register_helper(0, None, helpers::gather_bytes).unwrap();
     vm.jit_compile().unwrap();
     unsafe { assert_eq!(vm.execute_program_jit().unwrap(), 0x0102030405); }
 }
@@ -309,7 +309,7 @@ fn test_jit_call_memfrob() {
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
     ];
     let mut vm = EbpfVmRaw::new(Some(&prog)).unwrap();
-    vm.register_helper(1, helpers::memfrob).unwrap();
+    vm.register_helper(1, None, helpers::memfrob).unwrap();
     vm.jit_compile().unwrap();
     unsafe { assert_eq!(vm.execute_program_jit(mem).unwrap(), 0x102292e2f2c0708); }
 }
@@ -332,7 +332,7 @@ fn test_jit_call_memfrob() {
         //0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     //];
     //let mut vm = EbpfVmNoData::new(Some(prog)).unwrap();
-    //vm.register_helper(2, helpers::trash_registers);
+    //vm.register_helper(2, None, helpers::trash_registers);
     //vm.jit_compile().unwrap();
     //unsafe { assert_eq!(vm.execute_program_jit().unwrap(), 0x4321); }
 //}
@@ -1444,8 +1444,8 @@ fn test_jit_stack2() {
         xor r0, 0x2a2a2a2a
         exit").unwrap();
     let mut vm = EbpfVmNoData::new(Some(&prog)).unwrap();
-    vm.register_helper(0, helpers::gather_bytes).unwrap();
-    vm.register_helper(1, helpers::memfrob).unwrap();
+    vm.register_helper(0, None, helpers::gather_bytes).unwrap();
+    vm.register_helper(1, None, helpers::memfrob).unwrap();
     vm.jit_compile().unwrap();
     unsafe { assert_eq!(vm.execute_program_jit().unwrap(), 0x01020304); }
 }
@@ -1525,7 +1525,7 @@ fn test_jit_string_stack() {
         mov r0, 0x0
         exit").unwrap();
     let mut vm = EbpfVmNoData::new(Some(&prog)).unwrap();
-    vm.register_helper(4, helpers::strcmp).unwrap();
+    vm.register_helper(4, None, helpers::strcmp).unwrap();
     vm.jit_compile().unwrap();
     unsafe { assert_eq!(vm.execute_program_jit().unwrap(), 0x0); }
 }

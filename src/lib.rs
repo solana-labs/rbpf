@@ -26,17 +26,11 @@ extern crate combine;
 extern crate time;
 extern crate elfkit;
 extern crate num_traits;
-extern crate libc;
-
-use libc::c_char;
-use std::ffi::CStr;
-use std::str;
 
 use std::u32;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use byteorder::{ByteOrder, LittleEndian};
-use std::io::Cursor;
 use elfkit::types;
 
 pub mod assembler;
@@ -59,9 +53,6 @@ mod verifier;
 ///   - Bad formed instruction.
 ///   - Unknown eBPF helper index.
 pub type Verifier = fn(prog: &[u8]) -> Result<(), Error>;
-
-/// eBPF helper function.
-pub type Helper = fn (u64, u64, u64, u64, u64) -> u64;
 
 /// eBPF Jit-compiled program.
 pub type JitProgram = unsafe fn(*mut u8, usize, *mut u8, usize, usize, usize) -> u64;
@@ -179,7 +170,7 @@ impl<'a> EbpfVmMbuff<'a> {
     /// Load a new eBPF program into the virtual machine instance.
     pub fn set_elf(&mut self, elf_bytes: &'a [u8]) -> Result<(), Error> {
         let elf = bpf_elf::load(elf_bytes)?;
-        (self.verifier)(bpf_elf::get_text_section(&elf)?);
+        (self.verifier)(bpf_elf::get_text_section(&elf)?)?;
         self.elf = Some(elf);
         Ok(())
     }
@@ -317,10 +308,11 @@ impl<'a> EbpfVmMbuff<'a> {
     /// // Register a helper.
     /// // On running the program this helper will print the content of registers r3, r4 and r5 to
     /// // standard output.
-    /// vm.register_helper(6, helpers::bpf_trace_printf).unwrap();
+    /// vm.register_helper(6, None, helpers::bpf_trace_printf).unwrap();
     /// ```
-    pub fn register_helper(&mut self, key: u32, function: Helper) -> Result<(), Error> {
-        self.helpers.insert(key, function);
+    pub fn register_helper(&mut self, key: u32, verifier: Option<ebpf::HelperVerifier>,
+                           function: ebpf::HelperFunction) -> Result<(), Error> {
+        self.helpers.insert(key, ebpf::Helper{ verifier, function });
         Ok(())
     }
 
@@ -367,17 +359,24 @@ impl<'a> EbpfVmMbuff<'a> {
 
         let stack = vec![0u8;ebpf::STACK_SIZE];
 
-        let mut rodata = Vec::new();
+        let mut ro_regions = Vec::new();
+        let mut rw_regions = Vec::new();
+        ro_regions.push(&stack[..]);
+        rw_regions.push(&stack[..]);
+        ro_regions.push(mbuff);
+        rw_regions.push(mbuff);
+        ro_regions.push(mem);
+        rw_regions.push(mem);
 
         let prog =
         if let Some(ref elf) = self.elf {
-            rodata.extend(bpf_elf::get_rodata(&elf)?);
+            ro_regions.extend(bpf_elf::get_rodata(&elf)?);
             bpf_elf::get_text_section(&elf)?
         } else if let Some(ref prog) = self.prog {
             prog
         } else {
             Err(Error::new(ErrorKind::Other,
-                            "Error: No program set, call prog_set() to load one"))?
+                           "Error: No program set, call prog_set() to load one"))?
         };
 
         // R1 points to beginning of memory area, R10 to stack
@@ -392,10 +391,10 @@ impl<'a> EbpfVmMbuff<'a> {
         }
 
         let check_mem_load = | addr: u64, len: usize, insn_ptr: usize | {
-            EbpfVmMbuff::check_mem(addr, len, "Load", insn_ptr, mbuff, mem, &stack, &rodata)
+            EbpfVmMbuff::check_mem(addr, len, "load", insn_ptr, &ro_regions)
         };
         let check_mem_store = | addr: u64, len: usize, insn_ptr: usize | {
-            EbpfVmMbuff::check_mem(addr, len, "Store", insn_ptr, mbuff, mem, &stack, &[])
+            EbpfVmMbuff::check_mem(addr, len, "store", insn_ptr, &rw_regions)
         };
 
         // Loop on instructions
@@ -466,7 +465,6 @@ impl<'a> EbpfVmMbuff<'a> {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_src] as *const u8).offset(insn.off as isize) as *const u8;
                     check_mem_load(x as u64, 1, insn_ptr)?;
-                    println!("x: {:?} *x: {:?}", x, *x);
                     *x as u64
                 },
                 ebpf::LD_H_REG   => reg[_dst] = unsafe {
@@ -660,20 +658,11 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::JSLE_REG   => if (reg[_dst] as i64) <= reg[_src] as i64 { insn_ptr = (insn_ptr as i16 + insn.off) as usize; },
                 // Do not delegate the check to the verifier, since registered functions can be
                 // changed after the program has been verified.
-                ebpf::CALL       => if let Some(function) = self.helpers.get(&(insn.imm as u32)) {
-                    reg[0] = function(reg[1], reg[2], reg[3], reg[4], reg[5]);
-                } else if 1 == insn.imm as u32 {
-                    // Helper function index 1 built in for now, need to switch to symbol relocations instead
-                    // and provide the user with a way to register a function of any type and do
-                    // their own memory checks
-                    EbpfVmMbuff::check_string(reg[1], "Load", insn_ptr, mbuff, mem, &stack, &rodata)?;
-                    let c_buf: *const c_char = reg[1] as *const c_char;
-                    let c_str: &CStr = unsafe { CStr::from_ptr(c_buf) };
-                    let str_slice: &str = match c_str.to_str() {
-                        Ok(slice) => slice,
-                        Err(e) => Err(Error::new(ErrorKind::Other, "Error: Cannot print invalid string"))?,
-                    };
-                    println!("{:?}", str_slice);
+                ebpf::CALL       => if let Some(helper) = self.helpers.get(&(insn.imm as u32)) {
+                    if let Some(function) = helper.verifier {
+                        function(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?;
+                    }
+                    reg[0] = (helper.function)(reg[1], reg[2], reg[3], reg[4], reg[5]);
                 } else {
                     Err(Error::new(ErrorKind::Other, format!("Error: unknown helper function (id: {:#x})", insn.imm as u32)))?;
                 },
@@ -690,64 +679,27 @@ impl<'a> EbpfVmMbuff<'a> {
         unreachable!()
     }
 
-    fn get_mem_region(addr: u64, len: usize, access_type: &str, insn_ptr: usize,
-                      mbuff: &'a[u8], mem: &'a[u8], stack: &'a[u8], rodata: &'a [&[u8]]) -> Result<&'a[u8], Error> {
-        if mbuff.as_ptr() as u64 <= addr && addr + len as u64 <= mbuff.as_ptr() as u64 + mbuff.len() as u64 {
-            return Ok(mbuff);
-        }
-        if mem.as_ptr() as u64 <= addr && addr + len as u64 <= mem.as_ptr() as u64 + mem.len() as u64 {
-            return Ok(mem)
-        }
-        if stack.as_ptr() as u64 <= addr && addr + len as u64 <= stack.as_ptr() as u64 + stack.len() as u64 {
-            return Ok(stack)
-        }
-        for region in rodata.iter() {
+    fn check_mem(addr: u64, len: usize, access_type: &str, insn_ptr: usize, regions: &'a [&[u8]]) -> Result<(), Error> {
+        for region in regions.iter() {
             if region.as_ptr() as u64 <= addr && addr + len as u64 <= region.as_ptr() as u64 + region.len() as u64 {
-                return Ok(region);
+                return Ok(());
             }
         }
         
-        let mut rodata_string = "".to_string();
-        if !rodata.is_empty() {
-            rodata_string =  " rodata".to_string();
-            for region in rodata.iter() {
-                rodata_string = format!("{} {:#x}/{:#x}", rodata_string, region.as_ptr() as u64, region.len());
+        let mut regions_string = "".to_string();
+        if !regions.is_empty() {
+            regions_string =  " regions".to_string();
+            for region in regions.iter() {
+                regions_string = format!("{} {:#x}/{:#x}", regions_string, region.as_ptr() as u64, region.len());
             }
         }
 
         Err(Error::new(ErrorKind::Other, format!(
-            "Error: {} segfault (insn #{:?}) addr {:#x}/{:?} mbuff {:#x}/{:#x} mem {:#x}/{:#x} stack {:#x}/{:#x}{}",
+            "Error: out of bounds memory {} (insn #{:?}), addr {:#x}/{:?} {}",
             access_type, insn_ptr, addr, len,
-            mbuff.as_ptr() as u64, mbuff.len(),
-            mem.as_ptr() as u64, mem.len(),
-            stack.as_ptr() as u64, stack.len(),
-            rodata_string
+            regions_string
         )))
     }
-
-    fn check_mem(addr: u64, len: usize, access_type: &str, insn_ptr: usize,
-                 mbuff: &[u8], mem: &[u8], stack: &[u8], rodata: &[&[u8]]) -> Result<(), Error> {
-       let region = EbpfVmMbuff::get_mem_region(addr, len, access_type, insn_ptr, mbuff, mem, stack, rodata)?;
-       Ok(())
-    }
-
-    fn check_string(addr: u64, access_type: &str, insn_ptr: usize,
-                    mbuff: &[u8], mem: &[u8], stack: &[u8], rodata: &[&[u8]]) -> Result<(), Error> {
-        let region = EbpfVmMbuff::get_mem_region(addr, 1, access_type, insn_ptr, mbuff, mem, stack, rodata)?;
-        let c_buf: *const c_char = addr as *const c_char;
-        let max_size = (region.as_ptr() as u64 + region.len() as u64) - addr;
-        println!("addr {:#x} end {:#x} maxsize {:#?}", addr, region.as_ptr() as u64 + region.len() as u64, max_size);
-        unsafe {
-            for i in 0..max_size {
-                println!("i {} char {:?}", i, std::ptr::read(c_buf.offset(i as isize)));
-                if std::ptr::read(c_buf.offset(i as isize)) == 0 {
-                    return Ok(());
-                }
-            }
-       }
-       Err(Error::new(ErrorKind::Other, "Error, Unterminated string"))
-    }
-
 
     /// JIT-compile the loaded program. No argument required for this.
     ///
@@ -1122,13 +1074,14 @@ impl<'a> EbpfVmFixedMbuff<'a> {
     /// let mut vm = solana_rbpf::EbpfVmFixedMbuff::new(Some(prog), 0x40, 0x50).unwrap();
     ///
     /// // Register a helper. This helper will store the result of the square root of r1 into r0.
-    /// vm.register_helper(1, helpers::sqrti);
+    /// vm.register_helper(1, None, helpers::sqrti);
     ///
     /// let res = vm.execute_program(mem).unwrap();
     /// assert_eq!(res, 3);
     /// ```
-    pub fn register_helper(&mut self, key: u32, function: fn (u64, u64, u64, u64, u64) -> u64) -> Result<(), Error> {
-        self.parent.register_helper(key, function)
+    pub fn register_helper(&mut self, key: u32, verifier: Option<ebpf::HelperVerifier>,
+                           function: ebpf::HelperFunction) -> Result<(), Error> {
+        self.parent.register_helper(key, verifier, function)
     }
 
     /// Execute the program loaded, with the given packet data.
@@ -1482,13 +1435,14 @@ impl<'a> EbpfVmRaw<'a> {
     /// let mut vm = solana_rbpf::EbpfVmRaw::new(Some(prog)).unwrap();
     ///
     /// // Register a helper. This helper will store the result of the square root of r1 into r0.
-    /// vm.register_helper(1, helpers::sqrti);
+    /// vm.register_helper(1, None, helpers::sqrti);
     ///
     /// let res = vm.execute_program(mem).unwrap();
     /// assert_eq!(res, 0x10000000);
     /// ```
-    pub fn register_helper(&mut self, key: u32, function: fn (u64, u64, u64, u64, u64) -> u64) -> Result<(), Error> {
-        self.parent.register_helper(key, function)
+    pub fn register_helper(&mut self, key: u32, verifier: Option<ebpf::HelperVerifier>,
+                           function: ebpf::HelperFunction) -> Result<(), Error> {
+        self.parent.register_helper(key, verifier, function)
     }
 
     /// Execute the program loaded, with the given packet data.
@@ -1799,13 +1753,14 @@ impl<'a> EbpfVmNoData<'a> {
     /// let mut vm = solana_rbpf::EbpfVmNoData::new(Some(prog)).unwrap();
     ///
     /// // Register a helper. This helper will store the result of the square root of r1 into r0.
-    /// vm.register_helper(1, helpers::sqrti).unwrap();
+    /// vm.register_helper(1, None, helpers::sqrti).unwrap();
     ///
     /// let res = vm.execute_program().unwrap();
     /// assert_eq!(res, 0x1000);
     /// ```
-    pub fn register_helper(&mut self, key: u32, function: fn (u64, u64, u64, u64, u64) -> u64) -> Result<(), Error> {
-        self.parent.register_helper(key, function)
+    pub fn register_helper(&mut self, key: u32, verifier: Option<ebpf::HelperVerifier>,
+                           function: ebpf::HelperFunction) -> Result<(), Error> {
+        self.parent.register_helper(key, verifier, function)
     }
 
     /// JIT-compile the loaded program. No argument required for this.

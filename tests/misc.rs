@@ -20,11 +20,15 @@
 // extern crate elf;
 // use std::path::PathBuf;
 
+extern crate libc;
 extern crate solana_rbpf;
 
 use std::io::{Error, ErrorKind};
 use std::fs::File;
 use std::io::Read;
+use std::ffi::CStr;
+use std::str;
+use libc::c_char;
 use solana_rbpf::assembler::assemble;
 use solana_rbpf::helpers;
 use solana_rbpf::{EbpfVmRaw, EbpfVmNoData, EbpfVmMbuff, EbpfVmFixedMbuff};
@@ -169,7 +173,7 @@ fn test_vm_block_port() {
     ];
 
     let mut vm = EbpfVmFixedMbuff::new(Some(prog), 0x40, 0x50).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, None, helpers::bpf_trace_printf).unwrap();
 
     let res = vm.execute_program(packet).unwrap();
     println!("Program returned: {:?} ({:#x})", res, res);
@@ -251,7 +255,7 @@ fn test_jit_block_port() {
     ];
 
     let mut vm = EbpfVmFixedMbuff::new(Some(prog), 0x40, 0x50).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, None, helpers::bpf_trace_printf).unwrap();
     vm.jit_compile().unwrap();
 
     unsafe {
@@ -635,7 +639,7 @@ fn test_non_terminating() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVmNoData::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, None, helpers::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(1000).unwrap();
     vm.execute_program().unwrap();
 }
@@ -655,7 +659,7 @@ fn test_non_terminate_capped() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVmNoData::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, None, helpers::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(6).unwrap();
     let _ = vm.execute_program();
     assert!(vm.get_last_instruction_count() == 6);
@@ -676,7 +680,7 @@ fn test_non_terminate_early() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVmNoData::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, None, helpers::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(1000).unwrap();
     let _ = vm.execute_program();
     assert!(vm.get_last_instruction_count() == 1000);
@@ -688,10 +692,41 @@ fn test_get_last_instruction_count() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVmNoData::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, None, helpers::bpf_trace_printf).unwrap();
     let _ = vm.execute_program();
     println!("count {:?}", vm.get_last_instruction_count());
     assert!(vm.get_last_instruction_count() == 1);
+}
+
+pub fn bpf_helper_string_verify(addr: u64, unused2: u64, unused3: u64, unused4: u64,
+                                unused5: u64, ro_regions: &[&[u8]], unused7: &[&[u8]]) -> Result<(()), Error> {
+    for region in ro_regions.iter() {
+        if region.as_ptr() as u64 <= addr && addr as u64 <= region.as_ptr() as u64 + region.len() as u64 {
+            let c_buf: *const c_char = addr as *const c_char;
+            let max_size = (region.as_ptr() as u64 + region.len() as u64) - addr;
+            unsafe {
+                for i in 0..max_size {
+                    println!("i {} char {:?}", i, std::ptr::read(c_buf.offset(i as isize)));
+                    if std::ptr::read(c_buf.offset(i as isize)) == 0 {
+                        return Ok(());
+                    }
+                }
+            }
+            return Err(Error::new(ErrorKind::Other, "Error, Unterminated string"));
+       }
+       
+    }
+    Err(Error::new(ErrorKind::Other, "Error: Load segfault, bad string pointer"))
+}
+
+pub fn bpf_helper_string(addr: u64, unused2: u64, unused3: u64, unused4: u64, unused5: u64) -> u64 {
+    let c_buf: *const c_char = addr as *const c_char;
+    let c_str: &CStr = unsafe { CStr::from_ptr(c_buf) };
+    match c_str.to_str() {
+        Ok(slice) => println!("{:?}", slice),
+        Err(e) => println!("Error: Cannot print invalid string"),
+    };
+    0
 }
 
 #[test]
@@ -700,16 +735,16 @@ fn test_set_elf() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVmRaw::new(None).unwrap();
-    let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 114];
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    let mut vm = EbpfVmNoData::new(None).unwrap();
+    vm.register_helper(1, Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, None, helpers::bpf_trace_printf).unwrap();
     vm.set_elf(&elf).unwrap();
-    vm.execute_program(&mut mem).unwrap();
+    vm.execute_program().unwrap();
     println!("count {:?}", vm.get_last_instruction_count());
 }
 
 #[test]
-#[should_panic(expected = "Error: Load segfault (insn #2),")]
+#[should_panic(expected = "Error: Load segfault, bad string pointer")]
 fn test_null_string() {
     let prog = &[
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r1 = 0
@@ -720,6 +755,7 @@ fn test_null_string() {
     let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 114];
 
     let mut vm = EbpfVmRaw::new(Some(prog)).unwrap();
+    vm.register_helper(1, Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
     vm.execute_program(&mut mem).unwrap();
 }
 
@@ -734,8 +770,11 @@ fn test_unterminated_string() {
     let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 114];
 
     let mut vm = EbpfVmRaw::new(Some(prog)).unwrap();
+    vm.register_helper(1, Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
     vm.execute_program(&mut mem).unwrap();
 }
+
+
 
 
 
