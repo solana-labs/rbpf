@@ -1,53 +1,53 @@
 //! This module relocates a BPF ELF
-
 extern crate elfkit;
 extern crate num_traits;
 
+use bpf_elf::num_traits::FromPrimitive;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use ebpf;
-use helpers;
-use bpf_elf::num_traits::FromPrimitive;
 use std::io::Cursor;
 use std::io::{Error, ErrorKind};
 
 ///
 pub fn load(elf_bytes: &[u8]) -> Result<(elfkit::Elf), Error> {
-        let mut reader = Cursor::new(elf_bytes);
-        let mut elf = match elfkit::Elf::from_reader(&mut reader) {
-            Ok(elf) => elf,
-            Err(e) => Err(Error::new(
-                    ErrorKind::Other,
-                    format!("Error: Failed to parse elf: {:?}", e)))?,
-        };
-        if let Err(e) = elf.load_all(&mut reader) {
-            Err(Error::new(
-                    ErrorKind::Other,
-                    format!("Error: Failed to parse elf: {:?}", e)))?;
-        }
-        validate(&elf)?;
-        relocate(&mut elf)?;
-        Ok(elf)
+    let mut reader = Cursor::new(elf_bytes);
+    let mut elf = match elfkit::Elf::from_reader(&mut reader) {
+        Ok(elf) => elf,
+        Err(e) => Err(Error::new(
+            ErrorKind::Other,
+            format!("Error: Failed to parse elf: {:?}", e),
+        ))?,
+    };
+    if let Err(e) = elf.load_all(&mut reader) {
+        Err(Error::new(
+            ErrorKind::Other,
+            format!("Error: Failed to parse elf: {:?}", e),
+        ))?;
+    }
+    validate(&elf)?;
+    relocate(&mut elf)?;
+    Ok(elf)
 }
 
 ///
 pub fn get_text_section(elf: &elfkit::Elf) -> Result<&[u8], Error> {
     Ok(match elf
-            .sections
-            .iter()
-            .find(|section| section.name.starts_with(b".text"))
-        {
-            Some(section) => match section.content {
-                elfkit::SectionContent::Raw(ref bytes) => bytes,
-                _ => Err(Error::new(
-                    ErrorKind::Other,
-                    "Error: Failed to get .text contents",
-                ))?,
-            },
-            None => Err(Error::new(
+        .sections
+        .iter()
+        .find(|section| section.name.starts_with(b".text"))
+    {
+        Some(section) => match section.content {
+            elfkit::SectionContent::Raw(ref bytes) => bytes,
+            _ => Err(Error::new(
                 ErrorKind::Other,
-                "Error: No .text section found",
+                "Error: Failed to get .text contents",
             ))?,
-        })
+        },
+        None => Err(Error::new(
+            ErrorKind::Other,
+            "Error: No .text section found",
+        ))?,
+    })
 }
 
 ///
@@ -59,18 +59,21 @@ pub fn validate(_elf: &elfkit::Elf) -> Result<(), Error> {
 fn content_to_bytes(section: &elfkit::section::Section) -> Result<&[u8], Error> {
     match section.content {
         elfkit::SectionContent::Raw(ref bytes) => Ok(bytes),
-        _ => Err(Error::new(ErrorKind::Other,
-                            "Error: Failed to get .rodata contents",
-                 )),
+        _ => Err(Error::new(
+            ErrorKind::Other,
+            "Error: Failed to get .rodata contents",
+        )),
     }
 }
 
 ///
 pub fn get_rodata<'a>(elf: &'a elfkit::Elf) -> Result<Vec<&'a [u8]>, Error> {
     let rodata: Result<Vec<_>, _> = elf
-            .sections
-            .iter()
-            .filter(|section| section.name.starts_with(b".rodata")).map(content_to_bytes).collect();
+        .sections
+        .iter()
+        .filter(|section| section.name.starts_with(b".rodata"))
+        .map(content_to_bytes)
+        .collect();
     rodata
 }
 
@@ -140,7 +143,7 @@ pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
         for relocation in relocations.iter() {
             // elfkit uses x86 relocation types, R_x86_64_64 == R_BPF_64_64
             match relocation.rtype {
-                 elfkit::relocation::RelocationType::R_X86_64_64 => {
+                elfkit::relocation::RelocationType::R_X86_64_64 => {
                     // The .text section has a reference to a symbol in another section
                     // (probably .rodata)
                     //
@@ -181,7 +184,7 @@ pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
                         &mut text_bytes[imm_offset..imm_offset + imm_length],
                         (symbol_addr >> 32) as u32,
                     );
-                },
+                }
                 elfkit::relocation::RelocationType::R_X86_64_32 => {
                     // The .text section has unresolved call instruction
                     //
@@ -189,19 +192,19 @@ pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
                     // into the call instruction's imm field.  Later
                     // that hash will be used to look up the actual
                     // helper.
-                    
+
                     let name = &symbols[relocation.sym as usize].name;
                     let mut imm_offset = relocation.addr as usize + 4;
                     let imm_length = 4;
                     LittleEndian::write_u32(
                         &mut text_bytes[imm_offset..imm_offset + imm_length],
-                        helpers::hash_symbol_name(name),
+                        ebpf::hash_symbol_name(name),
                     );
-                },
+                }
                 _ => Err(Error::new(
-                         ErrorKind::Other,
-                         "Error: Unhandled relocation type",
-                    ))?,
+                    ErrorKind::Other,
+                    "Error: Unhandled relocation type",
+                ))?,
             }
         }
         text_bytes
@@ -210,13 +213,13 @@ pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
         .sections
         .iter_mut()
         .find(|section| section.name.starts_with(b".text"))
-{
-            Some(section) => &mut section.content,
-            None => Err(Error::new(
-                ErrorKind::Other,
-                "Error: No .text section found",
-            ))?,
-        };
+    {
+        Some(section) => &mut section.content,
+        None => Err(Error::new(
+            ErrorKind::Other,
+            "Error: No .text section found",
+        ))?,
+    };
 
     *text_section = elfkit::SectionContent::Raw(text_bytes.to_vec());
 
@@ -306,3 +309,4 @@ mod test {
         disassemble(&prog);
     }
 }
+

@@ -33,7 +33,6 @@ use byteorder::{ByteOrder, LittleEndian};
 pub mod assembler;
 pub mod disassembler;
 pub mod ebpf;
-pub mod helpers;
 pub mod insn_builder;
 pub mod bpf_elf;
 mod asm_parser;
@@ -339,8 +338,8 @@ impl<'a> EbpfVmMbuff<'a> {
     /// program. You should be able to change registered helpers after compiling, but not to add
     /// new ones (i.e. with new keys).
     pub fn register_helper_ex(&mut self, name: &str, verifier: Option<ebpf::HelperVerifier>,
-                           function: ebpf::HelperFunction) -> Result<(), Error> {
-        self.helpers.insert(helpers::hash_symbol_name(name.as_bytes()), ebpf::Helper{ verifier, function });
+                              function: ebpf::HelperFunction) -> Result<(), Error> {
+        self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), ebpf::Helper{ verifier, function });
         Ok(())
     }
 
@@ -692,6 +691,7 @@ impl<'a> EbpfVmMbuff<'a> {
                     }
                     reg[0] = (helper.function)(reg[1], reg[2], reg[3], reg[4], reg[5]);
                 } else {
+                    // TODO need a better way to print out the offending function, maybe up front during relocation?
                     Err(Error::new(ErrorKind::Other, format!("Error: unknown helper function (id: {:#x})", insn.imm as u32)))?;
                 },
                 ebpf::TAIL_CALL  => unimplemented!(),

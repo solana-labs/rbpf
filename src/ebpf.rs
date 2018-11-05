@@ -19,6 +19,8 @@
 //! the list of the operation codes: <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md>
 
 use std::io::Error;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use byteorder::{ByteOrder, LittleEndian};
 
 /// Maximum number of instructions in an eBPF program.
@@ -600,4 +602,15 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<Insn> {
         insn_ptr += 1;
     };
     res
+}
+
+/// Hash a symbol name
+///
+/// This function is used by both the relocator and the vm to translate symbol names
+/// into a 32 bit id used to identify a helper function.  The 32 bit id is used in the
+/// eBPF `call` instruction's imm field.
+pub fn hash_symbol_name(name: &[u8]) -> u32 {
+    let mut hasher = DefaultHasher::new();
+    Hash::hash_slice(name, &mut hasher);
+    hasher.finish() as u32
 }
