@@ -31,8 +31,8 @@ use std::ffi::CStr;
 use byteorder::{ByteOrder, LittleEndian};
 use libc::c_char;
 use solana_rbpf::assembler::assemble;
-use solana_rbpf::disassembler::disassemble;
 use solana_rbpf::helpers;
+use solana_rbpf::ebpf;
 use solana_rbpf::{EbpfVmRaw, EbpfVmNoData, EbpfVmMbuff, EbpfVmFixedMbuff};
 
 // The following two examples have been compiled from C with the following command:
@@ -738,17 +738,34 @@ pub fn bpf_dump_u64 (arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> u
 }
 
 #[test]
-fn test_set_elf() {
+fn test_temp() {
     let mut file = File::open("tests/noop.o").expect("file open failed");
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVmNoData::new(None).unwrap();
-    vm.register_helper_ex("sol_log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
+        vm.register_helper_ex("sol_log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
     vm.register_helper_ex("sol_log_64", None, bpf_dump_u64).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program().unwrap();
     println!("count {:?}", vm.get_last_instruction_count());
+}
+
+#[test]
+fn test_symbol_relocation() {
+        let prog = &mut [
+        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
+        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    ];
+    LittleEndian::write_u32(&mut prog[4..8], ebpf::hash_symbol_name(b"sol_log"));
+
+    let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 0];
+
+    let mut vm = EbpfVmRaw::new(None).unwrap();
+    vm.register_helper_ex("sol_log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
+    vm.set_program(prog).unwrap();
+    vm.execute_program(&mut mem).unwrap();
 }
 
 #[test]
@@ -760,9 +777,7 @@ fn test_null_string() {
         0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
     ];
-    LittleEndian::write_u32(&mut prog[12..16], helpers::hash_symbol_name(b"sol_log"));
-
-    disassemble(prog);
+    LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"sol_log"));
 
     let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 114];
 
@@ -779,7 +794,7 @@ fn test_unterminated_string() {
         0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
     ];
-    LittleEndian::write_u32(&mut prog[4..8], helpers::hash_symbol_name(b"sol_log"));
+    LittleEndian::write_u32(&mut prog[4..8], ebpf::hash_symbol_name(b"sol_log"));
 
     let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 114];
 

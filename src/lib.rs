@@ -33,6 +33,7 @@ use byteorder::{ByteOrder, LittleEndian};
 pub mod assembler;
 pub mod disassembler;
 pub mod ebpf;
+pub mod helpers;
 pub mod insn_builder;
 pub mod bpf_elf;
 mod asm_parser;

@@ -81,10 +81,8 @@ pub fn get_rodata<'a>(elf: &'a elfkit::Elf) -> Result<Vec<&'a [u8]>, Error> {
 // validate the contents of these sections
 // block against RW data
 // print values in error messages
-// relocate symbols
-// validate sol_log string
 // use unwrap_or instead of matching all the time
-// use elf instead of elfkit
+// use something elf besides elfkit
 ///
 pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
     let text_bytes = {
