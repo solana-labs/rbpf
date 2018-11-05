@@ -1,17 +1,14 @@
 //! This module relocates a BPF ELF
 
-use byteorder::{ByteOrder, LittleEndian};
+extern crate elfkit;
+extern crate num_traits;
+
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use ebpf;
-use num_traits::FromPrimitive;
+use helpers;
+use bpf_elf::num_traits::FromPrimitive;
 use std::io::Cursor;
 use std::io::{Error, ErrorKind};
-use disassembler::disassemble;
-
-//enum RelocationType {
-//     R_BPF_NONE = 0,
-//     R_BPF_64_64 = 1,
-//     R_BPF_64_32 = 10,
-// }
 
 ///
 pub fn load(elf_bytes: &[u8]) -> Result<(elfkit::Elf), Error> {
@@ -29,16 +26,15 @@ pub fn load(elf_bytes: &[u8]) -> Result<(elfkit::Elf), Error> {
         }
         validate(&elf)?;
         relocate(&mut elf)?;
-        disassemble(get_text_section(&elf)?);
         Ok(elf)
 }
 
 ///
-pub fn get_text_section<'a>(elf: &'a elfkit::Elf) -> Result<&'a [u8], Error> {
+pub fn get_text_section(elf: &elfkit::Elf) -> Result<&[u8], Error> {
     Ok(match elf
             .sections
             .iter()
-            .find(|section| section.name.starts_with(".text".as_bytes()))
+            .find(|section| section.name.starts_with(b".text"))
         {
             Some(section) => match section.content {
                 elfkit::SectionContent::Raw(ref bytes) => bytes,
@@ -60,7 +56,7 @@ pub fn validate(_elf: &elfkit::Elf) -> Result<(), Error> {
     Ok(())
 }
 
-fn content_to_bytes<'a>(section: &'a elfkit::section::Section) -> Result<&'a [u8], Error> {
+fn content_to_bytes(section: &elfkit::section::Section) -> Result<&[u8], Error> {
     match section.content {
         elfkit::SectionContent::Raw(ref bytes) => Ok(bytes),
         _ => Err(Error::new(ErrorKind::Other,
@@ -74,7 +70,7 @@ pub fn get_rodata<'a>(elf: &'a elfkit::Elf) -> Result<Vec<&'a [u8]>, Error> {
     let rodata: Result<Vec<_>, _> = elf
             .sections
             .iter()
-            .filter(|section| section.name.starts_with(".rodata".as_bytes())).map(content_to_bytes).collect();
+            .filter(|section| section.name.starts_with(b".rodata")).map(content_to_bytes).collect();
     rodata
 }
 
@@ -92,7 +88,7 @@ pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
         let raw_relocation_bytes = match elf
             .sections
             .iter()
-            .find(|section| section.name.starts_with(".rel.text".as_bytes()))
+            .find(|section| section.name.starts_with(b".rel.text"))
         {
             Some(section) => match section.content {
                 elfkit::SectionContent::Raw(ref bytes) => bytes.clone(),
@@ -103,12 +99,12 @@ pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
             },
             None => return Ok(()), // no relocation section, no need to relocate
         };
-        let relocations = get_relocations(&raw_relocation_bytes[..], &elf.header)?;
+        let relocations = get_relocations(&raw_relocation_bytes[..])?;
 
         let mut text_bytes = match elf
             .sections
             .iter()
-            .find(|section| section.name.starts_with(".text".as_bytes()))
+            .find(|section| section.name.starts_with(b".text"))
         {
             Some(section) => match section.content {
                 elfkit::SectionContent::Raw(ref bytes) => bytes.clone(),
@@ -126,7 +122,7 @@ pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
         let symbols = match elf
             .sections
             .iter()
-            .find(|section| section.name.starts_with(".symtab".as_bytes()))
+            .find(|section| section.name.starts_with(b".symtab"))
         {
             Some(section) => match section.content {
                 elfkit::SectionContent::Symbols(ref bytes) => bytes.clone(),
@@ -143,52 +139,69 @@ pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
 
         for relocation in relocations.iter() {
             // elfkit uses x86 relocation types, R_x86_64_64 == R_BPF_64_64
-            if relocation.rtype == elfkit::relocation::RelocationType::R_X86_64_64 {
-                // The Text section has a reference to a symbol in another section
-                // (probably .rodata)
-                //
-                // Get the 64 bit address of the symbol and fix-up the lddw instruction's
-                // imm field
+            match relocation.rtype {
+                 elfkit::relocation::RelocationType::R_X86_64_64 => {
+                    // The .text section has a reference to a symbol in another section
+                    // (probably .rodata)
+                    //
+                    // Get the 64 bit address of the symbol and fix-up the lddw instruction's
+                    // imm field
 
-                let symbol = &symbols[relocation.sym as usize];
-                let shndx = match symbol.shndx {
-                    elfkit::symbol::SymbolSectionIndex::Section(shndx) => shndx,
-                    _ => Err(Error::new(
-                        ErrorKind::Other,
-                        "Error: Failed to get relocations",
+                    let symbol = &symbols[relocation.sym as usize];
+                    let shndx = match symbol.shndx {
+                        elfkit::symbol::SymbolSectionIndex::Section(shndx) => shndx,
+                        _ => Err(Error::new(
+                            ErrorKind::Other,
+                            "Error: Failed to get relocations",
+                        ))?,
+                    } as usize;
+
+                    let section_base_address = match elf.sections[shndx].content {
+                        elfkit::SectionContent::Raw(ref raw) => raw,
+                        _ => Err(Error::new(
+                            ErrorKind::Other,
+                            "Error: Failed to get .rodata contents",
+                        ))?,
+                    }.as_ptr() as u64;
+
+                    // base address of containing section plus offset in relocation
+                    let symbol_addr: u64 = section_base_address + symbol.value;
+
+                    // Instruction lddw spans two instruction slots, split
+                    // symbol's address into two and write into both
+                    // slot's imm field
+                    let mut imm_offset = relocation.addr as usize + 4;
+                    let imm_length = 4;
+                    LittleEndian::write_u32(
+                        &mut text_bytes[imm_offset..imm_offset + imm_length],
+                        (symbol_addr & 0xFFFFFFFF) as u32,
+                    );
+                    imm_offset += ebpf::INSN_SIZE;
+                    LittleEndian::write_u32(
+                        &mut text_bytes[imm_offset..imm_offset + imm_length],
+                        (symbol_addr >> 32) as u32,
+                    );
+                },
+                elfkit::relocation::RelocationType::R_X86_64_32 => {
+                    // The .text section has unresolved call instruction
+                    //
+                    // Hash the symbol name and stick it
+                    // into the call instruction's imm field.  Later
+                    // that hash will be used to look up the actual
+                    // helper.
+                    
+                    let name = &symbols[relocation.sym as usize].name;
+                    let mut imm_offset = relocation.addr as usize + 4;
+                    let imm_length = 4;
+                    LittleEndian::write_u32(
+                        &mut text_bytes[imm_offset..imm_offset + imm_length],
+                        helpers::hash_symbol_name(name),
+                    );
+                },
+                _ => Err(Error::new(
+                         ErrorKind::Other,
+                         "Error: Unhandled relocation type",
                     ))?,
-                } as usize;
-
-                let section_base_address = match elf.sections[shndx].content {
-                    elfkit::SectionContent::Raw(ref raw) => raw,
-                    _ => Err(Error::new(
-                        ErrorKind::Other,
-                        "Error: Failed to get .rodata contents",
-                    ))?,
-                }.as_ptr() as u64;
-
-                // base address of containing section plus offset in relocation
-                let symbol_addr: u64 = section_base_address + symbol.value;
-
-                // Instruction lddw spans two instruction slots, split
-                // symbol's address into two and write into both
-                // slot's imm field
-                let mut imm_offset = relocation.addr as usize + 4;
-                let imm_length = 4;
-                LittleEndian::write_u32(
-                    &mut text_bytes[imm_offset..imm_offset + imm_length],
-                    (symbol_addr & 0xFFFFFFFF) as u32,
-                );
-                imm_offset += ebpf::INSN_SIZE;
-                LittleEndian::write_u32(
-                    &mut text_bytes[imm_offset..imm_offset + imm_length],
-                    (symbol_addr >> 32) as u32,
-                );
-            } else {
-                Err(Error::new(
-                    ErrorKind::Other,
-                    "Error: Unhandled relocation type",
-                ))?;
             }
         }
         text_bytes
@@ -196,7 +209,7 @@ pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
     let mut text_section = match elf
         .sections
         .iter_mut()
-        .find(|section| section.name.starts_with(".text".as_bytes()))
+        .find(|section| section.name.starts_with(b".text"))
 {
             Some(section) => &mut section.content,
             None => Err(Error::new(
@@ -211,14 +224,14 @@ pub fn relocate(elf: &mut elfkit::Elf) -> Result<(), Error> {
 }
 
 ///
-fn get_relocations<R>(mut io: R, eh: &elfkit::Header) -> Result<Vec<elfkit::Relocation>, Error>
+fn get_relocations<R>(mut io: R) -> Result<Vec<elfkit::Relocation>, Error>
 where
     R: std::io::Read,
 {
     let mut relocs = Vec::new();
 
-    while let Ok(addr) = elfkit::elf_read_u64!(eh, io) {
-        let info = match elfkit::elf_read_u64!(eh, io) {
+    while let Ok(addr) = io.read_u64::<LittleEndian>() {
+        let info = match io.read_u64::<LittleEndian>() {
             Ok(v) => v,
             _ => Err(Error::new(
                 ErrorKind::Other,
@@ -232,7 +245,7 @@ where
             Some(v) => v,
             None => Err(Error::new(
                 ErrorKind::Other,
-                "Error: unkown relocation type",
+                "Error: unknown relocation type",
             ))?,
         };
 
@@ -273,7 +286,7 @@ mod test {
     #[test]
     fn test_relocate() {
         let mut elf = {
-            let mut file = File::open("noop.o").expect("file open failed");
+            let mut file = File::open("tests/noop.o").expect("file open failed");
             let mut elf_bytes = Vec::new();
             file.read_to_end(&mut elf_bytes).unwrap();
 

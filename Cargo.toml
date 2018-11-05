@@ -26,14 +26,13 @@ include = [
 
 byteorder = "1.2"
 combine = "2.5"
-elf = "0.0.10"
 elfkit = "0.0.6"
 enum-primitive-derive = "0.1"
 libc = "0.2"
 num-traits = "0.2.5"
 time = "0.1"
 
-
 [dev-dependencies]
 
+elf = "0.0.10"
 json = "0.11"
