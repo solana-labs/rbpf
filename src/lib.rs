@@ -314,18 +314,18 @@ impl<'a> EbpfVmMbuff<'a> {
     }
 
     /// Register a user-defined helper function in order to use it later from within
-    /// the eBPF program.  Normally helper function are referred to by an index. (See helpers)
-    /// but this function takes a name of the function.  The name is then hashed into a 32 bit
-    /// number and used in the `call` instructions imm field.  If providing an elf then
-    /// the elf's relocation must reference this symbol using the same name.  This can usually be
+    /// the eBPF program.  Normally helper functions are referred to by an index. (See helpers)
+    /// but this function takes the name of the function.  The name is then hashed into a 32 bit
+    /// number and used in the `call` instructions imm field.  If calling `set_elf` then
+    /// the elf's relocations must reference this symbol using the same name.  This can usually be
     /// achieved by building the elf with unresolved symbols (think `extern foo(void)`).  If
-    /// providing a program directly then any `call` instructions must already have the has of
-    /// the symbol name in its imm field.  To generate the correct hash of the symbol name
-    /// use ebpf::helpers::hash_symbol_name.
+    /// providing a program directly via `set_program` then any `call` instructions must already
+    /// have the hash of the symbol name in its imm field.  To generate the correct hash of the
+    /// symbol name use `ebpf::helpers::hash_symbol_name`.
     /// 
     /// Helper functions may treat their arguments as pointers, but there are safety issues
-    /// in doing that.  To protect against bad pointer usage the vm will call the helper verifier
-    /// function before calling the real helper.  The user supplied helper verifier should be implemented
+    /// in doing so.  To protect against bad pointer usage the VM will call the helper verifier
+    /// function before calling the real helper.  The user-supplied helper verifier should be implemented
     /// so that it checks the usage of the pointers and returns an error if a problem is encountered.
     /// For example, if the helper function treats argument 1 as a pointer to a string then the 
     /// helper verification function must validate that argument 1 is indeed a valid pointer and
@@ -333,7 +333,7 @@ impl<'a> EbpfVmMbuff<'a> {
     /// 
     /// This function can be used along with jitted programs but be aware that unlike interpreted
     /// programs, jitted programs will not call the verification functions.  If you don't inherently
-    /// trust the parameters being passed to helpers then jitted programs must only use helper
+    /// trust the parameters being passed to helpers then jitted programs must only use helper's
     /// arguments as values.
     ///
     /// If using JIT-compiled eBPF programs, be sure to register all helpers before compiling the
@@ -693,7 +693,7 @@ impl<'a> EbpfVmMbuff<'a> {
                     }
                     reg[0] = (helper.function)(reg[1], reg[2], reg[3], reg[4], reg[5]);
                 } else {
-                    // TODO need a better way to print out the offending function, maybe up front during relocation?
+                    // TODO need a better way to print out the offending function's name, maybe up front during relocation?
                     Err(Error::new(ErrorKind::Other, format!("Error: unknown helper function (id: {:#x})", insn.imm as u32)))?;
                 },
                 ebpf::TAIL_CALL  => unimplemented!(),
@@ -726,8 +726,7 @@ impl<'a> EbpfVmMbuff<'a> {
 
         Err(Error::new(ErrorKind::Other, format!(
             "Error: out of bounds memory {} (insn #{:?}), addr {:#x}/{:?} {}",
-            access_type, insn_ptr, addr, len,
-            regions_string
+            access_type, insn_ptr, addr, len, regions_string
         )))
     }
 
@@ -1113,19 +1112,19 @@ impl<'a> EbpfVmFixedMbuff<'a> {
         self.parent.register_helper(key, function)
     }
 
-   /// Register a user-defined helper function in order to use it later from within
-    /// the eBPF program.  Normally helper function are referred to by an index. (See helpers)
-    /// but this function takes a name of the function.  The name is then hashed into a 32 bit
-    /// number and used in the `call` instructions imm field.  If providing an elf then
-    /// the elf's relocation must reference this symbol using the same name.  This can usually be
+    /// Register a user-defined helper function in order to use it later from within
+    /// the eBPF program.  Normally helper functions are referred to by an index. (See helpers)
+    /// but this function takes the name of the function.  The name is then hashed into a 32 bit
+    /// number and used in the `call` instructions imm field.  If calling `set_elf` then
+    /// the elf's relocations must reference this symbol using the same name.  This can usually be
     /// achieved by building the elf with unresolved symbols (think `extern foo(void)`).  If
-    /// providing a program directly then any `call` instructions must already have the has of
-    /// the symbol name in its imm field.  To generate the correct hash of the symbol name
-    /// use ebpf::helpers::hash_symbol_name.
+    /// providing a program directly via `set_program` then any `call` instructions must already
+    /// have the hash of the symbol name in its imm field.  To generate the correct hash of the
+    /// symbol name use `ebpf::helpers::hash_symbol_name`.
     /// 
     /// Helper functions may treat their arguments as pointers, but there are safety issues
-    /// in doing that.  To protect against bad pointer usage the vm will call the helper verifier
-    /// function before calling the real helper.  The user supplied helper verifier should be implemented
+    /// in doing so.  To protect against bad pointer usage the VM will call the helper verifier
+    /// function before calling the real helper.  The user-supplied helper verifier should be implemented
     /// so that it checks the usage of the pointers and returns an error if a problem is encountered.
     /// For example, if the helper function treats argument 1 as a pointer to a string then the 
     /// helper verification function must validate that argument 1 is indeed a valid pointer and
@@ -1133,14 +1132,14 @@ impl<'a> EbpfVmFixedMbuff<'a> {
     /// 
     /// This function can be used along with jitted programs but be aware that unlike interpreted
     /// programs, jitted programs will not call the verification functions.  If you don't inherently
-    /// trust the parameters being passed to helpers then jitted programs must only use helper
+    /// trust the parameters being passed to helpers then jitted programs must only use helper's
     /// arguments as values.
     ///
     /// If using JIT-compiled eBPF programs, be sure to register all helpers before compiling the
     /// program. You should be able to change registered helpers after compiling, but not to add
     /// new ones (i.e. with new keys).
     pub fn register_helper_ex(&mut self, name: &str, verifier: Option<ebpf::HelperVerifier>,
-                           function: ebpf::HelperFunction) -> Result<(), Error> {
+                              function: ebpf::HelperFunction) -> Result<(), Error> {
         self.parent.register_helper_ex(name, verifier, function)
     }
 
@@ -1504,18 +1503,18 @@ impl<'a> EbpfVmRaw<'a> {
     }
 
     /// Register a user-defined helper function in order to use it later from within
-    /// the eBPF program.  Normally helper function are referred to by an index. (See helpers)
-    /// but this function takes a name of the function.  The name is then hashed into a 32 bit
-    /// number and used in the `call` instructions imm field.  If providing an elf then
-    /// the elf's relocation must reference this symbol using the same name.  This can usually be
+    /// the eBPF program.  Normally helper functions are referred to by an index. (See helpers)
+    /// but this function takes the name of the function.  The name is then hashed into a 32 bit
+    /// number and used in the `call` instructions imm field.  If calling `set_elf` then
+    /// the elf's relocations must reference this symbol using the same name.  This can usually be
     /// achieved by building the elf with unresolved symbols (think `extern foo(void)`).  If
-    /// providing a program directly then any `call` instructions must already have the has of
-    /// the symbol name in its imm field.  To generate the correct hash of the symbol name
-    /// use ebpf::helpers::hash_symbol_name.
+    /// providing a program directly via `set_program` then any `call` instructions must already
+    /// have the hash of the symbol name in its imm field.  To generate the correct hash of the
+    /// symbol name use `ebpf::helpers::hash_symbol_name`.
     /// 
     /// Helper functions may treat their arguments as pointers, but there are safety issues
-    /// in doing that.  To protect against bad pointer usage the vm will call the helper verifier
-    /// function before calling the real helper.  The user supplied helper verifier should be implemented
+    /// in doing so.  To protect against bad pointer usage the VM will call the helper verifier
+    /// function before calling the real helper.  The user-supplied helper verifier should be implemented
     /// so that it checks the usage of the pointers and returns an error if a problem is encountered.
     /// For example, if the helper function treats argument 1 as a pointer to a string then the 
     /// helper verification function must validate that argument 1 is indeed a valid pointer and
@@ -1523,14 +1522,14 @@ impl<'a> EbpfVmRaw<'a> {
     /// 
     /// This function can be used along with jitted programs but be aware that unlike interpreted
     /// programs, jitted programs will not call the verification functions.  If you don't inherently
-    /// trust the parameters being passed to helpers then jitted programs must only use helper
+    /// trust the parameters being passed to helpers then jitted programs must only use helper's
     /// arguments as values.
     ///
     /// If using JIT-compiled eBPF programs, be sure to register all helpers before compiling the
     /// program. You should be able to change registered helpers after compiling, but not to add
     /// new ones (i.e. with new keys).
     pub fn register_helper_ex(&mut self, name: &str, verifier: Option<ebpf::HelperVerifier>,
-                           function: ebpf::HelperFunction) -> Result<(), Error> {
+                              function: ebpf::HelperFunction) -> Result<(), Error> {
         self.parent.register_helper_ex(name, verifier, function)
     }
 
@@ -1851,18 +1850,18 @@ impl<'a> EbpfVmNoData<'a> {
     }
 
     /// Register a user-defined helper function in order to use it later from within
-    /// the eBPF program.  Normally helper function are referred to by an index. (See helpers)
-    /// but this function takes a name of the function.  The name is then hashed into a 32 bit
-    /// number and used in the `call` instructions imm field.  If providing an elf then
-    /// the elf's relocation must reference this symbol using the same name.  This can usually be
+    /// the eBPF program.  Normally helper functions are referred to by an index. (See helpers)
+    /// but this function takes the name of the function.  The name is then hashed into a 32 bit
+    /// number and used in the `call` instructions imm field.  If calling `set_elf` then
+    /// the elf's relocations must reference this symbol using the same name.  This can usually be
     /// achieved by building the elf with unresolved symbols (think `extern foo(void)`).  If
-    /// providing a program directly then any `call` instructions must already have the has of
-    /// the symbol name in its imm field.  To generate the correct hash of the symbol name
-    /// use ebpf::helpers::hash_symbol_name.
+    /// providing a program directly via `set_program` then any `call` instructions must already
+    /// have the hash of the symbol name in its imm field.  To generate the correct hash of the
+    /// symbol name use `ebpf::helpers::hash_symbol_name`.
     /// 
     /// Helper functions may treat their arguments as pointers, but there are safety issues
-    /// in doing that.  To protect against bad pointer usage the vm will call the helper verifier
-    /// function before calling the real helper.  The user supplied helper verifier should be implemented
+    /// in doing so.  To protect against bad pointer usage the VM will call the helper verifier
+    /// function before calling the real helper.  The user-supplied helper verifier should be implemented
     /// so that it checks the usage of the pointers and returns an error if a problem is encountered.
     /// For example, if the helper function treats argument 1 as a pointer to a string then the 
     /// helper verification function must validate that argument 1 is indeed a valid pointer and
@@ -1870,14 +1869,14 @@ impl<'a> EbpfVmNoData<'a> {
     /// 
     /// This function can be used along with jitted programs but be aware that unlike interpreted
     /// programs, jitted programs will not call the verification functions.  If you don't inherently
-    /// trust the parameters being passed to helpers then jitted programs must only use helper
+    /// trust the parameters being passed to helpers then jitted programs must only use helper's
     /// arguments as values.
     ///
     /// If using JIT-compiled eBPF programs, be sure to register all helpers before compiling the
     /// program. You should be able to change registered helpers after compiling, but not to add
     /// new ones (i.e. with new keys).
     pub fn register_helper_ex(&mut self, name: &str, verifier: Option<ebpf::HelperVerifier>,
-                           function: ebpf::HelperFunction) -> Result<(), Error> {
+                              function: ebpf::HelperFunction) -> Result<(), Error> {
         self.parent.register_helper_ex(name, verifier, function)
     }
 

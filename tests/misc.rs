@@ -31,8 +31,8 @@ use std::ffi::CStr;
 use byteorder::{ByteOrder, LittleEndian};
 use libc::c_char;
 use solana_rbpf::assembler::assemble;
-use solana_rbpf::helpers;
 use solana_rbpf::ebpf;
+use solana_rbpf::helpers;
 use solana_rbpf::{EbpfVmRaw, EbpfVmNoData, EbpfVmMbuff, EbpfVmFixedMbuff};
 
 // The following two examples have been compiled from C with the following command:

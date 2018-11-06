@@ -385,6 +385,6 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        let mut elf = EBpfElf::load(&elf_bytes).unwrap();
+        EBpfElf::load(&elf_bytes).unwrap();
     }
 }

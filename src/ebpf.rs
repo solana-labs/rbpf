@@ -389,18 +389,18 @@ pub const BPF_ALU_OP_MASK : u8 = 0xf0;
 /// Prototype of an eBPF helper function.
 pub type HelperFunction = fn (u64, u64, u64, u64, u64) -> u64;
 
-/// Prototype of an eBPF helper verificatin function.
+/// Prototype of an eBPF helper verification function.
 pub type HelperVerifier = fn (u64, u64, u64, u64, u64, &[&[u8]], &[&[u8]]) -> Result<(()), Error>;
 
 /// eBPF Helper pair
 /// 
-/// Includes both the helper function itself but also an optional helper verification function
+/// Includes both the helper function itself, but also an optional helper verification function
 /// that if present will be called first to validate the helper parameters.  A verification
 /// function is not needed if the helper treats its arguments as values but if one of
-/// the arguments represents a pointer then that pointer must be verified by the 
+/// the arguments represent a pointer then that pointer must be verified by the 
 /// verification function.
 /// 
-/// Note: native jitted programs to not have the ability to call the verification programs
+/// Note: native jitted programs do not have the ability to call the verification programs
 /// so all helpers provided to a jitted function must treat their arguments as values only.
 pub struct Helper {
     /// Called first to verify the helper function's arguments
@@ -606,7 +606,7 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<Insn> {
 
 /// Hash a symbol name
 ///
-/// This function is used by both the relocator and the vm to translate symbol names
+/// This function is used by both the relocator and the VM to translate symbol names
 /// into a 32 bit id used to identify a helper function.  The 32 bit id is used in the
 /// eBPF `call` instruction's imm field.
 pub fn hash_symbol_name(name: &[u8]) -> u32 {
