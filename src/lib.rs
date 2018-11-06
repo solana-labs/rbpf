@@ -29,13 +29,14 @@ use std::u32;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use byteorder::{ByteOrder, LittleEndian};
+use elf::EBpfElf;
 
 pub mod assembler;
 pub mod disassembler;
 pub mod ebpf;
+pub mod elf;
 pub mod helpers;
 pub mod insn_builder;
-pub mod bpf_elf;
 mod asm_parser;
 #[cfg(not(windows))]
 mod jit;
@@ -98,7 +99,7 @@ struct MetaBuff {
 /// ```
 pub struct EbpfVmMbuff<'a> {
     prog:            Option<&'a [u8]>,
-    elf:             Option<elfkit::Elf>,
+    elf:             Option<EBpfElf>,
     verifier:        Verifier,
     jit:             Option<JitProgram>,
     helpers:         HashMap<u32, ebpf::Helper>,
@@ -166,8 +167,8 @@ impl<'a> EbpfVmMbuff<'a> {
 
     /// Load a new eBPF program into the virtual machine instance.
     pub fn set_elf(&mut self, elf_bytes: &'a [u8]) -> Result<(), Error> {
-        let elf = bpf_elf::load(elf_bytes)?;
-        (self.verifier)(bpf_elf::get_text_section(&elf)?)?;
+        let elf = EBpfElf::load(elf_bytes)?;
+        (self.verifier)(elf.get_text_section()?)?;
         self.elf = Some(elf);
         Ok(())
     }
@@ -398,8 +399,8 @@ impl<'a> EbpfVmMbuff<'a> {
 
         let prog =
         if let Some(ref elf) = self.elf {
-            ro_regions.extend(bpf_elf::get_rodata(&elf)?);
-            bpf_elf::get_text_section(&elf)?
+            ro_regions.extend(elf.get_rodata()?);
+            elf.get_text_section()?
         } else if let Some(ref prog) = self.prog {
             prog
         } else {
