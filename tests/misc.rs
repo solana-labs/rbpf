@@ -714,7 +714,7 @@ pub fn bpf_helper_string_verify(addr: u64, unused2: u64, unused3: u64, unused4: 
                     }
                 }
             }
-            return Err(Error::new(ErrorKind::Other, "Error, Unterminated string"));
+            return Err(Error::new(ErrorKind::Other, "Error: Unterminated string"));
        }
        
     }
@@ -759,7 +759,7 @@ fn test_symbol_relocation() {
     ];
     LittleEndian::write_u32(&mut prog[4..8], ebpf::hash_symbol_name(b"log"));
 
-    let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 0];
+    let mut mem = [72, 101, 108, 108, 111, 0];
 
     let mut vm = EbpfVmRaw::new(None).unwrap();
     vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
@@ -778,7 +778,7 @@ fn test_null_string() {
     ];
     LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"log"));
 
-    let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 114];
+    let mut mem = [72, 101, 108, 108, 111, 0];
 
     let mut vm = EbpfVmRaw::new(Some(prog)).unwrap();
     vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
@@ -786,7 +786,7 @@ fn test_null_string() {
 }
 
 #[test]
-#[should_panic(expected = "Error, Unterminated string")]
+#[should_panic(expected = "Error: Unterminated string")]
 fn test_unterminated_string() {
     let prog = &mut [
         0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
@@ -795,11 +795,29 @@ fn test_unterminated_string() {
     ];
     LittleEndian::write_u32(&mut prog[4..8], ebpf::hash_symbol_name(b"log"));
 
-    let mut mem = [84, 014, 105, 115, 32, 111, 118, 101, 114];
+    let mut mem = [72, 101, 108, 108, 111];
 
     let mut vm = EbpfVmRaw::new(Some(prog)).unwrap();
     vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
     vm.execute_program(&mut mem).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "[JIT] Error: helper verifier function not supported by jit")]
+fn test_jit_call_helper_wo_verifier() {
+    let prog = &mut [
+        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
+        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    ];
+    LittleEndian::write_u32(&mut prog[4..8], ebpf::hash_symbol_name(b"log"));
+
+    let mut mem = [72, 101, 108, 108, 111, 0];
+
+    let mut vm = EbpfVmRaw::new(Some(prog)).unwrap();
+    vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
+    vm.jit_compile().unwrap();
+    unsafe { assert_eq!(vm.execute_program_jit(&mut mem).unwrap(), 0); }
 }
 
 
