@@ -44,10 +44,16 @@ impl EBpfElf {
             .elf
             .sections
             .iter()
-            .find(|section| section.name.starts_with(b".text"))
+            .find(|section| section.name == b".text")
         {
             Some(section) => match section.content {
-                elfkit::SectionContent::Raw(ref bytes) => bytes,
+                elfkit::SectionContent::Raw(ref bytes) => {
+                    if bytes.is_empty() {
+                        return Err(Error::new(ErrorKind::Other, "Error: Empty .text section"))?;
+                    } else {
+                        bytes
+                    }
+                }
                 _ => Err(Error::new(
                     ErrorKind::Other,
                     "Error: Failed to get .text contents",
@@ -114,6 +120,19 @@ impl EBpfElf {
             return Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong type",
+            ));
+        }
+
+        let text_sections: Vec<_> = self
+            .elf
+            .sections
+            .iter()
+            .filter(|section| section.name.starts_with(b".text"))
+            .collect();
+        if text_sections.len() > 1 {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "Error: Multiple text sections, consider removing llc option: -function-sections",
             ));
         }
 

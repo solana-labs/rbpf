@@ -405,7 +405,7 @@ impl<'a> EbpfVmMbuff<'a> {
             prog
         } else {
             Err(Error::new(ErrorKind::Other,
-                           "Error: No program set, call prog_set() to load one"))?
+                           "Error: no program or elf set"))?
         };
 
         // R1 points to beginning of memory area, R10 to stack

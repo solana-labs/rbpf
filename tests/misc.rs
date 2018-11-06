@@ -585,7 +585,7 @@ fn test_vm_err_ldindb_nomem() {
 }
 
 #[test]
-#[should_panic(expected = "Error: No program set, call prog_set() to load one")]
+#[should_panic(expected = "Error: no program or elf set")]
 fn test_vm_exec_no_program() {
     let mut vm = EbpfVmNoData::new(None).unwrap();
     assert_eq!(vm.execute_program().unwrap(), 0xBEE);
@@ -740,6 +740,20 @@ pub fn bpf_dump_u64 (arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> u
 #[test]
 fn test_load_elf() {
     let mut file = File::open("tests/noop.o").expect("file open failed");
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+
+    let mut vm = EbpfVmNoData::new(None).unwrap();
+    vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
+    vm.register_helper_ex("log_64", None, bpf_dump_u64).unwrap();
+    vm.set_elf(&elf).unwrap();
+    vm.execute_program().unwrap();
+}
+
+#[test]
+#[should_panic(expected ="Error: Multiple text sections")]
+fn test_load_elf_multiple_text() {
+    let mut file = File::open("tests/noop_multiple_text.o").expect("file open failed");
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
