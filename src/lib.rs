@@ -783,6 +783,8 @@ impl<'a> EbpfVmMbuff<'a> {
                             elf.report_unresolved_symbol(pc - 1)?;
                         }
                     } else {
+                        // Note: Raw BPF programs (without ELF relocations) cannot support relative calls
+                        // because there is no way to determine if the imm refers to a helper or an offset
                         Err(Error::new(ErrorKind::Other,
                                        format!("Error: Unresolved symbol at instruction #{:?}", pc - 1)))?;
                     }

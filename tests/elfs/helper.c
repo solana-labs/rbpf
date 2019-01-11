@@ -1,4 +1,7 @@
-
+/**
+ * @brief Helper function used in the BPF to BPF call test
+ */
+ 
 typedef unsigned char uint8_t;
 typedef unsigned long int uint64_t;
 

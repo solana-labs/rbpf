@@ -1,6 +1,5 @@
 /**
- * @brief Example C-based BPF program that prints out the parameters
- * passed to it
+ * @brief Helper function used in the BPF to BPF call test
  */
 
 #pragma once

@@ -18,3 +18,7 @@ rm unresolved_helper.o
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o multiple_file.so entrypoint.o helper.o
 rm entrypoint.o
 rm helper.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o relative_call.o -c relative_call.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o relative_call.so relative_call.o
+rm relative_call.o

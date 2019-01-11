@@ -897,6 +897,20 @@ fn test_bpf_to_bpf_too_deep() {
     vm.execute_program(&mut mem).unwrap();
 }
 
+#[test]
+fn test_relative_call() {
+    let mut file = File::open("tests/elfs/relative_call.so").expect("file open failed");
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+
+    let mut vm = EbpfVmRaw::new(None).unwrap();
+    vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
+    vm.set_elf(&elf).unwrap();
+
+    let mut mem = [1 as u8];
+    vm.execute_program(&mut mem).unwrap();
+}
+
 
 
 

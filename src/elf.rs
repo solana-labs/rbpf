@@ -135,7 +135,7 @@ impl EBpfElf {
         if offset % ebpf::INSN_SIZE != 0 {
             Err(Error::new(
                 ErrorKind::Other,
-                "Error: Entrypoint not multple of instruction size",
+                "Error: Entrypoint not multiple of instruction size",
             ))?
         }
         Ok(offset / ebpf::INSN_SIZE)
@@ -217,6 +217,26 @@ impl EBpfElf {
                 "Error: Failed to get section contents",
             )),
         }
+    }
+
+    fn relocate_relative_calls(calls: &mut HashMap<u32, usize>, prog: &mut Vec<u8>) -> Result<(), Error> {
+        for i in 0..prog.len() / ebpf::INSN_SIZE {
+            let mut insn = ebpf::get_insn(prog, i);
+            if insn.opc == 0x85 && insn.imm != -1 {
+                let insn_idx = (i as i32 + 1 + insn.imm) as isize;
+                if insn_idx < 0 || insn_idx as usize >= prog.len() / ebpf::INSN_SIZE {
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        format!("Error: Relative jump at instruction {} is out of bounds", insn_idx)
+                     ));
+                }
+                let hash = ebpf::hash_symbol_name(&[i as u8]); // use the instruction index as the key
+                insn.imm = hash as i32;
+                prog.splice(i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE, insn.to_vec());
+                calls.insert(hash, insn_idx as usize);
+            }
+        }
+        Ok(())
     }
 
     /// Validates the ELF
@@ -308,6 +328,8 @@ impl EBpfElf {
                     "Error: Failed to get .dynsym contents",
                 ))?,
             };
+
+            EBpfElf::relocate_relative_calls(&mut calls, &mut text_bytes)?;
 
             for relocation in relocations.iter() {
                 match BPFRelocationType::from_x86_relocation_type(&relocation.rtype) {
@@ -547,7 +569,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Error: Entrypoint not multple of instruction size")]
+    #[should_panic(expected = "Error: Entrypoint not multiple of instruction size")]
     fn test_entrypoint_not_multiple_of_instruction_size() {
         let mut file = File::open("tests/elfs/noop.so").expect("file open failed");
         let mut elf_bytes = Vec::new();
@@ -558,6 +580,101 @@ mod test {
         elf.elf.header.entry = elf.elf.header.entry + ebpf::INSN_SIZE as u64 + 1 ;
         elf.get_entrypoint_instruction_offset().unwrap();
     }
+
+    #[test]
+    fn test_relocate_relative_calls_back() {
+        let mut calls: HashMap<u32, usize> = HashMap::new();
+        // call -2
+        let mut prog = vec![
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x85, 0x10, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff];
+
+        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        let key = ebpf::hash_symbol_name(&[5]);
+        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        assert_eq!(insn.to_array(), prog[40..]);
+        assert_eq!(*calls.get(&key).unwrap(), 4);
+
+        // // call +6
+        prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
+        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        let key = ebpf::hash_symbol_name(&[5]);
+        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        assert_eq!(insn.to_array(), prog[40..]);
+        assert_eq!(*calls.get(&key).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_relocate_relative_calls_forward() {
+        let mut calls: HashMap<u32, usize> = HashMap::new();
+        // call +0
+        let mut prog = vec![
+            0x85, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        let key = ebpf::hash_symbol_name(&[0]);
+        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        assert_eq!(insn.to_array(), prog[..8]);
+        assert_eq!(*calls.get(&key).unwrap(), 1);
+
+        // call +4
+        prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
+        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        let key = ebpf::hash_symbol_name(&[0]);
+        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        assert_eq!(insn.to_array(), prog[..8]);
+        assert_eq!(*calls.get(&key).unwrap(), 5);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error: Relative jump at instruction 6 is out of bounds")]
+    fn test_relocate_relative_calls_out_of_bounds_forward() {
+        let mut calls: HashMap<u32, usize> = HashMap::new();
+        // call +5
+        let mut prog = vec![
+            0x85, 0x10, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        let key = ebpf::hash_symbol_name(&[0]);
+        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        assert_eq!(insn.to_array(), prog[..8]);
+        assert_eq!(*calls.get(&key).unwrap(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error: Relative jump at instruction -1 is out of bounds")]
+    fn test_relocate_relative_calls_out_of_bounds_back() {
+        let mut calls: HashMap<u32, usize> = HashMap::new();
+        // call -7
+        let mut prog = vec![
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x85, 0x10, 0x00, 0x00, 0xf9, 0xff, 0xff, 0xff];
+
+        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        let key = ebpf::hash_symbol_name(&[5]);
+        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        assert_eq!(insn.to_array(), prog[40..]);
+        assert_eq!(*calls.get(&key).unwrap(), 4);
+    }
 }
+
 
 

@@ -1,5 +1,5 @@
 /**
- * @brief test program
+ * @brief test program used to test unresolved helper handling
  */
 
 typedef unsigned char uint8_t;
