@@ -55,18 +55,29 @@ pub type Verifier = fn(prog: &[u8]) -> Result<(), Error>;
 /// eBPF Jit-compiled program.
 pub type JitProgram = unsafe fn(*mut u8, usize, *mut u8, usize, usize, usize) -> u64;
 
+/// memory region for bounds checking
+#[derive(Clone, Debug)]
+pub struct RegionPtrs {
+    /// lower address of the memory region
+    pub bot: u64,
+    /// upper address of the memory region
+    pub top: u64,
+}
+impl RegionPtrs {
+    /// Creates a new RegionPtrs structure from a slice
+    pub fn new_from_slice(v: &[u8]) -> Self {
+        RegionPtrs {
+            bot: v.as_ptr() as u64,
+            top: v.as_ptr() as u64 + v .len() as u64, 
+        }
+    }
+}
+
 /// One call frame
 #[derive(Clone, Debug)]
 struct CallFrame {
     stack:      Vec<u8>,
     return_ptr: usize,
-}
-
-/// Stack top and bottom addresses as integers
-#[derive(Clone, Debug)]
-struct StackPtrs {
-    top: u64,
-    bot: u64
 }
 
 /// When BPF calls a function other then a `helper` it expect the new
@@ -89,12 +100,8 @@ impl CallFrames {
     }
 
     /// Get stack pointers
-    fn get_stack(&self) -> StackPtrs {
-        StackPtrs {
-            top: self.frames[self.current].stack.as_ptr() as u64 +
-                 self.frames[self.current].stack.len() as u64,
-            bot: self.frames[self.current].stack.as_ptr() as u64
-        }
+    fn get_stack(&self) -> RegionPtrs {
+            RegionPtrs::new_from_slice(&self.frames[self.current].stack)
     }
 
     /// Get current call frame index, 0 is the root frame
@@ -466,16 +473,19 @@ impl<'a> EbpfVmMbuff<'a> {
         let mut frames = CallFrames::new(ebpf::MAX_CALL_DEPTH, ebpf::STACK_SIZE);
         let mut ro_regions = Vec::new();
         let mut rw_regions = Vec::new();
-        ro_regions.push(mbuff);
-        rw_regions.push(mbuff);
-        ro_regions.push(mem);
-        rw_regions.push(mem);
+        ro_regions.push(frames.get_stack());
+        rw_regions.push(frames.get_stack());
+        ro_regions.push(RegionPtrs::new_from_slice(&mbuff));
+        rw_regions.push(RegionPtrs::new_from_slice(&mbuff));
+        ro_regions.push(RegionPtrs::new_from_slice(&mem));
+        rw_regions.push(RegionPtrs::new_from_slice(&mem));
 
         let mut entry: usize = 0;
         let prog =
         if let Some(ref elf) = self.elf {
             if let Ok(regions) = elf.get_rodata() {
-                ro_regions.extend(regions);
+                let ptrs: Vec<_> = regions.iter().map( |r| RegionPtrs::new_from_slice(r)).collect();
+                ro_regions.extend(ptrs);
             }
             entry = elf.get_entrypoint_instruction_offset()?;
             elf.get_text_bytes()?
@@ -496,11 +506,11 @@ impl<'a> EbpfVmMbuff<'a> {
             reg[1] = mem.as_ptr() as u64;
         }
 
-        let check_mem_load = | addr: u64, len: usize, pc: usize, stack: &StackPtrs | {
-            EbpfVmMbuff::check_mem(addr, len, "load", pc, stack, &ro_regions)
+        let check_mem_load = | addr: u64, len: usize, pc: usize | {
+            EbpfVmMbuff::check_mem(addr, len, "load", pc, &ro_regions)
         };
-        let check_mem_store = | addr: u64, len: usize, pc: usize, stack: &StackPtrs | {
-            EbpfVmMbuff::check_mem(addr, len, "store", pc, stack, &rw_regions)
+        let check_mem_store = | addr: u64, len: usize, pc: usize | {
+            EbpfVmMbuff::check_mem(addr, len, "store", pc, &rw_regions)
         };
 
         // Loop on instructions
@@ -525,42 +535,42 @@ impl<'a> EbpfVmMbuff<'a> {
                 // bother re-fetching it, just use mem already.
                 ebpf::LD_ABS_B   => reg[0] = unsafe {
                     let x = (mem.as_ptr() as u64 + (insn.imm as u32) as u64) as *const u8;
-                    check_mem_load(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 8, pc)?;
                     *x as u64
                 },
                 ebpf::LD_ABS_H   => reg[0] = unsafe {
                     let x = (mem.as_ptr() as u64 + (insn.imm as u32) as u64) as *const u16;
-                    check_mem_load(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 8, pc)?;
                     *x as u64
                 },
                 ebpf::LD_ABS_W   => reg[0] = unsafe {
                     let x = (mem.as_ptr() as u64 + (insn.imm as u32) as u64) as *const u32;
-                    check_mem_load(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 8, pc)?;
                     *x as u64
                 },
                 ebpf::LD_ABS_DW  => reg[0] = unsafe {
                     let x = (mem.as_ptr() as u64 + (insn.imm as u32) as u64) as *const u64;
-                    check_mem_load(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 8, pc)?;
                     *x as u64
                 },
                 ebpf::LD_IND_B   => reg[0] = unsafe {
                     let x = (mem.as_ptr() as u64 + reg[_src] + (insn.imm as u32) as u64) as *const u8;
-                    check_mem_load(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 8, pc)?;
                     *x as u64
                 },
                 ebpf::LD_IND_H   => reg[0] = unsafe {
                     let x = (mem.as_ptr() as u64 + reg[_src] + (insn.imm as u32) as u64) as *const u16;
-                    check_mem_load(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 8, pc)?;
                     *x as u64
                 },
                 ebpf::LD_IND_W   => reg[0] = unsafe {
                     let x = (mem.as_ptr() as u64 + reg[_src] + (insn.imm as u32) as u64) as *const u32;
-                    check_mem_load(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 8, pc)?;
                     *x as u64
                 },
                 ebpf::LD_IND_DW  => reg[0] = unsafe {
                     let x = (mem.as_ptr() as u64 + reg[_src] + (insn.imm as u32) as u64) as *const u64;
-                    check_mem_load(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 8, pc)?;
                     *x as u64
                 },
 
@@ -574,75 +584,75 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::LD_B_REG   => reg[_dst] = unsafe {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_src] as *const u8).offset(insn.off as isize) as *const u8;
-                    check_mem_load(x as u64, 1, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 1, pc)?;
                     *x as u64
                 },
                 ebpf::LD_H_REG   => reg[_dst] = unsafe {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_src] as *const u8).offset(insn.off as isize) as *const u16;
-                    check_mem_load(x as u64, 2, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 2, pc)?;
                     *x as u64
                 },
                 ebpf::LD_W_REG   => reg[_dst] = unsafe {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_src] as *const u8).offset(insn.off as isize) as *const u32;
-                    check_mem_load(x as u64, 4, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 4, pc)?;
                     *x as u64
                 },
                 ebpf::LD_DW_REG  => reg[_dst] = unsafe {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_src] as *const u8).offset(insn.off as isize) as *const u64;
-                    check_mem_load(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_load(x as u64, 8, pc)?;
                     *x as u64
                 },
 
                 // BPF_ST class
                 ebpf::ST_B_IMM   => unsafe {
                     let x = (reg[_dst] as *const u8).offset(insn.off as isize) as *mut u8;
-                    check_mem_store(x as u64, 1, pc, &frames.get_stack())?;
+                    check_mem_store(x as u64, 1, pc)?;
                     *x = insn.imm as u8;
                 },
                 ebpf::ST_H_IMM   => unsafe {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_dst] as *const u8).offset(insn.off as isize) as *mut u16;
-                    check_mem_store(x as u64, 2, pc, &frames.get_stack())?;
+                    check_mem_store(x as u64, 2, pc)?;
                     *x = insn.imm as u16;
                 },
                 ebpf::ST_W_IMM   => unsafe {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_dst] as *const u8).offset(insn.off as isize) as *mut u32;
-                    check_mem_store(x as u64, 4, pc, &frames.get_stack())?;
+                    check_mem_store(x as u64, 4, pc)?;
                     *x = insn.imm as u32;
                 },
                 ebpf::ST_DW_IMM  => unsafe {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_dst] as *const u8).offset(insn.off as isize) as *mut u64;
-                    check_mem_store(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_store(x as u64, 8, pc)?;
                     *x = insn.imm as u64;
                 },
 
                 // BPF_STX class
                 ebpf::ST_B_REG   => unsafe {
                     let x = (reg[_dst] as *const u8).offset(insn.off as isize) as *mut u8;
-                    check_mem_store(x as u64, 1, pc, &frames.get_stack())?;
+                    check_mem_store(x as u64, 1, pc)?;
                     *x = reg[_src] as u8;
                 },
                 ebpf::ST_H_REG   => unsafe {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_dst] as *const u8).offset(insn.off as isize) as *mut u16;
-                    check_mem_store(x as u64, 2, pc, &frames.get_stack())?;
+                    check_mem_store(x as u64, 2, pc)?;
                     *x = reg[_src] as u16;
                 },
                 ebpf::ST_W_REG   => unsafe {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_dst] as *const u8).offset(insn.off as isize) as *mut u32;
-                    check_mem_store(x as u64, 4, pc, &frames.get_stack())?;
+                    check_mem_store(x as u64, 4, pc)?;
                     *x = reg[_src] as u32;
                 },
                 ebpf::ST_DW_REG  => unsafe {
                     #[allow(cast_ptr_alignment)]
                     let x = (reg[_dst] as *const u8).offset(insn.off as isize) as *mut u64;
-                    check_mem_store(x as u64, 8, pc, &frames.get_stack())?;
+                    check_mem_store(x as u64, 8, pc)?;
                     *x = reg[_src] as u64;
                 },
                 ebpf::ST_W_XADD  => unimplemented!(),
@@ -810,13 +820,9 @@ impl<'a> EbpfVmMbuff<'a> {
         unreachable!()
     }
 
-    fn check_mem(addr: u64, len: usize, access_type: &str, pc: usize, stack: &StackPtrs, regions: &'a [&[u8]]) -> Result<(), Error> {
-        if stack.bot as u64 <= addr && addr + len as u64 <= stack.top {
-            return Ok(());
-        }
-        
+    fn check_mem(addr: u64, len: usize, access_type: &str, pc: usize, regions: &'a [RegionPtrs]) -> Result<(), Error> {
         for region in regions.iter() {
-            if region.as_ptr() as u64 <= addr && addr + len as u64 <= region.as_ptr() as u64 + region.len() as u64 {
+            if region.bot <= addr && addr + len as u64 <= region.top {
                 return Ok(());
             }
         }
@@ -825,7 +831,7 @@ impl<'a> EbpfVmMbuff<'a> {
         if !regions.is_empty() {
             regions_string =  " regions".to_string();
             for region in regions.iter() {
-                regions_string = format!("{} {:#x}/{:#x}", regions_string, region.as_ptr() as u64, region.len());
+                regions_string = format!("{} {:#x}/{:#x}", regions_string, region.bot, region.top - region.bot);
             }
         }
 
@@ -2101,7 +2107,7 @@ mod tests {
         const DEPTH: usize = 5;
         const SIZE: usize = 5;
         let mut frames = CallFrames::new(DEPTH, SIZE);
-        let mut ptrs: Vec<StackPtrs> = Vec::new();
+        let mut ptrs: Vec<RegionPtrs> = Vec::new();
         for i in 0..DEPTH - 1 {
             println!("i: {:?}", i);
             assert_eq!(frames.get_current_index(), i);

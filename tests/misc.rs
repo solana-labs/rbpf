@@ -33,6 +33,7 @@ use libc::c_char;
 use solana_rbpf::assembler::assemble;
 use solana_rbpf::ebpf;
 use solana_rbpf::helpers;
+use solana_rbpf::RegionPtrs;
 use solana_rbpf::{EbpfVmRaw, EbpfVmNoData, EbpfVmMbuff, EbpfVmFixedMbuff};
 
 // The following two examples have been compiled from C with the following command:
@@ -702,11 +703,12 @@ fn test_get_last_instruction_count() {
 
 #[allow(unused_variables)]
 pub fn bpf_helper_string_verify(addr: u64, unused2: u64, unused3: u64, unused4: u64,
-                                unused5: u64, ro_regions: &[&[u8]], unused7: &[&[u8]]) -> Result<(()), Error> {
+                                unused5: u64, ro_regions: &[RegionPtrs], unused7: &[RegionPtrs]) -> Result<(()), Error> {
     for region in ro_regions.iter() {
-        if region.as_ptr() as u64 <= addr && addr as u64 <= region.as_ptr() as u64 + region.len() as u64 {
+        if region.bot <= addr && addr as u64 <= region.top {
             let c_buf: *const c_char = addr as *const c_char;
-            let max_size = (region.as_ptr() as u64 + region.len() as u64) - addr;
+            let max_size = region.top - addr;
+            println!("max {:?} top {:?} bot {:?} addr {:?}", max_size, region.top, region.bot, addr);
             unsafe {
                 for i in 0..max_size {
                     if std::ptr::read(c_buf.offset(i as isize)) == 0 {
@@ -764,6 +766,29 @@ fn test_symbol_relocation() {
     let mut vm = EbpfVmRaw::new(None).unwrap();
     vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
     vm.set_program(prog).unwrap();
+    vm.execute_program(&mut mem).unwrap();
+}
+
+#[test]
+fn test_helper_parameter_on_stack() {
+    // let prog = assemble(
+    //     "mov64 r1, r10 - 10
+    //      exit",
+    // ).unwrap();
+    // println!("prog: {:?}", prog);
+    let prog = &mut [
+        0xbf, 0xA1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r1 = r10
+        0x07, 0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, // r1 += -256
+        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
+        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    ];
+    LittleEndian::write_u32(&mut prog[20..24], ebpf::hash_symbol_name(b"log"));
+
+    let mut mem = [72, 101, 108, 108, 111, 0];
+
+    let mut vm = EbpfVmRaw::new(Some(prog)).unwrap();
+    vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
     vm.execute_program(&mut mem).unwrap();
 }
 

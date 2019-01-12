@@ -18,6 +18,7 @@
 //! <https://www.kernel.org/doc/Documentation/networking/filter.txt>, or for a shorter version of
 //! the list of the operation codes: <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md>
 
+use RegionPtrs;
 use std::io::Error;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
@@ -395,7 +396,7 @@ pub const BPF_ALU_OP_MASK : u8 = 0xf0;
 pub type HelperFunction = fn (u64, u64, u64, u64, u64) -> u64;
 
 /// Prototype of an eBPF helper verification function.
-pub type HelperVerifier = fn (u64, u64, u64, u64, u64, &[&[u8]], &[&[u8]]) -> Result<(()), Error>;
+pub type HelperVerifier = fn (u64, u64, u64, u64, u64, &[RegionPtrs], &[RegionPtrs]) -> Result<(()), Error>;
 
 /// eBPF Helper pair
 /// 
