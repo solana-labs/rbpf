@@ -452,11 +452,14 @@ fn test_vm_err_mod_by_zero_reg() {
     vm.execute_program().unwrap();
 }
 
+// With the introduction of call frames there may be stack regions
+// above or below the current stack, to test out of bounds we have to 
+// try significantly further away
 #[test]
 #[should_panic(expected = "Error: out of bounds memory store (insn #0)")]
 fn test_vm_err_stack_out_of_bound() {
     let prog = assemble("
-        stb [r10], 0
+        stb [r10-0x4000], 0
         exit").unwrap();
     let mut vm = EbpfVmNoData::new(Some(&prog)).unwrap();
     vm.execute_program().unwrap();

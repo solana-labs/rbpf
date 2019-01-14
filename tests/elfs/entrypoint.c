@@ -13,7 +13,7 @@ extern void log_64(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 uint64_t entrypoint_helper_function(uint64_t x) {
   log(__func__);
   if (x) {
-    helper_function(--x);
+    x = helper_function(--x);
   }
   return x;
 }

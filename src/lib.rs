@@ -76,32 +76,46 @@ impl RegionPtrs {
 /// One call frame
 #[derive(Clone, Debug)]
 struct CallFrame {
-    stack:      Vec<u8>,
+    stack:      Vec<u8>,  // TODO  move this to the parent and allocate one region
+    stack_top:  u64,
+    saved_reg:  [u64; 4],
     return_ptr: usize,
 }
 
 /// When BPF calls a function other then a `helper` it expect the new
 /// function to be called in its own frame.  CallFrames manages
 /// call frames
+#[derive(Clone, Debug)]
 struct CallFrames {
     current: usize,
-    frames:        Vec<CallFrame>,
+    frames:  Vec<CallFrame>,
 }
 impl CallFrames {
     /// New call frame, depth indicates maximum call depth
     fn new(depth: usize, size: usize) -> Self {
-        CallFrames {
+        let mut frames = CallFrames {
             current: 0,
             frames:        vec![CallFrame { stack:      vec![0u8; size],
+                                            stack_top:  0,
+                                            saved_reg:  [0u64; 4], // TODO  magic number
                                             return_ptr: 0
                                           };
                                 depth]
+        };
+        for i in 0..depth {
+            frames.frames[i].stack_top = frames.frames[i].stack.as_ptr() as u64 +
+                                     frames.frames[i].stack.len() as u64;
         }
+        frames
     }
 
     /// Get stack pointers
-    fn get_stack(&self) -> RegionPtrs {
-            RegionPtrs::new_from_slice(&self.frames[self.current].stack)
+    fn get_stacks(&self) -> Vec<RegionPtrs> {
+        let mut ptrs = Vec::new();
+        for frame in self.frames.iter() {
+            ptrs.push(RegionPtrs::new_from_slice(&frame.stack))
+        }
+        ptrs
     }
 
     /// Get current call frame index, 0 is the root frame
@@ -111,29 +125,27 @@ impl CallFrames {
     }
 
     /// Push a frame
-    fn push(&mut self, return_ptr: usize) -> Result<u64, Error> {
-        self.current += 1;
-        if self.current >= ebpf::MAX_CALL_DEPTH {
-            self.current -= 1;
+    fn push(&mut self, saved_reg: &[u64], return_ptr: usize) -> Result<u64, Error> {
+        if self.current + 1 >= ebpf::MAX_CALL_DEPTH {
             Err(Error::new(ErrorKind::Other,
                            format!("Exceeded max BPF to BPF call depth of {:?}",
                                    ebpf::MAX_CALL_DEPTH)))?;
         }
+        self.frames[self.current].saved_reg[0..4].copy_from_slice(saved_reg);
         self.frames[self.current].return_ptr = return_ptr;
-        Ok(self.frames[self.current].stack.as_ptr() as u64 +
-           self.frames[self.current].stack.len() as u64)
+        self.current += 1;
+        Ok(self.frames[self.current].stack_top)
     }
 
     /// Pop a frame
-    fn pop(&mut self) -> Result<(u64, usize), Error> {
+    fn pop(&mut self) -> Result<([u64; 4], u64, usize), Error> {
         if self.current == 0 {
             Err(Error::new(ErrorKind::Other, "Attempted to exit root call frame"))?;
         }
-        let return_ptr =  self.frames[self.current].return_ptr;
         self.current -= 1;
-        Ok((self.frames[self.current].stack.as_ptr() as u64 +
-                self.frames[self.current].stack.len() as u64,
-            return_ptr))
+        Ok((self.frames[self.current].saved_reg,
+            self.frames[self.current].stack_top,
+            self.frames[self.current].return_ptr))
     }
 }
 
@@ -473,8 +485,10 @@ impl<'a> EbpfVmMbuff<'a> {
         let mut frames = CallFrames::new(ebpf::MAX_CALL_DEPTH, ebpf::STACK_SIZE);
         let mut ro_regions = Vec::new();
         let mut rw_regions = Vec::new();
-        ro_regions.push(frames.get_stack());
-        rw_regions.push(frames.get_stack());
+        for ptr in frames.get_stacks() {
+            ro_regions.push(ptr.clone());
+            rw_regions.push(ptr.clone());
+        }
         ro_regions.push(RegionPtrs::new_from_slice(&mbuff));
         rw_regions.push(RegionPtrs::new_from_slice(&mbuff));
         ro_regions.push(RegionPtrs::new_from_slice(&mem));
@@ -497,7 +511,7 @@ impl<'a> EbpfVmMbuff<'a> {
         };
         
         // R1 points to beginning of input memory, R10 to stack
-        let mut reg: [u64;11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, frames.get_stack().top];
+        let mut reg: [u64;11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, frames.get_stacks()[0].top]; // TODO magic numbers
 
         if !mbuff.is_empty() {
             reg[1] = mbuff.as_ptr() as u64;
@@ -517,7 +531,8 @@ impl<'a> EbpfVmMbuff<'a> {
         let mut pc: usize = entry;
         self.last_insn_count = 0;
         while pc * ebpf::INSN_SIZE < prog.len() {
-            // println!("    BPF: frame {:?} insn {:4?} {}",
+            // println!("    BPF: {:016x?} frame {:?} insn {:4?} {}",
+            //          reg,
             //          frames.get_current_index(),
             //          pc, 
             //          disassembler::to_insn_vec(&prog[pc * ebpf::INSN_SIZE..])[0].desc);
@@ -787,7 +802,7 @@ impl<'a> EbpfVmMbuff<'a> {
                     } else if let Some(ref elf) = self.elf {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call
-                            reg[ebpf::STACK_REG] = frames.push(pc)?;
+                            reg[ebpf::STACK_REG] = frames.push(&reg[6..10], pc)?;
                             pc = *new_pc;
                         } else {
                             elf.report_unresolved_symbol(pc - 1)?;
@@ -801,9 +816,10 @@ impl<'a> EbpfVmMbuff<'a> {
                 },
                 ebpf::EXIT       => {
                     match frames.pop() {
-                        Ok((stack_top, ptr)) => {
+                        Ok((saved_reg, stack_ptr, ptr)) => {
                             // Return from BPF to BPF call
-                            reg[ebpf::STACK_REG] = stack_top;
+                            reg[6..10].copy_from_slice(&saved_reg);
+                            reg[ebpf::STACK_REG] = stack_ptr;
                             pc = ptr;
                         },
                         _        => return Ok(reg[0]),
@@ -813,7 +829,9 @@ impl<'a> EbpfVmMbuff<'a> {
                 _                => unreachable!()
             }
             if (self.max_insn_count != 0) && (self.last_insn_count >= self.max_insn_count) {
-                Err(Error::new(ErrorKind::Other, "Error: Execution exceeded maximum number of instructions allowed"))?;
+                Err(Error::new(ErrorKind::Other,
+                               format!("Error: Execution exceeded maximum number of instructions allowed ({:?})",
+                                       self.max_insn_count)))?;
             }
         }
 
@@ -2110,37 +2128,38 @@ mod tests {
         let mut ptrs: Vec<RegionPtrs> = Vec::new();
         for i in 0..DEPTH - 1 {
             println!("i: {:?}", i);
+            let registers = vec![i as u64; 5];
             assert_eq!(frames.get_current_index(), i);
-            ptrs.push(frames.get_stack());
+            ptrs.push(frames.get_stacks()[i].clone());
             assert_eq!(ptrs[i].top - ptrs[i].bot, SIZE as u64);
-            println!("ptrs: {:?}", ptrs[i]);
 
-            let top = frames.push(i).unwrap();
-            let new_ptrs = frames.get_stack();
-            assert_eq!(top, new_ptrs.top);
+            let top = frames.push(&registers[0..4], i).unwrap();
+            let new_ptrs = frames.get_stacks();
+            assert_eq!(top, new_ptrs[i+1].top);
             assert_ne!(top, ptrs[i].top);
             assert_ne!(top, ptrs[i].bot);
-            assert_ne!(ptrs[i].top, new_ptrs.top);
-            assert_ne!(ptrs[i].top, new_ptrs.bot);
-            assert_ne!(ptrs[i].bot, new_ptrs.top);
-            assert_ne!(ptrs[i].bot, new_ptrs.bot);
+            assert_ne!(ptrs[i].top, new_ptrs[i+1].top);
+            assert_ne!(ptrs[i].top, new_ptrs[i+1].bot);
+            assert_ne!(ptrs[i].bot, new_ptrs[i+1].top);
+            assert_ne!(ptrs[i].bot, new_ptrs[i+1].bot);
         }
-        println!("i: {:?}", DEPTH - 1);
-        assert_eq!(frames.get_current_index(), DEPTH - 1);
-        ptrs.push(frames.get_stack());
-        assert_eq!(ptrs[DEPTH - 1].top - ptrs[DEPTH - 1].bot, SIZE as u64);
-        println!("ptrs: {:?}", ptrs[DEPTH - 1]);
+        let i = DEPTH - 1;
+        println!("i: {:?}", i);
+        let registers = vec![i as u64; 5];
+        assert_eq!(frames.get_current_index(), i);
+        ptrs.push(frames.get_stacks()[i].clone());
+        assert_eq!(ptrs[i].top - ptrs[DEPTH - 1].bot, SIZE as u64);
 
-        assert!(frames.push(DEPTH - 1).is_err());
+        assert!(frames.push(&registers, DEPTH - 1).is_err());
 
         for i in (0..DEPTH - 1).rev() {
             println!("i: {:?}", i);
-            let (top, return_ptr) = frames.pop().unwrap();
-            assert_eq!(ptrs[i].top, top);
+            let (saved_reg, stack_ptr, return_ptr) = frames.pop().unwrap();
+            assert_eq!(saved_reg, [i as u64, i as u64, i as u64, i as u64]);
+            assert_eq!(ptrs[i].top, stack_ptr);
             assert_eq!(i, return_ptr);
         }
 
         assert!(frames.pop().is_err());
     }
-
 }
