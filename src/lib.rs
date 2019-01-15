@@ -122,7 +122,7 @@ impl CallFrames {
         ptrs
     }
 
-    /// Get the address of a frames top of stack
+    /// Get the address of a frame's top of stack
     fn get_stack_top(&self) -> u64 {
         self.frames[self.frame].stack.addr + self.frames[self.frame].stack.len - 1
     }
@@ -811,6 +811,7 @@ impl<'a> EbpfVmMbuff<'a> {
                     } else if let Some(ref elf) = self.elf {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call
+                            
                             reg[ebpf::STACK_REG] =
                                 frames
                                     .push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
