@@ -33,7 +33,7 @@ use libc::c_char;
 use solana_rbpf::assembler::assemble;
 use solana_rbpf::ebpf;
 use solana_rbpf::helpers;
-use solana_rbpf::RegionPtrs;
+use solana_rbpf::MemoryRegion;
 use solana_rbpf::{EbpfVmRaw, EbpfVmNoData, EbpfVmMbuff, EbpfVmFixedMbuff};
 
 // The following two examples have been compiled from C with the following command:
@@ -703,12 +703,11 @@ fn test_get_last_instruction_count() {
 
 #[allow(unused_variables)]
 pub fn bpf_helper_string_verify(addr: u64, unused2: u64, unused3: u64, unused4: u64,
-                                unused5: u64, ro_regions: &[RegionPtrs], unused7: &[RegionPtrs]) -> Result<(()), Error> {
+                                unused5: u64, ro_regions: &[MemoryRegion], unused7: &[MemoryRegion]) -> Result<(()), Error> {
     for region in ro_regions.iter() {
-        if region.bot <= addr && addr as u64 <= region.top {
+        if region.addr <= addr && (addr as u64) < region.addr + region.len {
             let c_buf: *const c_char = addr as *const c_char;
-            let max_size = region.top - addr;
-            println!("max {:?} top {:?} bot {:?} addr {:?}", max_size, region.top, region.bot, addr);
+            let max_size = region.addr + region.len - addr;
             unsafe {
                 for i in 0..max_size {
                     if std::ptr::read(c_buf.offset(i as isize)) == 0 {
