@@ -35,6 +35,10 @@ pub const PROG_MAX_SIZE: usize = PROG_MAX_INSNS * INSN_SIZE;
 pub const STACK_SIZE: usize = 2048;
 /// Stack register
 pub const STACK_REG: usize = 10;
+/// First scratch register
+pub const FIRST_SCRATCH_REG: usize = 6;
+/// Number of scratch registers
+pub const SCRATCH_REGS: usize = 4;
 /// Max BPF to BPF call depth
 pub const MAX_CALL_DEPTH: usize = 5;
 

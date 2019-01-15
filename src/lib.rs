@@ -97,7 +97,7 @@ impl CallFrames {
             current: 0,
             frames:        vec![CallFrame { stack:      vec![0u8; size],
                                             stack_top:  0,
-                                            saved_reg:  [0u64; 4], // TODO  magic number
+                                            saved_reg:  [0u64; ebpf::SCRATCH_REGS],
                                             return_ptr: 0
                                           };
                                 depth]
@@ -131,14 +131,14 @@ impl CallFrames {
                            format!("Exceeded max BPF to BPF call depth of {:?}",
                                    ebpf::MAX_CALL_DEPTH)))?;
         }
-        self.frames[self.current].saved_reg[0..4].copy_from_slice(saved_reg);
+        self.frames[self.current].saved_reg[..].copy_from_slice(saved_reg);
         self.frames[self.current].return_ptr = return_ptr;
         self.current += 1;
         Ok(self.frames[self.current].stack_top)
     }
 
     /// Pop a frame
-    fn pop(&mut self) -> Result<([u64; 4], u64, usize), Error> {
+    fn pop(&mut self) -> Result<([u64; ebpf::SCRATCH_REGS], u64, usize), Error> {
         if self.current == 0 {
             Err(Error::new(ErrorKind::Other, "Attempted to exit root call frame"))?;
         }
@@ -510,8 +510,8 @@ impl<'a> EbpfVmMbuff<'a> {
                            "Error: no program or elf set"))?
         };
         
-        // R1 points to beginning of input memory, R10 to stack
-        let mut reg: [u64;11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, frames.get_stacks()[0].top]; // TODO magic numbers
+        // R1 points to beginning of input memory, R10 to stack of first frame
+        let mut reg: [u64;11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, frames.get_stacks()[0].top];
 
         if !mbuff.is_empty() {
             reg[1] = mbuff.as_ptr() as u64;
@@ -802,7 +802,10 @@ impl<'a> EbpfVmMbuff<'a> {
                     } else if let Some(ref elf) = self.elf {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call
-                            reg[ebpf::STACK_REG] = frames.push(&reg[6..10], pc)?;
+                            reg[ebpf::STACK_REG] =
+                                frames
+                                    .push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
+                                          pc)?;
                             pc = *new_pc;
                         } else {
                             elf.report_unresolved_symbol(pc - 1)?;
@@ -818,7 +821,8 @@ impl<'a> EbpfVmMbuff<'a> {
                     match frames.pop() {
                         Ok((saved_reg, stack_ptr, ptr)) => {
                             // Return from BPF to BPF call
-                            reg[6..10].copy_from_slice(&saved_reg);
+                            reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
+                                .copy_from_slice(&saved_reg);
                             reg[ebpf::STACK_REG] = stack_ptr;
                             pc = ptr;
                         },

@@ -22,3 +22,11 @@ rm helper.o
 "$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o relative_call.o -c relative_call.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o relative_call.so relative_call.o
 rm relative_call.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o scratch_registers.o -c scratch_registers.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o scratch_registers.so scratch_registers.o
+rm scratch_registers.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o pass_stack_reference.o -c pass_stack_reference.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o pass_stack_reference.so pass_stack_reference.o
+rm pass_stack_reference.o

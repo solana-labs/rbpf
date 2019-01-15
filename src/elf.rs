@@ -93,7 +93,10 @@ impl EBpfElf {
                 format!("Error: Failed to parse elf: {:?}", e),
             ))?;
         }
-        let mut ebpf_elf = EBpfElf { elf, calls: HashMap::new() };
+        let mut ebpf_elf = EBpfElf {
+            elf,
+            calls: HashMap::new(),
+        };
         ebpf_elf.validate()?;
         ebpf_elf.relocate()?;
         Ok(ebpf_elf)
@@ -219,7 +222,10 @@ impl EBpfElf {
         }
     }
 
-    fn relocate_relative_calls(calls: &mut HashMap<u32, usize>, prog: &mut Vec<u8>) -> Result<(), Error> {
+    fn relocate_relative_calls(
+        calls: &mut HashMap<u32, usize>,
+        prog: &mut Vec<u8>,
+    ) -> Result<(), Error> {
         for i in 0..prog.len() / ebpf::INSN_SIZE {
             let mut insn = ebpf::get_insn(prog, i);
             if insn.opc == 0x85 && insn.imm != -1 {
@@ -227,12 +233,18 @@ impl EBpfElf {
                 if insn_idx < 0 || insn_idx as usize >= prog.len() / ebpf::INSN_SIZE {
                     return Err(Error::new(
                         ErrorKind::Other,
-                        format!("Error: Relative jump at instruction {} is out of bounds", insn_idx)
-                     ));
+                        format!(
+                            "Error: Relative jump at instruction {} is out of bounds",
+                            insn_idx
+                        ),
+                    ));
                 }
                 let hash = ebpf::hash_symbol_name(&[i as u8]); // use the instruction index as the key
                 insn.imm = hash as i32;
-                prog.splice(i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE, insn.to_vec());
+                prog.splice(
+                    i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE,
+                    insn.to_vec(),
+                );
                 calls.insert(hash, insn_idx as usize);
             }
         }
@@ -292,19 +304,8 @@ impl EBpfElf {
     /// Performs relocation on the text section
     fn relocate(&mut self) -> Result<(), Error> {
         let mut calls: HashMap<u32, usize> = HashMap::new();
-        let text_bytes = {
-            let raw_relocation_bytes = match self.get_section(".rel.dyn") {
-                Ok(section) => match section.content {
-                    elfkit::SectionContent::Raw(ref bytes) => bytes,
-                    _ => Err(Error::new(
-                        ErrorKind::Other,
-                        "Error: Failed to get .rel.dyn contents",
-                    ))?,
-                },
-                Err(_) => return Ok(()), // no relocation section, no need to relocate
-            };
-            let relocations = EBpfElf::get_relocations(&raw_relocation_bytes[..])?;
 
+        let text_bytes = {
             let text_section = self.get_section(".text")?;
             let mut text_bytes = match text_section.content {
                 elfkit::SectionContent::Raw(ref bytes) => bytes.clone(),
@@ -315,92 +316,111 @@ impl EBpfElf {
             };
             let text_va = text_section.header.addr;
 
-            let rodata_section = self
-                .elf
-                .sections
-                .iter()
-                .find(|section| section.name == b".rodata");
-            
-            let symbols = match self.get_section(".dynsym")?.content {
-                elfkit::SectionContent::Symbols(ref symbols) => symbols,
-                _ => Err(Error::new(
-                    ErrorKind::Other,
-                    "Error: Failed to get .dynsym contents",
-                ))?,
-            };
-
             EBpfElf::relocate_relative_calls(&mut calls, &mut text_bytes)?;
 
-            for relocation in relocations.iter() {
-                match BPFRelocationType::from_x86_relocation_type(&relocation.rtype) {
-                    Some(BPFRelocationType::R_BPF_64_RELATIVE) => {
-                        // The .text section has a reference to a symbol in the .rodata section
-
-                        let rodata_section = match rodata_section {
-                            Some(section) => section,
-                            None => Err(Error::new(
-                                ErrorKind::Other,
-                                "Error: No .rodata section found",
-                            ))?,
-                        };
-
-                        // Offset of the instruction in the text section being relocated
-                        let mut imm_offset =
-                            (relocation.addr - text_va) as usize + BYTE_OFFSET_IMMEDIATE;
-                        // Read the instruction's immediate field which contains the rodata
-                        // symbol's virtual address
-                        let ro_va = LittleEndian::read_u32(
-                            &text_bytes[imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE],
-                        ) as u64;
-                        // Convert into an offset into the rodata section by subtracting
-                        // the rodata section's base virtual address
-                        let ro_offset = ro_va - rodata_section.header.addr;
-                        // Get the rodata's physical address
-                        let rodata_pa = match rodata_section.content {
-                            elfkit::SectionContent::Raw(ref raw) => raw,
-                            _ => Err(Error::new(
-                                ErrorKind::Other,
-                                "Error: Failed to get .rodata contents",
-                            ))?,
-                        }
-                        .as_ptr() as u64;
-                        // Calculator the symbol's physical address within the rodata section
-                        let symbol_addr = rodata_pa + ro_offset;
-
-                        // Instruction lddw spans two instruction slots, split the
-                        // symbol's address into two and write into both slot's imm field
-                        let imm_length = 4;
-                        LittleEndian::write_u32(
-                            &mut text_bytes[imm_offset..imm_offset + imm_length],
-                            (symbol_addr & 0xFFFFFFFF) as u32,
-                        );
-                        imm_offset += ebpf::INSN_SIZE;
-                        LittleEndian::write_u32(
-                            &mut text_bytes[imm_offset..imm_offset + imm_length],
-                            (symbol_addr >> 32) as u32,
-                        );
+            let relocations = match self.get_section(".rel.dyn") {
+                Ok(section) => match section.content {
+                    elfkit::SectionContent::Raw(ref bytes) => {
+                        Some(EBpfElf::get_relocations(&bytes[..])?)
                     }
-                    Some(BPFRelocationType::R_BPF_64_32) => {
-                        // The .text section has an unresolved call instruction
-                        //
-                        // Hash the symbol name and stick it into the call
-                        // instruction's imm field.  Later that hash will be
-                        // used to look up the function location.
+                    _ => None,
+                },
+                Err(_) => None,
+            };
 
-                        let symbol = &symbols[relocation.sym as usize];
-                        let hash = ebpf::hash_symbol_name(&symbol.name);
-                        let imm_offset =
-                            (relocation.addr - text_va) as usize + BYTE_OFFSET_IMMEDIATE;
-                        LittleEndian::write_u32(
-                            &mut text_bytes[imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE], hash);
-                        if symbol.stype == elfkit::types::SymbolType::FUNC && symbol.value != 0 { 
-                            calls.insert(hash, (symbol.value - text_va) as usize / ebpf::INSN_SIZE);
-                        }
-                    }
+            // Dynamic relocations are optional, skip if elf contains none
+            if let Some(relocations) = relocations {
+                let rodata_section = self
+                    .elf
+                    .sections
+                    .iter()
+                    .find(|section| section.name == b".rodata");
+
+                let symbols = match self.get_section(".dynsym")?.content {
+                    elfkit::SectionContent::Symbols(ref symbols) => symbols,
                     _ => Err(Error::new(
                         ErrorKind::Other,
-                        "Error: Unhandled relocation type",
+                        "Error: Failed to get .dynsym contents",
                     ))?,
+                };
+
+                for relocation in relocations.iter() {
+                    match BPFRelocationType::from_x86_relocation_type(&relocation.rtype) {
+                        Some(BPFRelocationType::R_BPF_64_RELATIVE) => {
+                            // The .text section has a reference to a symbol in the .rodata section
+
+                            let rodata_section = match rodata_section {
+                                Some(section) => section,
+                                None => Err(Error::new(
+                                    ErrorKind::Other,
+                                    "Error: No .rodata section found",
+                                ))?,
+                            };
+
+                            // Offset of the instruction in the text section being relocated
+                            let mut imm_offset =
+                                (relocation.addr - text_va) as usize + BYTE_OFFSET_IMMEDIATE;
+                            // Read the instruction's immediate field which contains the rodata
+                            // symbol's virtual address
+                            let ro_va = LittleEndian::read_u32(
+                                &text_bytes[imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE],
+                            ) as u64;
+                            // Convert into an offset into the rodata section by subtracting
+                            // the rodata section's base virtual address
+                            let ro_offset = ro_va - rodata_section.header.addr;
+                            // Get the rodata's physical address
+                            let rodata_pa = match rodata_section.content {
+                                elfkit::SectionContent::Raw(ref raw) => raw,
+                                _ => Err(Error::new(
+                                    ErrorKind::Other,
+                                    "Error: Failed to get .rodata contents",
+                                ))?,
+                            }
+                            .as_ptr() as u64;
+                            // Calculator the symbol's physical address within the rodata section
+                            let symbol_addr = rodata_pa + ro_offset;
+
+                            // Instruction lddw spans two instruction slots, split the
+                            // symbol's address into two and write into both slot's imm field
+                            let imm_length = 4;
+                            LittleEndian::write_u32(
+                                &mut text_bytes[imm_offset..imm_offset + imm_length],
+                                (symbol_addr & 0xFFFFFFFF) as u32,
+                            );
+                            imm_offset += ebpf::INSN_SIZE;
+                            LittleEndian::write_u32(
+                                &mut text_bytes[imm_offset..imm_offset + imm_length],
+                                (symbol_addr >> 32) as u32,
+                            );
+                        }
+                        Some(BPFRelocationType::R_BPF_64_32) => {
+                            // The .text section has an unresolved call instruction
+                            //
+                            // Hash the symbol name and stick it into the call
+                            // instruction's imm field.  Later that hash will be
+                            // used to look up the function location.
+
+                            let symbol = &symbols[relocation.sym as usize];
+                            let hash = ebpf::hash_symbol_name(&symbol.name);
+                            let imm_offset =
+                                (relocation.addr - text_va) as usize + BYTE_OFFSET_IMMEDIATE;
+                            LittleEndian::write_u32(
+                                &mut text_bytes[imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE],
+                                hash,
+                            );
+                            if symbol.stype == elfkit::types::SymbolType::FUNC && symbol.value != 0
+                            {
+                                calls.insert(
+                                    hash,
+                                    (symbol.value - text_va) as usize / ebpf::INSN_SIZE,
+                                );
+                            }
+                        }
+                        _ => Err(Error::new(
+                            ErrorKind::Other,
+                            "Error: Unhandled relocation type",
+                        ))?,
+                    }
                 }
             }
             text_bytes
@@ -537,9 +557,17 @@ mod test {
             .expect("failed to read elf file");
         let mut elf = EBpfElf::load(&elf_bytes).expect("validation failed");
 
-        assert_eq!(0, elf.get_entrypoint_instruction_offset().expect("failed to get entrypoint"));
+        assert_eq!(
+            0,
+            elf.get_entrypoint_instruction_offset()
+                .expect("failed to get entrypoint")
+        );
         elf.elf.header.entry = elf.elf.header.entry + 8;
-        assert_eq!(1, elf.get_entrypoint_instruction_offset().expect("failed to get entrypoint"));
+        assert_eq!(
+            1,
+            elf.get_entrypoint_instruction_offset()
+                .expect("failed to get entrypoint")
+        );
     }
 
     #[test]
@@ -577,7 +605,7 @@ mod test {
             .expect("failed to read elf file");
         let mut elf = EBpfElf::load(&elf_bytes).expect("validation failed");
 
-        elf.elf.header.entry = elf.elf.header.entry + ebpf::INSN_SIZE as u64 + 1 ;
+        elf.elf.header.entry = elf.elf.header.entry + ebpf::INSN_SIZE as u64 + 1;
         elf.get_entrypoint_instruction_offset().unwrap();
     }
 
@@ -585,6 +613,7 @@ mod test {
     fn test_relocate_relative_calls_back() {
         let mut calls: HashMap<u32, usize> = HashMap::new();
         // call -2
+        #[rustfmt::skip]
         let mut prog = vec![
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -595,7 +624,13 @@ mod test {
 
         EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[5]);
-        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        let insn = ebpf::Insn {
+            opc: 0x85,
+            dst: 0,
+            src: 1,
+            off: 0,
+            imm: key as i32,
+        };
         assert_eq!(insn.to_array(), prog[40..]);
         assert_eq!(*calls.get(&key).unwrap(), 4);
 
@@ -603,7 +638,13 @@ mod test {
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
         EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[5]);
-        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        let insn = ebpf::Insn {
+            opc: 0x85,
+            dst: 0,
+            src: 1,
+            off: 0,
+            imm: key as i32,
+        };
         assert_eq!(insn.to_array(), prog[40..]);
         assert_eq!(*calls.get(&key).unwrap(), 0);
     }
@@ -612,6 +653,7 @@ mod test {
     fn test_relocate_relative_calls_forward() {
         let mut calls: HashMap<u32, usize> = HashMap::new();
         // call +0
+        #[rustfmt::skip]
         let mut prog = vec![
             0x85, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -622,7 +664,13 @@ mod test {
 
         EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[0]);
-        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        let insn = ebpf::Insn {
+            opc: 0x85,
+            dst: 0,
+            src: 1,
+            off: 0,
+            imm: key as i32,
+        };
         assert_eq!(insn.to_array(), prog[..8]);
         assert_eq!(*calls.get(&key).unwrap(), 1);
 
@@ -630,7 +678,13 @@ mod test {
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
         EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[0]);
-        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        let insn = ebpf::Insn {
+            opc: 0x85,
+            dst: 0,
+            src: 1,
+            off: 0,
+            imm: key as i32,
+        };
         assert_eq!(insn.to_array(), prog[..8]);
         assert_eq!(*calls.get(&key).unwrap(), 5);
     }
@@ -640,6 +694,7 @@ mod test {
     fn test_relocate_relative_calls_out_of_bounds_forward() {
         let mut calls: HashMap<u32, usize> = HashMap::new();
         // call +5
+        #[rustfmt::skip]
         let mut prog = vec![
             0x85, 0x10, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -650,7 +705,13 @@ mod test {
 
         EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[0]);
-        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        let insn = ebpf::Insn {
+            opc: 0x85,
+            dst: 0,
+            src: 1,
+            off: 0,
+            imm: key as i32,
+        };
         assert_eq!(insn.to_array(), prog[..8]);
         assert_eq!(*calls.get(&key).unwrap(), 1);
     }
@@ -660,6 +721,7 @@ mod test {
     fn test_relocate_relative_calls_out_of_bounds_back() {
         let mut calls: HashMap<u32, usize> = HashMap::new();
         // call -7
+        #[rustfmt::skip]
         let mut prog = vec![
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -670,11 +732,14 @@ mod test {
 
         EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[5]);
-        let insn = ebpf::Insn { opc: 0x85, dst: 0, src: 1, off: 0, imm: key as i32};
+        let insn = ebpf::Insn {
+            opc: 0x85,
+            dst: 0,
+            src: 1,
+            off: 0,
+            imm: key as i32,
+        };
         assert_eq!(insn.to_array(), prog[40..]);
         assert_eq!(*calls.get(&key).unwrap(), 4);
     }
 }
-
-
-

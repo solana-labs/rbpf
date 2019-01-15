@@ -20,10 +20,8 @@ uint64_t entrypoint_helper_function(uint64_t x) {
 
 extern uint64_t entrypoint(const uint8_t *input) {
   uint64_t x = (uint64_t)*input;
-  log("Start");
   if (x) {
     x = helper_function(--x);
   }
-  log("End");
   return x;
 }

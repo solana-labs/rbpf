@@ -734,7 +734,7 @@ pub fn bpf_helper_string(addr: u64, unused2: u64, unused3: u64, unused4: u64, un
     0
 }
 
-pub fn bpf_dump_u64 (arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> u64 {
+pub fn bpf_helper_u64 (arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> u64 {
     println!("dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}", arg1, arg2, arg3, arg4, arg5);
     0
 }
@@ -747,7 +747,7 @@ fn test_load_elf() {
 
     let mut vm = EbpfVmNoData::new(None).unwrap();
     vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
-    vm.register_helper_ex("log_64", None, bpf_dump_u64).unwrap();
+    vm.register_helper_ex("log_64", None, bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program().unwrap();
 }
@@ -771,11 +771,6 @@ fn test_symbol_relocation() {
 
 #[test]
 fn test_helper_parameter_on_stack() {
-    // let prog = assemble(
-    //     "mov64 r1, r10 - 10
-    //      exit",
-    // ).unwrap();
-    // println!("prog: {:?}", prog);
     let prog = &mut [
         0xbf, 0xA1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r1 = r10
         0x07, 0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, // r1 += -256
@@ -934,6 +929,35 @@ fn test_relative_call() {
 
     let mut mem = [1 as u8];
     vm.execute_program(&mut mem).unwrap();
+}
+
+#[test]
+fn test_bpf_to_bpf_scratch_registers() {
+    let mut file = File::open("tests/elfs/scratch_registers.so").expect("file open failed");
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+
+    let mut vm = EbpfVmRaw::new(None).unwrap();
+    vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
+    vm.register_helper_ex("log_64", None, bpf_helper_u64).unwrap();
+    vm.set_elf(&elf).unwrap();
+    
+    let mut mem = [1];
+    assert_eq!(vm.execute_program(&mut mem).unwrap(), 112);
+}
+
+#[test]
+fn test_bpf_to_bpf_pass_stack_reference() {
+    let mut file = File::open("tests/elfs/pass_stack_reference.so").expect("file open failed");
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+
+    let mut vm = EbpfVmNoData::new(None).unwrap();
+    vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
+    vm.register_helper_ex("log_64", None, bpf_helper_u64).unwrap();
+    vm.set_elf(&elf).unwrap();
+    
+    assert_eq!(vm.execute_program().unwrap(), 42);
 }
 
 
