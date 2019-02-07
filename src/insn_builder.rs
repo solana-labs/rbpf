@@ -6,7 +6,7 @@
 
 //! Module provides API to create eBPF programs by Rust programming language
 
-#![rustfmt::skip]
+#![cfg_attr(rustfmt, rustfmt_skip)]
 
 use ebpf::*;
 

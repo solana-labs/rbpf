@@ -22,7 +22,7 @@
 //
 // Contrary to the verifier of the Linux kernel, this one does not modify the bytecode at all.
 
-#![rustfmt::skip]
+#![cfg_attr(rustfmt, rustfmt_skip)]
 
 use ebpf;
 use std::io::{Error, ErrorKind};

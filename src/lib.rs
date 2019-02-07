@@ -8,7 +8,7 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#![rustfmt::skip]
+#![cfg_attr(rustfmt, rustfmt_skip)]
 
 //! Virtual machine and JIT compiler for eBPF programs.
 #![doc(html_logo_url = "https://raw.githubusercontent.com/qmonnet/rbpf/master/misc/rbpf.png",
@@ -69,7 +69,7 @@ impl MemoryRegion {
     pub fn new_from_slice(v: &[u8]) -> Self {
         MemoryRegion {
             addr: v.as_ptr() as u64,
-            len:  v.len() as u64, 
+            len:  v.len() as u64,
         }
     }
 }
@@ -519,7 +519,7 @@ impl<'a> EbpfVmMbuff<'a> {
             Err(Error::new(ErrorKind::Other,
                            "Error: no program or elf set"))?
         };
-        
+
         // R1 points to beginning of input memory, R10 to stack of first frame
         let mut reg: [u64;11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, frames.get_stack_top()];
 
@@ -812,7 +812,7 @@ impl<'a> EbpfVmMbuff<'a> {
                     } else if let Some(ref elf) = self.elf {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call
-                            
+
                             reg[ebpf::STACK_REG] =
                                 frames
                                     .push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
@@ -859,7 +859,7 @@ impl<'a> EbpfVmMbuff<'a> {
                 return Ok(());
             }
         }
-        
+
         let mut regions_string = "".to_string();
         if !regions.is_empty() {
             regions_string =  " regions".to_string();
@@ -1437,12 +1437,12 @@ impl<'a> EbpfVmFixedMbuff<'a> {
             0 => std::ptr::null_mut(),
             _ => mem.as_ptr() as *mut u8
         };
-        
+
         match self.parent.jit {
             Some(jit) => Ok(jit(self.mbuff.buffer.as_ptr() as *mut u8,
                                 self.mbuff.buffer.len(),
                                 mem_ptr,
-                                mem.len(), 
+                                mem.len(),
                                 self.mbuff.data_offset,
                                 self.mbuff.data_end_offset)),
             None => Err(Error::new(ErrorKind::Other,

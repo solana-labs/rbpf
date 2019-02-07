@@ -19,7 +19,7 @@
 
 // These are unit tests for the eBPF “verifier”.
 
-#![rustfmt::skip]
+#![cfg_attr(rustfmt, rustfmt_skip)]
 
 extern crate solana_rbpf;
 

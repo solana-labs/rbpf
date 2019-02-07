@@ -20,7 +20,7 @@
 //! value. Hence some helpers have unused arguments, or return a 0 value in all cases, in order to
 //! respect this convention.
 
-#![rustfmt::skip]
+#![cfg_attr(rustfmt, rustfmt_skip)]
 
 extern crate libc;
 

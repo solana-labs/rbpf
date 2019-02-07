@@ -19,7 +19,7 @@
 
 // These are unit tests for the eBPF JIT compiler.
 
-#![rustfmt::skip]
+#![cfg_attr(rustfmt, rustfmt_skip)]
 
 #![cfg_attr(feature = "cargo-clippy", allow(unreadable_literal))]
 #![cfg(not(windows))]

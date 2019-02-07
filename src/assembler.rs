@@ -7,7 +7,7 @@
 
 //! This module translates eBPF assembly language to binary.
 
-#![rustfmt::skip]
+#![cfg_attr(rustfmt, rustfmt_skip)]
 
 use asm_parser::{Instruction, Operand, parse};
 use ebpf;

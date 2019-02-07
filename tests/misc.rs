@@ -4,7 +4,7 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#![rustfmt::skip]
+#![cfg_attr(rustfmt, rustfmt_skip)]
 
 // There are unused mut warnings due to unsafe code.
 #![allow(unused_mut)]
@@ -719,7 +719,7 @@ pub fn bpf_helper_string_verify(addr: u64, unused2: u64, unused3: u64, unused4: 
             }
             return Err(Error::new(ErrorKind::Other, "Error: Unterminated string"));
        }
-       
+
     }
     Err(Error::new(ErrorKind::Other, "Error: Load segfault, bad string pointer"))
 }
@@ -895,7 +895,7 @@ fn test_bpf_to_bpf_depth() {
     let mut vm = EbpfVmRaw::new(None).unwrap();
     vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
-    
+
     for i in 0..ebpf::MAX_CALL_DEPTH {
         println!("Depth: {:?}", i);
         let mut mem = [i as u8];
@@ -942,7 +942,7 @@ fn test_bpf_to_bpf_scratch_registers() {
     vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
     vm.register_helper_ex("log_64", None, bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
-    
+
     let mut mem = [1];
     assert_eq!(vm.execute_program(&mut mem).unwrap(), 112);
 }
@@ -957,6 +957,6 @@ fn test_bpf_to_bpf_pass_stack_reference() {
     vm.register_helper_ex("log", Some(bpf_helper_string_verify), bpf_helper_string).unwrap();
     vm.register_helper_ex("log_64", None, bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
-    
+
     assert_eq!(vm.execute_program().unwrap(), 42);
 }
