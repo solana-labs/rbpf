@@ -8,6 +8,8 @@
 //! Functions in this module are used to handle eBPF programs with a higher level representation,
 //! for example to disassemble the code into a human-readable format.
 
+#![rustfmt::skip]
+
 use ebpf;
 // use ebpf::{OpCodes};
 

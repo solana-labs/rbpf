@@ -10,6 +10,8 @@
 
 //! This module parses eBPF assembly language source code.
 
+#![rustfmt::skip]
+
 use combine::char::{alpha_num, char, digit, hex_digit, spaces, string};
 use combine::{between, eof, many, many1, one_of, optional, Parser, ParseError, ParseResult, parser,
               sep_by, try, State, Stream};

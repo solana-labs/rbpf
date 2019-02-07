@@ -18,6 +18,8 @@
 //! <https://www.kernel.org/doc/Documentation/networking/filter.txt>, or for a shorter version of
 //! the list of the operation codes: <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md>
 
+#![rustfmt::skip]
+
 use MemoryRegion;
 use std::io::Error;
 use std::collections::hash_map::DefaultHasher;

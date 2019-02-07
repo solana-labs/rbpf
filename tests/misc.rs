@@ -4,6 +4,8 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+#![rustfmt::skip]
+
 // There are unused mut warnings due to unsafe code.
 #![allow(unused_mut)]
 #![cfg_attr(feature = "cargo-clippy", allow(unreadable_literal))]
@@ -958,9 +960,3 @@ fn test_bpf_to_bpf_pass_stack_reference() {
     
     assert_eq!(vm.execute_program().unwrap(), 42);
 }
-
-
-
-
-
-

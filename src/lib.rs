@@ -8,6 +8,7 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+#![rustfmt::skip]
 
 //! Virtual machine and JIT compiler for eBPF programs.
 #![doc(html_logo_url = "https://raw.githubusercontent.com/qmonnet/rbpf/master/misc/rbpf.png",

@@ -20,6 +20,8 @@
 //! value. Hence some helpers have unused arguments, or return a 0 value in all cases, in order to
 //! respect this convention.
 
+#![rustfmt::skip]
+
 extern crate libc;
 
 use std::u64;
