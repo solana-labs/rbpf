@@ -19,6 +19,7 @@
 
 // These are unit tests for the eBPF “verifier”.
 
+#![allow(clippy::deprecated_cfg_attr)]
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
 extern crate solana_rbpf;

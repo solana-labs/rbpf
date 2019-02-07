@@ -6,6 +6,7 @@
 
 //! Module provides API to create eBPF programs by Rust programming language
 
+#![allow(clippy::deprecated_cfg_attr)]
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
 use ebpf::*;

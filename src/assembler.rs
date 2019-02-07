@@ -7,6 +7,7 @@
 
 //! This module translates eBPF assembly language to binary.
 
+#![allow(clippy::deprecated_cfg_attr)]
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
 use asm_parser::{Instruction, Operand, parse};

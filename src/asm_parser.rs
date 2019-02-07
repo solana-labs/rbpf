@@ -10,6 +10,7 @@
 
 //! This module parses eBPF assembly language source code.
 
+#![allow(clippy::deprecated_cfg_attr)]
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
 use combine::char::{alpha_num, char, digit, hex_digit, spaces, string};
