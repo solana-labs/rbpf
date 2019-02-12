@@ -755,6 +755,30 @@ fn test_load_elf() {
 }
 
 #[test]
+fn test_load_elf_empty_noro() {
+    let mut file = File::open("tests/elfs/noro.so").expect("file open failed");
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+
+    let mut vm = EbpfVmNoData::new(None).unwrap();
+    vm.register_helper_ex("log_64", None, bpf_helper_u64).unwrap();
+    vm.set_elf(&elf).unwrap();
+    vm.execute_program().unwrap();
+}
+
+#[test]
+fn test_load_elf_empty_rodata() {
+    let mut file = File::open("tests/elfs/empty_rodata.so").expect("file open failed");
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+
+    let mut vm = EbpfVmNoData::new(None).unwrap();
+    vm.register_helper_ex("log_64", None, bpf_helper_u64).unwrap();
+    vm.set_elf(&elf).unwrap();
+    vm.execute_program().unwrap();
+}
+
+#[test]
 fn test_symbol_relocation() {
         let prog = &mut [
         0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
