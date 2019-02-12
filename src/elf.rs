@@ -231,13 +231,13 @@ impl EBpfElf {
             if insn.opc == 0x85 && insn.imm != -1 {
                 let insn_idx = (i as i32 + 1 + insn.imm) as isize;
                 if insn_idx < 0 || insn_idx as usize >= prog.len() / ebpf::INSN_SIZE {
-                    return Err(Error::new(
+                    Err(Error::new(
                         ErrorKind::Other,
                         format!(
                             "Error: Relative jump at instruction {} is out of bounds",
                             insn_idx
                         ),
-                    ));
+                    ))?;
                 }
                 let hash = ebpf::hash_symbol_name(&[i as u8]); // use the instruction index as the key
                 insn.imm = hash as i32;
@@ -255,34 +255,34 @@ impl EBpfElf {
     fn validate(&self) -> Result<(), Error> {
         // Validate header
         if self.elf.header.ident_class != elfkit::types::Class::Class64 {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong class",
-            ));
+            ))?;
         }
         if self.elf.header.ident_endianness != elfkit::types::Endianness::LittleEndian {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong endianess",
-            ));
+            ))?;
         }
         if self.elf.header.ident_abi != elfkit::types::Abi::SYSV {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong abi",
-            ));
+            ))?;
         }
         if self.elf.header.machine != elfkit::types::Machine::BPF {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong machine",
-            ));
+            ))?;
         }
         if self.elf.header.etype != elfkit::types::ElfType::DYN {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong type",
-            ));
+            ))?;
         }
 
         let text_sections: Vec<_> = self
@@ -292,10 +292,10 @@ impl EBpfElf {
             .filter(|section| section.name.starts_with(b".text"))
             .collect();
         if text_sections.len() > 1 {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Multiple text sections, consider removing llc option: -function-sections",
-            ));
+            ))?;
         }
 
         Ok(())
