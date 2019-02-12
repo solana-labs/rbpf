@@ -221,7 +221,7 @@ impl EBpfElf {
         }
     }
 
-    fn relocate_relative_calls(
+    fn fixup_relative_calls(
         calls: &mut HashMap<u32, usize>,
         prog: &mut Vec<u8>,
     ) -> Result<(), Error> {
@@ -324,7 +324,7 @@ impl EBpfElf {
             };
             let text_va = text_section.header.addr;
 
-            EBpfElf::relocate_relative_calls(&mut calls, &mut text_bytes)?;
+            EBpfElf::fixup_relative_calls(&mut calls, &mut text_bytes)?;
 
             let relocations = match self.get_section(".rel.dyn") {
                 Ok(section) => match section.content {
@@ -618,7 +618,7 @@ mod test {
     }
 
     #[test]
-    fn test_relocate_relative_calls_back() {
+    fn test_fixup_relative_calls_back() {
         // call -2
         let mut calls: HashMap<u32, usize> = HashMap::new();
         #[rustfmt::skip]
@@ -630,7 +630,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x10, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff];
 
-        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        EBpfElf::fixup_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[5, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -645,7 +645,7 @@ mod test {
         // // call +6
         let mut calls: HashMap<u32, usize> = HashMap::new();
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
-        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        EBpfElf::fixup_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[5, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -659,7 +659,7 @@ mod test {
     }
 
     #[test]
-    fn test_relocate_relative_calls_forward() {
+    fn test_fixuprelative_calls_forward() {
         // call +0
         let mut calls: HashMap<u32, usize> = HashMap::new();
         #[rustfmt::skip]
@@ -671,7 +671,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        EBpfElf::fixup_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[0, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -686,7 +686,7 @@ mod test {
         // call +4
         let mut calls: HashMap<u32, usize> = HashMap::new();
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
-        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        EBpfElf::fixup_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[0, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -701,7 +701,7 @@ mod test {
 
     #[test]
     #[should_panic(expected = "Error: Relative jump at instruction 0 is out of bounds")]
-    fn test_relocate_relative_calls_out_of_bounds_forward() {
+    fn test_fixuprelative_calls_out_of_bounds_forward() {
         let mut calls: HashMap<u32, usize> = HashMap::new();
         // call +5
         #[rustfmt::skip]
@@ -713,7 +713,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        EBpfElf::fixup_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[0]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -728,7 +728,7 @@ mod test {
 
     #[test]
     #[should_panic(expected = "Error: Relative jump at instruction 5 is out of bounds")]
-    fn test_relocate_relative_calls_out_of_bounds_back() {
+    fn test_fixup_relative_calls_out_of_bounds_back() {
         let mut calls: HashMap<u32, usize> = HashMap::new();
         // call -7
         #[rustfmt::skip]
@@ -740,7 +740,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x10, 0x00, 0x00, 0xf9, 0xff, 0xff, 0xff];
 
-        EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
+        EBpfElf::fixup_relative_calls(&mut calls, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[5]);
         let insn = ebpf::Insn {
             opc: 0x85,

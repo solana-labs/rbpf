@@ -9,6 +9,14 @@ LLVM_DIR=../../../solana/sdk/bpf/llvm-native/bin/
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -o noop.so noop.o
 rm noop.o
 
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o noro.o -c noro.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic elf.ld -o noro.so noro.o
+rm noro.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o empty_rodata.o -c empty_rodata.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -o empty_rodata.so empty_rodata.o
+rm empty_rodata.o
+
 "$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o unresolved_helper.o -c unresolved_helper.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -o unresolved_helper.so unresolved_helper.o
 rm unresolved_helper.o
