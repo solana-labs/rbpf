@@ -231,21 +231,30 @@ impl EBpfElf {
             if insn.opc == 0x85 && insn.imm != -1 {
                 let insn_idx = (i as i32 + 1 + insn.imm) as isize;
                 if insn_idx < 0 || insn_idx as usize >= prog.len() / ebpf::INSN_SIZE {
-                    return Err(Error::new(
+                    Err(Error::new(
+                        ErrorKind::Other,
+                        format!("Error: Relative jump at instruction {} is out of bounds", i),
+                    ))?;
+                }
+                // use the instruction index as the key
+                let mut key = [0u8; mem::size_of::<i64>()];
+                LittleEndian::write_u64(&mut key, i as u64);
+                let hash = ebpf::hash_symbol_name(&key);
+                if calls.insert(hash, insn_idx as usize).is_some() {
+                    Err(Error::new(
                         ErrorKind::Other,
                         format!(
-                            "Error: Relative jump at instruction {} is out of bounds",
-                            insn_idx
+                            "Error: Relocation hash collision while encoding instruction {}",
+                            i
                         ),
-                    ));
+                    ))?;
                 }
-                let hash = ebpf::hash_symbol_name(&[i as u8]); // use the instruction index as the key
+
                 insn.imm = hash as i32;
                 prog.splice(
                     i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE,
                     insn.to_vec(),
                 );
-                calls.insert(hash, insn_idx as usize);
             }
         }
         Ok(())
@@ -611,8 +620,8 @@ mod test {
 
     #[test]
     fn test_relocate_relative_calls_back() {
-        let mut calls: HashMap<u32, usize> = HashMap::new();
         // call -2
+        let mut calls: HashMap<u32, usize> = HashMap::new();
         #[rustfmt::skip]
         let mut prog = vec![
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -623,7 +632,7 @@ mod test {
             0x85, 0x10, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff];
 
         EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
-        let key = ebpf::hash_symbol_name(&[5]);
+        let key = ebpf::hash_symbol_name(&[5, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -635,9 +644,10 @@ mod test {
         assert_eq!(*calls.get(&key).unwrap(), 4);
 
         // // call +6
+        let mut calls: HashMap<u32, usize> = HashMap::new();
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
         EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
-        let key = ebpf::hash_symbol_name(&[5]);
+        let key = ebpf::hash_symbol_name(&[5, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -651,8 +661,8 @@ mod test {
 
     #[test]
     fn test_relocate_relative_calls_forward() {
-        let mut calls: HashMap<u32, usize> = HashMap::new();
         // call +0
+        let mut calls: HashMap<u32, usize> = HashMap::new();
         #[rustfmt::skip]
         let mut prog = vec![
             0x85, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -663,7 +673,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
         EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
-        let key = ebpf::hash_symbol_name(&[0]);
+        let key = ebpf::hash_symbol_name(&[0, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -675,9 +685,10 @@ mod test {
         assert_eq!(*calls.get(&key).unwrap(), 1);
 
         // call +4
+        let mut calls: HashMap<u32, usize> = HashMap::new();
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
         EBpfElf::relocate_relative_calls(&mut calls, &mut prog).unwrap();
-        let key = ebpf::hash_symbol_name(&[0]);
+        let key = ebpf::hash_symbol_name(&[0, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -690,7 +701,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Error: Relative jump at instruction 6 is out of bounds")]
+    #[should_panic(expected = "Error: Relative jump at instruction 0 is out of bounds")]
     fn test_relocate_relative_calls_out_of_bounds_forward() {
         let mut calls: HashMap<u32, usize> = HashMap::new();
         // call +5
@@ -717,7 +728,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Error: Relative jump at instruction -1 is out of bounds")]
+    #[should_panic(expected = "Error: Relative jump at instruction 5 is out of bounds")]
     fn test_relocate_relative_calls_out_of_bounds_back() {
         let mut calls: HashMap<u32, usize> = HashMap::new();
         // call -7

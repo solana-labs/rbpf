@@ -25,6 +25,7 @@
 
 extern crate byteorder;
 extern crate combine;
+extern crate hash32;
 extern crate time;
 
 use std::u32;

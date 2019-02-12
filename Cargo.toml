@@ -30,6 +30,7 @@ time = "0.1"
 byteorder = "1.2"
 elfkit = "0.0.6"
 num-traits = "0.2.5"
+hash32 = "0.1.0"
 
 [dev-dependencies]
 

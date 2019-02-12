@@ -23,10 +23,9 @@
 
 use MemoryRegion;
 use std::io::Error;
-use std::collections::hash_map::DefaultHasher;
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use byteorder::{ByteOrder, LittleEndian};
+use hash32::{Hash, Hasher, Murmur3Hasher};
 
 /// Maximum number of instructions in an eBPF program.
 pub const PROG_MAX_INSNS: usize = 4096;
@@ -631,7 +630,7 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<Insn> {
 /// into a 32 bit id used to identify a helper function.  The 32 bit id is used in the
 /// eBPF `call` instruction's imm field.
 pub fn hash_symbol_name(name: &[u8]) -> u32 {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = Murmur3Hasher::default();
     Hash::hash_slice(name, &mut hasher);
-    hasher.finish() as u32
+    hasher.finish()
 }
