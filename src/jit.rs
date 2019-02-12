@@ -774,7 +774,7 @@ impl<'a> JitMemory<'a> {
                     emit_cmp(self, src, dst);
                     emit_jcc(self, 0x8e, target_pc);
                 },
-                ebpf::CALL       => {
+                ebpf::CALL_IMM  => {
                     // For JIT, helpers in use MUST be registered at compile time. They can be
                     // updated later, but not created after compiling (we need the address of the
                     // helper function in the JIT-compiled program).
@@ -793,7 +793,7 @@ impl<'a> JitMemory<'a> {
                                                insn.imm as u32)))?;
                     };
                 },
-                ebpf::TAIL_CALL  => { unimplemented!() },
+                ebpf::CALL_REG  => { unimplemented!() },
                 ebpf::EXIT       => {
                     if insn_ptr != prog.len() / ebpf::INSN_SIZE - 1 {
                         emit_jmp(self, TARGET_PC_EXIT);

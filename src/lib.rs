@@ -543,10 +543,11 @@ impl<'a> EbpfVmMbuff<'a> {
         let mut pc: usize = entry;
         self.last_insn_count = 0;
         while pc * ebpf::INSN_SIZE < prog.len() {
-            // println!("    BPF: {:016x?} frame {:?} insn {:4?} {}",
+            // println!("    BPF: {:5?} {:016x?} frame {:?} pc {:4?} {}",
+            //          self.last_insn_count,
             //          reg,
             //          frames.get_frame_index(),
-            //          pc, 
+            //          pc,
             //          disassembler::to_insn_vec(&prog[pc * ebpf::INSN_SIZE..])[0].desc);
             let insn = ebpf::get_insn(prog, pc);
             let _dst = insn.dst as usize;
@@ -803,9 +804,15 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::JSLT_REG   => if (reg[_dst] as i64) <  reg[_src] as i64 { pc = (pc as i16 + insn.off) as usize; },
                 ebpf::JSLE_IMM   => if (reg[_dst] as i64) <= insn.imm  as i64 { pc = (pc as i16 + insn.off) as usize; },
                 ebpf::JSLE_REG   => if (reg[_dst] as i64) <= reg[_src] as i64 { pc = (pc as i16 + insn.off) as usize; },
+
+                ebpf::CALL_REG   => {
+                    println!("CALL_REG R{:?}[{:?}]", _src, reg[_src]);
+                    pc = reg[_src] as usize;
+                },
+
                 // Do not delegate the check to the verifier, since registered functions can be
                 // changed after the program has been verified.
-                ebpf::CALL       => {
+                ebpf::CALL_IMM   => {
                     if let Some(helper) = self.helpers.get(&(insn.imm as u32)) {
                         if let Some(function) = helper.verifier {
                             function(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?;
@@ -842,7 +849,6 @@ impl<'a> EbpfVmMbuff<'a> {
                         _        => return Ok(reg[0]),
                     }
                 },
-                ebpf::TAIL_CALL  => unimplemented!(),
                 _                => unreachable!()
             }
             if (self.max_insn_count != 0) && (self.last_insn_count >= self.max_insn_count) {
@@ -2144,7 +2150,6 @@ mod tests {
         let mut frames = CallFrames::new(DEPTH, SIZE);
         let mut ptrs: Vec<MemoryRegion> = Vec::new();
         for i in 0..DEPTH - 1 {
-            println!("i: {:?}", i);
             let registers = vec![i as u64; 5];
             assert_eq!(frames.get_frame_index(), i);
             ptrs.push(frames.get_stacks()[i].clone());
@@ -2157,7 +2162,6 @@ mod tests {
             assert!(!(ptrs[i].addr <= new_ptrs[i+1].addr && new_ptrs[i+1].addr < ptrs[i].addr + ptrs[i].len));
         }
         let i = DEPTH - 1;
-        println!("i: {:?}", i);
         let registers = vec![i as u64; 5];
         assert_eq!(frames.get_frame_index(), i);
         ptrs.push(frames.get_stacks()[i].clone());
@@ -2165,7 +2169,6 @@ mod tests {
         assert!(frames.push(&registers, DEPTH - 1).is_err());
 
         for i in (0..DEPTH - 1).rev() {
-            println!("i: {:?}", i);
             let (saved_reg, stack_ptr, return_ptr) = frames.pop().unwrap();
             assert_eq!(saved_reg, [i as u64, i as u64, i as u64, i as u64]);
             assert_eq!(ptrs[i].addr + ptrs[i].len - 1, stack_ptr);

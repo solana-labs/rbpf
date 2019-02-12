@@ -93,10 +93,15 @@ fn test_jeq() {
                Ok(vec![insn(ebpf::JEQ_REG, 1, 3, 8, 0)]));
 }
 
+#[test]
+fn test_call_reg() {
+    assert_eq!(asm("callx 3"), Ok(vec![insn(ebpf::CALL_REG, 0, 3, 0, 0)]));
+}
+
 // Example for InstructionType::Call.
 #[test]
-fn test_call() {
-    assert_eq!(asm("call 300"), Ok(vec![insn(ebpf::CALL, 0, 0, 0, 300)]));
+fn test_call_imm() {
+    assert_eq!(asm("call 300"), Ok(vec![insn(ebpf::CALL_IMM, 0, 0, 0, 300)]));
 }
 
 // Example for InstructionType::Endian.

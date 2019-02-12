@@ -7,7 +7,6 @@
 // this loader will need to be re-written to use the program headers instead.
 
 extern crate elfkit;
-// extern crate enum_primitive_derive;
 extern crate num_traits;
 
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
@@ -264,34 +263,34 @@ impl EBpfElf {
     fn validate(&self) -> Result<(), Error> {
         // Validate header
         if self.elf.header.ident_class != elfkit::types::Class::Class64 {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong class",
-            ));
+            ))?;
         }
         if self.elf.header.ident_endianness != elfkit::types::Endianness::LittleEndian {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong endianess",
-            ));
+            ))?;
         }
         if self.elf.header.ident_abi != elfkit::types::Abi::SYSV {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong abi",
-            ));
+            ))?;
         }
         if self.elf.header.machine != elfkit::types::Machine::BPF {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong machine",
-            ));
+            ))?;
         }
         if self.elf.header.etype != elfkit::types::ElfType::DYN {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong type",
-            ));
+            ))?;
         }
 
         let text_sections: Vec<_> = self
@@ -301,10 +300,10 @@ impl EBpfElf {
             .filter(|section| section.name.starts_with(b".text"))
             .collect();
         if text_sections.len() > 1 {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::Other,
                 "Error: Multiple text sections, consider removing llc option: -function-sections",
-            ));
+            ))?;
         }
 
         Ok(())
