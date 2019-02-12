@@ -7,7 +7,6 @@
 // this loader will need to be re-written to use the program headers instead.
 
 extern crate elfkit;
-// extern crate enum_primitive_derive;
 extern crate num_traits;
 
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
