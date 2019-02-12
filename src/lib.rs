@@ -802,9 +802,15 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::JSLT_REG   => if (reg[_dst] as i64) <  reg[_src] as i64 { pc = (pc as i16 + insn.off) as usize; },
                 ebpf::JSLE_IMM   => if (reg[_dst] as i64) <= insn.imm  as i64 { pc = (pc as i16 + insn.off) as usize; },
                 ebpf::JSLE_REG   => if (reg[_dst] as i64) <= reg[_src] as i64 { pc = (pc as i16 + insn.off) as usize; },
+
+                ebpf::CALL_REG   => {
+                    println!("CALL_REG R{:?}[{:?}]", _src, reg[_src]);
+                    pc = reg[_src] as usize;
+                },
+
                 // Do not delegate the check to the verifier, since registered functions can be
                 // changed after the program has been verified.
-                ebpf::CALL       => {
+                ebpf::CALL_IMM   => {
                     if let Some(helper) = self.helpers.get(&(insn.imm as u32)) {
                         if let Some(function) = helper.verifier {
                             function(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?;
@@ -841,7 +847,6 @@ impl<'a> EbpfVmMbuff<'a> {
                         _        => return Ok(reg[0]),
                     }
                 },
-                ebpf::TAIL_CALL  => unimplemented!(),
                 _                => unreachable!()
             }
             if (self.max_insn_count != 0) && (self.last_insn_count >= self.max_insn_count) {

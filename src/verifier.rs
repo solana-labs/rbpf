@@ -237,8 +237,8 @@ pub fn check(prog: &[u8]) -> Result<(), Error> {
             ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr)?; },
             ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
             ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr)?; },
-            ebpf::CALL       => {},
-            ebpf::TAIL_CALL  => { unimplemented!() },
+            ebpf::CALL_IMM   => {},
+            ebpf::CALL_REG   => {},
             ebpf::EXIT       => {},
 
             _                => {

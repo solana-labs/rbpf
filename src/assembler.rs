@@ -15,7 +15,7 @@ use ebpf;
 use ebpf::Insn;
 use std::collections::HashMap;
 use self::InstructionType::{AluBinary, AluUnary, LoadAbs, LoadInd, LoadImm, LoadReg, StoreImm,
-                            StoreReg, JumpUnconditional, JumpConditional, Call, Endian, NoOperand};
+                            StoreReg, JumpUnconditional, JumpConditional, CallImm, CallReg, Endian, NoOperand};
 use asm_parser::Operand::{Integer, Memory, Register, Nil};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -30,7 +30,8 @@ enum InstructionType {
     StoreReg,
     JumpUnconditional,
     JumpConditional,
-    Call,
+    CallImm,
+    CallReg,
     Endian(i64),
     NoOperand,
 }
@@ -74,7 +75,8 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
         // Miscellaneous.
         entry("exit", NoOperand, ebpf::EXIT);
         entry("ja", JumpUnconditional, ebpf::JA);
-        entry("call", Call, ebpf::CALL);
+        entry("call", CallImm, ebpf::CALL_IMM);
+        entry("callx", CallReg, ebpf::CALL_REG);
         entry("lddw", LoadImm, ebpf::LD_DW_IMM);
 
         // AluUnary.
@@ -175,7 +177,8 @@ fn encode(inst_type: InstructionType, opc: u8, operands: &[Operand]) -> Result<I
         (JumpConditional, Register(dst), Integer(imm), Integer(off)) => {
             insn(opc | ebpf::BPF_K, dst, 0, off, imm)
         }
-        (Call, Integer(imm), Nil, Nil) => insn(opc, 0, 0, 0, imm),
+        (CallImm, Integer(imm), Nil, Nil) => insn(opc, 0, 0, 0, imm),
+        (CallReg, Integer(src), Nil, Nil) => insn(opc, 0, src, 0, 0),
         (Endian(size), Register(dst), Nil, Nil) => insn(opc, dst, 0, 0, size),
         (LoadImm, Register(dst), Integer(imm), Nil) => insn(opc, dst, 0, 0, (imm << 32) >> 32),
         _ => Err(format!("Unexpected operands: {:?}", operands)),

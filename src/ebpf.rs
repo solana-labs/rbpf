@@ -387,9 +387,9 @@ pub const JSLE_IMM   : u8 = BPF_JMP   | BPF_K   | BPF_JSLE;
 pub const JSLE_REG   : u8 = BPF_JMP   | BPF_X   | BPF_JSLE;
 
 /// BPF opcode: `call imm` /// helper function call to helper with key `imm`.
-pub const CALL       : u8 = BPF_JMP   | BPF_CALL;
+pub const CALL_IMM   : u8 = BPF_JMP   | BPF_CALL;
 /// BPF opcode: tail call.
-pub const TAIL_CALL  : u8 = BPF_JMP   | BPF_X | BPF_CALL;
+pub const CALL_REG   : u8 = BPF_JMP   | BPF_X | BPF_CALL;
 /// BPF opcode: `exit` /// `return r0`.
 pub const EXIT       : u8 = BPF_JMP   | BPF_EXIT;
 
