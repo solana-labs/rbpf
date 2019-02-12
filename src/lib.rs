@@ -509,7 +509,7 @@ impl<'a> EbpfVmMbuff<'a> {
         let mut entry: usize = 0;
         let prog =
         if let Some(ref elf) = self.elf {
-            if let Ok(regions) = elf.get_rodata() {
+            if let Ok(regions) = elf.get_ro_sections() {
                 let ptrs: Vec<_> = regions.iter().map( |r| MemoryRegion::new_from_slice(r)).collect();
                 ro_regions.extend(ptrs);
             }
@@ -872,7 +872,7 @@ impl<'a> EbpfVmMbuff<'a> {
         if !regions.is_empty() {
             regions_string =  " regions".to_string();
             for region in regions.iter() {
-                regions_string = format!("{} {:#x}/{:#x}", regions_string, region.addr, region.len);
+                regions_string = format!("{} {:#x}-{:#x}", regions_string, region.addr, region.addr + region.len);
             }
         }
 
@@ -905,7 +905,7 @@ impl<'a> EbpfVmMbuff<'a> {
     pub fn jit_compile(&mut self) -> Result<(), Error> {
         let prog =
         if let Some(ref elf) = self.elf {
-            if elf.get_rodata().is_ok() {
+            if elf.get_ro_sections().is_ok() {
                 Err(Error::new(ErrorKind::Other,
                            "Error: JIT does not support RO data"))?
             }
@@ -1373,7 +1373,7 @@ impl<'a> EbpfVmFixedMbuff<'a> {
     pub fn jit_compile(&mut self) -> Result<(), Error> {
         let prog =
             if let Some(ref elf) = self.parent.elf {
-                if elf.get_rodata().is_ok() {
+                if elf.get_ro_sections().is_ok() {
                     Err(Error::new(ErrorKind::Other,
                             "Error: JIT does not support RO data"))?
                 }
@@ -1751,7 +1751,7 @@ impl<'a> EbpfVmRaw<'a> {
     pub fn jit_compile(&mut self) -> Result<(), Error> {
         let prog =
             if let Some(ref elf) = self.parent.elf {
-                if elf.get_rodata().is_ok() {
+                if elf.get_ro_sections().is_ok() {
                     Err(Error::new(ErrorKind::Other,
                             "Error: JIT does not support RO data"))?
                 }

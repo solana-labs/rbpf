@@ -33,8 +33,12 @@ use std::str;
 //   16 bit offset
 //   32 bit immediate (imm)
 
+// Byte offset of the immediate field in the instruction
 const BYTE_OFFSET_IMMEDIATE: usize = 4;
+// Byte length of the immediate field
 const BYTE_LENGTH_IMMEIDATE: usize = 4;
+// Index of the text section in the vector of `SectionInfo`s (always the first)
+const TEXT_SECTION_INDEX: usize = 0;
 
 /// BPF relocation types.
 #[allow(non_camel_case_types)]
@@ -48,6 +52,16 @@ pub enum BPFRelocationType {
     R_BPF_64_RELATIVE = 8,
     /// word32 S + A
     R_BPF_64_32 = 10,
+}
+
+// Describes a section in the ELF and used for editing in place
+struct SectionInfo<'a> {
+    // Section virtual address as expressed in the ELF
+    va: u64,
+    // Length of the section in bytes
+    len: u64,
+    // Reference to the actual section bytes to be edited in place
+    bytes: &'a mut Vec<u8>,
 }
 
 impl BPFRelocationType {
@@ -107,20 +121,13 @@ impl EBpfElf {
     }
 
     /// Get a vector of read-only data sections
-    pub fn get_rodata(&self) -> Result<Vec<&[u8]>, Error> {
-        let rodata: Result<Vec<_>, _> = self
-            .elf
+    pub fn get_ro_sections(&self) -> Result<Vec<&[u8]>, Error> {
+        self.elf
             .sections
             .iter()
-            .filter(|section| section.name == b".rodata")
+            .filter(|section| section.name == b".rodata" || section.name == b".data.rel.ro")
             .map(EBpfElf::content_to_bytes)
-            .collect();
-        if let Ok(ref v) = rodata {
-            if v.is_empty() {
-                Err(Error::new(ErrorKind::Other, "Error: No RO data"))?;
-            }
-        }
-        rodata
+            .collect()
     }
 
     /// Get the entry point offset into the text section
@@ -309,148 +316,257 @@ impl EBpfElf {
         Ok(())
     }
 
-    /// Performs relocation on the text section
+    // Splits sections from the elf structure so that they may be edited concurrently and in place
+    fn split_sections(sections: &mut [elfkit::Section]) -> Vec<&mut elfkit::Section> {
+        let mut section_refs = Vec::new();
+        if !sections.is_empty() {
+            let (s, rest) = sections.split_at_mut(1);
+            section_refs.push(&mut s[0]);
+            section_refs.append(&mut EBpfElf::split_sections(rest));
+        }
+        section_refs
+    }
+
+    // Gets a mutable reference to a split section by name
+    fn get_section_ref<'a, 'b>(
+        sections: &'b mut Vec<&'a mut elfkit::Section>,
+        name: &str,
+    ) -> Result<(&'a mut elfkit::Section), Error> {
+        match sections
+            .iter()
+            .enumerate()
+            .find(|section| section.1.name == name.as_bytes())
+        {
+            Some((index, _)) => Ok(sections.remove(index)),
+            None => Err(Error::new(
+                ErrorKind::Other,
+                format!("Error: No {:?} section", name),
+            ))?,
+        }
+    }
+
+    /// Creates a vector of load sections used to lookup which section
+    /// contains a particular ELF virtual address
+    fn get_load_sections<'a, 'b>(
+        sections: &'a mut Vec<&'b mut elfkit::Section>,
+    ) -> Result<(Vec<SectionInfo<'b>>), Error> {
+        let mut section_infos = Vec::new();
+
+        // .text section mandatory
+        let mut text_section = EBpfElf::get_section_ref(sections, ".text")?;
+        match (&mut text_section.content).as_raw_mut() {
+            Some(bytes) => {
+                section_infos.push(SectionInfo {
+                    va: text_section.header.addr,
+                    len: text_section.header.size,
+                    bytes: bytes,
+                });
+            }
+            None => Err(Error::new(
+                ErrorKind::Other,
+                "Error: Failed to get .text contents",
+            ))?,
+        };
+
+        // .rodata section optional
+        let mut ro_data_section = EBpfElf::get_section_ref(sections, ".rodata");
+        if let Ok(ro_data_section) = ro_data_section {
+            match (&mut ro_data_section.content).as_raw_mut() {
+                Some(bytes) => {
+                    section_infos.push(SectionInfo {
+                        va: ro_data_section.header.addr,
+                        len: ro_data_section.header.size,
+                        bytes: bytes,
+                    });
+                }
+                None => (),
+            };
+        }
+
+        // .data.rel.ro optional
+        let mut data_rel_ro_section = EBpfElf::get_section_ref(sections, ".data.rel.ro");
+        if let Ok(data_rel_ro_section) = data_rel_ro_section {
+            match (&mut data_rel_ro_section.content).as_raw_mut() {
+                Some(bytes) => {
+                    section_infos.push(SectionInfo {
+                        va: data_rel_ro_section.header.addr,
+                        len: data_rel_ro_section.header.size,
+                        bytes: bytes,
+                    });
+                }
+                None => (),
+            };
+        }
+
+        Ok(section_infos)
+    }
+
+    /// Relocates the ELF in-place
     fn relocate(&mut self) -> Result<(), Error> {
         let mut calls: HashMap<u32, usize> = HashMap::new();
 
-        let text_bytes = {
-            let text_section = self.get_section(".text")?;
-            let mut text_bytes = match text_section.content {
-                elfkit::SectionContent::Raw(ref bytes) => bytes.clone(),
-                _ => Err(Error::new(
+        // Split and build a mutable list of sections
+        let mut sections = EBpfElf::split_sections(&mut self.elf.sections);
+        let mut section_infos = EBpfElf::get_load_sections(&mut sections)?;
+
+        // Fixup all program counter relative call instructions
+        EBpfElf::fixup_relative_calls(&mut calls, &mut section_infos[0].bytes)?;
+
+        // Fixup all the relocations in the relocation section if exists
+        let relocations = match EBpfElf::get_section_ref(&mut sections, ".rel.dyn") {
+            Ok(rel_dyn_section) => match (&mut rel_dyn_section.content).as_raw_mut() {
+                Some(bytes) => Some(EBpfElf::get_relocations(&bytes[..])?),
+                _ => None,
+            },
+            Err(_) => None,
+        };
+
+        if let Some(relocations) = relocations {
+            // Get the symbol table up front
+            let dynsym_section = EBpfElf::get_section_ref(&mut sections, ".dynsym")?;
+            let symbols = match (&dynsym_section.content).as_symbols() {
+                Some(bytes) => bytes,
+                None => Err(Error::new(
                     ErrorKind::Other,
                     "Error: Failed to get .text contents",
                 ))?,
             };
-            let text_va = text_section.header.addr;
 
-            EBpfElf::fixup_relative_calls(&mut calls, &mut text_bytes)?;
+            for relocation in relocations.iter() {
+                match BPFRelocationType::from_x86_relocation_type(&relocation.rtype) {
+                    Some(BPFRelocationType::R_BPF_64_RELATIVE) => {
+                        // Raw relocation between sections.  The instruction being relocated contains
+                        // the virtual address that it needs turned into a physical address.  Read it
+                        // locate it in the ELF, convert to physical address
 
-            let relocations = match self.get_section(".rel.dyn") {
-                Ok(section) => match section.content {
-                    elfkit::SectionContent::Raw(ref bytes) => {
-                        Some(EBpfElf::get_relocations(&bytes[..])?)
+                        let mut target_section = None;
+                        for (i, info) in section_infos.iter().enumerate() {
+                            if info.va <= relocation.addr && relocation.addr < info.va + info.len {
+                                target_section = Some(i);
+                                break;
+                            }
+                        }
+                        let target_section = match target_section {
+                            Some(i) => i,
+                            None => Err(Error::new(
+                                ErrorKind::Other,
+                                format!("Error: Relocation failed, no loadable section contains virtual address {:x?}", relocation.addr),
+                            ))?,
+                        };
+
+                        // Offset into the section being relocated
+                        let target_offset =
+                            (relocation.addr - section_infos[target_section].va) as usize;
+
+                        // Offset of the immediate field
+                        let mut imm_offset = target_offset + BYTE_OFFSET_IMMEDIATE;
+
+                        // Read the instruction's immediate field which contains virtual
+                        // address to convert to physical
+                        let refd_va = LittleEndian::read_u32(
+                            &section_infos[target_section].bytes
+                                [imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE],
+                        ) as u64;
+
+                        if refd_va == 0 {
+                            // TODO Skipping this relocation, the virtual address found at this
+                            // target location is zero, so don't know how to turn it into a valid physical
+                            // address.
+                            // println!(
+                            //     "!! Skipped relocation section {:?} target_offset {:?} va {:x?} Referenced va ({:x?}))",
+                            //     target_section, target_offset, relocation.addr, refd_va
+                            // );
+                            continue;
+                        }
+
+                        // Find the section that contains the virtual address to convert
+                        let mut refd_section = None;
+                        for (i, info) in section_infos.iter().enumerate() {
+                            if info.va <= refd_va && refd_va < info.va + info.len {
+                                refd_section = Some(i);
+                                break;
+                            }
+                        }
+                        let refd_section = match refd_section {
+                            Some(i) => i,
+                            None => Err(Error::new(
+                                ErrorKind::Other,
+                                format!(
+                                    "Error: Relocation to section {:?} at virtual address {:x?} failed, no loadable section contains virtual address {:x?}",
+                                    target_section, relocation.addr, refd_va
+                                ),
+                            ))?,
+                        };
+
+                        // Convert into an offset into the referenced section by subtracting
+                        // the section's base virtual address
+                        let refd_offset = refd_va - section_infos[refd_section].va;
+
+                        // Calculate the symbol's physical address within the referenced section
+                        let refd_pa =
+                            section_infos[refd_section].bytes.as_ptr() as u64 + refd_offset;
+
+                        // println!(
+                        //     "Relocation section {:?} off {:x?} va {:x?} pa {:x?} Referenced section {:?} offset {:x?} va {:x?} pa {:x?}",
+                        //     target_section, target_offset, relocation.addr, section_infos[target_section].bytes.as_ptr() as usize + target_offset, refd_section, refd_offset, refd_va, refd_pa
+                        // );
+
+                        // Write the physical address back into the target location
+                        if target_section == TEXT_SECTION_INDEX {
+                            // Instruction lddw spans two instruction slots, split the
+                            // physical address into a high and low and write into both slot's imm field
+
+                            LittleEndian::write_u32(
+                                &mut section_infos[target_section].bytes
+                                    [imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE],
+                                (refd_pa & 0xFFFFFFFF) as u32,
+                            );
+                            LittleEndian::write_u32(
+                                &mut section_infos[target_section].bytes[imm_offset
+                                    + ebpf::INSN_SIZE
+                                    ..imm_offset + ebpf::INSN_SIZE + BYTE_LENGTH_IMMEIDATE],
+                                (refd_pa >> 32) as u32,
+                            );
+                        } else {
+                            // 64 bit memory location, write entire 64 bit physical address directly
+                            LittleEndian::write_u64(
+                                &mut section_infos[target_section].bytes
+                                    [target_offset..target_offset + mem::size_of::<u64>()],
+                                refd_pa,
+                            );
+                        }
                     }
-                    _ => None,
-                },
-                Err(_) => None,
-            };
+                    Some(BPFRelocationType::R_BPF_64_32) => {
+                        // The .text section has an unresolved call to symbol instruction
 
-            // Dynamic relocations are optional, skip if elf contains none
-            if let Some(relocations) = relocations {
-                let rodata_section = self
-                    .elf
-                    .sections
-                    .iter()
-                    .find(|section| section.name == b".rodata");
+                        // Hash the symbol name and stick it into the call instruction's imm
+                        // field.  Later that hash will be used to look up the function location.
 
-                let symbols = match self.get_section(".dynsym")?.content {
-                    elfkit::SectionContent::Symbols(ref symbols) => symbols,
+                        let symbol = &symbols[relocation.sym as usize];
+                        let hash = ebpf::hash_symbol_name(&symbol.name);
+                        let insn_offset = (relocation.addr - section_infos[0].va) as usize;
+                        let imm_offset = insn_offset + BYTE_OFFSET_IMMEDIATE;
+                        LittleEndian::write_u32(
+                            &mut section_infos[0].bytes
+                                [imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE],
+                            hash,
+                        );
+                        if symbol.stype == elfkit::types::SymbolType::FUNC && symbol.value != 0 {
+                            calls.insert(
+                                hash,
+                                (symbol.value - section_infos[0].va) as usize / ebpf::INSN_SIZE,
+                            );
+                        }
+                    }
                     _ => Err(Error::new(
                         ErrorKind::Other,
-                        "Error: Failed to get .dynsym contents",
+                        "Error: Unhandled relocation type",
                     ))?,
-                };
-
-                for relocation in relocations.iter() {
-                    match BPFRelocationType::from_x86_relocation_type(&relocation.rtype) {
-                        Some(BPFRelocationType::R_BPF_64_RELATIVE) => {
-                            // The .text section has a reference to a symbol in the .rodata section
-
-                            let rodata_section = match rodata_section {
-                                Some(section) => section,
-                                None => Err(Error::new(
-                                    ErrorKind::Other,
-                                    "Error: No .rodata section found",
-                                ))?,
-                            };
-
-                            // Offset of the instruction in the text section being relocated
-                            let mut imm_offset =
-                                (relocation.addr - text_va) as usize + BYTE_OFFSET_IMMEDIATE;
-                            // Read the instruction's immediate field which contains the rodata
-                            // symbol's virtual address
-                            let ro_va = LittleEndian::read_u32(
-                                &text_bytes[imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE],
-                            ) as u64;
-                            // Convert into an offset into the rodata section by subtracting
-                            // the rodata section's base virtual address
-                            let ro_offset = ro_va - rodata_section.header.addr;
-                            // Get the rodata's physical address
-                            let rodata_pa = match rodata_section.content {
-                                elfkit::SectionContent::Raw(ref raw) => raw,
-                                _ => Err(Error::new(
-                                    ErrorKind::Other,
-                                    "Error: Failed to get .rodata contents",
-                                ))?,
-                            }
-                            .as_ptr() as u64;
-                            // Calculator the symbol's physical address within the rodata section
-                            let symbol_addr = rodata_pa + ro_offset;
-
-                            // Instruction lddw spans two instruction slots, split the
-                            // symbol's address into two and write into both slot's imm field
-                            let imm_length = 4;
-                            LittleEndian::write_u32(
-                                &mut text_bytes[imm_offset..imm_offset + imm_length],
-                                (symbol_addr & 0xFFFFFFFF) as u32,
-                            );
-                            imm_offset += ebpf::INSN_SIZE;
-                            LittleEndian::write_u32(
-                                &mut text_bytes[imm_offset..imm_offset + imm_length],
-                                (symbol_addr >> 32) as u32,
-                            );
-                        }
-                        Some(BPFRelocationType::R_BPF_64_32) => {
-                            // The .text section has an unresolved call instruction
-                            //
-                            // Hash the symbol name and stick it into the call
-                            // instruction's imm field.  Later that hash will be
-                            // used to look up the function location.
-
-                            let symbol = &symbols[relocation.sym as usize];
-                            let hash = ebpf::hash_symbol_name(&symbol.name);
-                            let imm_offset =
-                                (relocation.addr - text_va) as usize + BYTE_OFFSET_IMMEDIATE;
-                            LittleEndian::write_u32(
-                                &mut text_bytes[imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE],
-                                hash,
-                            );
-                            if symbol.stype == elfkit::types::SymbolType::FUNC && symbol.value != 0
-                            {
-                                calls.insert(
-                                    hash,
-                                    (symbol.value - text_va) as usize / ebpf::INSN_SIZE,
-                                );
-                            }
-                        }
-                        _ => Err(Error::new(
-                            ErrorKind::Other,
-                            "Error: Unhandled relocation type",
-                        ))?,
-                    }
                 }
             }
-            text_bytes
-        };
+        }
 
         mem::swap(&mut self.calls, &mut calls);
-
-        // Write back fixed-up text section
-        let mut text_section = match self
-            .elf
-            .sections
-            .iter_mut()
-            .find(|section| section.name == b".text")
-        {
-            Some(section) => &mut section.content,
-            None => Err(Error::new(
-                ErrorKind::Other,
-                "Error: No .text section found",
-            ))?,
-        };
-
-        *text_section = elfkit::SectionContent::Raw(text_bytes.to_vec());
 
         Ok(())
     }
