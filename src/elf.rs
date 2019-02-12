@@ -403,14 +403,12 @@ impl EBpfElf {
 
     /// Relocates the ELF in-place
     fn relocate(&mut self) -> Result<(), Error> {
-        let mut calls: HashMap<u32, usize> = HashMap::new();
-
         // Split and build a mutable list of sections
         let mut sections = EBpfElf::split_sections(&mut self.elf.sections);
         let mut section_infos = EBpfElf::get_load_sections(&mut sections)?;
 
         // Fixup all program counter relative call instructions
-        EBpfElf::fixup_relative_calls(&mut calls, &mut section_infos[0].bytes)?;
+        EBpfElf::fixup_relative_calls(&mut self.calls, &mut section_infos[0].bytes)?;
 
         // Fixup all the relocations in the relocation section if exists
         let relocations = match EBpfElf::get_section_ref(&mut sections, ".rel.dyn") {
@@ -552,7 +550,7 @@ impl EBpfElf {
                             hash,
                         );
                         if symbol.stype == elfkit::types::SymbolType::FUNC && symbol.value != 0 {
-                            calls.insert(
+                            self.calls.insert(
                                 hash,
                                 (symbol.value - section_infos[0].va) as usize / ebpf::INSN_SIZE,
                             );
@@ -565,8 +563,6 @@ impl EBpfElf {
                 }
             }
         }
-
-        mem::swap(&mut self.calls, &mut calls);
 
         Ok(())
     }
