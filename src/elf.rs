@@ -478,6 +478,7 @@ impl EBpfElf {
                         let target_section = match target_section {
                             Some(i) => i,
                             None =>
+                            // TODO #3108
                             // Err(Error::new(
                             //     ErrorKind::Other,
                             //     format!("Error: Relocation failed, no loadable section contains virtual address {:x?}", relocation.addr),
@@ -521,13 +522,18 @@ impl EBpfElf {
                         }
                         let refd_section = match refd_section {
                             Some(i) => i,
-                            None => Err(Error::new(
-                                ErrorKind::Other,
-                                format!(
-                                    "Error: Relocation to section {:?} at virtual address {:x?} failed, no loadable section contains virtual address {:x?}",
-                                           target_section, relocation.addr, refd_va
-                                ),
-                            ))?
+                            None =>
+                            // TODO #3108
+                            // Err(Error::new(
+                            //     ErrorKind::Other,
+                            //     format!(
+                            //         "Error: Relocation to section {:?} at virtual address {:x?} failed, no loadable section contains virtual address {:x?}",
+                            //                target_section, relocation.addr, refd_va
+                            //     ),
+                            // ))?
+                            {
+                                continue;
+                            }
                         };
 
                         // Convert into an offset into the referenced section by subtracting
