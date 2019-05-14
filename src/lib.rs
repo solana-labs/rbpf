@@ -491,6 +491,7 @@ impl<'a> EbpfVmMbuff<'a> {
     /// ```
     #[allow(unknown_lints)]
     #[allow(cyclomatic_complexity)]
+    #[allow(cognitive_complexity)]
     pub fn execute_program(&mut self, mem: &[u8], mbuff: &[u8]) -> Result<u64, Error> {
         const U32MAX: u64 = u32::MAX as u64;
 
