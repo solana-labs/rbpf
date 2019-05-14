@@ -806,8 +806,9 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::JSLE_REG   => if (reg[_dst] as i64) <= reg[_src] as i64 { pc = (pc as i16 + insn.off) as usize; },
 
                 ebpf::CALL_REG   => {
-                    println!("CALL_REG R{:?}[{:?}]", _src, reg[_src]);
-                    pc = reg[_src] as usize;
+                    let base_address = &prog[0] as *const _ as usize;
+                    let target_address = reg[insn.imm as usize] as usize;
+                    pc = (target_address - base_address) / ebpf::INSN_SIZE;
                 },
 
                 // Do not delegate the check to the verifier, since registered functions can be

@@ -291,7 +291,7 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HLInsn> {
             ebpf::JSLE_IMM   => { name = "jsle"; desc = jmp_imm_str(name, &insn); },
             ebpf::JSLE_REG   => { name = "jsle"; desc = jmp_reg_str(name, &insn); },
             ebpf::CALL_IMM   => { name = "call"; desc = format!("{} {:#x}", name, insn.imm); },
-            ebpf::CALL_REG   => { name = "callx"; desc = format!("{} {:#x}", name, insn.src); },
+            ebpf::CALL_REG   => { name = "callx"; desc = format!("{} {:#x}", name, insn.imm); },
             ebpf::EXIT       => { name = "exit";      desc = name.to_string(); },
 
             _                => {

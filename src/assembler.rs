@@ -178,7 +178,7 @@ fn encode(inst_type: InstructionType, opc: u8, operands: &[Operand]) -> Result<I
             insn(opc | ebpf::BPF_K, dst, 0, off, imm)
         }
         (CallImm, Integer(imm), Nil, Nil) => insn(opc, 0, 0, 0, imm),
-        (CallReg, Integer(src), Nil, Nil) => insn(opc, 0, src, 0, 0),
+        (CallReg, Integer(imm), Nil, Nil) => insn(opc, 0, 0, 0, imm),
         (Endian(size), Register(dst), Nil, Nil) => insn(opc, dst, 0, 0, size),
         (LoadImm, Register(dst), Integer(imm), Nil) => insn(opc, dst, 0, 0, (imm << 32) >> 32),
         _ => Err(format!("Unexpected operands: {:?}", operands)),

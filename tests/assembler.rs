@@ -95,7 +95,7 @@ fn test_jeq() {
 
 #[test]
 fn test_call_reg() {
-    assert_eq!(asm("callx 3"), Ok(vec![insn(ebpf::CALL_REG, 0, 3, 0, 0)]));
+    assert_eq!(asm("callx 3"), Ok(vec![insn(ebpf::CALL_REG, 0, 0, 0, 3)]));
 }
 
 // Example for InstructionType::Call.
