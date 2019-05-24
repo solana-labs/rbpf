@@ -44,7 +44,7 @@ fn main() {
     // Create a VM: this one takes no data. Load prog1 in it.
     let mut vm = EbpfVmNoData::new(Some(prog1)).unwrap();
     // Execute prog1.
-    assert_eq!(vm.execute_program().unwrap(), 0x3);
+    assert_eq!(vm.execute_program(&[], &[]).unwrap(), 0x3);
 
     // As struct EbpfVmNoData does not takes any memory area, its return value is mostly
     // deterministic. So we know prog1 will always return 3. There is an exception: when it uses
@@ -68,7 +68,7 @@ fn main() {
 
     #[cfg(windows)]
     {
-        time = vm.execute_program().unwrap();
+        time = vm.execute_program(&[], &[]).unwrap();
     }
 
     let days    =  time / 10u64.pow(9)  / 60   / 60  / 24;

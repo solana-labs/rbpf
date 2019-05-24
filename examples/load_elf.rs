@@ -118,7 +118,7 @@ fn main() {
     let mut vm = EbpfVmFixedMbuff::new(Some(prog), 0x40, 0x50).unwrap();
     vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
 
-    let res = vm.execute_program(packet1).unwrap();
+    let res = vm.execute_program(packet1, &[], &[]).unwrap();
     println!("Packet #1, program returned: {:?} ({:#x})", res, res);
     assert_eq!(res, 0xffffffff);
 
@@ -133,7 +133,7 @@ fn main() {
 
     #[cfg(windows)]
     {
-        let res = vm.execute_program(packet2).unwrap();
+        let res = vm.execute_program(packet2, &[], &[]).unwrap();
         println!("Packet #2, program returned: {:?} ({:#x})", res, res);
         assert_eq!(res, 0);
     }

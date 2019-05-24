@@ -30,7 +30,9 @@ extern crate time;
 extern crate log;
 
 use std::u32;
+use std::any::Any;
 use std::collections::HashMap;
+use std::fmt;
 use std::io::{Error, ErrorKind};
 use byteorder::{ByteOrder, LittleEndian};
 use elf::EBpfElf;
@@ -63,9 +65,9 @@ pub type JitProgram = unsafe fn(*mut u8, usize, *mut u8, usize, usize, usize) ->
 /// memory region for bounds checking
 #[derive(Clone, Debug)]
 pub struct MemoryRegion {
-    /// lower address of the memory region
+    /// lower address
     pub addr: u64,
-    /// upper address of the memory region
+    /// Length in bytes
     pub len:  u64,
 }
 impl MemoryRegion {
@@ -75,6 +77,11 @@ impl MemoryRegion {
             addr: v.as_ptr() as u64,
             len:  v.len() as u64,
         }
+    }
+}
+impl fmt::Display for MemoryRegion {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "addr: {:#x?}, len: {}", self.addr, self.len)
     }
 }
 
@@ -202,7 +209,7 @@ struct MetaBuff {
 /// let mut vm = solana_rbpf::EbpfVmMbuff::new(Some(prog)).unwrap();
 ///
 /// // Provide both a reference to the packet data, and to the metadata buffer.
-/// let res = vm.execute_program(mem, &mut mbuff).unwrap();
+/// let res = vm.execute_program(mem, &mut mbuff, &[], &[]).unwrap();
 /// assert_eq!(res, 0x2211);
 /// ```
 pub struct EbpfVmMbuff<'a> {
@@ -375,7 +382,7 @@ impl<'a> EbpfVmMbuff<'a> {
     /// // Instantiate a VM.
     /// let mut vm = solana_rbpf::EbpfVmMbuff::new(Some(prog)).unwrap();
     /// // Execute the program.
-    /// let res = vm.execute_program(mem, &mut mbuff).unwrap();
+    /// let res = vm.execute_program(mem, &mut mbuff, &[], &[]).unwrap();
     /// // Get the number of instructions executed.
     /// let count = vm.get_last_instruction_count();
     /// ```
@@ -419,7 +426,7 @@ impl<'a> EbpfVmMbuff<'a> {
     /// vm.register_helper(6, helpers::bpf_trace_printf).unwrap();
     /// ```
     pub fn register_helper(&mut self, key: u32, function: ebpf::HelperFunction) -> Result<(), Error> {
-        self.helpers.insert(key, ebpf::Helper{ verifier: None, function });
+        self.helpers.insert(key, ebpf::Helper{ verifier: None, function, context: None });
         Ok(())
     }
 
@@ -449,9 +456,14 @@ impl<'a> EbpfVmMbuff<'a> {
     /// If using JIT-compiled eBPF programs, be sure to register all helpers before compiling the
     /// program. You should be able to change registered helpers after compiling, but not to add
     /// new ones (i.e. with new keys).
-    pub fn register_helper_ex(&mut self, name: &str, verifier: Option<ebpf::HelperVerifier>,
-                              function: ebpf::HelperFunction) -> Result<(), Error> {
-        self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), ebpf::Helper{ verifier, function });
+    pub fn register_helper_ex(
+        &mut self,
+        name: &str,
+        verifier: Option<ebpf::HelperVerifier>,
+        function: ebpf::HelperFunction,
+        context: Option<Box<Any>>,
+     ) -> Result<(), Error> {
+        self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), ebpf::Helper{ verifier, function, context });
         Ok(())
     }
 
@@ -488,18 +500,26 @@ impl<'a> EbpfVmMbuff<'a> {
     /// let mut vm = solana_rbpf::EbpfVmMbuff::new(Some(prog)).unwrap();
     ///
     /// // Provide both a reference to the packet data, and to the metadata buffer.
-    /// let res = vm.execute_program(mem, &mut mbuff).unwrap();
+    /// let res = vm.execute_program(mem, &mut mbuff, &[], &[]).unwrap();
     /// assert_eq!(res, 0x2211);
     /// ```
     #[allow(unknown_lints)]
     #[allow(cyclomatic_complexity)]
     #[allow(cognitive_complexity)]
-    pub fn execute_program(&mut self, mem: &[u8], mbuff: &[u8]) -> Result<u64, Error> {
+    pub fn execute_program(&mut self,
+                           mem: &[u8],
+                           mbuff: &[u8],
+                           granted_ro_regions: &[MemoryRegion],
+                           granted_rw_regions: &[MemoryRegion],
+    ) -> Result<u64, Error> {
         const U32MAX: u64 = u32::MAX as u64;
 
         let mut frames = CallFrames::new(ebpf::MAX_CALL_DEPTH, ebpf::STACK_SIZE);
         let mut ro_regions = Vec::new();
         let mut rw_regions = Vec::new();
+        ro_regions.extend_from_slice(granted_ro_regions);
+        ro_regions.extend_from_slice(granted_rw_regions);
+        rw_regions.extend_from_slice(granted_rw_regions);
         for ptr in frames.get_stacks() {
             ro_regions.push(ptr.clone());
             rw_regions.push(ptr.clone());
@@ -512,9 +532,9 @@ impl<'a> EbpfVmMbuff<'a> {
         let mut entry: usize = 0;
         let prog =
         if let Some(ref elf) = self.elf {
-            if let Ok(regions) = elf.get_ro_sections() {
-                let ptrs: Vec<_> = regions.iter().map( |r| MemoryRegion::new_from_slice(r)).collect();
-                ro_regions.extend(ptrs);
+            if let Ok(sections) = elf.get_ro_sections() {
+                let regions: Vec<_> = sections.iter().map( |r| MemoryRegion::new_from_slice(r)).collect();
+                ro_regions.extend(regions);
             }
             entry = elf.get_entrypoint_instruction_offset()?;
             elf.get_text_bytes()?
@@ -525,7 +545,7 @@ impl<'a> EbpfVmMbuff<'a> {
                            "Error: no program or elf set"))?
         };
 
-        // R1 points to beginning of input memory, R10 to stack of first frame
+        // R1 points to beginning of input memory, R10 to the stack of the first frame
         let mut reg: [u64;11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, frames.get_stack_top()];
 
         if !mbuff.is_empty() {
@@ -817,11 +837,11 @@ impl<'a> EbpfVmMbuff<'a> {
                 // Do not delegate the check to the verifier, since registered functions can be
                 // changed after the program has been verified.
                 ebpf::CALL_IMM   => {
-                    if let Some(helper) = self.helpers.get(&(insn.imm as u32)) {
+                    if let Some(mut helper) = self.helpers.get_mut(&(insn.imm as u32)) {
                         if let Some(function) = helper.verifier {
-                            function(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?;
+                            function(reg[1], reg[2], reg[3], reg[4], reg[5], &mut helper.context, &ro_regions, &rw_regions)?;
                         }
-                        reg[0] = (helper.function)(reg[1], reg[2], reg[3], reg[4], reg[5]);
+                        reg[0] = (helper.function)(reg[1], reg[2], reg[3], reg[4], reg[5], &mut helper.context);
                     } else if let Some(ref elf) = self.elf {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call
@@ -876,7 +896,7 @@ impl<'a> EbpfVmMbuff<'a> {
         if !regions.is_empty() {
             regions_string =  " regions".to_string();
             for region in regions.iter() {
-                regions_string = format!("{} {:#x}-{:#x}", regions_string, region.addr, region.addr + region.len);
+                regions_string = format!("{} \n{:#x}-{:#x}", regions_string, region.addr, region.addr + region.len);
             }
         }
 
@@ -925,7 +945,7 @@ impl<'a> EbpfVmMbuff<'a> {
     }
 
     /// Execute the previously JIT-compiled program, with the given packet data and metadata
-    /// buffer, in a manner very similar to `execute_program()`.
+    /// buffer, in a manner very similar to `execute_program(&[], &[])`.
     ///
     /// If the program is made to be compatible with Linux kernel, it is expected to load the
     /// address of the beginning and of the end of the memory area used for packet data from the
@@ -1002,7 +1022,7 @@ impl<'a> EbpfVmMbuff<'a> {
 ///
 /// This struct implements a static internal buffer that is passed to the program. The user has to
 /// indicate the offset values at which the eBPF program expects to find the start and the end of
-/// packet data in the buffer. On calling the `execute_program()` or `execute_program_jit()` functions, the
+/// packet data in the buffer. On calling the `execute_program(&[], &[])` or `execute_program_jit()` functions, the
 /// struct automatically updates the addresses in this static buffer, at the appointed offsets, for
 /// the start and the end of the packet data the program is called upon.
 ///
@@ -1057,10 +1077,10 @@ impl<'a> EbpfVmMbuff<'a> {
 /// let mut vm = solana_rbpf::EbpfVmFixedMbuff::new(Some(prog), 0x40, 0x50).unwrap();
 ///
 /// // Provide only a reference to the packet data. We do not manage the metadata buffer.
-/// let res = vm.execute_program(mem1).unwrap();
+/// let res = vm.execute_program(mem1, &[], &[]).unwrap();
 /// assert_eq!(res, 0xffffffffffffffdd);
 ///
-/// let res = vm.execute_program(mem2).unwrap();
+/// let res = vm.execute_program(mem2, &[], &[]).unwrap();
 /// assert_eq!(res, 0x27);
 /// ```
 pub struct EbpfVmFixedMbuff<'a> {
@@ -1133,7 +1153,7 @@ impl<'a> EbpfVmFixedMbuff<'a> {
     /// let mut vm = solana_rbpf::EbpfVmFixedMbuff::new(Some(prog1), 0, 0).unwrap();
     /// vm.set_program(prog2, 0x40, 0x50);
     ///
-    /// let res = vm.execute_program(mem).unwrap();
+    /// let res = vm.execute_program(mem, &[], &[]).unwrap();
     /// assert_eq!(res, 0x27);
     /// ```
     pub fn set_program(&mut self, prog: &'a [u8], data_offset: usize, data_end_offset: usize) -> Result<(), Error> {
@@ -1223,7 +1243,7 @@ impl<'a> EbpfVmFixedMbuff<'a> {
     /// // Instantiate a VM.
     /// let mut vm = solana_rbpf::EbpfVmFixedMbuff::new(Some(prog), 0x40, 0x50).unwrap();
     /// // Execute the program.
-    /// let res = vm.execute_program(mem).unwrap();
+    /// let res = vm.execute_program(mem, &[], &[]).unwrap();
     /// // Get the number of instructions executed.
     /// let count = vm.get_last_instruction_count();
     /// ```
@@ -1270,7 +1290,7 @@ impl<'a> EbpfVmFixedMbuff<'a> {
     /// // Register a helper. This helper will store the result of the square root of r1 into r0.
     /// vm.register_helper(1, helpers::sqrti);
     ///
-    /// let res = vm.execute_program(mem).unwrap();
+    /// let res = vm.execute_program(mem, &[], &[]).unwrap();
     /// assert_eq!(res, 3);
     /// ```
     pub fn register_helper(&mut self, key: u32, function: ebpf::HelperFunction) -> Result<(), Error> {
@@ -1303,9 +1323,14 @@ impl<'a> EbpfVmFixedMbuff<'a> {
     /// If using JIT-compiled eBPF programs, be sure to register all helpers before compiling the
     /// program. You should be able to change registered helpers after compiling, but not to add
     /// new ones (i.e. with new keys).
-    pub fn register_helper_ex(&mut self, name: &str, verifier: Option<ebpf::HelperVerifier>,
-                              function: ebpf::HelperFunction) -> Result<(), Error> {
-        self.parent.register_helper_ex(name, verifier, function)
+    pub fn register_helper_ex(
+        &mut self,
+        name: &str,
+        verifier: Option<ebpf::HelperVerifier>,
+        function: ebpf::HelperFunction,
+        context: Option<Box<Any>>
+    ) -> Result<(), Error> {
+        self.parent.register_helper_ex(name, verifier, function, context)
     }
 
     /// Execute the program loaded, with the given packet data.
@@ -1335,19 +1360,28 @@ impl<'a> EbpfVmFixedMbuff<'a> {
     /// let mut vm = solana_rbpf::EbpfVmFixedMbuff::new(Some(prog), 0x40, 0x50).unwrap();
     ///
     /// // Provide only a reference to the packet data. We do not manage the metadata buffer.
-    /// let res = vm.execute_program(mem).unwrap();
+    /// let res = vm.execute_program(mem, &[], &[]).unwrap();
     /// assert_eq!(res, 0xdd);
     /// ```
-    pub fn execute_program(&mut self, mem: & mut [u8]) -> Result<u64, Error> {
+    pub fn execute_program(
+        &mut self,
+        mem: & mut [u8],
+        granted_ro_regions: &[MemoryRegion],
+        granted_rw_regions: &[MemoryRegion],
+    ) -> Result<u64, Error> {
         let l = self.mbuff.buffer.len();
         // Can this ever happen? Probably not, should be ensured at mbuff creation.
         if self.mbuff.data_offset + 8 > l || self.mbuff.data_end_offset + 8 > l {
             Err(Error::new(ErrorKind::Other, format!("Error: buffer too small ({:?}), cannot use data_offset {:?} and data_end_offset {:?}",
             l, self.mbuff.data_offset, self.mbuff.data_end_offset)))?;
         }
-        LittleEndian::write_u64(&mut self.mbuff.buffer[(self.mbuff.data_offset) .. ], mem.as_ptr() as u64);
-        LittleEndian::write_u64(&mut self.mbuff.buffer[(self.mbuff.data_end_offset) .. ], mem.as_ptr() as u64 + mem.len() as u64);
-        self.parent.execute_program(mem, &self.mbuff.buffer)
+        LittleEndian::write_u64(
+            &mut self.mbuff.buffer[(self.mbuff.data_offset) .. ],
+            mem.as_ptr() as u64);
+        LittleEndian::write_u64(
+            &mut self.mbuff.buffer[(self.mbuff.data_end_offset) .. ],
+           mem.as_ptr() as u64 + mem.len() as u64);
+        self.parent.execute_program(mem, &self.mbuff.buffer, granted_ro_regions, granted_rw_regions)
     }
 
     /// JIT-compile the loaded program. No argument required for this.
@@ -1393,7 +1427,7 @@ impl<'a> EbpfVmFixedMbuff<'a> {
     }
 
     /// Execute the previously JIT-compiled program, with the given packet data, in a manner very
-    /// similar to `execute_program()`.
+    /// similar to `execute_program(&[], &[])`.
     ///
     /// If the program is made to be compatible with Linux kernel, it is expected to load the
     /// address of the beginning and of the end of the memory area used for packet data from some
@@ -1483,7 +1517,7 @@ impl<'a> EbpfVmFixedMbuff<'a> {
 /// let mut vm = solana_rbpf::EbpfVmRaw::new(Some(prog)).unwrap();
 ///
 /// // Provide only a reference to the packet data.
-/// let res = vm.execute_program(mem).unwrap();
+/// let res = vm.execute_program(mem, &[], &[]).unwrap();
 /// assert_eq!(res, 0x22cc);
 /// ```
 pub struct EbpfVmRaw<'a> {
@@ -1538,7 +1572,7 @@ impl<'a> EbpfVmRaw<'a> {
     /// let mut vm = solana_rbpf::EbpfVmRaw::new(Some(prog1)).unwrap();
     /// vm.set_program(prog2);
     ///
-    /// let res = vm.execute_program(mem).unwrap();
+    /// let res = vm.execute_program(mem, &[], &[]).unwrap();
     /// assert_eq!(res, 0x22cc);
     /// ```
     pub fn set_program(&mut self, prog: &'a [u8]) -> Result<(), Error> {
@@ -1629,7 +1663,7 @@ impl<'a> EbpfVmRaw<'a> {
     /// // Instantiate a VM.
     /// let mut vm = solana_rbpf::EbpfVmMbuff::new(Some(prog)).unwrap();
     /// // Execute the program.
-    /// let res = vm.execute_program(mem, mem).unwrap();
+    /// let res = vm.execute_program(mem, mem, &[], &[]).unwrap();
     /// // Get the number of instructions executed.
     /// let count = vm.get_last_instruction_count();
     /// ```
@@ -1669,7 +1703,7 @@ impl<'a> EbpfVmRaw<'a> {
     /// // Register a helper. This helper will store the result of the square root of r1 into r0.
     /// vm.register_helper(1, helpers::sqrti);
     ///
-    /// let res = vm.execute_program(mem).unwrap();
+    /// let res = vm.execute_program(mem, &[], &[]).unwrap();
     /// assert_eq!(res, 0x10000000);
     /// ```
     pub fn register_helper(&mut self, key: u32, function: ebpf::HelperFunction) -> Result<(), Error> {
@@ -1702,9 +1736,14 @@ impl<'a> EbpfVmRaw<'a> {
     /// If using JIT-compiled eBPF programs, be sure to register all helpers before compiling the
     /// program. You should be able to change registered helpers after compiling, but not to add
     /// new ones (i.e. with new keys).
-    pub fn register_helper_ex(&mut self, name: &str, verifier: Option<ebpf::HelperVerifier>,
-                              function: ebpf::HelperFunction) -> Result<(), Error> {
-        self.parent.register_helper_ex(name, verifier, function)
+    pub fn register_helper_ex(
+        &mut self,
+        name: &str,
+        verifier: Option<ebpf::HelperVerifier>,
+        function: ebpf::HelperFunction,
+        context: Option<Box<Any>>,
+    ) -> Result<(), Error> {
+        self.parent.register_helper_ex(name, verifier, function, context)
     }
 
     /// Execute the program loaded, with the given packet data.
@@ -1725,11 +1764,16 @@ impl<'a> EbpfVmRaw<'a> {
     ///
     /// let mut vm = solana_rbpf::EbpfVmRaw::new(Some(prog)).unwrap();
     ///
-    /// let res = vm.execute_program(mem).unwrap();
+    /// let res = vm.execute_program(mem, &[], &[]).unwrap();
     /// assert_eq!(res, 0x22cc);
     /// ```
-    pub fn execute_program(&mut self, mem: & mut [u8]) -> Result<u64, Error> {
-        self.parent.execute_program(mem, &[])
+    pub fn execute_program(
+        &mut self,
+        mem: &mut [u8],
+        granted_ro_regions: &[MemoryRegion],
+        granted_rw_regions: &[MemoryRegion],
+    ) -> Result<u64, Error> {
+        self.parent.execute_program(mem, &[], granted_ro_regions, granted_rw_regions)
     }
 
     /// JIT-compile the loaded program. No argument required for this.
@@ -1771,7 +1815,7 @@ impl<'a> EbpfVmRaw<'a> {
     }
 
     /// Execute the previously JIT-compiled program, with the given packet data, in a manner very
-    /// similar to `execute_program()`.
+    /// similar to `execute_program(&[], &[])`.
     ///
     /// # Safety
     ///
@@ -1849,7 +1893,7 @@ impl<'a> EbpfVmRaw<'a> {
 /// let mut vm = solana_rbpf::EbpfVmNoData::new(Some(prog)).unwrap();
 ///
 /// // Provide only a reference to the packet data.
-/// let res = vm.execute_program().unwrap();
+/// let res = vm.execute_program(&[], &[]).unwrap();
 /// assert_eq!(res, 0x11);
 /// ```
 pub struct EbpfVmNoData<'a> {
@@ -1897,12 +1941,12 @@ impl<'a> EbpfVmNoData<'a> {
     ///
     /// let mut vm = solana_rbpf::EbpfVmNoData::new(Some(prog1)).unwrap();
     ///
-    /// let res = vm.execute_program().unwrap();
+    /// let res = vm.execute_program(&[], &[]).unwrap();
     /// assert_eq!(res, 0x2211);
     ///
     /// vm.set_program(prog2);
     ///
-    /// let res = vm.execute_program().unwrap();
+    /// let res = vm.execute_program(&[], &[]).unwrap();
     /// assert_eq!(res, 0x1122);
     /// ```
     pub fn set_program(&mut self, prog: &'a [u8]) -> Result<(), Error> {
@@ -1989,7 +2033,7 @@ impl<'a> EbpfVmNoData<'a> {
     /// // Instantiate a VM.
     /// let mut vm = solana_rbpf::EbpfVmNoData::new(Some(prog)).unwrap();
     /// // Execute the program.
-    /// let res = vm.execute_program().unwrap();
+    /// let res = vm.execute_program(&[], &[]).unwrap();
     /// // Get the number of instructions executed.
     /// let count = vm.get_last_instruction_count();
     /// ```
@@ -2024,7 +2068,7 @@ impl<'a> EbpfVmNoData<'a> {
     /// // Register a helper. This helper will store the result of the square root of r1 into r0.
     /// vm.register_helper(1, helpers::sqrti).unwrap();
     ///
-    /// let res = vm.execute_program().unwrap();
+    /// let res = vm.execute_program(&[], &[]).unwrap();
     /// assert_eq!(res, 0x1000);
     /// ```
     pub fn register_helper(&mut self, key: u32, function: ebpf::HelperFunction) -> Result<(), Error> {
@@ -2057,9 +2101,14 @@ impl<'a> EbpfVmNoData<'a> {
     /// If using JIT-compiled eBPF programs, be sure to register all helpers before compiling the
     /// program. You should be able to change registered helpers after compiling, but not to add
     /// new ones (i.e. with new keys).
-    pub fn register_helper_ex(&mut self, name: &str, verifier: Option<ebpf::HelperVerifier>,
-                              function: ebpf::HelperFunction) -> Result<(), Error> {
-        self.parent.register_helper_ex(name, verifier, function)
+    pub fn register_helper_ex(
+        &mut self,
+        name: &str,
+        verifier: Option<ebpf::HelperVerifier>,
+        function: ebpf::HelperFunction,
+        context: Option<Box<Any>>
+    ) -> Result<(), Error> {
+        self.parent.register_helper_ex(name, verifier, function, context)
     }
 
     /// JIT-compile the loaded program. No argument required for this.
@@ -2098,16 +2147,20 @@ impl<'a> EbpfVmNoData<'a> {
     ///
     /// let mut vm = solana_rbpf::EbpfVmNoData::new(Some(prog)).unwrap();
     ///
-    /// // For this kind of VM, the `execute_program()` function needs no argument.
-    /// let res = vm.execute_program().unwrap();
+    /// // For this kind of VM, the `execute_program(&[], &[])` function needs no argument.
+    /// let res = vm.execute_program(&[], &[]).unwrap();
     /// assert_eq!(res, 0x1122);
     /// ```
-    pub fn execute_program(&mut self) -> Result<(u64), Error> {
-        self.parent.execute_program(&mut [])
+    pub fn execute_program(
+        &mut self,
+        granted_ro_regions: &[MemoryRegion],
+        granted_rw_regions: &[MemoryRegion],
+    ) -> Result<(u64), Error> {
+        self.parent.execute_program(&mut [], granted_ro_regions, granted_rw_regions)
     }
 
     /// Execute the previously JIT-compiled program, without providing pointers to any memory area
-    /// whatsoever, in a manner very similar to `execute_program()`.
+    /// whatsoever, in a manner very similar to `execute_program(&[], &[])`.
     ///
     /// # Safety
     ///

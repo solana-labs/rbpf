@@ -26,6 +26,7 @@
 extern crate libc;
 
 use std::u64;
+use std::any::Any;
 use time;
 
 // Helpers associated to kernel helpers
@@ -44,7 +45,7 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 /// ```
 /// use solana_rbpf::helpers;
 ///
-/// let t = helpers::bpf_time_getns(0, 0, 0, 0, 0);
+/// let t = helpers::bpf_time_getns(0, 0, 0, 0, 0, &mut None);
 /// let d =  t / 10u64.pow(9)  / 60   / 60  / 24;
 /// let h = (t / 10u64.pow(9)  / 60   / 60) % 24;
 /// let m = (t / 10u64.pow(9)  / 60 ) % 60;
@@ -54,7 +55,14 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 /// ```
 #[allow(dead_code)]
 #[allow(unused_variables)]
-pub fn bpf_time_getns (unused1: u64, unused2: u64, unused3: u64, unused4: u64, unused5: u64) -> u64 {
+pub fn bpf_time_getns (
+    unused1: u64,
+    unused2: u64,
+    unused3: u64,
+    unused4: u64,
+    unused5: u64,
+    unused6: &mut Option<Box<Any>>
+) -> u64 {
     time::precise_time_ns()
 }
 
@@ -75,7 +83,7 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// ```
 /// use solana_rbpf::helpers;
 ///
-/// let res = helpers::bpf_trace_printf(0, 0, 1, 15, 32);
+/// let res = helpers::bpf_trace_printf(0, 0, 1, 15, 32, &mut None);
 /// assert_eq!(res as usize, "bpf_trace_printf: 0x1, 0xf, 0x20\n".len());
 /// ```
 ///
@@ -101,7 +109,14 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// program is run.
 #[allow(dead_code)]
 #[allow(unused_variables)]
-pub fn bpf_trace_printf (unused1: u64, unused2: u64, arg3: u64, arg4: u64, arg5: u64) -> u64 {
+pub fn bpf_trace_printf (
+    unused1: u64,
+    unused2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    unused6: &mut Option<Box<Any>>
+) -> u64 {
     println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
     let size_arg = | x | {
         if x == 0 {
@@ -125,10 +140,18 @@ pub fn bpf_trace_printf (unused1: u64, unused2: u64, arg3: u64, arg4: u64, arg5:
 /// ```
 /// use solana_rbpf::helpers;
 ///
-/// let gathered = helpers::gather_bytes(0x11, 0x22, 0x33, 0x44, 0x55);
+/// let gathered = helpers::gather_bytes(0x11, 0x22, 0x33, 0x44, 0x55, &mut None);
 /// assert_eq!(gathered, 0x1122334455);
 /// ```
-pub fn gather_bytes (arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> u64 {
+#[allow(unused_variables)]
+pub fn gather_bytes (
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    unused: &mut Option<Box<Any>>
+) -> u64 {
     arg1.wrapping_shl(32) |
        arg2.wrapping_shl(24) |
        arg3.wrapping_shl(16) |
@@ -148,13 +171,20 @@ pub fn gather_bytes (arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> u
 /// let val: u64 = 0x112233;
 /// let val_ptr = &val as *const u64;
 ///
-/// helpers::memfrob(val_ptr as u64, 8, 0, 0, 0);
+/// helpers::memfrob(val_ptr as u64, 8, 0, 0, 0, &mut None);
 /// assert_eq!(val, 0x2a2a2a2a2a3b0819);
-/// helpers::memfrob(val_ptr as u64, 8, 0, 0, 0);
+/// helpers::memfrob(val_ptr as u64, 8, 0, 0, 0, &mut None);
 /// assert_eq!(val, 0x112233);
 /// ```
 #[allow(unused_variables)]
-pub fn memfrob (ptr: u64, len: u64, unused3: u64, unused4: u64, unused5: u64) -> u64 {
+pub fn memfrob (
+    ptr: u64,
+    len: u64, 
+    unused3: u64,
+    unused4: u64,
+    unused5: u64,
+    unused6: &mut Option<Box<Any>>
+) -> u64 {
     for i in 0..len {
         unsafe {
             let mut p = (ptr + i) as *mut u8;
@@ -193,12 +223,19 @@ pub fn memfrob (ptr: u64, len: u64, unused3: u64, unused4: u64, unused5: u64) ->
 /// ```
 /// use solana_rbpf::helpers;
 ///
-/// let x = helpers::sqrti(9, 0, 0, 0, 0);
+/// let x = helpers::sqrti(9, 0, 0, 0, 0, &mut None);
 /// assert_eq!(x, 3);
 /// ```
 #[allow(dead_code)]
 #[allow(unused_variables)]
-pub fn sqrti (arg1: u64, unused2: u64, unused3: u64, unused4: u64, unused5: u64) -> u64 {
+pub fn sqrti (
+    arg1: u64,
+    unused2: u64,
+    unused3: u64,
+    unused4: u64,
+    unused5: u64,
+    unused6: &mut Option<Box<Any>>
+) -> u64 {
     (arg1 as f64).sqrt() as u64
 }
 
@@ -212,12 +249,19 @@ pub fn sqrti (arg1: u64, unused2: u64, unused3: u64, unused4: u64, unused5: u64)
 /// let foo = "This is a string.".as_ptr() as u64;
 /// let bar = "This is another sting.".as_ptr() as u64;
 ///
-/// assert!(helpers::strcmp(foo, foo, 0, 0, 0) == 0);
-/// assert!(helpers::strcmp(foo, bar, 0, 0, 0) != 0);
+/// assert!(helpers::strcmp(foo, foo, 0, 0, 0, &mut None) == 0);
+/// assert!(helpers::strcmp(foo, bar, 0, 0, 0, &mut None) != 0);
 /// ```
 #[allow(dead_code)]
 #[allow(unused_variables)]
-pub fn strcmp (arg1: u64, arg2: u64, arg3: u64, unused4: u64, unused5: u64) -> u64 {
+pub fn strcmp (
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    unused4: u64,
+    unused5: u64,
+    unused6: &mut Option<Box<Any>>
+) -> u64 {
     // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
     if arg1 == 0 || arg2 == 0 {
         return u64::MAX;
@@ -260,12 +304,19 @@ pub fn strcmp (arg1: u64, arg2: u64, arg3: u64, unused4: u64, unused5: u64) -> u
 ///     libc::srand(time::precise_time_ns() as u32)
 /// }
 ///
-/// let n = solana_rbpf::helpers::rand(3, 6, 0, 0, 0);
+/// let n = solana_rbpf::helpers::rand(3, 6, 0, 0, 0, &mut None);
 /// assert!(3 <= n && n <= 6);
 /// ```
 #[allow(dead_code)]
 #[allow(unused_variables)]
-pub fn rand (min: u64, max: u64, unused3: u64, unused4: u64, unused5: u64) -> u64 {
+pub fn rand (
+    min: u64,
+    max: u64,
+    unused3: u64,
+    unused4: u64,
+    unused5: u64,
+    unused6: &mut Option<Box<Any>>
+) -> u64 {
     let mut n = unsafe {
         (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64
     };
