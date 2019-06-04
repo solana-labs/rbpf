@@ -831,6 +831,10 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::CALL_REG   => {
                     let base_address = &prog[0] as *const _ as usize;
                     let target_address = reg[insn.imm as usize] as usize;
+                    reg[ebpf::STACK_REG] =
+                                frames
+                                    .push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
+                                          pc)?;
                     pc = (target_address - base_address) / ebpf::INSN_SIZE;
                 },
 
@@ -845,7 +849,6 @@ impl<'a> EbpfVmMbuff<'a> {
                     } else if let Some(ref elf) = self.elf {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call
-
                             reg[ebpf::STACK_REG] =
                                 frames
                                     .push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
