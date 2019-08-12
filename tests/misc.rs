@@ -712,7 +712,7 @@ pub fn bpf_helper_string_verify(
     unused3: u64,
     unused4: u64,
     unused5: u64,
-    _context: &mut Option<Box<Any>>,
+    _context: &mut Option<Box<dyn Any>>,
     ro_regions: &[MemoryRegion],
     unused7: &[MemoryRegion]
 ) -> Result<(()), Error> {
@@ -735,7 +735,7 @@ pub fn bpf_helper_string_verify(
 }
 
 #[allow(unused_variables)]
-pub fn bpf_helper_string(addr: u64, unused2: u64, unused3: u64, unused4: u64, unused5: u64, _context: &mut Option<Box<Any>>) -> u64 {
+pub fn bpf_helper_string(addr: u64, unused2: u64, unused3: u64, unused4: u64, unused5: u64, _context: &mut Option<Box<dyn Any>>) -> u64 {
     let c_buf: *const c_char = addr as *const c_char;
     let c_str: &CStr = unsafe { CStr::from_ptr(c_buf) };
     match c_str.to_str() {
@@ -745,7 +745,7 @@ pub fn bpf_helper_string(addr: u64, unused2: u64, unused3: u64, unused4: u64, un
     0
 }
 
-pub fn bpf_helper_u64 (arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64, _context: &mut Option<Box<Any>>) -> u64 {
+pub fn bpf_helper_u64 (arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64, _context: &mut Option<Box<dyn Any>>) -> u64 {
     println!("dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}", arg1, arg2, arg3, arg4, arg5);
     0
 }
