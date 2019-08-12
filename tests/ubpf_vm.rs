@@ -909,6 +909,20 @@ fn test_vm_ldxdw() {
 }
 
 #[test]
+#[should_panic(expected = "Error: out of bounds memory load (insn #29),")]
+fn test_vm_ldxdw_oob() {
+    let prog = assemble("
+        ldxdw r0, [r1+6]
+        exit").unwrap();
+    let mem = &mut [
+        0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+        0x77, 0x88, 0xcc, 0xdd
+    ];
+    let mut vm = EbpfVmRaw::new(Some(&prog)).unwrap();
+    assert_eq!(vm.execute_program(mem, &[], &[]).unwrap(), 0x8877665544332211);
+}
+
+#[test]
 fn test_vm_ldxh_all() {
     let prog = assemble("
         mov r0, r1

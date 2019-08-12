@@ -891,7 +891,7 @@ impl<'a> EbpfVmMbuff<'a> {
 
     fn check_mem(addr: u64, len: usize, access_type: &str, pc: usize, regions: &'a [MemoryRegion]) -> Result<(), Error> {
         for region in regions.iter() {
-            if region.addr <= addr && (addr as u64) < region.addr + region.len {
+            if region.addr <= addr && addr + len as u64 <= region.addr + region.len {
                 return Ok(());
             }
         }
