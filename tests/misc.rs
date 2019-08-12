@@ -440,7 +440,7 @@ fn test_vm_jit_ldabsdw() {
 }
 
 #[test]
-#[should_panic(expected = "Error: out of bounds memory load (insn #0),")]
+#[should_panic(expected = "Error: out of bounds memory load (insn #29),")]
 fn test_vm_err_ldabsb_oob() {
     let prog = &[
         0x38, 0x00, 0x00, 0x00, 0x33, 0x00, 0x00, 0x00,
@@ -457,7 +457,7 @@ fn test_vm_err_ldabsb_oob() {
 }
 
 #[test]
-#[should_panic(expected = "Error: out of bounds memory load (insn #0),")]
+#[should_panic(expected = "Error: out of bounds memory load (insn #29),")]
 fn test_vm_err_ldabsb_nomem() {
     let prog = &[
         0x38, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
@@ -558,7 +558,7 @@ fn test_vm_jit_ldinddw() {
 }
 
 #[test]
-#[should_panic(expected = "Error: out of bounds memory load (insn #1),")]
+#[should_panic(expected = "Error: out of bounds memory load (insn #30),")]
 fn test_vm_err_ldindb_oob() {
     let prog = &[
         0xb7, 0x01, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
@@ -576,7 +576,7 @@ fn test_vm_err_ldindb_oob() {
 }
 
 #[test]
-#[should_panic(expected = "Error: out of bounds memory load (insn #1),")]
+#[should_panic(expected = "Error: out of bounds memory load (insn #30),")]
 fn test_vm_err_ldindb_nomem() {
     let prog = &[
         0xb7, 0x01, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
@@ -876,7 +876,7 @@ fn test_jit_call_helper_wo_verifier() {
 }
 
 #[test]
-#[should_panic(expected = "Error: Unresolved symbol at instruction #0")]
+#[should_panic(expected = "Error: Unresolved symbol at instruction #29")]
 fn test_symbol_unresolved() {
         let prog = &mut [
         0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
@@ -893,7 +893,7 @@ fn test_symbol_unresolved() {
 }
 
 #[test]
-#[should_panic(expected = "Error: Unresolved symbol (log_64) at instruction #520 (ELF file offset 0x1040)")]
+#[should_panic(expected = "Error: Unresolved symbol (log_64) at instruction #549 (ELF file offset 0x1040)")]
 fn test_symbol_unresolved_elf() {
     let mut file = File::open("tests/elfs/unresolved_helper.so").expect("file open failed");
     let mut elf = Vec::new();

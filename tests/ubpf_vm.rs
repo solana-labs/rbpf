@@ -392,7 +392,7 @@ fn test_vm_early_exit() {
 //}
 
 #[test]
-#[should_panic(expected = "Error: Unresolved symbol at instruction #5")]
+#[should_panic(expected = "Error: Unresolved symbol at instruction #34")]
 fn test_vm_err_call_unreg() {
     let prog = assemble("
         mov r1, 1
@@ -458,7 +458,7 @@ fn test_vm_err_mod_by_zero_reg() {
 // above or below the current stack, to test out of bounds we have to 
 // try significantly further away
 #[test]
-#[should_panic(expected = "Error: out of bounds memory store (insn #0)")]
+#[should_panic(expected = "Error: out of bounds memory store (insn #29)")]
 fn test_vm_err_stack_out_of_bound() {
     let prog = assemble("
         stb [r10-0x4000], 0

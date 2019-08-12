@@ -98,9 +98,9 @@ struct CallFrame {
 /// call frames
 #[derive(Clone, Debug)]
 struct CallFrames {
-    stack:   Vec<u8>,
-    frame: usize,
-    frames:  Vec<CallFrame>,
+    stack:  Vec<u8>,
+    frame:  usize,
+    frames: Vec<CallFrame>,
 }
 impl CallFrames {
     /// New call frame, depth indicates maximum call depth
@@ -570,7 +570,7 @@ impl<'a> EbpfVmMbuff<'a> {
                      self.last_insn_count,
                      reg,
                      frames.get_frame_index(),
-                     pc + 29, // Instruction numbers typically start at 29 in the ELF dump, offset here so the trace aligns with the dump
+                     pc + ebpf::ELF_INSN_DUMP_OFFSET,
                      disassembler::to_insn_vec(&prog[pc * ebpf::INSN_SIZE..])[0].desc);
             let insn = ebpf::get_insn(prog, pc);
             let _dst = insn.dst as usize;
@@ -858,7 +858,8 @@ impl<'a> EbpfVmMbuff<'a> {
                         // Note: Raw BPF programs (without ELF relocations) cannot support relative calls
                         // because there is no way to determine if the imm refers to a helper or an offset
                         Err(Error::new(ErrorKind::Other,
-                                       format!("Error: Unresolved symbol at instruction #{:?}", pc - 1)))?;
+                                       format!("Error: Unresolved symbol at instruction #{:?}",
+                                               pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET)))?;
                     }
                 },
                 ebpf::EXIT       => {
@@ -896,13 +897,17 @@ impl<'a> EbpfVmMbuff<'a> {
         if !regions.is_empty() {
             regions_string =  " regions".to_string();
             for region in regions.iter() {
-                regions_string = format!("{} \n{:#x}-{:#x}", regions_string, region.addr, region.addr + region.len);
+                regions_string = format!("{} \n{:#x}-{:#x}", regions_string, region.addr, region.addr + region.len - 1);
             }
         }
 
         Err(Error::new(ErrorKind::Other, format!(
             "Error: out of bounds memory {} (insn #{:?}), addr {:#x}/{:?} {}",
-            access_type, pc - 1, addr, len, regions_string
+            access_type,
+            pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET,
+            addr,
+            len,
+            regions_string
         )))
     }
 

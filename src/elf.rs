@@ -212,7 +212,7 @@ impl EBpfElf {
             format!(
                 "Error: Unresolved symbol ({}) at instruction #{:?} (ELF file offset {:#x})",
                 name,
-                file_offset / ebpf::INSN_SIZE,
+                file_offset / ebpf::INSN_SIZE + ebpf::ELF_INSN_DUMP_OFFSET,
                 file_offset
             ),
         ))?
@@ -255,7 +255,10 @@ impl EBpfElf {
                 if insn_idx < 0 || insn_idx as usize >= prog.len() / ebpf::INSN_SIZE {
                     Err(Error::new(
                         ErrorKind::Other,
-                        format!("Error: Relative jump at instruction {} is out of bounds", i),
+                        format!(
+                            "Error: Relative jump at instruction {} is out of bounds",
+                            i + ebpf::ELF_INSN_DUMP_OFFSET
+                        ),
                     ))?;
                 }
                 // use the instruction index as the key
@@ -267,7 +270,7 @@ impl EBpfElf {
                         ErrorKind::Other,
                         format!(
                             "Error: Relocation hash collision while encoding instruction {}",
-                            i
+                            i + ebpf::ELF_INSN_DUMP_OFFSET
                         ),
                     ))?;
                 }
@@ -852,7 +855,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Error: Relative jump at instruction 0 is out of bounds")]
+    #[should_panic(expected = "Error: Relative jump at instruction 29 is out of bounds")]
     fn test_fixup_relative_calls_out_of_bounds_forward() {
         let mut calls: HashMap<u32, usize> = HashMap::new();
         // call +5
@@ -879,7 +882,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Error: Relative jump at instruction 5 is out of bounds")]
+    #[should_panic(expected = "Error: Relative jump at instruction 34 is out of bounds")]
     fn test_fixup_relative_calls_out_of_bounds_back() {
         let mut calls: HashMap<u32, usize> = HashMap::new();
         // call -7

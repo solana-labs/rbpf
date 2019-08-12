@@ -44,6 +44,10 @@ pub const FIRST_SCRATCH_REG: usize = 6;
 pub const SCRATCH_REGS: usize = 4;
 /// Max BPF to BPF call depth
 pub const MAX_CALL_DEPTH: usize = 10;
+/// ELF dump instruction offset
+/// Instruction numbers typically start at 29 in the ELF dump, use this offset
+/// when reporting so that trace aligns with the dump.
+pub const ELF_INSN_DUMP_OFFSET: usize = 29;
 
 // eBPF op codes.
 // See also https://www.kernel.org/doc/Documentation/networking/filter.txt
