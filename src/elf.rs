@@ -107,16 +107,18 @@ impl EBpfElf {
         let mut reader = Cursor::new(elf_bytes);
         let mut elf = match elfkit::Elf::from_reader(&mut reader) {
             Ok(elf) => elf,
-            Err(e) => Err(Error::new(
-                ErrorKind::Other,
-                format!("Error: Failed to parse elf: {:?}", e),
-            ))?,
+            Err(e) => {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    format!("Error: Failed to parse elf: {:?}", e),
+                ))
+            }
         };
         if let Err(e) = elf.load_all(&mut reader) {
-            Err(Error::new(
+            return Err(Error::new(
                 ErrorKind::Other,
                 format!("Error: Failed to parse elf: {:?}", e),
-            ))?;
+            ));
         }
         let mut ebpf_elf = EBpfElf {
             elf,
@@ -151,17 +153,17 @@ impl EBpfElf {
         let entry = self.elf.header.entry;
         let text = self.get_section(".text")?;
         if entry < text.header.addr || entry > text.header.addr + text.header.size {
-            Err(Error::new(
+            return Err(Error::new(
                 ErrorKind::Other,
                 "Error: Entrypoint out of bounds",
-            ))?
+            ));
         }
         let offset = (entry - text.header.addr) as usize;
         if offset % ebpf::INSN_SIZE != 0 {
-            Err(Error::new(
+            return Err(Error::new(
                 ErrorKind::Other,
                 "Error: Entrypoint not multiple of instruction size",
-            ))?
+            ));
         }
         Ok(offset / ebpf::INSN_SIZE)
     }
@@ -178,18 +180,22 @@ impl EBpfElf {
 
         let symbols = match self.get_section(".dynsym")?.content {
             elfkit::SectionContent::Symbols(ref bytes) => bytes,
-            _ => Err(Error::new(
-                ErrorKind::Other,
-                "Error: Failed to get .dynsym contents",
-            ))?,
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "Error: Failed to get .dynsym contents",
+                ))
+            }
         };
 
         let raw_relocation_bytes = match self.get_section(".rel.dyn")?.content {
             elfkit::SectionContent::Raw(ref bytes) => bytes,
-            _ => Err(Error::new(
-                ErrorKind::Other,
-                "Error: Failed to get .rel.dyn contents",
-            ))?,
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "Error: Failed to get .rel.dyn contents",
+                ))
+            }
         };
         let relocations = EBpfElf::get_relocations(&raw_relocation_bytes[..])?;
 
@@ -215,7 +221,7 @@ impl EBpfElf {
                 file_offset / ebpf::INSN_SIZE + ebpf::ELF_INSN_DUMP_OFFSET,
                 file_offset
             ),
-        ))?
+        ))
     }
 
     fn get_section(&self, name: &str) -> Result<(&elfkit::Section), Error> {
@@ -229,7 +235,7 @@ impl EBpfElf {
             None => Err(Error::new(
                 ErrorKind::Other,
                 format!("Error: No {} section found", name),
-            ))?,
+            )),
         }
     }
 
@@ -253,26 +259,26 @@ impl EBpfElf {
             if insn.opc == 0x85 && insn.imm != -1 {
                 let insn_idx = (i as i32 + 1 + insn.imm) as isize;
                 if insn_idx < 0 || insn_idx as usize >= prog.len() / ebpf::INSN_SIZE {
-                    Err(Error::new(
+                    return Err(Error::new(
                         ErrorKind::Other,
                         format!(
                             "Error: Relative jump at instruction {} is out of bounds",
                             i + ebpf::ELF_INSN_DUMP_OFFSET
                         ),
-                    ))?;
+                    ));
                 }
                 // use the instruction index as the key
                 let mut key = [0u8; mem::size_of::<i64>()];
                 LittleEndian::write_u64(&mut key, i as u64);
                 let hash = ebpf::hash_symbol_name(&key);
                 if calls.insert(hash, insn_idx as usize).is_some() {
-                    Err(Error::new(
+                    return Err(Error::new(
                         ErrorKind::Other,
                         format!(
                             "Error: Relocation hash collision while encoding instruction {}",
                             i + ebpf::ELF_INSN_DUMP_OFFSET
                         ),
-                    ))?;
+                    ));
                 }
 
                 insn.imm = hash as i32;
@@ -289,34 +295,34 @@ impl EBpfElf {
     fn validate(&self) -> Result<(), Error> {
         // Validate header
         if self.elf.header.ident_class != elfkit::types::Class::Class64 {
-            Err(Error::new(
+            return Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong class",
-            ))?;
+            ));
         }
         if self.elf.header.ident_endianness != elfkit::types::Endianness::LittleEndian {
-            Err(Error::new(
+            return Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong endianess",
-            ))?;
+            ));
         }
         if self.elf.header.ident_abi != elfkit::types::Abi::SYSV {
-            Err(Error::new(
+            return Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong abi",
-            ))?;
+            ));
         }
         if self.elf.header.machine != elfkit::types::Machine::BPF {
-            Err(Error::new(
+            return Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong machine",
-            ))?;
+            ));
         }
         if self.elf.header.etype != elfkit::types::ElfType::DYN {
-            Err(Error::new(
+            return Err(Error::new(
                 ErrorKind::Other,
                 "Error: Incompatible ELF: wrong type",
-            ))?;
+            ));
         }
 
         let text_sections: Vec<_> = self
@@ -326,10 +332,10 @@ impl EBpfElf {
             .filter(|section| section.name.starts_with(b".text"))
             .collect();
         if text_sections.len() > 1 {
-            Err(Error::new(
+            return Err(Error::new(
                 ErrorKind::Other,
                 "Error: Multiple text sections, consider removing llc option: -function-sections",
-            ))?;
+            ));
         }
 
         Ok(())
@@ -360,7 +366,7 @@ impl EBpfElf {
             None => Err(Error::new(
                 ErrorKind::Other,
                 format!("Error: No {:?} section", name),
-            ))?,
+            )),
         }
     }
 
@@ -381,10 +387,12 @@ impl EBpfElf {
                     bytes: bytes,
                 });
             }
-            None => Err(Error::new(
-                ErrorKind::Other,
-                "Error: Failed to get .text contents",
-            ))?,
+            None => {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "Error: Failed to get .text contents",
+                ))
+            }
         };
 
         // .rodata section optional
@@ -458,10 +466,12 @@ impl EBpfElf {
             let dynsym_section = EBpfElf::get_section_ref(&mut sections, ".dynsym")?;
             let symbols = match (&dynsym_section.content).as_symbols() {
                 Some(bytes) => bytes,
-                None => Err(Error::new(
-                    ErrorKind::Other,
-                    "Error: Failed to get .text contents",
-                ))?,
+                None => {
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        "Error: Failed to get .text contents",
+                    ))
+                }
             };
 
             for relocation in relocations.iter() {
@@ -599,10 +609,12 @@ impl EBpfElf {
                             );
                         }
                     }
-                    _ => Err(Error::new(
-                        ErrorKind::Other,
-                        "Error: Unhandled relocation type",
-                    ))?,
+                    _ => {
+                        return Err(Error::new(
+                            ErrorKind::Other,
+                            "Error: Unhandled relocation type",
+                        ))
+                    }
                 }
             }
         }
@@ -622,20 +634,24 @@ impl EBpfElf {
         while let Ok(addr) = io.read_u64::<LittleEndian>() {
             let info = match io.read_u64::<LittleEndian>() {
                 Ok(v) => v,
-                _ => Err(Error::new(
-                    ErrorKind::Other,
-                    "Error: Failed to read relocation info",
-                ))?,
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        "Error: Failed to read relocation info",
+                    ))
+                }
             };
 
             let sym = (info >> 32) as u32;
             let rtype = (info & 0xffffffff) as u32;
             let rtype = match elfkit::relocation::RelocationType::from_u32(rtype) {
                 Some(v) => v,
-                None => Err(Error::new(
-                    ErrorKind::Other,
-                    "Error: unknown relocation type",
-                ))?,
+                None => {
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        "Error: unknown relocation type",
+                    ))
+                }
             };
 
             let addend = 0; // BPF relocation don't have an addend

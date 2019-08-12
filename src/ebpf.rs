@@ -404,7 +404,7 @@ pub const BPF_CLS_MASK    : u8 = 0x07;
 pub const BPF_ALU_OP_MASK : u8 = 0xf0;
 
 /// Prototype of an eBPF helper function.
-pub type HelperFunction = fn (u64, u64, u64, u64, u64, &mut Option<Box<Any>>) -> u64;
+pub type HelperFunction = fn (u64, u64, u64, u64, u64, &mut Option<Box<dyn Any>>) -> u64;
 
 /// Prototype of an eBPF helper verification function.
 pub type HelperVerifier = fn (
@@ -413,7 +413,7 @@ pub type HelperVerifier = fn (
     u64,
     u64,
     u64,
-    &mut Option<Box<Any>>,
+    &mut Option<Box<dyn Any>>,
     &[MemoryRegion],
     &[MemoryRegion],
 ) -> Result<(()), Error>;
@@ -434,7 +434,7 @@ pub struct Helper {
     /// Actual helper function that does the work
     pub function: HelperFunction,
     /// Context passed to both the verifier and the function
-    pub context: Option<Box<Any>>,
+    pub context: Option<Box<dyn Any>>,
 }
 
 /// An eBPF instruction.

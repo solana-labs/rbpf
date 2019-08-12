@@ -780,17 +780,17 @@ impl<'a> JitMemory<'a> {
                     // helper function in the JIT-compiled program).
                     if let Some(helper) = helpers.get(&(insn.imm as u32)) {
                         if helper.verifier.is_some() {
-                            Err(Error::new(ErrorKind::Other,
+                            return Err(Error::new(ErrorKind::Other,
                                            format!("[JIT] Error: helper verifier function not supported by jit (id: {:#x})",
-                                                   insn.imm as u32)))?;
+                                                   insn.imm as u32)));
                         }
                         // We reserve RCX for shifts
                         emit_mov(self, R9, RCX);
                         emit_call(self, helper.function as usize);
                     } else {
-                        Err(Error::new(ErrorKind::Other,
+                        return Err(Error::new(ErrorKind::Other,
                                        format!("[JIT] Error: unknown helper function (id: {:#x})",
-                                               insn.imm as u32)))?;
+                                               insn.imm as u32)));
                     };
                 },
                 ebpf::CALL_REG  => { unimplemented!() },
@@ -801,9 +801,9 @@ impl<'a> JitMemory<'a> {
                 },
 
                 _                => {
-                    Err(Error::new(ErrorKind::Other,
+                    return Err(Error::new(ErrorKind::Other,
                                    format!("[JIT] Error: unknown eBPF opcode {:#2x} (insn #{:?})",
-                                           insn.opc, insn_ptr)))?;
+                                           insn.opc, insn_ptr)));
                 },
             }
 

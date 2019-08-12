@@ -61,7 +61,7 @@ pub fn bpf_time_getns (
     unused3: u64,
     unused4: u64,
     unused5: u64,
-    unused6: &mut Option<Box<Any>>
+    unused6: &mut Option<Box<dyn Any>>
 ) -> u64 {
     time::precise_time_ns()
 }
@@ -115,7 +115,7 @@ pub fn bpf_trace_printf (
     arg3: u64,
     arg4: u64,
     arg5: u64,
-    unused6: &mut Option<Box<Any>>
+    unused6: &mut Option<Box<dyn Any>>
 ) -> u64 {
     println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
     let size_arg = | x | {
@@ -150,7 +150,7 @@ pub fn gather_bytes (
     arg3: u64,
     arg4: u64,
     arg5: u64,
-    unused: &mut Option<Box<Any>>
+    unused: &mut Option<Box<dyn Any>>
 ) -> u64 {
     arg1.wrapping_shl(32) |
        arg2.wrapping_shl(24) |
@@ -183,7 +183,7 @@ pub fn memfrob (
     unused3: u64,
     unused4: u64,
     unused5: u64,
-    unused6: &mut Option<Box<Any>>
+    unused6: &mut Option<Box<dyn Any>>
 ) -> u64 {
     for i in 0..len {
         unsafe {
@@ -234,7 +234,7 @@ pub fn sqrti (
     unused3: u64,
     unused4: u64,
     unused5: u64,
-    unused6: &mut Option<Box<Any>>
+    unused6: &mut Option<Box<dyn Any>>
 ) -> u64 {
     (arg1 as f64).sqrt() as u64
 }
@@ -260,7 +260,7 @@ pub fn strcmp (
     arg3: u64,
     unused4: u64,
     unused5: u64,
-    unused6: &mut Option<Box<Any>>
+    unused6: &mut Option<Box<dyn Any>>
 ) -> u64 {
     // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
     if arg1 == 0 || arg2 == 0 {
@@ -315,7 +315,7 @@ pub fn rand (
     unused3: u64,
     unused4: u64,
     unused5: u64,
-    unused6: &mut Option<Box<Any>>
+    unused6: &mut Option<Box<dyn Any>>
 ) -> u64 {
     let mut n = unsafe {
         (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64

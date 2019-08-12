@@ -148,9 +148,9 @@ impl CallFrames {
     /// Push a frame
     fn push(&mut self, saved_reg: &[u64], return_ptr: usize) -> Result<u64, Error> {
         if self.frame + 1 >= ebpf::MAX_CALL_DEPTH {
-            Err(Error::new(ErrorKind::Other,
+            return Err(Error::new(ErrorKind::Other,
                            format!("Exceeded max BPF to BPF call depth of {:?}",
-                                   ebpf::MAX_CALL_DEPTH)))?;
+                                   ebpf::MAX_CALL_DEPTH)));
         }
         self.frames[self.frame].saved_reg[..].copy_from_slice(saved_reg);
         self.frames[self.frame].return_ptr = return_ptr;
@@ -161,7 +161,7 @@ impl CallFrames {
     /// Pop a frame
     fn pop(&mut self) -> Result<([u64; ebpf::SCRATCH_REGS], u64, usize), Error> {
         if self.frame == 0 {
-            Err(Error::new(ErrorKind::Other, "Attempted to exit root call frame"))?;
+            return Err(Error::new(ErrorKind::Other, "Attempted to exit root call frame"));
         }
         self.frame -= 1;
         Ok((self.frames[self.frame].saved_reg,
@@ -461,7 +461,7 @@ impl<'a> EbpfVmMbuff<'a> {
         name: &str,
         verifier: Option<ebpf::HelperVerifier>,
         function: ebpf::HelperFunction,
-        context: Option<Box<Any>>,
+        context: Option<Box<dyn Any>>,
      ) -> Result<(), Error> {
         self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), ebpf::Helper{ verifier, function, context });
         Ok(())
@@ -541,8 +541,8 @@ impl<'a> EbpfVmMbuff<'a> {
         } else if let Some(ref prog) = self.prog {
             prog
         } else {
-            Err(Error::new(ErrorKind::Other,
-                           "Error: no program or elf set"))?
+            return Err(Error::new(ErrorKind::Other,
+                           "Error: no program or elf set"));
         };
 
         // R1 points to beginning of input memory, R10 to the stack of the first frame
@@ -722,7 +722,7 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::DIV32_IMM  => reg[_dst] = (reg[_dst] as u32 / insn.imm              as u32) as u64,
                 ebpf::DIV32_REG  => {
                     if reg[_src] == 0 {
-                        Err(Error::new(ErrorKind::Other,"Error: division by 0"))?;
+                        return Err(Error::new(ErrorKind::Other,"Error: division by 0"));
                     }
                     reg[_dst] = (reg[_dst] as u32 / reg[_src] as u32) as u64;
                 },
@@ -738,7 +738,7 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::MOD32_IMM  =>   reg[_dst] = (reg[_dst] as u32             % insn.imm  as u32) as u64,
                 ebpf::MOD32_REG  => {
                     if reg[_src] == 0 {
-                        Err(Error::new(ErrorKind::Other,"Error: division by 0"))?;
+                        return Err(Error::new(ErrorKind::Other,"Error: division by 0"));
                     }
                     reg[_dst] = (reg[_dst] as u32 % reg[_src] as u32) as u64;
                 },
@@ -775,7 +775,7 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::DIV64_IMM  => reg[_dst]                       /= insn.imm as u64,
                 ebpf::DIV64_REG  => {
                     if reg[_src] == 0 {
-                        Err(Error::new(ErrorKind::Other,"Error: division by 0"))?;
+                        return Err(Error::new(ErrorKind::Other,"Error: division by 0"));
                     }
                     reg[_dst] /= reg[_src];
                 },
@@ -791,7 +791,7 @@ impl<'a> EbpfVmMbuff<'a> {
                 ebpf::MOD64_IMM  => reg[_dst] %=  insn.imm as u64,
                 ebpf::MOD64_REG  => {
                     if reg[_src] == 0 {
-                        Err(Error::new(ErrorKind::Other,"Error: division by 0"))?;
+                        return Err(Error::new(ErrorKind::Other,"Error: division by 0"));
                     }
                     reg[_dst] %= reg[_src];
                 },
@@ -860,9 +860,9 @@ impl<'a> EbpfVmMbuff<'a> {
                     } else {
                         // Note: Raw BPF programs (without ELF relocations) cannot support relative calls
                         // because there is no way to determine if the imm refers to a helper or an offset
-                        Err(Error::new(ErrorKind::Other,
+                        return Err(Error::new(ErrorKind::Other,
                                        format!("Error: Unresolved symbol at instruction #{:?}",
-                                               pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET)))?;
+                                               pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET)));
                     }
                 },
                 ebpf::EXIT       => {
@@ -880,9 +880,9 @@ impl<'a> EbpfVmMbuff<'a> {
                 _                => unreachable!()
             }
             if (self.max_insn_count != 0) && (self.last_insn_count >= self.max_insn_count) {
-                Err(Error::new(ErrorKind::Other,
+                return Err(Error::new(ErrorKind::Other,
                                format!("Error: Execution exceeded maximum number of instructions allowed ({:?})",
-                                       self.max_insn_count)))?;
+                                       self.max_insn_count)));
             }
         }
 
@@ -938,15 +938,15 @@ impl<'a> EbpfVmMbuff<'a> {
         let prog =
         if let Some(ref elf) = self.elf {
             if elf.get_ro_sections().is_ok() {
-                Err(Error::new(ErrorKind::Other,
-                           "Error: JIT does not support RO data"))?
+                return Err(Error::new(ErrorKind::Other,
+                           "Error: JIT does not support RO data"));
             }
             elf.get_text_bytes()?
         } else if let Some(ref prog) = self.prog {
             prog
         } else {
-            Err(Error::new(ErrorKind::Other,
-                           "Error: no program or elf set"))?
+            return Err(Error::new(ErrorKind::Other,
+                           "Error: no program or elf set"));
         };
         self.jit = Some(jit::compile(prog, &self.helpers, true, false)?);
         Ok(())
@@ -1336,7 +1336,7 @@ impl<'a> EbpfVmFixedMbuff<'a> {
         name: &str,
         verifier: Option<ebpf::HelperVerifier>,
         function: ebpf::HelperFunction,
-        context: Option<Box<Any>>
+        context: Option<Box<dyn Any>>
     ) -> Result<(), Error> {
         self.parent.register_helper_ex(name, verifier, function, context)
     }
@@ -1380,8 +1380,12 @@ impl<'a> EbpfVmFixedMbuff<'a> {
         let l = self.mbuff.buffer.len();
         // Can this ever happen? Probably not, should be ensured at mbuff creation.
         if self.mbuff.data_offset + 8 > l || self.mbuff.data_end_offset + 8 > l {
-            Err(Error::new(ErrorKind::Other, format!("Error: buffer too small ({:?}), cannot use data_offset {:?} and data_end_offset {:?}",
-            l, self.mbuff.data_offset, self.mbuff.data_end_offset)))?;
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("Error: buffer too small ({:?}), cannot use data_offset {:?} and data_end_offset {:?}",
+                l,
+                self.mbuff.data_offset,
+                self.mbuff.data_end_offset)));
         }
         LittleEndian::write_u64(
             &mut self.mbuff.buffer[(self.mbuff.data_offset) .. ],
@@ -1420,15 +1424,15 @@ impl<'a> EbpfVmFixedMbuff<'a> {
         let prog =
             if let Some(ref elf) = self.parent.elf {
                 if elf.get_ro_sections().is_ok() {
-                    Err(Error::new(ErrorKind::Other,
-                            "Error: JIT does not support RO data"))?
+                    return Err(Error::new(ErrorKind::Other,
+                            "Error: JIT does not support RO data"));
                 }
                 elf.get_text_bytes()?
             } else if let Some(ref prog) = self.parent.prog {
                 prog
             } else {
-                Err(Error::new(ErrorKind::Other,
-                            "Error: no program or elf set"))?
+                return Err(Error::new(ErrorKind::Other,
+                            "Error: no program or elf set"));
             };
         self.parent.jit = Some(jit::compile(prog, &self.parent.helpers, true, true)?);
         Ok(())
@@ -1749,7 +1753,7 @@ impl<'a> EbpfVmRaw<'a> {
         name: &str,
         verifier: Option<ebpf::HelperVerifier>,
         function: ebpf::HelperFunction,
-        context: Option<Box<Any>>,
+        context: Option<Box<dyn Any>>,
     ) -> Result<(), Error> {
         self.parent.register_helper_ex(name, verifier, function, context)
     }
@@ -1808,15 +1812,15 @@ impl<'a> EbpfVmRaw<'a> {
         let prog =
             if let Some(ref elf) = self.parent.elf {
                 if elf.get_ro_sections().is_ok() {
-                    Err(Error::new(ErrorKind::Other,
-                            "Error: JIT does not support RO data"))?
+                    return Err(Error::new(ErrorKind::Other,
+                            "Error: JIT does not support RO data"))
                 }
                 elf.get_text_bytes()?
             } else if let Some(ref prog) = self.parent.prog {
                 prog
             } else {
-                Err(Error::new(ErrorKind::Other,
-                            "Error: no program or elf set"))?
+                return Err(Error::new(ErrorKind::Other,
+                            "Error: no program or elf set"))
             };
         self.parent.jit = Some(jit::compile(prog, &self.parent.helpers, false, false)?);
         Ok(())
@@ -2114,7 +2118,7 @@ impl<'a> EbpfVmNoData<'a> {
         name: &str,
         verifier: Option<ebpf::HelperVerifier>,
         function: ebpf::HelperFunction,
-        context: Option<Box<Any>>
+        context: Option<Box<dyn Any>>
     ) -> Result<(), Error> {
         self.parent.register_helper_ex(name, verifier, function, context)
     }
