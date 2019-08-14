@@ -49,6 +49,30 @@ pub const MAX_CALL_DEPTH: usize = 10;
 /// when reporting so that trace aligns with the dump.
 pub const ELF_INSN_DUMP_OFFSET: usize = 29;
 
+// Memory map
+// +-----------------+
+// | Program         |
+// +-----------------+
+// | Stack           |
+// +-----------------+
+// | Input           |
+// +-----------------+
+// | Heap            |
+// +-----------------+ 
+// The values below provide for 4 GiB separations between the map areas which
+// should be sufficient.
+// Note: Compiled programs themselves have no direct dependency on these values so
+// they may be modified based on new requirements.
+
+/// Start of the program bits (text and ro segments) in the memory map
+pub const MM_PROGRAM_START: u64 = 0x0;
+/// Start of the stack in the memory map
+pub const MM_STACK_START: u64 = 0x100000000;
+/// Start of the input buffers in the memory map
+pub const MM_INPUT_START: u64 = 0x200000000;
+/// Start of the heap regions
+pub const MM_HEAP_START: u64 = 0x300000000;
+
 // eBPF op codes.
 // See also https://www.kernel.org/doc/Documentation/networking/filter.txt
 

@@ -64,23 +64,26 @@ pub type JitProgram = unsafe fn(*mut u8, usize, usize) -> u64;
 /// memory region for bounds checking
 #[derive(Clone, Debug)]
 pub struct MemoryRegion {
-    /// lower address
-    pub addr: u64,
+    /// start host address
+    pub addr_host: u64,
+    /// start virtual address
+    pub addr_vm: u64,
     /// Length in bytes
     pub len:  u64,
 }
 impl MemoryRegion {
     /// Creates a new MemoryRegion structure from a slice
-    pub fn new_from_slice(v: &[u8]) -> Self {
+    pub fn new_from_slice(v: &[u8], addr_vm: u64) -> Self {
         MemoryRegion {
-            addr: v.as_ptr() as u64,
+            addr_host: v.as_ptr() as u64,
+            addr_vm,
             len:  v.len() as u64,
         }
     }
 }
 impl fmt::Display for MemoryRegion {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "addr: {:#x?}, len: {}", self.addr, self.len)
+        write!(f, "addr_host: {:#x?}, addr_vm: {:#x?}, len: {}", self.addr_host,self.addr_vm, self.len)
     }
 }
 
@@ -108,7 +111,8 @@ impl CallFrames {
             stack: vec![0u8; depth * size],
             frame: 0,
             frames: vec![CallFrame { stack:  MemoryRegion {
-                                                      addr: 0,
+                                                      addr_host: 0,
+                                                      addr_vm: 0,
                                                       len: 0,
                                                   },
                                      saved_reg:  [0u64; ebpf::SCRATCH_REGS],
@@ -119,7 +123,8 @@ impl CallFrames {
         for i in 0..depth {
             let start = i * size;
             let end = start + size;
-            frames.frames[i].stack = MemoryRegion::new_from_slice(&frames.stack[start..end]);
+            let addr_vm = ebpf::MM_STACK_START + start as u64;
+            frames.frames[i].stack = MemoryRegion::new_from_slice(&frames.stack[start..end], addr_vm);
         }
         frames
     }
@@ -135,7 +140,7 @@ impl CallFrames {
 
     /// Get the address of a frame's top of stack
     fn get_stack_top(&self) -> u64 {
-        self.frames[self.frame].stack.addr + self.frames[self.frame].stack.len - 1
+        self.frames[self.frame].stack.addr_vm + self.frames[self.frame].stack.len - 1
     }
 
     /// Get current call frame index, 0 is the root frame
@@ -255,7 +260,8 @@ impl<'a> EbpfVm<'a> {
     /// Load a new eBPF program into the virtual machine instance.
     pub fn set_elf(&mut self, elf_bytes: &'a [u8]) -> Result<(), Error> {
         let elf = EBpfElf::load(elf_bytes)?;
-        (self.verifier)(elf.get_text_bytes()?)?;
+        let (_, bytes) = elf.get_text_bytes()?;
+        (self.verifier)(bytes)?;
         self.elf = Some(elf);
         Ok(())
     }
@@ -292,7 +298,8 @@ impl<'a> EbpfVm<'a> {
     /// ```
     pub fn set_verifier(&mut self, verifier: Verifier) -> Result<(), Error> {
         if let Some(ref elf) = self.elf {
-            verifier(elf.get_text_bytes()?)?;
+            let (_, bytes) = elf.get_text_bytes()?;
+            verifier(bytes)?;
         } else if let Some(ref prog) = self.prog {
             verifier(prog)?;
         }
@@ -428,20 +435,21 @@ impl<'a> EbpfVm<'a> {
             ro_regions.push(ptr.clone());
             rw_regions.push(ptr.clone());
         }
-        ro_regions.push(MemoryRegion::new_from_slice(&mem));
-        rw_regions.push(MemoryRegion::new_from_slice(&mem));
+
+        ro_regions.push(MemoryRegion::new_from_slice(&mem, 0));
+        rw_regions.push(MemoryRegion::new_from_slice(&mem, 0));
 
         let mut entry: usize = 0;
-        let prog =
+        let (_, prog) =
         if let Some(ref elf) = self.elf {
             if let Ok(sections) = elf.get_ro_sections() {
-                let regions: Vec<_> = sections.iter().map( |r| MemoryRegion::new_from_slice(r)).collect();
+                let regions: Vec<_> = sections.iter().map( |r| MemoryRegion::new_from_slice(r, 0)).collect();
                 ro_regions.extend(regions);
             }
             entry = elf.get_entrypoint_instruction_offset()?;
             elf.get_text_bytes()?
-        } else if let Some(ref prog) = self.prog {
-            prog
+        } else if let Some(prog) = self.prog {
+            (MemoryRegion::new_from_slice(&prog, ebpf::MM_PROGRAM_START), prog)
         } else {
             return Err(Error::new(ErrorKind::Other,
                            "Error: no program or elf set"));
@@ -791,7 +799,7 @@ impl<'a> EbpfVm<'a> {
 
     fn check_mem(addr: u64, len: usize, access_type: &str, pc: usize, regions: &'a [MemoryRegion]) -> Result<(), Error> {
         for region in regions.iter() {
-            if region.addr <= addr && addr + len as u64 <= region.addr + region.len {
+            if region.addr_vm <= addr && addr + len as u64 <= region.addr_vm + region.len {
                 return Ok(());
             }
         }
@@ -800,7 +808,7 @@ impl<'a> EbpfVm<'a> {
         if !regions.is_empty() {
             regions_string =  " regions".to_string();
             for region in regions.iter() {
-                regions_string = format!("{} \n{:#x}-{:#x}", regions_string, region.addr, region.addr + region.len - 1);
+                regions_string = format!("{} \n{:#x}-{:#x}", regions_string, region.addr_vm, region.addr_vm + region.len - 1);
             }
         }
 
@@ -839,7 +847,8 @@ impl<'a> EbpfVm<'a> {
                 return Err(Error::new(ErrorKind::Other,
                            "Error: JIT does not support RO data"));
             }
-            elf.get_text_bytes()?
+            let (_, bytes) = elf.get_text_bytes()?;
+            bytes
         } else if let Some(ref prog) = self.prog {
             prog
         } else {
@@ -920,9 +929,9 @@ mod tests {
 
             let top = frames.push(&registers[0..4], i).unwrap();
             let new_ptrs = frames.get_stacks();
-            assert_eq!(top, new_ptrs[i+1].addr + new_ptrs[i+1].len - 1);
-            assert_ne!(top, ptrs[i].addr + ptrs[i].len - 1);
-            assert!(!(ptrs[i].addr <= new_ptrs[i+1].addr && new_ptrs[i+1].addr < ptrs[i].addr + ptrs[i].len));
+            assert_eq!(top, new_ptrs[i+1].addr_vm + new_ptrs[i+1].len - 1);
+            assert_ne!(top, ptrs[i].addr_vm + ptrs[i].len - 1);
+            assert!(!(ptrs[i].addr_vm <= new_ptrs[i+1].addr_vm && new_ptrs[i+1].addr_vm < ptrs[i].addr_vm + ptrs[i].len));
         }
         let i = DEPTH - 1;
         let registers = vec![i as u64; 5];
@@ -934,7 +943,7 @@ mod tests {
         for i in (0..DEPTH - 1).rev() {
             let (saved_reg, stack_ptr, return_ptr) = frames.pop().unwrap();
             assert_eq!(saved_reg, [i as u64, i as u64, i as u64, i as u64]);
-            assert_eq!(ptrs[i].addr + ptrs[i].len - 1, stack_ptr);
+            assert_eq!(ptrs[i].addr_vm + ptrs[i].len - 1, stack_ptr);
             assert_eq!(i, return_ptr);
         }
 

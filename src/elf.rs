@@ -9,6 +9,7 @@
 extern crate elfkit;
 extern crate num_traits;
 
+use crate::MemoryRegion;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use ebpf;
 use elf::num_traits::FromPrimitive;
@@ -130,8 +131,12 @@ impl EBpfElf {
     }
 
     /// Get the .text section bytes
-    pub fn get_text_bytes(&self) -> Result<&[u8], Error> {
-        EBpfElf::content_to_bytes(self.get_section(".text")?)
+    pub fn get_text_bytes(&self) -> Result<(MemoryRegion, &[u8]), Error> {
+        let bytes = EBpfElf::content_to_bytes(self.get_section(".text")?)?;
+        Ok((
+            MemoryRegion::new_from_slice(bytes, ebpf::MM_PROGRAM_START),
+            bytes,
+        ))
     }
 
     /// Get a vector of read-only data sections
