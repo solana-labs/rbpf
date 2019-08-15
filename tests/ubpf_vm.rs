@@ -1335,7 +1335,7 @@ fn test_vm_rsh_reg() {
 }
 
 #[test]
-fn test_vm_stack() {
+fn test_vm_stack1() {
     let prog = assemble("
         mov r1, 51
         stdw [r10-16], 0xab

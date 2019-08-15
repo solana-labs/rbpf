@@ -21,7 +21,7 @@
 #![allow(clippy::deprecated_cfg_attr)]
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
-use MemoryRegion;
+use crate::memory_region::MemoryRegion;
 use std::any::Any;
 use std::fmt;
 use std::io::Error;

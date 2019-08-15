@@ -38,7 +38,7 @@ use libc::c_char;
 use solana_rbpf::assembler::assemble;
 use solana_rbpf::ebpf;
 use solana_rbpf::helpers;
-use solana_rbpf::MemoryRegion;
+use solana_rbpf::memory_region::{MemoryRegion};
 use solana_rbpf::EbpfVm;
 
 // The following two examples have been compiled from C with the following command:

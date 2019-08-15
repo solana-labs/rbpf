@@ -9,7 +9,7 @@
 extern crate elfkit;
 extern crate num_traits;
 
-use crate::MemoryRegion;
+use crate::memory_region::MemoryRegion;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use ebpf;
 use elf::num_traits::FromPrimitive;
