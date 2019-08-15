@@ -886,9 +886,9 @@ impl<'a> EbpfVmMbuff<'a> {
             }
         }
 
-        return Err(Error::new(ErrorKind::Other,
-                               format!("Error: Attempted to call outside of the text segment, pc: {:?}",
-                                       pc + ebpf::ELF_INSN_DUMP_OFFSET)));
+        Err(Error::new(ErrorKind::Other,
+                       format!("Error: Attempted to call outside of the text segment, pc: {:?}",
+                               pc + ebpf::ELF_INSN_DUMP_OFFSET)))
     }
 
     fn check_mem(addr: u64, len: usize, access_type: &str, pc: usize, regions: &'a [MemoryRegion]) -> Result<(), Error> {

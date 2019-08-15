@@ -1014,7 +1014,7 @@ fn test_large_program() {
         let mut vm = EbpfVmRaw::new(None).unwrap();
         vm.set_program(&prog).unwrap();
         assert_eq!(0, vm.execute_program(&mut [], &[], &[]).unwrap());
-        
+
         // reset program
         write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "mov64 r0, 0");
     }
