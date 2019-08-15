@@ -21,13 +21,16 @@
 //! respect this convention.
 
 #![allow(clippy::deprecated_cfg_attr)]
+#![allow(clippy::too_many_arguments)]
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
 extern crate libc;
 
 use std::u64;
 use std::any::Any;
+use std::io::Error;
 use time;
+use crate::memory_region::{MemoryRegion, translate_addr};
 
 // Helpers associated to kernel helpers
 // See also linux/include/uapi/linux/bpf.h in Linux kernel sources.
@@ -61,9 +64,11 @@ pub fn bpf_time_getns (
     unused3: u64,
     unused4: u64,
     unused5: u64,
-    unused6: &mut Option<Box<dyn Any>>
-) -> u64 {
-    time::precise_time_ns()
+    _context: &mut Option<Box<dyn Any>>,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion],
+) -> Result<(u64), Error> {
+    Ok(time::precise_time_ns())
 }
 
 // bpf_trace_printk()
@@ -115,8 +120,10 @@ pub fn bpf_trace_printf (
     arg3: u64,
     arg4: u64,
     arg5: u64,
-    unused6: &mut Option<Box<dyn Any>>
-) -> u64 {
+    _context: &mut Option<Box<dyn Any>>,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion]
+) -> Result<(u64), Error> {
     println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
     let size_arg = | x | {
         if x == 0 {
@@ -125,8 +132,8 @@ pub fn bpf_trace_printf (
             (x as f64).log(16.0).floor() as u64 + 1
         }
     };
-    "bpf_trace_printf: 0x, 0x, 0x\n".len() as u64
-        + size_arg(arg3) + size_arg(arg4) + size_arg(arg5)
+    Ok("bpf_trace_printf: 0x, 0x, 0x\n".len() as u64
+        + size_arg(arg3) + size_arg(arg4) + size_arg(arg5))
 }
 
 
@@ -150,13 +157,15 @@ pub fn gather_bytes (
     arg3: u64,
     arg4: u64,
     arg5: u64,
-    unused: &mut Option<Box<dyn Any>>
-) -> u64 {
-    arg1.wrapping_shl(32) |
+    _context: &mut Option<Box<dyn Any>>,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion]
+) -> Result<(u64), Error> {
+    Ok(arg1.wrapping_shl(32) |
        arg2.wrapping_shl(24) |
        arg3.wrapping_shl(16) |
        arg4.wrapping_shl(8)  |
-       arg5
+       arg5)
 }
 
 /// Same as `void *memfrob(void *s, size_t n);` in `string.h` in C. See the GNU manual page (in
@@ -178,27 +187,31 @@ pub fn gather_bytes (
 /// ```
 #[allow(unused_variables)]
 pub fn memfrob (
-    ptr: u64,
+    addr: u64,
     len: u64, 
     unused3: u64,
     unused4: u64,
     unused5: u64,
-    unused6: &mut Option<Box<dyn Any>>
-) -> u64 {
+    _context: &mut Option<Box<dyn Any>>,
+    _ro_regions: &[MemoryRegion],
+    rw_regions: &[MemoryRegion]
+) -> Result<(u64), Error> {
+
+    let host_addr = translate_addr(addr, len as usize, "Store", 0, rw_regions)?;
     for i in 0..len {
         unsafe {
-            let mut p = (ptr + i) as *mut u8;
+            let mut p = (host_addr + i) as *mut u8;
             *p ^= 0b101010;
         }
     }
-    0
+    Ok(0)
 }
 
 // TODO: Try again when asm!() is available in stable Rust.
 // #![feature(asm)]
 // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 // #[allow(unused_variables)]
-// pub fn memfrob (ptr: u64, len: u64, arg3: u64, arg4: u64, arg5: u64) -> u64 {
+// pub fn memfrob (ptr: u64, len: u64, arg3: u64, arg4: u64, arg5: u64) -> Result<(u64), Error> {
 //     unsafe {
 //         asm!(
 //                 "mov $0xf0, %rax"
@@ -234,9 +247,11 @@ pub fn sqrti (
     unused3: u64,
     unused4: u64,
     unused5: u64,
-    unused6: &mut Option<Box<dyn Any>>
-) -> u64 {
-    (arg1 as f64).sqrt() as u64
+    _context: &mut Option<Box<dyn Any>>,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion]
+) -> Result<(u64), Error> {
+    Ok((arg1 as f64).sqrt() as u64)
 }
 
 /// C-like `strcmp`, return 0 if the strings are equal, and a non-null value otherwise.
@@ -260,14 +275,16 @@ pub fn strcmp (
     arg3: u64,
     unused4: u64,
     unused5: u64,
-    unused6: &mut Option<Box<dyn Any>>
-) -> u64 {
+    _context: &mut Option<Box<dyn Any>>,
+    ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion]
+) -> Result<(u64), Error> {
     // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
     if arg1 == 0 || arg2 == 0 {
-        return u64::MAX;
+        return Ok(u64::MAX);
     }
-    let mut a = arg1;
-    let mut b = arg2;
+    let mut a = translate_addr(arg1, 1, "Load", 0, ro_regions)?;
+    let mut b = translate_addr(arg2, 1, "Load", 0, ro_regions)?;
     unsafe {
         let mut a_val = *(a as *const u8);
         let mut b_val = *(b as *const u8);
@@ -278,9 +295,9 @@ pub fn strcmp (
             b_val = *(b as *const u8);
         }
         if a_val >= b_val {
-            (a_val - b_val) as u64
+            Ok((a_val - b_val) as u64)
         } else {
-            (b_val - a_val) as u64
+            Ok((b_val - a_val) as u64)
         }
     }
 }
@@ -315,13 +332,15 @@ pub fn rand (
     unused3: u64,
     unused4: u64,
     unused5: u64,
-    unused6: &mut Option<Box<dyn Any>>
-) -> u64 {
+    _context: &mut Option<Box<dyn Any>>,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion],
+) -> Result<(u64), Error> {
     let mut n = unsafe {
         (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64
     };
     if min < max {
         n = n % (max + 1 - min) + min;
     };
-    n
+    Ok(n)
 }

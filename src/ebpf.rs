@@ -65,11 +65,13 @@ pub const ELF_INSN_DUMP_OFFSET: usize = 29;
 // they may be modified based on new requirements.
 
 /// Start of the program bits (text and ro segments) in the memory map
-pub const MM_PROGRAM_START: u64 = 0x0;
+pub const MM_PROGRAM_START: u64 = 0x8;
 /// Start of the stack in the memory map
 pub const MM_STACK_START: u64 = 0x100000000;
 /// Start of the input buffers in the memory map
 pub const MM_INPUT_START: u64 = 0x200000000;
+/// Start of the input buffers in the memory map
+pub const MM_MBUFF_START: u64 = 0x210000000;
 /// Start of the heap regions
 pub const MM_HEAP_START: u64 = 0x300000000;
 
@@ -427,11 +429,8 @@ pub const BPF_CLS_MASK    : u8 = 0x07;
 /// Mask to extract the arithmetic operation code from an instruction operation code.
 pub const BPF_ALU_OP_MASK : u8 = 0xf0;
 
-/// Prototype of an eBPF helper function.
-pub type HelperFunction = fn (u64, u64, u64, u64, u64, &mut Option<Box<dyn Any>>) -> u64;
-
-/// Prototype of an eBPF helper verification function.
-pub type HelperVerifier = fn (
+/// Prototype of an helper function.
+pub type HelperFunction = fn (
     u64,
     u64,
     u64,
@@ -440,24 +439,13 @@ pub type HelperVerifier = fn (
     &mut Option<Box<dyn Any>>,
     &[MemoryRegion],
     &[MemoryRegion],
-) -> Result<(()), Error>;
+) -> Result<(u64), Error>;
 
-/// eBPF Helper pair
-/// 
-/// Includes both the helper function itself, but also an optional helper verification function
-/// that if present will be called first to validate the helper parameters.  A verification
-/// function is not needed if the helper treats its arguments as values but if one of
-/// the arguments represent a pointer then that pointer must be verified by the 
-/// verification function.
-/// 
-/// Note: native jitted programs do not have the ability to call the verification programs
-/// so all helpers provided to a jitted function must treat their arguments as values only.
+/// Helper function and its context
 pub struct Helper {
-    /// Called first to verify the helper function's arguments
-    pub verifier: Option<HelperVerifier>,
     /// Actual helper function that does the work
     pub function: HelperFunction,
-    /// Context passed to both the verifier and the function
+    /// Context passed to the helper
     pub context: Option<Box<dyn Any>>,
 }
 

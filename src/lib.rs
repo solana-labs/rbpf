@@ -328,45 +328,22 @@ impl<'a> EbpfVm<'a> {
     /// // standard output.
     /// vm.register_helper(6, helpers::bpf_trace_printf).unwrap();
     /// ```
-    pub fn register_helper(&mut self, key: u32, function: ebpf::HelperFunction) -> Result<(), Error> {
-        self.helpers.insert(key, ebpf::Helper{ verifier: None, function, context: None });
+    pub fn register_helper(&mut self,
+                           key: u32,
+                           function: ebpf::HelperFunction,
+                           context: Option<Box<dyn Any>>
+    ) -> Result<(), Error> {
+        self.helpers.insert(key, ebpf::Helper{ function, context });
         Ok(())
     }
 
-    /// Register a user-defined helper function in order to use it later from within
-    /// the eBPF program.  Normally helper functions are referred to by an index. (See helpers)
-    /// but this function takes the name of the function.  The name is then hashed into a 32 bit
-    /// number and used in the `call` instructions imm field.  If calling `set_elf` then
-    /// the elf's relocations must reference this symbol using the same name.  This can usually be
-    /// achieved by building the elf with unresolved symbols (think `extern foo(void)`).  If
-    /// providing a program directly via `set_program` then any `call` instructions must already
-    /// have the hash of the symbol name in its imm field.  To generate the correct hash of the
-    /// symbol name use `ebpf::helpers::hash_symbol_name`.
-    /// 
-    /// Helper functions may treat their arguments as pointers, but there are safety issues
-    /// in doing so.  To protect against bad pointer usage the VM will call the helper verifier
-    /// function before calling the real helper.  The user-supplied helper verifier should be implemented
-    /// so that it checks the usage of the pointers and returns an error if a problem is encountered.
-    /// For example, if the helper function treats argument 1 as a pointer to a string then the 
-    /// helper verification function must validate that argument 1 is indeed a valid pointer and
-    /// that it is fully contained in one of the provided memory regions.
-    /// 
-    /// This function can be used along with jitted programs but be aware that unlike interpreted
-    /// programs, jitted programs will not call the verification functions.  If you don't inherently
-    /// trust the parameters being passed to helpers then jitted programs must only use helper's
-    /// arguments as values.
-    ///
-    /// If using JIT-compiled eBPF programs, be sure to register all helpers before compiling the
-    /// program. You should be able to change registered helpers after compiling, but not to add
-    /// new ones (i.e. with new keys).
-    pub fn register_helper_ex(
-        &mut self,
-        name: &str,
-        verifier: Option<ebpf::HelperVerifier>,
-        function: ebpf::HelperFunction,
-        context: Option<Box<dyn Any>>,
+    /// Same as register_helper except it takes a helper name which is used as the key
+    pub fn register_helper_ex(&mut self,
+                              name: &str,
+                              function: ebpf::HelperFunction,
+                             context: Option<Box<dyn Any>>,
      ) -> Result<(), Error> {
-        self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), ebpf::Helper{ verifier, function, context });
+        self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), ebpf::Helper{ function, context });
         Ok(())
     }
 
@@ -411,8 +388,8 @@ impl<'a> EbpfVm<'a> {
             rw_regions.push(ptr.clone());
         }
 
-        ro_regions.push(MemoryRegion::new_from_slice(&mem, 0));
-        rw_regions.push(MemoryRegion::new_from_slice(&mem, 0));
+        ro_regions.push(MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START));
+        rw_regions.push(MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START));
 
         let mut entry: usize = 0;
         let (_, prog) =
@@ -435,7 +412,6 @@ impl<'a> EbpfVm<'a> {
 
         if !mem.is_empty() {
             reg[1] = mem.as_ptr() as u64;
-        }
 
         let translate_load_addr = | addr: u64, len: usize, pc: usize | {
             translate_addr(addr, len, "load", pc, &ro_regions)
@@ -730,10 +706,7 @@ impl<'a> EbpfVm<'a> {
                 ebpf::CALL_IMM   => {
                     println!("CALL_IMM");
                     if let Some(mut helper) = self.helpers.get_mut(&(insn.imm as u32)) {
-                        if let Some(function) = helper.verifier {
-                            function(reg[1], reg[2], reg[3], reg[4], reg[5], &mut helper.context, &ro_regions, &rw_regions)?;
-                        }
-                        reg[0] = (helper.function)(reg[1], reg[2], reg[3], reg[4], reg[5], &mut helper.context);
+                        reg[0] = (helper.function)(reg[1], reg[2], reg[3], reg[4], reg[5], &mut helper.context, &ro_regions, &rw_regions)?;
                     } else if let Some(ref elf) = self.elf {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call

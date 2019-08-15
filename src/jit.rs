@@ -458,8 +458,9 @@ impl<'a> JitMemory<'a> {
     }
 
     fn jit_compile(&mut self, prog: &[u8],
-                   helpers: &HashMap<u32,
+                   _helpers: &HashMap<u32,
                    ebpf::Helper>) -> Result<(), Error> {
+
         emit_push(self, RBP);
         emit_push(self, RBX);
         emit_push(self, R13);
@@ -747,23 +748,25 @@ impl<'a> JitMemory<'a> {
                     emit_jcc(self, 0x8e, target_pc);
                 },
                 ebpf::CALL_IMM  => {
-                    // For JIT, helpers in use MUST be registered at compile time. They can be
-                    // updated later, but not created after compiling (we need the address of the
-                    // helper function in the JIT-compiled program).
-                    if let Some(helper) = helpers.get(&(insn.imm as u32)) {
-                        if helper.verifier.is_some() {
-                            return Err(Error::new(ErrorKind::Other,
-                                           format!("[JIT] Error: helper verifier function not supported by jit (id: {:#x})",
-                                                   insn.imm as u32)));
-                        }
-                        // We reserve RCX for shifts
-                        emit_mov(self, R9, RCX);
-                        emit_call(self, helper.function as usize);
-                    } else {
-                        return Err(Error::new(ErrorKind::Other,
-                                       format!("[JIT] Error: unknown helper function (id: {:#x})",
-                                               insn.imm as u32)));
-                    };
+                    // TODO
+                    panic!("Helpers not supported");
+                    // // For JIT, helpers in use MUST be registered at compile time. They can be
+                    // // updated later, but not created after compiling (we need the address of the
+                    // // helper function in the JIT-compiled program).
+                    // if let Some(helper) = helpers.get(&(insn.imm as u32)) {
+                    //     if helper.verifier.is_some() {
+                    //         return Err(Error::new(ErrorKind::Other,
+                    //                        format!("[JIT] Error: helper verifier function not supported by jit (id: {:#x})",
+                    //                                insn.imm as u32)));
+                    //     }
+                    //     // We reserve RCX for shifts
+                    //     emit_mov(self, R9, RCX);
+                    //     emit_call(self, helper.function as usize);
+                    // } else {
+                    //     return Err(Error::new(ErrorKind::Other,
+                    //                    format!("[JIT] Error: unknown helper function (id: {:#x})",
+                    //                            insn.imm as u32)));
+                    // };
                 },
                 ebpf::CALL_REG  => { unimplemented!() },
                 ebpf::EXIT       => {
