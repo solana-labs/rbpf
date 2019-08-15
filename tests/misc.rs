@@ -28,10 +28,11 @@ extern crate libc;
 extern crate solana_rbpf;
 
 use std::any::Any;
-use std::ffi::CStr;
 use std::fs::File;
 use std::io::{Error, ErrorKind};
 use std::io::Read;
+use std::slice::from_raw_parts;
+use std::str::from_utf8;
 use byteorder::{ByteOrder, LittleEndian};
 use libc::c_char;
 use solana_rbpf::assembler::assemble;
@@ -631,7 +632,7 @@ fn test_verifier_fail() {
 }
 
 #[test]
-#[should_panic(expected = "Error: Execution exceeded maximum number of instructions")]
+#[should_panic(expected = "Error: Exceeded maximum number of instructions")]
 fn test_non_terminating() {
     let prog = &[
         0xb7, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -735,13 +736,10 @@ pub fn bpf_helper_string_verify(
 }
 
 #[allow(unused_variables)]
-pub fn bpf_helper_string(addr: u64, unused2: u64, unused3: u64, unused4: u64, unused5: u64, _context: &mut Option<Box<dyn Any>>) -> u64 {
-    let c_buf: *const c_char = addr as *const c_char;
-    let c_str: &CStr = unsafe { CStr::from_ptr(c_buf) };
-    match c_str.to_str() {
-        Ok(slice) => println!("log: {:?}", slice),
-        Err(e) => println!("Error: Cannot print invalid string"),
-    };
+pub fn bpf_helper_string(addr: u64, len: u64, unused3: u64, unused4: u64, unused5: u64, _context: &mut Option<Box<dyn Any>>) -> u64 {
+    let ptr: *const u8 = addr as *const u8;
+    let message = unsafe { from_utf8(from_raw_parts(ptr, len as usize)).unwrap() };
+    println!("log: {:?}", message);
     0
 }
 
@@ -993,4 +991,49 @@ fn test_bpf_to_bpf_pass_stack_reference() {
     vm.set_elf(&elf).unwrap();
 
     assert_eq!(vm.execute_program(&[], &[]).unwrap(), 42);
+}
+
+fn write_insn(prog: &mut [u8], insn: usize, asm: &str) {
+     prog[insn * ebpf::INSN_SIZE..insn * ebpf::INSN_SIZE + ebpf::INSN_SIZE].copy_from_slice(&assemble(asm).unwrap());
+}
+
+#[test]
+fn test_large_program() {
+    let mut prog = vec![0; ebpf::PROG_MAX_INSNS * ebpf::INSN_SIZE];
+    let mut add_insn = vec![0; ebpf::INSN_SIZE];
+    write_insn(&mut add_insn, 0, "mov64 r0, 0");
+    for insn in (0..(ebpf::PROG_MAX_INSNS - 1) * ebpf::INSN_SIZE).step_by(ebpf::INSN_SIZE) {
+        prog[insn..insn + ebpf::INSN_SIZE].copy_from_slice(&add_insn);
+    }
+    write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 1, "exit");
+
+    {
+        // Test jumping to pc larger then i16
+        write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "ja 0x0");
+
+        let mut vm = EbpfVmRaw::new(None).unwrap();
+        vm.set_program(&prog).unwrap();
+        assert_eq!(0, vm.execute_program(&mut [], &[], &[]).unwrap());
+        
+        // reset program
+        write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "mov64 r0, 0");
+    }
+
+    {
+        // test program that is too large
+       prog.extend_from_slice(&assemble("exit").unwrap());
+
+       let mut vm = EbpfVmRaw::new(None).unwrap();
+       vm.set_program(&prog).unwrap_err();
+
+       // reset program
+       prog.truncate(ebpf::PROG_MAX_INSNS * ebpf::INSN_SIZE);
+    }
+
+    {
+        // verify program still works
+       let mut vm = EbpfVmRaw::new(None).unwrap();
+       vm.set_program(&prog).unwrap();
+       assert_eq!(0, vm.execute_program(&mut [], &[], &[]).unwrap());
+    }
 }

@@ -804,29 +804,29 @@ impl<'a> EbpfVmMbuff<'a> {
 
                 // BPF_JMP class
                 // TODO: check this actually works as expected for signed / unsigned ops
-                ebpf::JA         =>                                             pc = (pc as i16 + insn.off) as usize,
-                ebpf::JEQ_IMM    => if  reg[_dst] == insn.imm as u64          { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JEQ_REG    => if  reg[_dst] == reg[_src]                { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JGT_IMM    => if  reg[_dst] >  insn.imm as u64          { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JGT_REG    => if  reg[_dst] >  reg[_src]                { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JGE_IMM    => if  reg[_dst] >= insn.imm as u64          { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JGE_REG    => if  reg[_dst] >= reg[_src]                { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JLT_IMM    => if  reg[_dst] <  insn.imm as u64          { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JLT_REG    => if  reg[_dst] <  reg[_src]                { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JLE_IMM    => if  reg[_dst] <= insn.imm as u64          { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JLE_REG    => if  reg[_dst] <= reg[_src]                { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JSET_IMM   => if  reg[_dst] &  insn.imm as u64 != 0     { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JSET_REG   => if  reg[_dst] &  reg[_src]       != 0     { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JNE_IMM    => if  reg[_dst] != insn.imm as u64          { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JNE_REG    => if  reg[_dst] != reg[_src]                { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JSGT_IMM   => if  reg[_dst] as i64 >  insn.imm  as i64  { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JSGT_REG   => if  reg[_dst] as i64 >  reg[_src] as i64  { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JSGE_IMM   => if  reg[_dst] as i64 >= insn.imm  as i64  { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JSGE_REG   => if  reg[_dst] as i64 >= reg[_src] as i64  { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JSLT_IMM   => if (reg[_dst] as i64) <  insn.imm  as i64 { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JSLT_REG   => if (reg[_dst] as i64) <  reg[_src] as i64 { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JSLE_IMM   => if (reg[_dst] as i64) <= insn.imm  as i64 { pc = (pc as i16 + insn.off) as usize; },
-                ebpf::JSLE_REG   => if (reg[_dst] as i64) <= reg[_src] as i64 { pc = (pc as i16 + insn.off) as usize; },
+                ebpf::JA         =>                                             pc = (pc as isize + insn.off as isize) as usize,
+                ebpf::JEQ_IMM    => if  reg[_dst] == insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JEQ_REG    => if  reg[_dst] == reg[_src]                { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JGT_IMM    => if  reg[_dst] >  insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JGT_REG    => if  reg[_dst] >  reg[_src]                { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JGE_IMM    => if  reg[_dst] >= insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JGE_REG    => if  reg[_dst] >= reg[_src]                { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JLT_IMM    => if  reg[_dst] <  insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JLT_REG    => if  reg[_dst] <  reg[_src]                { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JLE_IMM    => if  reg[_dst] <= insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JLE_REG    => if  reg[_dst] <= reg[_src]                { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JSET_IMM   => if  reg[_dst] &  insn.imm as u64 != 0     { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JSET_REG   => if  reg[_dst] &  reg[_src]       != 0     { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JNE_IMM    => if  reg[_dst] != insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JNE_REG    => if  reg[_dst] != reg[_src]                { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JSGT_IMM   => if  reg[_dst] as i64 >  insn.imm  as i64  { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JSGT_REG   => if  reg[_dst] as i64 >  reg[_src] as i64  { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JSGE_IMM   => if  reg[_dst] as i64 >= insn.imm  as i64  { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JSGE_REG   => if  reg[_dst] as i64 >= reg[_src] as i64  { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JSLT_IMM   => if (reg[_dst] as i64) <  insn.imm  as i64 { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JSLT_REG   => if (reg[_dst] as i64) <  reg[_src] as i64 { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JSLE_IMM   => if (reg[_dst] as i64) <= insn.imm  as i64 { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JSLE_REG   => if (reg[_dst] as i64) <= reg[_src] as i64 { pc = (pc as isize + insn.off as isize) as usize; },
 
                 ebpf::CALL_REG   => {
                     let base_address = &prog[0] as *const _ as usize;
@@ -881,12 +881,14 @@ impl<'a> EbpfVmMbuff<'a> {
             }
             if (self.max_insn_count != 0) && (self.last_insn_count >= self.max_insn_count) {
                 return Err(Error::new(ErrorKind::Other,
-                               format!("Error: Execution exceeded maximum number of instructions allowed ({:?})",
+                               format!("Error: Exceeded maximum number of instructions allowed ({:?})",
                                        self.max_insn_count)));
             }
         }
 
-        unreachable!()
+        return Err(Error::new(ErrorKind::Other,
+                               format!("Error: Attempted to call outside of the text segment, pc: {:?}",
+                                       pc + ebpf::ELF_INSN_DUMP_OFFSET)));
     }
 
     fn check_mem(addr: u64, len: usize, access_type: &str, pc: usize, regions: &'a [MemoryRegion]) -> Result<(), Error> {
