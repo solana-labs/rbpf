@@ -457,16 +457,15 @@ impl<'a> JitMemory<'a> {
         }
     }
 
-    fn jit_compile(&mut self, prog: &[u8], use_mbuff: bool, update_data_ptr: bool,
-                   helpers: &HashMap<u32, ebpf::Helper>) -> Result<(), Error> {
+    fn jit_compile(&mut self, prog: &[u8],
+                   helpers: &HashMap<u32,
+                   ebpf::Helper>) -> Result<(), Error> {
         emit_push(self, RBP);
         emit_push(self, RBX);
         emit_push(self, R13);
         emit_push(self, R14);
         emit_push(self, R15);
 
-        // RDI: mbuff
-        // RSI: mbuff_len
         // RDX: mem
         // RCX: mem_len
         // R8:  mem_offset
@@ -475,35 +474,8 @@ impl<'a> JitMemory<'a> {
         // Save mem pointer for use with LD_ABS_* and LD_IND_* instructions
         emit_mov(self, RDX, R10);
 
-        match (use_mbuff, update_data_ptr) {
-            (false, _) => {
-                // We do not use any mbuff. Move mem pointer into register 1.
-                if map_register(1) != RDX {
-                    emit_mov(self, RDX, map_register(1));
-                }
-            },
-            (true, false) => {
-                // We use a mbuff already pointing to mem and mem_end: move it to register 1.
-                if map_register(1) != RDI {
-                    emit_mov(self, RDI, map_register(1));
-                }
-            },
-            (true, true) => {
-                // We have a fixed (simulated) mbuff: update mem and mem_end offset values in it.
-                // Store mem at mbuff + mem_offset. Trash R8.
-                emit_alu64(self, 0x01, RDI, R8);                // add mbuff to mem_offset in R8
-                emit_store(self, OperandSize::S64, RDX, R8, 0); // set mem at mbuff + mem_offset
-                // Store mem_end at mbuff + mem_end_offset. Trash R9.
-                emit_load(self, OperandSize::S64, RDX, R8, 0);  // load mem into R8
-                emit_alu64(self, 0x01, RCX, R8);                // add mem_len to mem (= mem_end)
-                emit_alu64(self, 0x01, RDI, R9);                // add mbuff to mem_end_offset
-                emit_store(self, OperandSize::S64, R8, R9, 0);  // store mem_end
-
-                // Move rdi into register 1
-                if map_register(1) != RDI {
-                    emit_mov(self, RDI, map_register(1));
-                }
-            }
+        if map_register(1) != RDX {
+            emit_mov(self, RDX, map_register(1));
         }
 
         // Copy stack pointer to R10
@@ -905,15 +877,13 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
 }
 
 // In the end, this is the only thing we export
-pub fn compile(prog: &[u8],
-               helpers: &HashMap<u32, ebpf::Helper>,
-               use_mbuff: bool, update_data_ptr: bool)
+pub fn compile(prog: &[u8], helpers: &HashMap<u32, ebpf::Helper>)
     -> Result<(JitProgram), Error> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
     let mut jit = JitMemory::new(1);
-    jit.jit_compile(prog, use_mbuff, update_data_ptr, helpers)?;
+    jit.jit_compile(prog, helpers)?;
     jit.resolve_jumps()?;
 
     Ok(unsafe { mem::transmute(jit.contents.as_ptr()) })

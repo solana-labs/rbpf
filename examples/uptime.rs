@@ -9,11 +9,11 @@
 
 extern crate solana_rbpf;
 use solana_rbpf::helpers;
-use solana_rbpf::{EbpfVmNoData};
+use solana_rbpf::{EbpfVm};
 
 // The main objectives of this example is to show:
 //
-// * the use of EbpfVmNoData function,
+// * the use of EbpfVm function,
 // * and the use of a helper.
 //
 // The two eBPF programs are independent and are not related to one another.
@@ -42,12 +42,11 @@ fn main() {
     ];
 
     // Create a VM: this one takes no data. Load prog1 in it.
-    let mut vm = EbpfVmNoData::new(Some(prog1)).unwrap();
+    let mut vm = EbpfVm::new(Some(prog1)).unwrap();
     // Execute prog1.
-    assert_eq!(vm.execute_program(&[], &[]).unwrap(), 0x3);
+    assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x3);
 
-    // As struct EbpfVmNoData does not takes any memory area, its return value is mostly
-    // deterministic. So we know prog1 will always return 3. There is an exception: when it uses
+    // We know prog1 will always return 3. There is an exception: when it uses
     // helpers, the latter may have non-deterministic values, and all calls may not return the same
     // value.
     //
@@ -63,12 +62,12 @@ fn main() {
     {
         vm.jit_compile().unwrap();
 
-        time = unsafe { vm.execute_program_jit().unwrap() };
+        time = unsafe { vm.execute_program_jit(&mut []).unwrap() };
     }
 
     #[cfg(windows)]
     {
-        time = vm.execute_program(&[], &[]).unwrap();
+        time = vm.execute_program(&[], &[], &[]).unwrap();
     }
 
     let days    =  time / 10u64.pow(9)  / 60   / 60  / 24;

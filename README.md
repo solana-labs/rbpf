@@ -46,7 +46,7 @@ file:
 
 ```toml
 [dependencies]
-solana_rbpf = "0.1.2"
+solana_rbpf = "0.1.13"
 ```
 
 You can also use the development version from this GitHub repository. This
@@ -92,85 +92,33 @@ Here are the steps to follow to run an eBPF program with rbpf:
 4. Execute your program: either run the interpreter or call the JIT-compiled
    function.
 
-eBPF has been initially designed to filter packets (now it has some other hooks
-in the Linux kernel, such as kprobes, but this is not covered by rbpf). As a
-consequence, most of the load and store instructions of the program are
-performed on a memory area representing the packet data. However, in the Linux
-kernel, the eBPF program does not immediately access this data area: initially,
-it has access to a C `struct sk_buff` instead, which is a buffer containing
-metadata about the packet—including memory addresses of the beginning and of
-the end of the packet data area. So the program first loads those pointers from
-the `sk_buff`, and then can access the packet data.
-
 This behavior can be replicated with rbpf, but it is not mandatory. For this
 reason, we have several structs representing different kinds of virtual
 machines:
 
-* `struct EbpfVmMbuffer` mimics the kernel. When the program is run, the
-  address provided to its first eBPF register will be the address of a metadata
-  buffer provided by the user, and that is expected to contain pointers to the
-  start and the end of the packet data memory area.
-
-* `struct EbpfVmFixedMbuff` has one purpose: enabling the execution of programs
-  created to be compatible with the kernel, while saving the effort to manually
-  handle the metadata buffer for the user. In fact, this struct has a static
-  internal buffer that is passed to the program. The user has to indicate the
-  offset values at which the eBPF program expects to find the start and the end
-  of packet data in the buffer. On calling the function that runs the program
-  (JITted or not), the struct automatically updates the addresses in this
-  static buffer, at the appointed offsets, for the start and the end of the
-  packet data the program is called upon.
-
-* `struct EbpfVmRaw` is for programs that want to run directly on packet data.
-  No metadata buffer is involved, the eBPF program directly receives the
+* `struct EbpfVm` is for programs that want to run directly on packet data.
+  The eBPF program directly receives the
   address of the packet data in its first register. This is the behavior of
   uBPF.
 
-* `struct EbpfVmNoData` does not take any data. The eBPF program takes no
-  argument whatsoever and its return value is deterministic. Not so sure there
-  is a valid use case for that, but if nothing else, this is very useful for
-  unit tests.
-
-All these structs implement the same public functions:
+Public functions:
 
 ```rust,ignore
-// called with EbpfVmMbuff:: prefix
-pub fn new(prog: &'a [u8]) -> Result<EbpfVmMbuff<'a>, Error>
-
-// called with EbpfVmFixedMbuff:: prefix
-pub fn new(prog: &'a [u8],
-           data_offset: usize,
-           data_end_offset: usize) -> Result<EbpfVmFixedMbuff<'a>, Error>
-
-// called with EbpfVmRaw:: prefix
-pub fn new(prog: &'a [u8]) -> Result<EbpfVmRaw<'a>, Error>
-
-// called with EbpfVmNoData:: prefix
-pub fn new(prog: &'a [u8]) -> Result<EbpfVmNoData<'a>, Error>
+// called with EbpfVm:: prefix
+pub fn new(prog: &'a [u8]) -> Result<EbpfVm<'a>, Error>
 ```
 
 This is used to create a new instance of a VM. The return type is dependent of
 the struct from which the function is called. For instance,
-`rbpf::EbpfVmRaw::new(my_program)` would return an instance of `struct
-rbpf::EbpfVmRaw` (wrapped in a `Result`). When a program is loaded, it is
+`rbpf::EbpfVm::new(my_program)` would return an instance of `struct
+rbpf::EbpfVm` (wrapped in a `Result`). When a program is loaded, it is
 checked with a very simple verifier (nothing close to the one for Linux
 kernel). Users are also able to replace it with a custom verifier.
 
-For `struct EbpfVmFixedMbuff`, two additional arguments must be passed to the
-constructor: `data_offset` and `data_end_offset`. They are the offset (byte
-number) at which the pointers to the beginning and to the end, respectively, of
-the memory area of packet data are to be stored in the internal metadata buffer
-each time the program is executed. Other structs do not use this mechanism and
-do not need those offsets.
-
 ```rust,ignore
-// for struct EbpfVmMbuff, struct EbpfVmRaw and struct EbpfVmRawData
+// for struct EbpfVm
 pub fn set_program(&mut self, prog: &'a [u8]) -> Result<(), Error>
 
-// for struct EbpfVmFixedMbuff
-pub fn set_program(&mut self, prog: &'a [u8],
-                data_offset: usize,
-                data_end_offset: usize) -> Result<(), Error>
 ```
 
 You can use for example `my_vm.set_program(my_program);` to change the loaded
@@ -204,22 +152,13 @@ useful for programs that should be compatible with the Linux kernel and
 therefore must use specific helper numbers.
 
 ```rust,ignore
-// for struct EbpfVmMbuff
-pub fn execute_program(&self,
-                 mem: &'a mut [u8],
-                 mbuff: &'a mut [u8]) -> Result<(u64), Error>
-
-// for struct EbpfVmFixedMbuff and struct EbpfVmRaw
+// for struct EbpfVm
 pub fn execute_program(&self,
                  mem: &'a mut [u8]) -> Result<(u64), Error>
-
-// for struct EbpfVmNoData
-pub fn execute_program(&self) -> Result<(u64), Error>
 ```
 
 Interprets the loaded program. The function takes a reference to the packet
-data and the metadata buffer, or only to the packet data, or nothing at all,
-depending on the kind of the VM used. The value returned is the result of the
+data. The value returned is the result of the
 eBPF program.
 
 ```rust,ignore
@@ -231,15 +170,9 @@ use helper functions, they must be registered into the VM before this function
 is called. The generated assembly function is internally stored in the VM.
 
 ```rust,ignore
-// for struct EbpfVmMbuff
-pub unsafe fn execute_program_jit(&self, mem: &'a mut [u8],
-                            mbuff: &'a mut [u8]) -> Result<(u64), Error>
-
-// for struct EbpfVmFixedMbuff and struct EbpfVmRaw
-pub unsafe fn execute_program_jit(&self, mem: &'a mut [u8]) -> Result<(u64), Error>
-
-// for struct EbpfVmNoData
-pub unsafe fn execute_program_jit(&self) -> Result<(u64), Error>
+// for struct EbpfVm
+pub unsafe fn execute_program_jit(&self, 
+                                  mem: &'a mut [u8]) -> Result<(u64), Error>
 ```
 
 Calls the JIT-compiled program. The arguments to provide are the same as for
@@ -272,10 +205,10 @@ fn main() {
     // Instantiate a struct EbpfVmNoData. This is an eBPF VM for programs that
     // takes no packet data in argument.
     // The eBPF program is passed to the constructor.
-    let vm = rbpf::EbpfVmNoData::new(prog).unwrap();
+    let vm = rbpf::EbpfVm::new(prog).unwrap();
 
-    // Execute (interpret) the program. No argument required for this VM.
-    assert_eq!(vm.execute_program().unwrap(), 0x3);
+    // Execute (interpret) the program.
+    assert_eq!(vm.execute_program(&[], &[]. &[]).unwrap(), 0x3);
 }
 ```
 
@@ -299,7 +232,7 @@ fn main() {
 
     // This is an eBPF VM for programs reading from a given memory area (it
     // directly reads from packet data)
-    let mut vm = rbpf::EbpfVmRaw::new(prog).unwrap();
+    let mut vm = rbpf::EbpfVm::new(prog).unwrap();
 
     // This time we JIT-compile the program.
     vm.jit_compile().unwrap();
@@ -307,138 +240,6 @@ fn main() {
     // Then we execute it. For this kind of VM, a reference to the packet data
     // must be passed to the function that executes the program.
     unsafe { assert_eq!(vm.execute_program_jit(mem).unwrap(), 0x11); }
-}
-```
-### Using a metadata buffer
-
-This comes from the unit test `test_jit_mbuff` and derives from the unit test
-`test_jit_ldxh`.
-
-```rust
-extern crate rbpf;
-
-fn main() {
-    let prog = &[
-        // Load mem from mbuff at offset 8 into R1
-        0x79, 0x11, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // ldhx r1[2], r0
-        0x69, 0x10, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
-    let mem = &mut [
-        0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd
-    ];
-
-    // Just for the example we create our metadata buffer from scratch, and
-    // we store the pointers to packet data start and end in it.
-    let mut mbuff = &mut [0u8; 32];
-    unsafe {
-        let mut data     = mbuff.as_ptr().offset(8)  as *mut u64;
-        let mut data_end = mbuff.as_ptr().offset(24) as *mut u64;
-        *data     = mem.as_ptr() as u64;
-        *data_end = mem.as_ptr() as u64 + mem.len() as u64;
-    }
-
-    // This eBPF VM is for program that use a metadata buffer.
-    let mut vm = rbpf::EbpfVmMbuff::new(prog).unwrap();
-
-    // Here again we JIT-compile the program.
-    vm.jit_compile().unwrap();
-
-    // Here we must provide both a reference to the packet data, and to the
-    // metadata buffer we use.
-    unsafe { assert_eq!(vm.execute_program_jit(mem, mbuff).unwrap(), 0x2211); }
-}
-```
-
-### Loading code from an object file; and using a virtual metadata buffer
-
-This comes from unit test `test_vm_block_port`.
-
-This example requires the following additional crates, you may have to add them
-to your `Cargo.toml` file.
-
-```toml
-[dependencies]
-solana_rbpf = "0.1.2"
-elf = "0.0.10"
-```
-
-It also uses a kind of VM that uses an internal buffer used to simulate the
-`sk_buff` used by eBPF programs in the kernel, without having to manually
-create a new buffer for each packet. It may be useful for programs compiled for
-the kernel and that assumes the data they receive is a `sk_buff` pointing to
-the packet data start and end addresses. So here we just provide the offsets at
-which the eBPF program expects to find those pointers, and the VM handles the
-buffer update so that we only have to provide a reference to the packet data
-for each run of the program.
-
-```rust
-extern crate elf;
-use std::path::PathBuf;
-
-extern crate rbpf;
-use rbpf::helpers;
-
-fn main() {
-    // Load a program from an ELF file, e.g. compiled from C to eBPF with
-    // clang/LLVM. Some minor modification to the bytecode may be required.
-    let filename = "my_ebpf_object_file.o";
-
-    let path = PathBuf::from(filename);
-    let file = match elf::File::open_path(&path) {
-        Ok(f) => f,
-        Err(e) => panic!("Error: {:?}", e),
-    };
-
-    // Here we assume the eBPF program is in the ELF section called
-    // ".classifier".
-    let text_scn = match file.get_section(".classifier") {
-        Some(s) => s,
-        None => panic!("Failed to look up .classifier section"),
-    };
-
-    let prog = &text_scn.data;
-
-    // This is our data: a real packet, starting with Ethernet header
-    let packet = &mut [
-        0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
-        0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
-        0x08, 0x00,             // ethertype
-        0x45, 0x00, 0x00, 0x3b, // start ip_hdr
-        0xa6, 0xab, 0x40, 0x00,
-        0x40, 0x06, 0x96, 0x0f,
-        0x7f, 0x00, 0x00, 0x01,
-        0x7f, 0x00, 0x00, 0x01,
-        0x99, 0x99, 0xc6, 0xcc, // start tcp_hdr
-        0xd1, 0xe5, 0xc4, 0x9d,
-        0xd4, 0x30, 0xb5, 0xd2,
-        0x80, 0x18, 0x01, 0x56,
-        0xfe, 0x2f, 0x00, 0x00,
-        0x01, 0x01, 0x08, 0x0a, // start data
-        0x00, 0x23, 0x75, 0x89,
-        0x00, 0x23, 0x63, 0x2d,
-        0x71, 0x64, 0x66, 0x73,
-        0x64, 0x66, 0x0a
-    ];
-
-    // This is an eBPF VM for programs using a virtual metadata buffer, similar
-    // to the sk_buff that eBPF programs use with tc and in Linux kernel.
-    // We must provide the offsets at which the pointers to packet data start
-    // and end must be stored: these are the offsets at which the program will
-    // load the packet data from the metadata buffer.
-    let mut vm = rbpf::EbpfVmFixedMbuff::new(prog, 0x40, 0x50).unwrap();
-
-    // We register a helper function, that can be called by the program, into
-    // the VM.
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX,
-                       helpers::bpf_trace_printf).unwrap();
-
-    // This kind of VM takes a reference to the packet data, but does not need
-    // any reference to the metadata buffer: a fixed buffer is handled
-    // internally by the VM.
-    let res = vm.execute_program(packet).unwrap();
-    println!("Program returned: {:?} ({:#x})", res, res);
 }
 ```
 
@@ -569,9 +370,6 @@ Other than the language, obviously? Well, there are some differences:
 
 * The registration of helper functions, that can be called from within an eBPF
   program, is not handled in the same way.
-
-* The distinct structs permitting to run program either on packet data, or with
-  a metadata buffer (simulated or not) is a specificity of rbpf.
 
 * As for performance: theoretically the JITted programs are expected to run at
   the same speed, while the C interpreter of uBPF should go slightly faster
