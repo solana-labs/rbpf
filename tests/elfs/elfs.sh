@@ -3,7 +3,7 @@
 # Requires Latest release of Solana's custom LLVM
 #https://github.com/solana-labs/llvm-builder/releases
 
-LLVM_DIR=../../../solana/sdk/bpf/llvm-native/bin/
+LLVM_DIR=../../../solana/sdk/bpf/dependencies/llvm-native/bin/
 
 "$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o noop.o -c noop.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -o noop.so noop.o

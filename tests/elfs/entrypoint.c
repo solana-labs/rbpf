@@ -5,13 +5,13 @@
 typedef unsigned char uint8_t;
 typedef unsigned long int uint64_t;
 
-extern void log(const char*);
+extern void log(const char*, uint64_t);
 extern void log_64(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 #include "helper.h"
 
 uint64_t entrypoint_helper_function(uint64_t x) {
-  log(__func__);
+  log(__func__, sizeof(__func__));
   if (x) {
     x = helper_function(--x);
   }

@@ -9,10 +9,10 @@
 extern crate elfkit;
 extern crate num_traits;
 
-use crate::memory_region::MemoryRegion;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use ebpf;
 use elf::num_traits::FromPrimitive;
+use log::debug;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::io::{Error, ErrorKind};
@@ -130,17 +130,13 @@ impl EBpfElf {
         Ok(ebpf_elf)
     }
 
-    /// Get the .text section bytes
-    pub fn get_text_bytes(&self) -> Result<(MemoryRegion, &[u8]), Error> {
-        let bytes = EBpfElf::content_to_bytes(self.get_section(".text")?)?;
-        Ok((
-            MemoryRegion::new_from_slice(bytes, ebpf::MM_PROGRAM_START),
-            bytes,
-        ))
+    /// Get the .text section virtual address and bytes
+    pub fn get_text_bytes(&self) -> Result<(u64, &[u8]), Error> {
+        Ok(EBpfElf::content_to_bytes(self.get_section(".text")?)?)
     }
 
-    /// Get a vector of read-only data sections
-    pub fn get_ro_sections(&self) -> Result<Vec<&[u8]>, Error> {
+    /// Get a vector of virtual addresses for each read-only section
+    pub fn get_ro_sections(&self) -> Result<Vec<(u64, &[u8])>, Error> {
         self.elf
             .sections
             .iter()
@@ -245,9 +241,11 @@ impl EBpfElf {
     }
 
     /// Converts a section's raw contents to a slice
-    fn content_to_bytes(section: &elfkit::section::Section) -> Result<&[u8], Error> {
+    fn content_to_bytes(section: &elfkit::section::Section) -> Result<(u64, &[u8]), Error> {
         match section.content {
-            elfkit::SectionContent::Raw(ref bytes) => Ok(bytes),
+            elfkit::SectionContent::Raw(ref bytes) => {
+                Ok((ebpf::MM_PROGRAM_START + section.header.addr, bytes))
+            }
             _ => Err(Error::new(
                 ErrorKind::Other,
                 "Error: Failed to get section contents",
@@ -340,6 +338,18 @@ impl EBpfElf {
             return Err(Error::new(
                 ErrorKind::Other,
                 "Error: Multiple text sections, consider removing llc option: -function-sections",
+            ));
+        }
+
+        if self
+            .elf
+            .sections
+            .iter()
+            .any(|section| section.name.starts_with(b".bss"))
+        {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "Error: .bss section not supported",
             ));
         }
 
@@ -524,47 +534,18 @@ impl EBpfElf {
                             // TODO Skipping this relocation, the virtual address found at this
                             // target location is zero, so don't know how to turn it into a valid physical
                             // address.
-                            println!(
-                                "!! Skipped relocation section {:?} target_offset {:?} va {:x?} Referenced va ({:x?}))",
+                            debug!(
+                                "!! Skipped relocation section {:?} target_offset {:#x} va {:#x} Referenced va ({:#x}))",
                                 target_section, target_offset, relocation.addr, refd_va
                             );
                         }
 
-                        // Find the section that contains the virtual address to convert
-                        let mut refd_section = None;
-                        for (i, info) in section_infos.iter().enumerate() {
-                            if info.va <= refd_va && refd_va < info.va + info.len {
-                                refd_section = Some(i);
-                                break;
-                            }
-                        }
-                        let refd_section = match refd_section {
-                            Some(i) => i,
-                            None =>
-                            // TODO #3108
-                            // Err(Error::new(
-                            //     ErrorKind::Other,
-                            //     format!(
-                            //         "Error: Relocation to section {:?} at virtual address {:x?} failed, no loadable section contains virtual address {:x?}",
-                            //                target_section, relocation.addr, refd_va
-                            //     ),
-                            // ))?
-                            {
-                                continue;
-                            }
-                        };
+                        // final "physical address" from the VM's perspetive is rooted at `MM_PROGRAM_START`
+                        let refd_pa = ebpf::MM_PROGRAM_START + refd_va;
 
-                        // Convert into an offset into the referenced section by subtracting
-                        // the section's base virtual address
-                        let refd_offset = refd_va - section_infos[refd_section].va;
-
-                        // Calculate the symbol's physical address within the referenced section
-                        let refd_pa =
-                            section_infos[refd_section].bytes.as_ptr() as u64 + refd_offset;
-
-                        // println!(
-                        //     "Relocation section {:?} off {:x?} va {:x?} pa {:x?} Referenced section {:?} offset {:x?} va {:x?} pa {:x?}",
-                        //     target_section, target_offset, relocation.addr, section_infos[target_section].bytes.as_ptr() as usize + target_offset, refd_section, refd_offset, refd_va, refd_pa
+                        // trace!(
+                        //     "Relocation section {:?} off {:#x} va {:#x} pa {:#x} va {:#x} pa {:#x}",
+                        //     target_section, target_offset, relocation.addr, section_infos[target_section].bytes.as_ptr() as usize + target_offset, refd_va, refd_pa
                         // );
 
                         // Write the physical address back into the target location

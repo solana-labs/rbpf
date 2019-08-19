@@ -460,7 +460,6 @@ impl<'a> JitMemory<'a> {
     fn jit_compile(&mut self, prog: &[u8],
                    _helpers: &HashMap<u32,
                    ebpf::Helper>) -> Result<(), Error> {
-
         emit_push(self, RBP);
         emit_push(self, RBX);
         emit_push(self, R13);

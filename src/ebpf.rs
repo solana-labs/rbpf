@@ -59,21 +59,19 @@ pub const ELF_INSN_DUMP_OFFSET: usize = 29;
 // +-----------------+
 // | Heap            |
 // +-----------------+ 
-// The values below provide for 4 GiB separations between the map areas which
-// should be sufficient.
+// The values below providesufficient separations between the map areas. Avoid using
+// 0x0 to distinguish virtual addresses from null pointers.
 // Note: Compiled programs themselves have no direct dependency on these values so
 // they may be modified based on new requirements.
 
 /// Start of the program bits (text and ro segments) in the memory map
-pub const MM_PROGRAM_START: u64 = 0x8;
+pub const MM_PROGRAM_START: u64 = 0x100000000;
 /// Start of the stack in the memory map
-pub const MM_STACK_START: u64 = 0x100000000;
-/// Start of the input buffers in the memory map
-pub const MM_INPUT_START: u64 = 0x200000000;
-/// Start of the input buffers in the memory map
-pub const MM_MBUFF_START: u64 = 0x210000000;
-/// Start of the heap regions
+pub const MM_STACK_START: u64 = 0x200000000;
+/// Start of the heap in the memory map
 pub const MM_HEAP_START: u64 = 0x300000000;
+/// Start of the input buffers in the memory map
+pub const MM_INPUT_START: u64 = 0x400000000;
 
 // eBPF op codes.
 // See also https://www.kernel.org/doc/Documentation/networking/filter.txt
@@ -429,6 +427,9 @@ pub const BPF_CLS_MASK    : u8 = 0x07;
 /// Mask to extract the arithmetic operation code from an instruction operation code.
 pub const BPF_ALU_OP_MASK : u8 = 0xf0;
 
+/// Context object passed to a helper function, carries along state and/or lifetime
+pub type HelperContext = Option<Box<dyn Any + 'static>>;
+
 /// Prototype of an helper function.
 pub type HelperFunction = fn (
     u64,
@@ -436,7 +437,7 @@ pub type HelperFunction = fn (
     u64,
     u64,
     u64,
-    &mut Option<Box<dyn Any>>,
+    &mut HelperContext,
     &[MemoryRegion],
     &[MemoryRegion],
 ) -> Result<(u64), Error>;
@@ -446,7 +447,7 @@ pub struct Helper {
     /// Actual helper function that does the work
     pub function: HelperFunction,
     /// Context passed to the helper
-    pub context: Option<Box<dyn Any>>,
+    pub context: HelperContext,
 }
 
 /// An eBPF instruction.
