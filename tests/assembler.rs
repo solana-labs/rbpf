@@ -17,7 +17,7 @@ use solana_rbpf::assembler::assemble;
 use solana_rbpf::ebpf;
 
 fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
-    Ok(ebpf::to_insn_vec(&try!(assemble(src))))
+    Ok(ebpf::to_insn_vec(&assemble(src)?))
 }
 
 fn insn(opc: u8, dst: u8, src: u8, off: i16, imm: i32) -> ebpf::Insn {
