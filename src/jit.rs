@@ -441,7 +441,7 @@ impl<'a> JitMemory<'a> {
         let contents: &mut[u8];
         unsafe {
             let size = num_pages * PAGE_SIZE;
-            let mut raw: *mut libc::c_void = mem::uninitialized();
+            let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
             libc::posix_memalign(&mut raw, PAGE_SIZE, size);
             libc::mprotect(raw, size, libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE);
             std::ptr::write_bytes(raw, 0xc3, size);  // for now, prepopulate with 'RET' calls
