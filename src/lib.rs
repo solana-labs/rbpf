@@ -704,7 +704,7 @@ impl<'a> EbpfVm<'a> {
                                               format!("Error: callx at instruction #{:?} attempted to call outside of the text segment at addr {:#x}",
                                                       pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET, reg[insn.imm as usize])));
                     }
-                    pc = (target_address - ebpf::MM_PROGRAM_START) as usize / ebpf::INSN_SIZE;
+                    pc = (target_address - prog_addr) as usize / ebpf::INSN_SIZE;
                 },
 
                 // Do not delegate the check to the verifier, since registered functions can be
