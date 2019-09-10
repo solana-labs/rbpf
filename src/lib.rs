@@ -33,7 +33,7 @@ use std::u32;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use elf::EBpfElf;
-use log::trace;
+use log::{trace, debug};
 use ebpf::HelperContext;
 use memory_region::{MemoryRegion, translate_addr};
 
@@ -77,6 +77,7 @@ struct CallFrame {
 struct CallFrames {
     stack:  Vec<u8>,
     frame:  usize,
+    max_frame: usize,
     frames: Vec<CallFrame>,
 }
 impl CallFrames {
@@ -85,6 +86,7 @@ impl CallFrames {
         let mut frames = CallFrames {
             stack: vec![0u8; depth * size],
             frame: 0,
+            max_frame: 0,
             frames: vec![CallFrame { stack:  MemoryRegion {
                                                       addr_host: 0,
                                                       addr_vm: 0,
@@ -124,6 +126,10 @@ impl CallFrames {
         self.frame
     }
 
+    fn get_max_frame_index(&self) -> usize {
+        self.max_frame
+    }
+
     /// Push a frame
     fn push(&mut self, saved_reg: &[u64], return_ptr: usize) -> Result<u64, Error> {
         if self.frame + 1 >= ebpf::MAX_CALL_DEPTH {
@@ -134,6 +140,9 @@ impl CallFrames {
         self.frames[self.frame].saved_reg[..].copy_from_slice(saved_reg);
         self.frames[self.frame].return_ptr = return_ptr;
         self.frame += 1;
+        if self.frame > self.max_frame {
+            self.max_frame = self.frame;
+        }
         Ok(self.get_stack_top())
     }
 
@@ -739,7 +748,11 @@ impl<'a> EbpfVm<'a> {
                             reg[ebpf::STACK_REG] = stack_ptr;
                             pc = ptr;
                         },
-                        _        => return Ok(reg[0]),
+                        _ => {
+                            debug!("BPF instructions executed: {:?}", self.last_insn_count);
+                            debug!("Max frame depth reached: {:?}", frames.get_max_frame_index());
+                            return Ok(reg[0])
+                        },
                     }
                 },
                 _                => unreachable!()

@@ -534,6 +534,7 @@ impl EBpfElf {
                             // TODO Skipping this relocation, the virtual address found at this
                             // target location is zero, so don't know how to turn it into a valid physical
                             // address.
+                            // https://github.com/solana-labs/solana/issues/3108
                             debug!(
                                 "!! Skipped relocation section {:?} target_offset {:#x} va {:#x} Referenced va ({:#x}))",
                                 target_section, target_offset, relocation.addr, refd_va
