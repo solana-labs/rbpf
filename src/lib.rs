@@ -126,10 +126,10 @@ impl CallFrames {
 
     /// Push a frame
     fn push(&mut self, saved_reg: &[u64], return_ptr: usize) -> Result<u64, Error> {
-        if self.frame + 1 >= ebpf::MAX_CALL_DEPTH {
+        if self.frame + 1 >= self.frames.len() {
             return Err(Error::new(ErrorKind::Other,
                            format!("Exceeded max BPF to BPF call depth of {:?}",
-                                   ebpf::MAX_CALL_DEPTH)));
+                                   self.frames.len())));
         }
         self.frames[self.frame].saved_reg[..].copy_from_slice(saved_reg);
         self.frames[self.frame].return_ptr = return_ptr;
@@ -856,7 +856,7 @@ mod tests {
         let mut frames = CallFrames::new(DEPTH, SIZE);
         let mut ptrs: Vec<MemoryRegion> = Vec::new();
         for i in 0..DEPTH - 1 {
-            let registers = vec![i as u64; 5];
+            let registers = vec![i as u64; SIZE];
             assert_eq!(frames.get_frame_index(), i);
             ptrs.push(frames.get_stacks()[i].clone());
             assert_eq!(ptrs[i].len, SIZE as u64);
@@ -868,7 +868,7 @@ mod tests {
             assert!(!(ptrs[i].addr_vm <= new_ptrs[i+1].addr_vm && new_ptrs[i+1].addr_vm < ptrs[i].addr_vm + ptrs[i].len));
         }
         let i = DEPTH - 1;
-        let registers = vec![i as u64; 5];
+        let registers = vec![i as u64; SIZE];
         assert_eq!(frames.get_frame_index(), i);
         ptrs.push(frames.get_stacks()[i].clone());
 
