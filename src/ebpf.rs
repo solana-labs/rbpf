@@ -43,7 +43,7 @@ pub const FIRST_SCRATCH_REG: usize = 6;
 /// Number of scratch registers
 pub const SCRATCH_REGS: usize = 4;
 /// Max BPF to BPF call depth
-pub const MAX_CALL_DEPTH: usize = 10;
+pub const MAX_CALL_DEPTH: usize = 20;
 /// ELF dump instruction offset
 /// Instruction numbers typically start at 29 in the ELF dump, use this offset
 /// when reporting so that trace aligns with the dump.
