@@ -12,7 +12,6 @@ extern crate num_traits;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use ebpf;
 use elf::num_traits::FromPrimitive;
-use log::debug;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::io::{Error, ErrorKind};
@@ -490,10 +489,11 @@ impl EBpfElf {
             };
 
             for relocation in relocations.iter() {
+                println!("Relocation: {:?}", relocation);
                 match BPFRelocationType::from_x86_relocation_type(&relocation.rtype) {
                     Some(BPFRelocationType::R_BPF_64_RELATIVE) => {
                         // Raw relocation between sections.  The instruction being relocated contains
-                        // the virtual address that it needs turned into a physical address.  Read it
+                        // the virtual address that it needs turned into a physical address.  Read it,
                         // locate it in the ELF, convert to physical address
 
                         let mut target_section = None;
@@ -505,15 +505,10 @@ impl EBpfElf {
                         }
                         let target_section = match target_section {
                             Some(i) => i,
-                            None =>
-                            // TODO #3108
-                            // Err(Error::new(
-                            //     ErrorKind::Other,
-                            //     format!("Error: Relocation failed, no loadable section contains virtual address {:x?}", relocation.addr),
-                            // ))?
-                            {
-                                continue;
-                            }
+                            None => return Err(Error::new(
+                                               ErrorKind::Other,
+                                               format!("Error: Relocation failed, no loadable section contains virtual address {:x?}", relocation.addr),
+                                           )),
                         };
 
                         // Offset into the section being relocated
@@ -531,22 +526,17 @@ impl EBpfElf {
                         ) as u64;
 
                         if refd_va == 0 {
-                            // TODO Skipping this relocation, the virtual address found at this
-                            // target location is zero, so don't know how to turn it into a valid physical
-                            // address.
-                            // https://github.com/solana-labs/solana/issues/3108
-                            debug!(
-                                "!! Skipped relocation section {:?} target_offset {:#x} va {:#x} Referenced va ({:#x}))",
-                                target_section, target_offset, relocation.addr, refd_va
-                            );
+                            return Err(Error::new(
+                                       ErrorKind::Other,
+                                       "Error: Relocation failed, invalid referenced target virtual address"));
                         }
 
                         // final "physical address" from the VM's perspetive is rooted at `MM_PROGRAM_START`
                         let refd_pa = ebpf::MM_PROGRAM_START + refd_va;
 
                         // trace!(
-                        //     "Relocation section {:?} off {:#x} va {:#x} pa {:#x} va {:#x} pa {:#x}",
-                        //     target_section, target_offset, relocation.addr, section_infos[target_section].bytes.as_ptr() as usize + target_offset, refd_va, refd_pa
+                        //     "Relocation section va {:#x} off {:#x} va {:#x} pa {:#x} va {:#x} pa {:#x}",
+                        //     section_infos[target_section].va, target_offset, relocation.addr, section_infos[target_section].bytes.as_ptr() as usize + target_offset, refd_va, refd_pa
                         // );
 
                         // Write the physical address back into the target location
