@@ -489,7 +489,6 @@ impl EBpfElf {
             };
 
             for relocation in relocations.iter() {
-                println!("Relocation: {:?}", relocation);
                 match BPFRelocationType::from_x86_relocation_type(&relocation.rtype) {
                     Some(BPFRelocationType::R_BPF_64_RELATIVE) => {
                         // Raw relocation between sections.  The instruction being relocated contains
