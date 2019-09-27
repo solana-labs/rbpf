@@ -443,12 +443,12 @@ impl<'a> EbpfVm<'a> {
         let mut pc: usize = entry;
         self.last_insn_count = 0;
         while pc * ebpf::INSN_SIZE < prog.len() {
-            trace!("    BPF: {:5?} {:016x?} frame {:?} pc {:4?} {}",
-                   self.last_insn_count,
-                   reg,
-                   frames.get_frame_index(),
-                   pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                   disassembler::to_insn_vec(&prog[pc * ebpf::INSN_SIZE..])[0].desc);
+            // trace!("    BPF: {:5?} {:016x?} frame {:?} pc {:4?} {}",
+            //        self.last_insn_count,
+            //        reg,
+            //        frames.get_frame_index(),
+            //        pc + ebpf::ELF_INSN_DUMP_OFFSET,
+            //        disassembler::to_insn_vec(&prog[pc * ebpf::INSN_SIZE..])[0].desc);
             let insn = ebpf::get_insn(prog, pc);
             let dst = insn.dst as usize;
             let src = insn.src as usize;
