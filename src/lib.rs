@@ -33,7 +33,7 @@ use std::u32;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use elf::EBpfElf;
-use log::{trace, debug};
+use log::debug;
 use ebpf::HelperContext;
 use memory_region::{MemoryRegion, translate_addr};
 
