@@ -33,7 +33,7 @@ use std::u32;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use elf::EBpfElf;
-use log::debug;
+use log::{debug, trace, log_enabled};
 use ebpf::HelperContext;
 use memory_region::{MemoryRegion, translate_addr};
 
@@ -439,16 +439,21 @@ impl<'a> EbpfVm<'a> {
             translate_addr(addr, len, "store", pc, &rw_regions)
         };
 
+        // Check trace logging outside the instruction loop, saves ~30%
+        let insn_trace = log_enabled!(log::Level::Trace);
+
         // Loop on instructions
         let mut pc: usize = entry;
         self.last_insn_count = 0;
         while pc * ebpf::INSN_SIZE < prog.len() {
-            // trace!("    BPF: {:5?} {:016x?} frame {:?} pc {:4?} {}",
-            //        self.last_insn_count,
-            //        reg,
-            //        frames.get_frame_index(),
-            //        pc + ebpf::ELF_INSN_DUMP_OFFSET,
-            //        disassembler::to_insn_vec(&prog[pc * ebpf::INSN_SIZE..])[0].desc);
+            if insn_trace {
+                trace!("    BPF: {:5?} {:016x?} frame {:?} pc {:4?} {}",
+                       self.last_insn_count,
+                       reg,
+                       frames.get_frame_index(),
+                       pc + ebpf::ELF_INSN_DUMP_OFFSET,
+                       disassembler::to_insn_vec(&prog[pc * ebpf::INSN_SIZE..])[0].desc);
+            }
             let insn = ebpf::get_insn(prog, pc);
             let dst = insn.dst as usize;
             let src = insn.src as usize;
