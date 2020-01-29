@@ -625,7 +625,7 @@ impl<'a> EbpfVm<'a> {
                 },
                 ebpf::XOR32_IMM  =>   reg[dst] = (reg[dst] as u32             ^ insn.imm  as u32) as u64,
                 ebpf::XOR32_REG  =>   reg[dst] = (reg[dst] as u32             ^ reg[src]  as u32) as u64,
-                ebpf::MOV32_IMM  =>   reg[dst] = insn.imm                                         as u64,
+                ebpf::MOV32_IMM  =>   reg[dst] = insn.imm  as u32                                 as u64,
                 ebpf::MOV32_REG  =>   reg[dst] = (reg[src] as u32)                                as u64,
                 ebpf::ARSH32_IMM => { reg[dst] = (reg[dst] as i32).wrapping_shr(insn.imm  as u32) as u64; reg[dst] &= U32MAX; },
                 ebpf::ARSH32_REG => { reg[dst] = (reg[dst] as i32).wrapping_shr(reg[src]  as u32) as u64; reg[dst] &= U32MAX; },

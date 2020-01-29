@@ -1201,6 +1201,25 @@ fn test_vm_mov() {
 }
 
 #[test]
+fn test_vm_mov32_imm_large() {
+    let prog = assemble("
+        mov32 r0, -1
+        exit").unwrap();
+    let mut vm = EbpfVm::new(Some(&prog)).unwrap();
+    assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0xffffffff);
+}
+
+#[test]
+fn test_vm_mov_large() {
+    let prog = assemble("
+        mov32 r1, -1
+        mov32 r0, r1
+        exit").unwrap();
+    let mut vm = EbpfVm::new(Some(&prog)).unwrap();
+    assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0xffffffff);
+}
+
+#[test]
 fn test_vm_mul32_imm() {
     let prog = assemble("
         mov r0, 3
