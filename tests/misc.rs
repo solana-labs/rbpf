@@ -474,7 +474,7 @@ pub fn bpf_helper_string(vm_addr: u64,
                          _context: &mut ebpf::HelperContext,
                          ro_regions: &[MemoryRegion],
                          _rw_regions: &[MemoryRegion]
-) -> Result<(u64), Error> {
+) -> Result<u64, Error> {
     let host_addr = translate_addr(vm_addr, len as usize, "Load", 0, ro_regions)?;
     let c_buf: *const c_char = host_addr as *const c_char;
     unsafe {
@@ -498,7 +498,7 @@ pub fn bpf_helper_u64(arg1: u64,
                       _context: &mut ebpf::HelperContext,
                       _ro_regions: &[MemoryRegion],
                       _rw_regions: &[MemoryRegion]
-) -> Result<(u64), Error> {
+) -> Result<u64, Error> {
     println!("dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}", arg1, arg2, arg3, arg4, arg5);
     Ok(0)
 }

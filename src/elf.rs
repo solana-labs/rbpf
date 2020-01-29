@@ -103,7 +103,7 @@ pub struct EBpfElf {
 
 impl EBpfElf {
     /// Fully loads an ELF, including validation and relocation
-    pub fn load(elf_bytes: &[u8]) -> Result<(EBpfElf), Error> {
+    pub fn load(elf_bytes: &[u8]) -> Result<EBpfElf, Error> {
         let mut reader = Cursor::new(elf_bytes);
         let mut elf = match elfkit::Elf::from_reader(&mut reader) {
             Ok(elf) => elf,
@@ -224,7 +224,7 @@ impl EBpfElf {
         ))
     }
 
-    fn get_section(&self, name: &str) -> Result<(&elfkit::Section), Error> {
+    fn get_section(&self, name: &str) -> Result<&elfkit::Section, Error> {
         match self
             .elf
             .sections
@@ -370,7 +370,7 @@ impl EBpfElf {
     fn get_section_ref<'a, 'b>(
         sections: &'b mut Vec<&'a mut elfkit::Section>,
         name: &str,
-    ) -> Result<(&'a mut elfkit::Section), Error> {
+    ) -> Result<&'a mut elfkit::Section, Error> {
         match sections
             .iter()
             .enumerate()
@@ -388,7 +388,7 @@ impl EBpfElf {
     /// contains a particular ELF virtual address
     fn get_load_sections<'a, 'b>(
         sections: &'a mut Vec<&'b mut elfkit::Section>,
-    ) -> Result<(Vec<SectionInfo<'b>>), Error> {
+    ) -> Result<Vec<SectionInfo<'b>>, Error> {
         let mut section_infos = Vec::new();
 
         // .text section mandatory

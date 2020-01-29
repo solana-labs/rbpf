@@ -25,7 +25,7 @@ impl MemoryRegion {
     }
 
     /// Convert a virtual machine address into a host address
-    pub fn vm_to_host(&self, vm_addr: u64, len: u64) -> Result<(u64), Error> {
+    pub fn vm_to_host(&self, vm_addr: u64, len: u64) -> Result<u64, Error> {
         if self.addr_vm <= vm_addr && vm_addr + len as u64 <= self.addr_vm + self.len {
             let host_addr = self.addr_host + (vm_addr - self.addr_vm);
             Ok(host_addr)
@@ -51,7 +51,7 @@ pub fn translate_addr(
     access_type: &str,
     mut pc: usize, // TODO helpers don't have this info
     regions: &[MemoryRegion],
-) -> Result<(u64), Error> {
+) -> Result<u64, Error> {
     for region in regions.iter() {
         if let Ok(host_addr) = region.vm_to_host(vm_addr, len as u64) {
             return Ok(host_addr);

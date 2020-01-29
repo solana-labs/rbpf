@@ -71,7 +71,7 @@ pub fn bpf_time_getns (
     _context: &mut HelperContext,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion],
-) -> Result<(u64), Error> {
+) -> Result<u64, Error> {
     Ok(time::precise_time_ns())
 }
 
@@ -129,7 +129,7 @@ pub fn bpf_trace_printf (
     _context: &mut HelperContext,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion]
-) -> Result<(u64), Error> {
+) -> Result<u64, Error> {
     println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
     let size_arg = | x | {
         if x == 0 {
@@ -168,7 +168,7 @@ pub fn gather_bytes (
     _context: &mut HelperContext,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion]
-) -> Result<(u64), Error> {
+) -> Result<u64, Error> {
     Ok(arg1.wrapping_shl(32) |
        arg2.wrapping_shl(24) |
        arg3.wrapping_shl(16) |
@@ -205,7 +205,7 @@ pub fn memfrob (
     _context: &mut HelperContext,
     _ro_regions: &[MemoryRegion],
     rw_regions: &[MemoryRegion]
-) -> Result<(u64), Error> {
+) -> Result<u64, Error> {
 
     let host_addr = translate_addr(addr, len as usize, "Store", 0, rw_regions)?;
     for i in 0..len {
@@ -221,7 +221,7 @@ pub fn memfrob (
 // #![feature(asm)]
 // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 // #[allow(unused_variables)]
-// pub fn memfrob (ptr: u64, len: u64, arg3: u64, arg4: u64, arg5: u64) -> Result<(u64), Error> {
+// pub fn memfrob (ptr: u64, len: u64, arg3: u64, arg4: u64, arg5: u64) -> Result<u64, Error> {
 //     unsafe {
 //         asm!(
 //                 "mov $0xf0, %rax"
@@ -262,7 +262,7 @@ pub fn sqrti (
     _context: &mut HelperContext,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion]
-) -> Result<(u64), Error> {
+) -> Result<u64, Error> {
     Ok((arg1 as f64).sqrt() as u64)
 }
 
@@ -295,7 +295,7 @@ pub fn strcmp (
     _context: &mut HelperContext,
     ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion]
-) -> Result<(u64), Error> {
+) -> Result<u64, Error> {
     // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
     if arg1 == 0 || arg2 == 0 {
         return Ok(u64::MAX);
@@ -356,7 +356,7 @@ pub fn rand (
     _context: &mut HelperContext,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion],
-) -> Result<(u64), Error> {
+) -> Result<u64, Error> {
     let mut n = unsafe {
         (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64
     };

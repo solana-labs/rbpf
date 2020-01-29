@@ -440,7 +440,7 @@ pub type HelperFunction = fn (
     &mut HelperContext,
     &[MemoryRegion],
     &[MemoryRegion],
-) -> Result<(u64), Error>;
+) -> Result<u64, Error>;
 
 /// Helper function and its context
 pub struct Helper {

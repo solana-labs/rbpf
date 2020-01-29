@@ -880,7 +880,7 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
 
 // In the end, this is the only thing we export
 pub fn compile(prog: &[u8], helpers: &HashMap<u32, ebpf::Helper>)
-    -> Result<(JitProgram), Error> {
+    -> Result<JitProgram, Error> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
