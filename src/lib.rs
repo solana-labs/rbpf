@@ -87,12 +87,12 @@ impl CallFrames {
             stack: vec![0u8; depth * size],
             frame: 0,
             max_frame: 0,
-            frames: vec![CallFrame { stack:  MemoryRegion {
-                                                      addr_host: 0,
-                                                      addr_vm: 0,
-                                                      len: 0,
-                                                  },
-                                     saved_reg:  [0u64; ebpf::SCRATCH_REGS],
+            frames: vec![CallFrame { stack: MemoryRegion {
+                                              addr_host: 0,
+                                              addr_vm: 0,
+                                              len: 0,
+                                            },
+                                     saved_reg: [0u64; ebpf::SCRATCH_REGS],
                                      return_ptr: 0
                                    };
                          depth],
@@ -100,7 +100,8 @@ impl CallFrames {
         for i in 0..depth {
             let start = i * size;
             let end = start + size;
-            let addr_vm = ebpf::MM_STACK_START + start as u64;
+            // Seperate each stack frame's virtual address so that stack over/under-run is caught explicitly
+            let addr_vm = ebpf::MM_STACK_START + (i * 2 * size) as u64;
             frames.frames[i].stack = MemoryRegion::new_from_slice(&frames.stack[start..end], addr_vm);
         }
         frames
