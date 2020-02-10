@@ -118,7 +118,7 @@ impl CallFrames {
 
     /// Get the address of a frame's top of stack
     fn get_stack_top(&self) -> u64 {
-        self.frames[self.frame].stack.addr_vm + self.frames[self.frame].stack.len - 1
+        self.frames[self.frame].stack.addr_vm + self.frames[self.frame].stack.len
     }
 
     /// Get current call frame index, 0 is the root frame
