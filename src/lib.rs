@@ -88,9 +88,9 @@ impl CallFrames {
             frame: 0,
             max_frame: 0,
             frames: vec![CallFrame { stack: MemoryRegion {
-                                              addr_host: 0,
-                                              addr_vm: 0,
-                                              len: 0,
+                                                addr_host: 0,
+                                                addr_vm: 0,
+                                                len: 0,
                                             },
                                      saved_reg: [0u64; ebpf::SCRATCH_REGS],
                                      return_ptr: 0
