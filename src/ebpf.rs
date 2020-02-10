@@ -35,7 +35,7 @@ pub const INSN_SIZE: usize = 8;
 /// Maximum size of an eBPF program, in bytes.
 pub const PROG_MAX_SIZE: usize = PROG_MAX_INSNS * INSN_SIZE;
 /// Stack for the eBPF stack, in bytes.
-pub const STACK_SIZE: usize = 2048;  // !! Warning: if you change stack size here also change warning in llvm (BPF_RegisterInfo.cpp)
+pub const STACK_FRAME_SIZE: usize = 4096;  // !! Warning: if you change stack size here also change warning in llvm (BPF_RegisterInfo.cpp)
 /// Stack register
 pub const STACK_REG: usize = 10;
 /// First scratch register
@@ -55,9 +55,9 @@ pub const ELF_INSN_DUMP_OFFSET: usize = 29;
 // +-----------------+
 // | Stack           |
 // +-----------------+
-// | Input           |
-// +-----------------+
 // | Heap            |
+// +-----------------+
+// | Input           |
 // +-----------------+ 
 // The values below providesufficient separations between the map areas. Avoid using
 // 0x0 to distinguish virtual addresses from null pointers.

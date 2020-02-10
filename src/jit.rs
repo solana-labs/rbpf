@@ -482,7 +482,7 @@ impl<'a> JitMemory<'a> {
         emit_mov(self, RSP, map_register(10));
 
         // Allocate stack space
-        emit_alu64_imm32(self, 0x81, 5, RSP, ebpf::STACK_SIZE as i32);
+        emit_alu64_imm32(self, 0x81, 5, RSP, ebpf::STACK_FRAME_SIZE as i32);
 
         self.pc_locs = vec![0; prog.len() / ebpf::INSN_SIZE + 1];
 
@@ -793,7 +793,7 @@ impl<'a> JitMemory<'a> {
         }
 
         // Deallocate stack space
-        emit_alu64_imm32(self, 0x81, 0, RSP, ebpf::STACK_SIZE as i32);
+        emit_alu64_imm32(self, 0x81, 0, RSP, ebpf::STACK_FRAME_SIZE as i32);
 
         emit_pop(self, R15);
         emit_pop(self, R14);

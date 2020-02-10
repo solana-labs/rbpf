@@ -394,7 +394,7 @@ impl<'a> EbpfVm<'a> {
     ) -> Result<u64, Error> {
         const U32MAX: u64 = u32::MAX as u64;
 
-        let mut frames = CallFrames::new(ebpf::MAX_CALL_DEPTH, ebpf::STACK_SIZE);
+        let mut frames = CallFrames::new(ebpf::MAX_CALL_DEPTH, ebpf::STACK_FRAME_SIZE);
         let mut ro_regions = Vec::new();
         let mut rw_regions = Vec::new();
         ro_regions.extend_from_slice(granted_ro_regions);
