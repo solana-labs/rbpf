@@ -882,7 +882,7 @@ mod tests {
 
             let top = frames.push(&registers[0..4], i).unwrap();
             let new_ptrs = frames.get_stacks();
-            assert_eq!(top, new_ptrs[i+1].addr_vm + new_ptrs[i+1].len - 1);
+            assert_eq!(top, new_ptrs[i+1].addr_vm + new_ptrs[i+1].len);
             assert_ne!(top, ptrs[i].addr_vm + ptrs[i].len - 1);
             assert!(!(ptrs[i].addr_vm <= new_ptrs[i+1].addr_vm && new_ptrs[i+1].addr_vm < ptrs[i].addr_vm + ptrs[i].len));
         }
@@ -896,7 +896,7 @@ mod tests {
         for i in (0..DEPTH - 1).rev() {
             let (saved_reg, stack_ptr, return_ptr) = frames.pop().unwrap();
             assert_eq!(saved_reg, [i as u64, i as u64, i as u64, i as u64]);
-            assert_eq!(ptrs[i].addr_vm + ptrs[i].len - 1, stack_ptr);
+            assert_eq!(ptrs[i].addr_vm + ptrs[i].len, stack_ptr);
             assert_eq!(i, return_ptr);
         }
 
