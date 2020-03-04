@@ -22,7 +22,6 @@
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
 use crate::memory_region::MemoryRegion;
-use std::any::Any;
 use std::fmt;
 use std::io::Error;
 use byteorder::{ByteOrder, LittleEndian};
@@ -427,27 +426,20 @@ pub const BPF_CLS_MASK    : u8 = 0x07;
 /// Mask to extract the arithmetic operation code from an instruction operation code.
 pub const BPF_ALU_OP_MASK : u8 = 0xf0;
 
-/// Context object passed to a helper function, carries along state and/or lifetime
-pub type HelperContext = Option<Box<dyn Any + 'static>>;
-
-/// Prototype of an helper function.
-pub type HelperFunction = fn (
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    &mut HelperContext,
-    &[MemoryRegion],
-    &[MemoryRegion],
-) -> Result<u64, Error>;
-
-/// Helper function and its context
-pub struct Helper {
-    /// Actual helper function that does the work
-    pub function: HelperFunction,
-    /// Context passed to the helper
-    pub context: HelperContext,
+/// Helper function
+pub trait Helper {
+    /// Call the helper function
+    #[allow(clippy::too_many_arguments)]
+    fn call(
+        &mut self,
+        u64,
+        u64,
+        u64,
+        u64,
+        u64,
+        &[MemoryRegion],
+        &[MemoryRegion],
+    ) -> Result<u64, Error>;
 }
 
 /// An eBPF instruction.

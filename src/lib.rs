@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use elf::EBpfElf;
 use log::{debug, trace, log_enabled};
-use ebpf::HelperContext;
+use ebpf::Helper;
 use memory_region::{MemoryRegion, translate_addr};
 
 pub mod assembler;
@@ -183,7 +183,7 @@ pub struct EbpfVm<'a> {
     elf:             Option<EBpfElf>,
     verifier:        Verifier,
     jit:             Option<JitProgram>,
-    helpers:         HashMap<u32, ebpf::Helper>,
+    helpers:         HashMap<u32, Box<dyn ebpf::Helper + 'a>>,
     max_insn_count:  u64,
     last_insn_count: u64,
 }
@@ -336,14 +336,13 @@ impl<'a> EbpfVm<'a> {
     /// // Register a helper.
     /// // On running the program this helper will print the content of registers r3, r4 and r5 to
     /// // standard output.
-    /// vm.register_helper(6, helpers::bpf_trace_printf, None).unwrap();
+    /// vm.register_helper(6, Box::new(helpers::BPFTracePrintf::default())).unwrap();
     /// ```
     pub fn register_helper(&mut self,
                            key: u32,
-                           function: ebpf::HelperFunction,
-                           context: HelperContext,
+                           helper: Box<dyn Helper + 'a>,
     ) -> Result<(), Error> {
-        self.helpers.insert(key, ebpf::Helper{ function, context });
+        self.helpers.insert(key, helper);
         Ok(())
     }
 
@@ -358,10 +357,9 @@ impl<'a> EbpfVm<'a> {
     /// symbol name use `ebpf::helpers::hash_symbol_name`.
     pub fn register_helper_ex(&mut self,
                               name: &str,
-                              function: ebpf::HelperFunction,
-                              context: HelperContext,
+                              helper: Box<dyn Helper + 'a>,
     ) -> Result<(), Error> {
-        self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), ebpf::Helper{ function, context });
+        self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), helper);
         Ok(())
     }
 
@@ -413,7 +411,10 @@ impl<'a> EbpfVm<'a> {
         let (prog_addr, prog) =
         if let Some(ref elf) = self.elf {
             if let Ok(sections) = elf.get_ro_sections() {
-                let regions: Vec<_> = sections.iter().map( |(addr, slice)| MemoryRegion::new_from_slice(slice, *addr)).collect();
+                let regions: Vec<_> = sections
+                                        .iter()
+                                        .map( |(addr, slice)| MemoryRegion::new_from_slice(slice, *addr))
+                                        .collect();
                 ro_regions.extend(regions);
             }
             entry = elf.get_entrypoint_instruction_offset()?;
@@ -726,7 +727,7 @@ impl<'a> EbpfVm<'a> {
                 // changed after the program has been verified.
                 ebpf::CALL_IMM   => {
                     if let Some(mut helper) = self.helpers.get_mut(&(insn.imm as u32)) {
-                        reg[0] = (helper.function)(reg[1], reg[2], reg[3], reg[4], reg[5], &mut helper.context, &ro_regions, &rw_regions)?;
+                        reg[0] = helper.call(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?;
                     } else if let Some(ref elf) = self.elf {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call
