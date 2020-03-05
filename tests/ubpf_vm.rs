@@ -276,7 +276,7 @@ fn test_vm_call() {
         call 0
         exit").unwrap();
     let mut vm = EbpfVm::new(Some(&prog)).unwrap();
-    vm.register_helper(0, Box::new(helpers::GatherBytes::default())).unwrap();
+    vm.register_helper(0, helpers::gather_bytes).unwrap();
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x0102030405);
 }
 
@@ -294,7 +294,7 @@ fn test_vm_call_memfrob() {
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
     ];
     let mut vm = EbpfVm::new(Some(&prog)).unwrap();
-    vm.register_helper(1, Box::new(helpers::Memfrob::default())).unwrap();
+    vm.register_helper(1, helpers::memfrob).unwrap();
     assert_eq!(vm.execute_program(mem, &[], &[]).unwrap(), 0x102292e2f2c0708);
 }
 
@@ -1390,8 +1390,8 @@ fn test_vm_stack2() {
         xor r0, 0x2a2a2a2a
         exit").unwrap();
     let mut vm = EbpfVm::new(Some(&prog)).unwrap();
-    vm.register_helper(0, Box::new(helpers::GatherBytes::default())).unwrap();
-    vm.register_helper(1, Box::new(helpers::Memfrob::default())).unwrap();
+    vm.register_helper(0, helpers::gather_bytes).unwrap();
+    vm.register_helper(1, helpers::memfrob).unwrap();
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x01020304);
 }
 
@@ -1467,7 +1467,7 @@ fn test_vm_string_stack() {
         mov r0, 0x0
         exit").unwrap();
     let mut vm = EbpfVm::new(Some(&prog)).unwrap();
-    vm.register_helper(4, Box::new(helpers::Strcmp::default())).unwrap();
+    vm.register_helper(4, helpers::strcmp).unwrap();
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x0);
 }
 

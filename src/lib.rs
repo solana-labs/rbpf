@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use elf::EBpfElf;
 use log::{debug, trace, log_enabled};
-use ebpf::Helper;
+use ebpf::{Helper, HelperFunction, HelperObject};
 use memory_region::{MemoryRegion, translate_addr};
 
 pub mod assembler;
@@ -183,7 +183,7 @@ pub struct EbpfVm<'a> {
     elf:             Option<EBpfElf>,
     verifier:        Verifier,
     jit:             Option<JitProgram>,
-    helpers:         HashMap<u32, Box<dyn ebpf::Helper + 'a>>,
+    helpers:         HashMap<u32, Helper<'a>>,
     max_insn_count:  u64,
     last_insn_count: u64,
 }
@@ -336,13 +336,13 @@ impl<'a> EbpfVm<'a> {
     /// // Register a helper.
     /// // On running the program this helper will print the content of registers r3, r4 and r5 to
     /// // standard output.
-    /// vm.register_helper(6, Box::new(helpers::BPFTracePrintf::default())).unwrap();
+    /// vm.register_helper(6, helpers::bpf_trace_printf).unwrap();
     /// ```
     pub fn register_helper(&mut self,
                            key: u32,
-                           helper: Box<dyn Helper + 'a>,
+                           helper: HelperFunction,
     ) -> Result<(), Error> {
-        self.helpers.insert(key, helper);
+        self.helpers.insert(key, Helper::Function(helper));
         Ok(())
     }
 
@@ -357,10 +357,20 @@ impl<'a> EbpfVm<'a> {
     /// symbol name use `ebpf::helpers::hash_symbol_name`.
     pub fn register_helper_ex(&mut self,
                               name: &str,
-                              helper: Box<dyn Helper + 'a>,
+                              helper: HelperFunction,
     ) -> Result<(), Error> {
-        self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), helper);
+        self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), Helper::Function(helper));
         Ok(())
+    }
+
+    /// Same as register_helper_ex except reguster a helper trait object that carries
+    /// along context needed by the helper
+    pub fn register_helper_with_context_ex(&mut self,
+        name: &str,
+        helper: Box<dyn HelperObject + 'a>,
+    ) -> Result<(), Error> {
+    self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), Helper::Object(helper));
+    Ok(())
     }
 
     /// Execute the program loaded, with the given packet data.
@@ -727,7 +737,14 @@ impl<'a> EbpfVm<'a> {
                 // changed after the program has been verified.
                 ebpf::CALL_IMM   => {
                     if let Some(mut helper) = self.helpers.get_mut(&(insn.imm as u32)) {
-                        reg[0] = helper.call(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?;
+                        reg[0] = match helper {
+                            Helper::Function(helper) => {
+                                helper(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?
+                            }
+                            Helper::Object(helper) => {
+                                helper.call(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?
+                            }
+                        };
                     } else if let Some(ref elf) = self.elf {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call

@@ -27,9 +27,7 @@ extern crate libc;
 use std::u64;
 use std::io::Error;
 use time;
-use crate::{
-    ebpf::Helper,
-    memory_region::{MemoryRegion, translate_addr},
+use crate::{memory_region::{MemoryRegion, translate_addr},
 };
 
 // Helpers associated to kernel helpers
@@ -46,12 +44,11 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::ebpf::Helper;
 /// use solana_rbpf::helpers;
 /// use solana_rbpf::memory_region::MemoryRegion;
 ///
 /// let regions = [MemoryRegion::default()];
-/// let t = helpers::BPFTimeGetNS::default().call(0, 0, 0, 0, 0, &regions, &regions).unwrap();
+/// let t = helpers::bpf_time_getns(0, 0, 0, 0, 0, &regions, &regions).unwrap();
 /// let d =  t / 10u64.pow(9)  / 60   / 60  / 24;
 /// let h = (t / 10u64.pow(9)  / 60   / 60) % 24;
 /// let m = (t / 10u64.pow(9)  / 60 ) % 60;
@@ -59,21 +56,17 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 /// let ns = t % 10u64.pow(9);
 /// println!("Uptime: {:#x} == {} days {}:{}:{}, {} ns", t, d, h, m, s, ns);
 /// ```
-#[derive(Default)]
-pub struct BPFTimeGetNS {}
-impl Helper for BPFTimeGetNS {
-    fn call (
-        &mut self,
-        _arg1: u64,
-        _arg2: u64,
-        _arg3: u64,
-        _arg4: u64,
-        _arg5: u64,
-        _ro_regions: &[MemoryRegion],
-        _rw_regions: &[MemoryRegion],
-    ) -> Result<u64, Error> {
+#[allow(dead_code)]
+pub fn bpf_time_getns (
+    _arg1: u64,
+    _arg2: u64,
+    _arg3: u64,
+    _arg4: u64,
+    _arg5: u64,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion],
+) -> Result<u64, Error> {
         Ok(time::precise_time_ns())
-    }
 }
 
 // bpf_trace_printk()
@@ -91,12 +84,11 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::ebpf::Helper;
 /// use solana_rbpf::helpers;
 /// use solana_rbpf::memory_region::MemoryRegion;
 ///
 /// let regions = [MemoryRegion::default()];
-/// let res = helpers::BPFTracePrintf::default().call(0, 0, 1, 15, 32, &regions, &regions).unwrap();
+/// let res = helpers::bpf_trace_printf(0, 0, 1, 15, 32, &regions, &regions).unwrap();
 /// assert_eq!(res as usize, "bpf_trace_printf: 0x1, 0xf, 0x20\n".len());
 /// ```
 ///
@@ -109,7 +101,7 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// #include <linux/bpf.h>
 /// #include "path/to/linux/samples/bpf/bpf_helpers.h"
 ///
-/// int main(pub struct __sk_buff *skb)
+/// int main(struct __sk_buff *skb)
 /// {
 ///     // Only %d %u %x %ld %lu %lx %lld %llu %llx %p %s conversion specifiers allowed.
 ///     // See <https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/kernel/trace/bpf_trace.c>.
@@ -120,19 +112,16 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 ///
 /// This would equally print the three numbers in `/sys/kernel/debug/tracing` file each time the
 /// program is run.
-#[derive(Default)]
-pub struct BPFTracePrintf {}
-impl Helper for BPFTracePrintf {
-    fn call (
-        &mut self,
-        _arg1: u64,
-        _arg2: u64,
-        arg3: u64,
-        arg4: u64,
-        arg5: u64,
-        _ro_regions: &[MemoryRegion],
-        _rw_regions: &[MemoryRegion]
-    ) -> Result<u64, Error> {
+#[allow(dead_code)]
+pub fn bpf_trace_printf (
+    _arg1: u64,
+    _arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion]
+) -> Result<u64, Error> {
         println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
         let size_arg = | x | {
             if x == 0 {
@@ -143,7 +132,6 @@ impl Helper for BPFTracePrintf {
         };
         Ok("bpf_trace_printf: 0x, 0x, 0x\n".len() as u64
             + size_arg(arg3) + size_arg(arg4) + size_arg(arg5))
-    }
 }
 
 
@@ -155,33 +143,27 @@ impl Helper for BPFTracePrintf {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::ebpf::Helper;
 /// use solana_rbpf::helpers;
 /// use solana_rbpf::memory_region::MemoryRegion;
 ///
 /// let regions = [MemoryRegion::default()];
-/// let gathered = helpers::GatherBytes::default().call(0x11, 0x22, 0x33, 0x44, 0x55, &regions, &regions).unwrap();
+/// let gathered = helpers::gather_bytes(0x11, 0x22, 0x33, 0x44, 0x55, &regions, &regions).unwrap();
 /// assert_eq!(gathered, 0x1122334455);
 /// ```
-#[derive(Default)]
-pub struct GatherBytes {}
-impl Helper for GatherBytes {
-    fn call (
-        &mut self,
-        arg1: u64,
-        arg2: u64,
-        arg3: u64,
-        arg4: u64,
-        arg5: u64,
-        _ro_regions: &[MemoryRegion],
-        _rw_regions: &[MemoryRegion]
-    ) -> Result<u64, Error> {
+pub fn gather_bytes (
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion]
+) -> Result<u64, Error> {
         Ok(arg1.wrapping_shl(32) |
         arg2.wrapping_shl(24) |
         arg3.wrapping_shl(16) |
         arg4.wrapping_shl(8)  |
         arg5)
-    }
 }
 
 /// Same as `void *memfrob(void *s, size_t n);` in `string.h` in C. See the GNU manual page (in
@@ -191,7 +173,6 @@ impl Helper for GatherBytes {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::ebpf::Helper;
 /// use solana_rbpf::helpers;
 /// use solana_rbpf::memory_region::MemoryRegion;
 ///
@@ -199,24 +180,20 @@ impl Helper for GatherBytes {
 /// let val_va = 0x1000;
 /// let regions = [MemoryRegion::new_from_slice(&val, val_va)];
 ///
-/// helpers::Memfrob::default().call(val_va, 8, 0, 0, 0, &regions, &regions);
+/// helpers::memfrob(val_va, 8, 0, 0, 0, &regions, &regions);
 /// assert_eq!(val, vec![0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
-/// helpers::Memfrob::default().call(val_va, 8, 0, 0, 0, &regions, &regions);
+/// helpers::memfrob(val_va, 8, 0, 0, 0, &regions, &regions);
 /// assert_eq!(val, vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
 /// ```
-#[derive(Default)]
-pub struct Memfrob {}
-impl Helper for Memfrob {
-    fn call (
-        &mut self,
-        addr: u64,
-        len: u64, 
-        _arg3: u64,
-        _arg4: u64,
-        _arg5: u64,
-        _ro_regions: &[MemoryRegion],
-        rw_regions: &[MemoryRegion]
-    ) -> Result<u64, Error> {
+pub fn memfrob (
+    addr: u64,
+    len: u64, 
+    _arg3: u64,
+    _arg4: u64,
+    _arg5: u64,
+    _ro_regions: &[MemoryRegion],
+    rw_regions: &[MemoryRegion]
+) -> Result<u64, Error> {
 
         let host_addr = translate_addr(addr, len as usize, "Store", 0, rw_regions)?;
         for i in 0..len {
@@ -226,7 +203,6 @@ impl Helper for Memfrob {
             }
         }
         Ok(0)
-    }
 }
 
 // TODO: Try again when asm!() is available in stable Rust.
@@ -256,29 +232,24 @@ impl Helper for Memfrob {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::ebpf::Helper;
 /// use solana_rbpf::helpers;
 /// use solana_rbpf::memory_region::MemoryRegion;
 ///
 /// let regions = [MemoryRegion::default()];
-/// let x = helpers::Sqrti::default().call(9, 0, 0, 0, 0, &regions, &regions).unwrap();
+/// let x = helpers::sqrti(9, 0, 0, 0, 0, &regions, &regions).unwrap();
 /// assert_eq!(x, 3);
 /// ```
-#[derive(Default)]
-pub struct Sqrti {}
-impl Helper for Sqrti {
-    fn call (
-        &mut self,
-        arg1: u64,
-        _arg2: u64,
-        _arg3: u64,
-        _arg4: u64,
-        _arg5: u64,
-        _ro_regions: &[MemoryRegion],
-        _rw_regions: &[MemoryRegion]
-    ) -> Result<u64, Error> {
+#[allow(dead_code)]
+pub fn sqrti (
+    arg1: u64,
+    _arg2: u64,
+    _arg3: u64,
+    _arg4: u64,
+    _arg5: u64,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion]
+) -> Result<u64, Error> {
         Ok((arg1 as f64).sqrt() as u64)
-    }
 }
 
 /// C-like `strcmp`, return 0 if the strings are equal, and a non-null value otherwise.
@@ -286,7 +257,6 @@ impl Helper for Sqrti {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::ebpf::Helper;
 /// use solana_rbpf::helpers;
 /// use solana_rbpf::memory_region::MemoryRegion;
 ///
@@ -295,24 +265,21 @@ impl Helper for Sqrti {
 /// let va_foo = 0x1000;
 /// let va_bar = 0x2000;
 /// let regions = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo)];
-/// assert!(helpers::Strcmp::default().call(va_foo, va_foo, 0, 0, 0, &regions, &regions).unwrap() == 0);
+/// assert!(helpers::strcmp(va_foo, va_foo, 0, 0, 0, &regions, &regions).unwrap() == 0);
 /// let regions = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo),
 ///                MemoryRegion::new_from_slice(bar.as_bytes(), va_bar)];
-/// assert!(helpers::Strcmp::default().call(va_foo, va_bar, 0, 0, 0, &regions, &regions).unwrap() != 0);
+/// assert!(helpers::strcmp(va_foo, va_bar, 0, 0, 0, &regions, &regions).unwrap() != 0);
 /// ```
-#[derive(Default)]
-pub struct Strcmp {}
-impl Helper for Strcmp {
-    fn call (
-        &mut self,
-        arg1: u64,
-        arg2: u64,
-        _arg3: u64,
-        _arg4: u64,
-        _arg5: u64,
-        ro_regions: &[MemoryRegion],
-        _rw_regions: &[MemoryRegion]
-    ) -> Result<u64, Error> {
+#[allow(dead_code)]
+pub fn strcmp (
+    arg1: u64,
+    arg2: u64,
+    _arg3: u64,
+    _arg4: u64,
+    _arg5: u64,
+    ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion]
+) -> Result<u64, Error> {
         // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
         if arg1 == 0 || arg2 == 0 {
             return Ok(u64::MAX);
@@ -334,7 +301,6 @@ impl Helper for Strcmp {
                 Ok((b_val - a_val) as u64)
             }
         }
-    }
 }
 
 // Some additional helpers
@@ -352,7 +318,6 @@ impl Helper for Strcmp {
 /// extern crate solana_rbpf;
 /// extern crate time;
 ///
-/// use solana_rbpf::ebpf::Helper;
 /// use solana_rbpf::helpers;
 /// use solana_rbpf::memory_region::MemoryRegion;
 ///
@@ -361,22 +326,19 @@ impl Helper for Strcmp {
 /// }
 ///
 /// let regions = [MemoryRegion::default()];
-/// let n = helpers::Rand::default().call(3, 6, 0, 0, 0, &regions, &regions).unwrap();
+/// let n = helpers::rand(3, 6, 0, 0, 0, &regions, &regions).unwrap();
 /// assert!(3 <= n && n <= 6);
 /// ```
-#[derive(Default)]
-pub struct Rand {}
-impl Helper for Rand {
-    fn call (
-        &mut self,
-        min: u64,
-        max: u64,
-        _arg3: u64,
-        _arg4: u64,
-        _arg5: u64,
-        _ro_regions: &[MemoryRegion],
-        _rw_regions: &[MemoryRegion],
-    ) -> Result<u64, Error> {
+#[allow(dead_code)]
+pub fn rand (
+    min: u64,
+    max: u64,
+    _arg3: u64,
+    _arg4: u64,
+    _arg5: u64,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion],
+) -> Result<u64, Error> {
         let mut n = unsafe {
             (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64
         };
@@ -384,5 +346,4 @@ impl Helper for Rand {
             n = n % (max + 1 - min) + min;
         };
         Ok(n)
-    }
 }

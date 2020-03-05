@@ -426,8 +426,19 @@ pub const BPF_CLS_MASK    : u8 = 0x07;
 /// Mask to extract the arithmetic operation code from an instruction operation code.
 pub const BPF_ALU_OP_MASK : u8 = 0xf0;
 
-/// Helper function
-pub trait Helper {
+/// Helper function without context.
+pub type HelperFunction = fn(
+    u64,
+    u64,
+    u64,
+    u64,
+    u64,
+    &[MemoryRegion],
+    &[MemoryRegion],
+) -> Result<u64, Error>;
+
+/// Helper with context
+pub trait HelperObject {
     /// Call the helper function
     #[allow(clippy::too_many_arguments)]
     fn call(
@@ -440,6 +451,14 @@ pub trait Helper {
         &[MemoryRegion],
         &[MemoryRegion],
     ) -> Result<u64, Error>;
+}
+
+/// Contains the helper
+pub enum Helper<'a> {
+    /// Function
+    Function(HelperFunction),
+    /// Trait object
+    Object(Box<dyn HelperObject + 'a>)
 }
 
 /// An eBPF instruction.

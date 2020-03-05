@@ -459,7 +459,7 @@ impl<'a> JitMemory<'a> {
 
     fn jit_compile(&mut self, prog: &[u8],
                    _helpers: &HashMap<u32,
-                   Box<dyn ebpf::Helper + 'a>>) -> Result<(), Error> {
+                   ebpf::Helper<'a>>) -> Result<(), Error> {
         emit_push(self, RBP);
         emit_push(self, RBX);
         emit_push(self, R13);
@@ -879,7 +879,7 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
 }
 
 // In the end, this is the only thing we export
-pub fn compile<'a>(prog: &'a [u8], helpers: &HashMap<u32, Box<dyn ebpf::Helper + 'a>>)
+pub fn compile<'a>(prog: &'a [u8], helpers: &HashMap<u32, ebpf::Helper<'a>>)
     -> Result<JitProgram, Error> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum

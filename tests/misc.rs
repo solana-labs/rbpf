@@ -406,8 +406,7 @@ fn test_non_terminating() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX,
-                       Box::new(helpers::BPFTracePrintf::default())).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(1000).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
@@ -427,8 +426,7 @@ fn test_non_terminate_capped() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX,
-                       Box::new(helpers::BPFTracePrintf::default())).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(6).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
     assert!(vm.get_last_instruction_count() == 6);
@@ -449,8 +447,7 @@ fn test_non_terminate_early() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX,
-                       Box::new(helpers::BPFTracePrintf::default())).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(1000).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
     assert!(vm.get_last_instruction_count() == 1000);
@@ -462,26 +459,20 @@ fn test_get_last_instruction_count() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX,
-                       Box::new(helpers::BPFTracePrintf::default())).unwrap();
+    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
     println!("count {:?}", vm.get_last_instruction_count());
     assert!(vm.get_last_instruction_count() == 1);
 }
 
-#[derive(Default)]
-struct BPFHelperString {}
-impl ebpf::Helper for BPFHelperString {
-    fn call (
-        &mut self,
-        vm_addr: u64,
+pub fn bpf_helper_string(vm_addr: u64,
         len: u64,
         _arg3: u64,
         _arg4: u64,
         _arg5: u64,
         ro_regions: &[MemoryRegion],
         _rw_regions: &[MemoryRegion]
-    ) -> Result<u64, Error> {
+) -> Result<u64, Error> {
         let host_addr = translate_addr(vm_addr, len as usize, "Load", 0, ro_regions)?;
         let c_buf: *const c_char = host_addr as *const c_char;
         unsafe {
@@ -495,25 +486,18 @@ impl ebpf::Helper for BPFHelperString {
             println!("log: {}", message);
             return Ok(0);
         }
-    }
 }
 
-#[derive(Default)]
-struct BPFHelperU64 {}
-impl ebpf::Helper for BPFHelperU64 {
-    fn call (
-        &mut self,
-        arg1: u64,
+pub fn bpf_helper_u64(arg1: u64,
         arg2: u64,
         arg3: u64,
         arg4: u64,
         arg5: u64,
         _ro_regions: &[MemoryRegion],
         _rw_regions: &[MemoryRegion]
-    ) -> Result<u64, Error> {
+) -> Result<u64, Error> {
         println!("dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}", arg1, arg2, arg3, arg4, arg5);
         Ok(0)
-    }
 }
 
 #[test]
@@ -523,8 +507,8 @@ fn test_load_elf() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
-    vm.register_helper_ex("log_64", Box::new(BPFHelperU64::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
@@ -536,7 +520,7 @@ fn test_load_elf_empty_noro() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log_64", Box::new(BPFHelperU64::default())).unwrap();
+    vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
@@ -548,7 +532,7 @@ fn test_load_elf_empty_rodata() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log_64", Box::new(BPFHelperU64::default())).unwrap();
+    vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
@@ -568,7 +552,7 @@ fn test_symbol_relocation() {
     let mut mem = [72, 101, 108, 108, 111, 0];
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_program(prog).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
@@ -586,7 +570,7 @@ fn test_helper_parameter_on_stack() {
     LittleEndian::write_u32(&mut prog[28..32], ebpf::hash_symbol_name(b"log"));
 
     let mut vm = EbpfVm::new(Some(prog)).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
 
@@ -604,7 +588,7 @@ fn test_null_string() {
     let mut mem = [72, 101, 108, 108, 111, 0];
 
     let mut vm = EbpfVm::new(Some(prog)).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
 
@@ -621,7 +605,7 @@ fn test_helper_string() {
     let mut mem = [72, 101, 108, 108, 111];
 
     let mut vm = EbpfVm::new(Some(prog)).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
 
@@ -639,7 +623,7 @@ fn test_jit_call_helper_wo_verifier() {
     let mut mem = [72, 101, 108, 108, 111, 0];
 
     let mut vm = EbpfVm::new(Some(prog)).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.jit_compile().unwrap();
     unsafe { assert_eq!(vm.execute_program_jit(&mut mem).unwrap(), 0); }
 }
@@ -669,7 +653,7 @@ fn test_symbol_unresolved_elf() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
@@ -683,7 +667,7 @@ fn test_custom_entrypoint() {
     elf[24] = 80; // Move entrypoint to later in the text section
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
     assert_eq!(2, vm.get_last_instruction_count());
@@ -696,7 +680,7 @@ fn test_bpf_to_bpf_depth() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
     for i in 0..ebpf::MAX_CALL_DEPTH {
@@ -714,7 +698,7 @@ fn test_bpf_to_bpf_too_deep() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
     let mut mem = [ebpf::MAX_CALL_DEPTH as u8];
@@ -728,7 +712,7 @@ fn test_relative_call() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
     let mut mem = [1 as u8];
@@ -803,8 +787,8 @@ fn test_bpf_to_bpf_scratch_registers() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
-    vm.register_helper_ex("log_64", Box::new(BPFHelperU64::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
 
     let mut mem = [1];
@@ -818,8 +802,8 @@ fn test_bpf_to_bpf_pass_stack_reference() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::new(None).unwrap();
-    vm.register_helper_ex("log", Box::new(BPFHelperString::default())).unwrap();
-    vm.register_helper_ex("log_64", Box::new(BPFHelperU64::default())).unwrap();
+    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
 
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 42);
@@ -866,4 +850,45 @@ fn test_large_program() {
        vm.set_program(&prog).unwrap();
        assert_eq!(0, vm.execute_program(&mut [], &[], &[]).unwrap());
     }
+}
+
+struct HelperWithContext<'a> {
+    context: &'a mut u64
+}
+impl<'a> ebpf::HelperObject for HelperWithContext<'a> {
+    fn call (
+        &mut self,
+        _arg1: u64,
+        _arg2: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        _ro_regions: &[MemoryRegion],
+        _rw_regions: &[MemoryRegion]
+    ) -> Result<u64, Error> {
+        assert_eq!(*self.context, 42);
+        *self.context = 84;
+        Ok(0)
+    }
+}
+
+#[test]
+fn test_helper_with_context() {
+    let prog = &mut [
+        0xb7, 0x02, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, // r2 = 5
+        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
+        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    ];
+    LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"helper"));
+
+    let mut mem = [72, 101, 108, 108, 111]; // TODO get rid of
+
+    let mut number = 42;
+    {
+        let mut vm = EbpfVm::new(Some(prog)).unwrap();
+        vm.register_helper_with_context_ex("helper", Box::new(HelperWithContext { context: &mut number})).unwrap();
+        vm.execute_program(&mut mem, &[], &[]).unwrap();
+    }
+    assert_eq!(number, 84);
 }
