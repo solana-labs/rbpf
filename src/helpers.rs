@@ -25,10 +25,8 @@
 extern crate libc;
 
 use std::u64;
-use std::io::Error;
 use time;
-use crate::{memory_region::{MemoryRegion, translate_addr},
-};
+use crate::{ebpf::{EbpfError, UserDefinedError}, memory_region::{MemoryRegion, translate_addr}};
 
 // Helpers associated to kernel helpers
 // See also linux/include/uapi/linux/bpf.h in Linux kernel sources.
@@ -44,11 +42,12 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::helpers;
+/// use solana_rbpf::helpers::bpf_time_getns;
 /// use solana_rbpf::memory_region::MemoryRegion;
+/// use solana_rbpf::user_error::UserError;
 ///
 /// let regions = [MemoryRegion::default()];
-/// let t = helpers::bpf_time_getns(0, 0, 0, 0, 0, &regions, &regions).unwrap();
+/// let t = bpf_time_getns::<UserError>(0, 0, 0, 0, 0, &regions, &regions).unwrap();
 /// let d =  t / 10u64.pow(9)  / 60   / 60  / 24;
 /// let h = (t / 10u64.pow(9)  / 60   / 60) % 24;
 /// let m = (t / 10u64.pow(9)  / 60 ) % 60;
@@ -57,7 +56,7 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 /// println!("Uptime: {:#x} == {} days {}:{}:{}, {} ns", t, d, h, m, s, ns);
 /// ```
 #[allow(dead_code)]
-pub fn bpf_time_getns (
+pub fn bpf_time_getns<E: UserDefinedError> (
     _arg1: u64,
     _arg2: u64,
     _arg3: u64,
@@ -65,8 +64,9 @@ pub fn bpf_time_getns (
     _arg5: u64,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion],
-) -> Result<u64, Error> {
-        Ok(time::precise_time_ns())
+) -> Result<u64, EbpfError<E>> 
+{
+    Ok(time::precise_time_ns())
 }
 
 // bpf_trace_printk()
@@ -84,11 +84,12 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::helpers;
+/// use solana_rbpf::helpers::bpf_trace_printf;
 /// use solana_rbpf::memory_region::MemoryRegion;
+/// use solana_rbpf::user_error::UserError;
 ///
 /// let regions = [MemoryRegion::default()];
-/// let res = helpers::bpf_trace_printf(0, 0, 1, 15, 32, &regions, &regions).unwrap();
+/// let res = bpf_trace_printf::<UserError>(0, 0, 1, 15, 32, &regions, &regions).unwrap();
 /// assert_eq!(res as usize, "bpf_trace_printf: 0x1, 0xf, 0x20\n".len());
 /// ```
 ///
@@ -113,7 +114,7 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// This would equally print the three numbers in `/sys/kernel/debug/tracing` file each time the
 /// program is run.
 #[allow(dead_code)]
-pub fn bpf_trace_printf (
+pub fn bpf_trace_printf<E: UserDefinedError> (
     _arg1: u64,
     _arg2: u64,
     arg3: u64,
@@ -121,7 +122,8 @@ pub fn bpf_trace_printf (
     arg5: u64,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion]
-) -> Result<u64, Error> {
+) -> Result<u64, EbpfError<E>>
+{
         println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
         let size_arg = | x | {
             if x == 0 {
@@ -143,14 +145,15 @@ pub fn bpf_trace_printf (
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::helpers;
+/// use solana_rbpf::helpers::gather_bytes;
 /// use solana_rbpf::memory_region::MemoryRegion;
+/// use solana_rbpf::user_error::UserError;
 ///
 /// let regions = [MemoryRegion::default()];
-/// let gathered = helpers::gather_bytes(0x11, 0x22, 0x33, 0x44, 0x55, &regions, &regions).unwrap();
+/// let gathered = gather_bytes::<UserError>(0x11, 0x22, 0x33, 0x44, 0x55, &regions, &regions).unwrap();
 /// assert_eq!(gathered, 0x1122334455);
 /// ```
-pub fn gather_bytes (
+pub fn gather_bytes<E: UserDefinedError> (
     arg1: u64,
     arg2: u64,
     arg3: u64,
@@ -158,7 +161,8 @@ pub fn gather_bytes (
     arg5: u64,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion]
-) -> Result<u64, Error> {
+) -> Result<u64, EbpfError<E>>
+{
         Ok(arg1.wrapping_shl(32) |
         arg2.wrapping_shl(24) |
         arg3.wrapping_shl(16) |
@@ -173,19 +177,20 @@ pub fn gather_bytes (
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::helpers;
+/// use solana_rbpf::helpers::memfrob;
 /// use solana_rbpf::memory_region::MemoryRegion;
+/// use solana_rbpf::user_error::UserError;
 ///
 /// let val = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
 /// let val_va = 0x1000;
 /// let regions = [MemoryRegion::new_from_slice(&val, val_va)];
 ///
-/// helpers::memfrob(val_va, 8, 0, 0, 0, &regions, &regions);
+/// memfrob::<UserError>(val_va, 8, 0, 0, 0, &regions, &regions);
 /// assert_eq!(val, vec![0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
-/// helpers::memfrob(val_va, 8, 0, 0, 0, &regions, &regions);
+/// memfrob::<UserError>(val_va, 8, 0, 0, 0, &regions, &regions);
 /// assert_eq!(val, vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
 /// ```
-pub fn memfrob (
+pub fn memfrob<E: UserDefinedError> (
     addr: u64,
     len: u64, 
     _arg3: u64,
@@ -193,7 +198,8 @@ pub fn memfrob (
     _arg5: u64,
     _ro_regions: &[MemoryRegion],
     rw_regions: &[MemoryRegion]
-) -> Result<u64, Error> {
+) -> Result<u64, EbpfError<E>>
+{
 
         let host_addr = translate_addr(addr, len as usize, "Store", 0, rw_regions)?;
         for i in 0..len {
@@ -232,15 +238,16 @@ pub fn memfrob (
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::helpers;
+/// use solana_rbpf::helpers::sqrti;
 /// use solana_rbpf::memory_region::MemoryRegion;
+/// use solana_rbpf::user_error::UserError;
 ///
 /// let regions = [MemoryRegion::default()];
-/// let x = helpers::sqrti(9, 0, 0, 0, 0, &regions, &regions).unwrap();
+/// let x = sqrti::<UserError>(9, 0, 0, 0, 0, &regions, &regions).unwrap();
 /// assert_eq!(x, 3);
 /// ```
 #[allow(dead_code)]
-pub fn sqrti (
+pub fn sqrti<E: UserDefinedError> (
     arg1: u64,
     _arg2: u64,
     _arg3: u64,
@@ -248,7 +255,8 @@ pub fn sqrti (
     _arg5: u64,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion]
-) -> Result<u64, Error> {
+) -> Result<u64, EbpfError<E>>
+{
         Ok((arg1 as f64).sqrt() as u64)
 }
 
@@ -257,21 +265,22 @@ pub fn sqrti (
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::helpers;
+/// use solana_rbpf::helpers::strcmp;
 /// use solana_rbpf::memory_region::MemoryRegion;
+/// use solana_rbpf::user_error::UserError;
 ///
 /// let foo = "This is a string.";
 /// let bar = "This is another sting.";
 /// let va_foo = 0x1000;
 /// let va_bar = 0x2000;
 /// let regions = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo)];
-/// assert!(helpers::strcmp(va_foo, va_foo, 0, 0, 0, &regions, &regions).unwrap() == 0);
+/// assert!(strcmp::<UserError>(va_foo, va_foo, 0, 0, 0, &regions, &regions).unwrap() == 0);
 /// let regions = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo),
 ///                MemoryRegion::new_from_slice(bar.as_bytes(), va_bar)];
-/// assert!(helpers::strcmp(va_foo, va_bar, 0, 0, 0, &regions, &regions).unwrap() != 0);
+/// assert!(strcmp::<UserError>(va_foo, va_bar, 0, 0, 0, &regions, &regions).unwrap() != 0);
 /// ```
 #[allow(dead_code)]
-pub fn strcmp (
+pub fn strcmp<E: UserDefinedError> (
     arg1: u64,
     arg2: u64,
     _arg3: u64,
@@ -279,7 +288,8 @@ pub fn strcmp (
     _arg5: u64,
     ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion]
-) -> Result<u64, Error> {
+) -> Result<u64, EbpfError<E>>
+{
         // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
         if arg1 == 0 || arg2 == 0 {
             return Ok(u64::MAX);
@@ -318,19 +328,20 @@ pub fn strcmp (
 /// extern crate solana_rbpf;
 /// extern crate time;
 ///
-/// use solana_rbpf::helpers;
+/// use solana_rbpf::helpers::rand;
 /// use solana_rbpf::memory_region::MemoryRegion;
+/// use solana_rbpf::user_error::UserError;
 ///
 /// unsafe {
 ///     libc::srand(time::precise_time_ns() as u32)
 /// }
 ///
 /// let regions = [MemoryRegion::default()];
-/// let n = helpers::rand(3, 6, 0, 0, 0, &regions, &regions).unwrap();
+/// let n = rand::<UserError>(3, 6, 0, 0, 0, &regions, &regions).unwrap();
 /// assert!(3 <= n && n <= 6);
 /// ```
 #[allow(dead_code)]
-pub fn rand (
+pub fn rand<E: UserDefinedError> (
     min: u64,
     max: u64,
     _arg3: u64,
@@ -338,7 +349,8 @@ pub fn rand (
     _arg5: u64,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion],
-) -> Result<u64, Error> {
+) -> Result<u64, EbpfError<E>>
+{
         let mut n = unsafe {
             (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64
         };

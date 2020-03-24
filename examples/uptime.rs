@@ -10,6 +10,7 @@
 extern crate solana_rbpf;
 use solana_rbpf::helpers;
 use solana_rbpf::{EbpfVm};
+use solana_rbpf::user_error::UserError;
 
 // The main objectives of this example is to show:
 //
@@ -42,7 +43,7 @@ fn main() {
     ];
 
     // Create a VM: this one takes no data. Load prog1 in it.
-    let mut vm = EbpfVm::new(Some(prog1)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog1)).unwrap();
     // Execute prog1.
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x3);
 

@@ -26,9 +26,9 @@
 extern crate byteorder;
 extern crate libc;
 extern crate solana_rbpf;
+extern crate thiserror;
 
 use std::fs::File;
-use std::io::{Error, ErrorKind};
 use std::io::Read;
 use std::slice::from_raw_parts;
 use std::str::from_utf8;
@@ -36,11 +36,14 @@ use byteorder::{ByteOrder, LittleEndian};
 use libc::c_char;
 use solana_rbpf::{
     assembler::assemble,
+    ebpf::{self, EbpfError, UserDefinedError},
     EbpfVm,
-    ebpf,
     helpers,
     memory_region::{MemoryRegion, translate_addr},
+    user_error::UserError,
+    verifier::{check, VerifierError},
 };
+use thiserror::Error;
 
 // The following two examples have been compiled from C with the following command:
 //
@@ -121,7 +124,7 @@ fn test_vm_jit_ldabsb() {
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x33);
 
     vm.jit_compile().unwrap();
@@ -143,7 +146,7 @@ fn test_vm_jit_ldabsh() {
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x4433);
 
     vm.jit_compile().unwrap();
@@ -165,7 +168,7 @@ fn test_vm_jit_ldabsw() {
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x66554433);
 
     vm.jit_compile().unwrap();
@@ -187,7 +190,7 @@ fn test_vm_jit_ldabsdw() {
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0xaa99887766554433);
 
     vm.jit_compile().unwrap();
@@ -197,7 +200,7 @@ fn test_vm_jit_ldabsdw() {
 }
 
 #[test]
-#[should_panic(expected = "Error: out of bounds memory load (insn #29),")]
+#[should_panic(expected = "AccessViolation(\"load\", 29")]
 fn test_vm_err_ldabsb_oob() {
     let prog = &[
         0x38, 0x00, 0x00, 0x00, 0x33, 0x00, 0x00, 0x00,
@@ -207,20 +210,20 @@ fn test_vm_err_ldabsb_oob() {
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.execute_program(mem, &[], &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
 }
 
 #[test]
-#[should_panic(expected = "Error: out of bounds memory load (insn #29),")]
+#[should_panic(expected = "AccessViolation(\"load\", 29")]
 fn test_vm_err_ldabsb_nomem() {
     let prog = &[
         0x38, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     ];
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
@@ -240,7 +243,7 @@ fn test_vm_jit_ldindb() {
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x88);
 
     vm.jit_compile().unwrap();
@@ -263,7 +266,7 @@ fn test_vm_jit_ldindh() {
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x9988);
 
     vm.jit_compile().unwrap();
@@ -286,7 +289,7 @@ fn test_vm_jit_ldindw() {
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x88776655);
 
     vm.jit_compile().unwrap();
@@ -309,7 +312,7 @@ fn test_vm_jit_ldinddw() {
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0xccbbaa9988776655);
 
     vm.jit_compile().unwrap();
@@ -319,7 +322,7 @@ fn test_vm_jit_ldinddw() {
 }
 
 #[test]
-#[should_panic(expected = "Error: out of bounds memory load (insn #30),")]
+#[should_panic(expected = "AccessViolation(\"load\", 30")]
 fn test_vm_err_ldindb_oob() {
     let prog = &[
         0xb7, 0x01, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
@@ -330,40 +333,46 @@ fn test_vm_err_ldindb_oob() {
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.execute_program(mem, &[], &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
 }
 
 #[test]
-#[should_panic(expected = "Error: out of bounds memory load (insn #30),")]
+#[should_panic(expected = "AccessViolation(\"load\", 30")]
 fn test_vm_err_ldindb_nomem() {
     let prog = &[
         0xb7, 0x01, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
         0x38, 0x10, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     ];
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
 }
 
 #[test]
-#[should_panic(expected = "Error: no program or elf set")]
+#[should_panic(expected = "NothingToExecute")]
 fn test_vm_exec_no_program() {
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0xBEE);
 }
 
-fn verifier_success(_prog: &[u8]) -> Result<(), Error> {
+/// Error definitions
+#[derive(Debug, Error)]
+pub enum VerifierTestError {
+    #[error("{0}")]
+    Rejected(String),
+}
+impl UserDefinedError for VerifierTestError {}
+
+fn verifier_success(_prog: &[u8]) -> Result<(), VerifierTestError> {
     Ok(())
 }
-
-fn verifier_fail(_prog: &[u8]) -> Result<(), Error> {
-    Err(Error::new(ErrorKind::Other,
-                   "Gaggablaghblagh!"))
+fn verifier_fail(_prog: &[u8]) -> Result<(), VerifierTestError> {
+    Err(VerifierTestError::Rejected("Gaggablaghblagh!".to_string()))
 }
 
 #[test]
@@ -372,7 +381,7 @@ fn test_verifier_success() {
         "mov32 r0, 0xBEE
          exit",
     ).unwrap();
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<VerifierTestError>::new(None).unwrap();
     vm.set_verifier(verifier_success).unwrap();
     vm.set_program(&prog).unwrap();
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0xBEE);
@@ -385,13 +394,13 @@ fn test_verifier_fail() {
         "mov32 r0, 0xBEE
          exit",
     ).unwrap();
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<VerifierTestError>::new(None).unwrap();
     vm.set_verifier(verifier_fail).unwrap();
     vm.set_program(&prog).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "Error: Exceeded maximum number of instructions")]
+#[should_panic(expected = "ExceededMaxInstructions(1000)")]
 fn test_non_terminating() {
     let prog = &[
         0xb7, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -405,7 +414,7 @@ fn test_non_terminating() {
         0x05, 0x00, 0xf8, 0xff, 0x00, 0x00, 0x00, 0x00,
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(1000).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
@@ -425,7 +434,7 @@ fn test_non_terminate_capped() {
         0x05, 0x00, 0xf8, 0xff, 0x00, 0x00, 0x00, 0x00,
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(6).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
@@ -446,7 +455,7 @@ fn test_non_terminate_early() {
         0x05, 0x00, 0xf8, 0xff, 0x00, 0x00, 0x00, 0x00,
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(1000).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
@@ -458,7 +467,7 @@ fn test_get_last_instruction_count() {
     let prog = &[
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
     println!("count {:?}", vm.get_last_instruction_count());
@@ -472,7 +481,7 @@ pub fn bpf_helper_string(vm_addr: u64,
         _arg5: u64,
         ro_regions: &[MemoryRegion],
         _rw_regions: &[MemoryRegion]
-) -> Result<u64, Error> {
+) -> Result<u64, EbpfError<UserError>> {
         let host_addr = translate_addr(vm_addr, len as usize, "Load", 0, ro_regions)?;
         let c_buf: *const c_char = host_addr as *const c_char;
         unsafe {
@@ -495,7 +504,7 @@ pub fn bpf_helper_u64(arg1: u64,
         arg5: u64,
         _ro_regions: &[MemoryRegion],
         _rw_regions: &[MemoryRegion]
-) -> Result<u64, Error> {
+) -> Result<u64, EbpfError<UserError>> {
         println!("dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}", arg1, arg2, arg3, arg4, arg5);
         Ok(0)
 }
@@ -506,7 +515,7 @@ fn test_load_elf() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
@@ -519,7 +528,7 @@ fn test_load_elf_empty_noro() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
@@ -531,7 +540,7 @@ fn test_load_elf_empty_rodata() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
@@ -551,7 +560,7 @@ fn test_symbol_relocation() {
 
     let mut mem = [72, 101, 108, 108, 111, 0];
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_program(prog).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
@@ -569,13 +578,13 @@ fn test_helper_parameter_on_stack() {
     ];
     LittleEndian::write_u32(&mut prog[28..32], ebpf::hash_symbol_name(b"log"));
 
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "Error: out of bounds memory Load")]
+#[should_panic(expected = "AccessViolation(\"Load\", 29")]
 fn test_null_string() {
     let prog = &mut [
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r1 = 0
@@ -587,7 +596,7 @@ fn test_null_string() {
 
     let mut mem = [72, 101, 108, 108, 111, 0];
 
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
@@ -604,7 +613,7 @@ fn test_helper_string() {
 
     let mut mem = [72, 101, 108, 108, 111];
 
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
@@ -622,14 +631,14 @@ fn test_jit_call_helper_wo_verifier() {
 
     let mut mem = [72, 101, 108, 108, 111, 0];
 
-    let mut vm = EbpfVm::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.jit_compile().unwrap();
     unsafe { assert_eq!(vm.execute_program_jit(&mut mem).unwrap(), 0); }
 }
 
 #[test]
-#[should_panic(expected = "Error: Unresolved symbol at instruction #29")]
+#[should_panic(expected = "UnresolvedSymbol(29)")]
 fn test_symbol_unresolved() {
         let prog = &mut [
         0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
@@ -640,19 +649,19 @@ fn test_symbol_unresolved() {
 
     let mut mem = [72, 101, 108, 108, 111, 0];
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.set_program(prog).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "Error: Unresolved symbol (log_64) at instruction #550 (ELF file offset 0x1048)")]
+#[should_panic(expected = "UnresolvedSymbol(\"log_64\", 550, 4168)")]
 fn test_symbol_unresolved_elf() {
     let mut file = File::open("tests/elfs/unresolved_helper.so").expect("file open failed");
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
@@ -666,7 +675,7 @@ fn test_custom_entrypoint() {
 
     elf[24] = 80; // Move entrypoint to later in the text section
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
@@ -679,7 +688,7 @@ fn test_bpf_to_bpf_depth() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
@@ -691,13 +700,13 @@ fn test_bpf_to_bpf_depth() {
 }
 
 #[test]
-#[should_panic(expected = "Exceeded max BPF to BPF call depth of")]
+#[should_panic(expected = "CallDepthExceeded(20)")]
 fn test_bpf_to_bpf_too_deep() {
     let mut file = File::open("tests/elfs/multiple_file.so").expect("file open failed");
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
@@ -711,7 +720,7 @@ fn test_relative_call() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
@@ -732,13 +741,13 @@ fn test_call_reg() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
     ];
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.set_program(prog).unwrap();
     assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
 }
 
 #[test]
-#[should_panic(expected = "Exceeded max BPF to BPF call depth of")]
+#[should_panic(expected = "CallDepthExceeded(20)")]
 fn test_call_reg_stack_depth() {
     let prog = &mut [
         0xb7, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // r0 = 1
@@ -747,26 +756,26 @@ fn test_call_reg_stack_depth() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
     ];
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.set_program(prog).unwrap();
     assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
 }
 
 #[test]
-#[should_panic(expected = "Error: callx at instruction #30 attempted to call outside of the text segment at addr 0x0")]
+#[should_panic(expected = "CallOutsideTextSegment(30, 0)")]
 fn test_oob_callx_low() {
     let prog = &mut [
         0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
         0x8D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // callx r0
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
     ];
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.set_program(prog).unwrap();
     assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
 }
 
 #[test]
-#[should_panic(expected = "Error: Attempted to call outside of the text segment, pc:")]
+#[should_panic(expected = "ExecutionOverrun(2305843008139952157)")]
 fn test_oob_callx_high() {
     let prog = &mut [
         0xb7, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // r0 = 0
@@ -775,7 +784,7 @@ fn test_oob_callx_high() {
         0x8D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // callx r0
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
     ];
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.set_program(prog).unwrap();
     assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
 }
@@ -786,7 +795,7 @@ fn test_bpf_to_bpf_scratch_registers() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
@@ -801,7 +810,7 @@ fn test_bpf_to_bpf_pass_stack_reference() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    let mut vm = EbpfVm::new(None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_helper_ex("log", bpf_helper_string).unwrap();
     vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
     vm.set_elf(&elf).unwrap();
@@ -827,7 +836,7 @@ fn test_large_program() {
         // Test jumping to pc larger then i16
         write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "ja 0x0");
 
-        let mut vm = EbpfVm::new(None).unwrap();
+        let mut vm = EbpfVm::<UserError>::new(None).unwrap();
         vm.set_program(&prog).unwrap();
         assert_eq!(0, vm.execute_program(&mut [], &[], &[]).unwrap());
     }
@@ -838,7 +847,8 @@ fn test_large_program() {
         // test program that is too large
        prog.extend_from_slice(&assemble("exit").unwrap());
 
-       let mut vm = EbpfVm::new(None).unwrap();
+       let mut vm = EbpfVm::<VerifierError>::new(None).unwrap();
+       vm.set_verifier(check).unwrap();
        vm.set_program(&prog).unwrap_err();
     }
     // reset program
@@ -846,7 +856,7 @@ fn test_large_program() {
 
     {
         // verify program still works
-       let mut vm = EbpfVm::new(None).unwrap();
+       let mut vm = EbpfVm::<UserError>::new(None).unwrap();
        vm.set_program(&prog).unwrap();
        assert_eq!(0, vm.execute_program(&mut [], &[], &[]).unwrap());
     }
@@ -855,7 +865,7 @@ fn test_large_program() {
 struct HelperWithContext<'a> {
     context: &'a mut u64
 }
-impl<'a> ebpf::HelperObject for HelperWithContext<'a> {
+impl<'a> ebpf::HelperObject<UserError> for HelperWithContext<'a> {
     fn call (
         &mut self,
         _arg1: u64,
@@ -865,7 +875,7 @@ impl<'a> ebpf::HelperObject for HelperWithContext<'a> {
         _arg5: u64,
         _ro_regions: &[MemoryRegion],
         _rw_regions: &[MemoryRegion]
-    ) -> Result<u64, Error> {
+    ) -> Result<u64, EbpfError<UserError>> {
         assert_eq!(*self.context, 42);
         *self.context = 84;
         Ok(0)
@@ -886,7 +896,7 @@ fn test_helper_with_context() {
 
     let mut number = 42;
     {
-        let mut vm = EbpfVm::new(Some(prog)).unwrap();
+        let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
         vm.register_helper_with_context_ex("helper", Box::new(HelperWithContext { context: &mut number})).unwrap();
         vm.execute_program(&mut mem, &[], &[]).unwrap();
     }

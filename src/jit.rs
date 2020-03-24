@@ -16,13 +16,21 @@ use std::mem;
 use std::collections::HashMap;
 use std::fmt::Formatter;
 use std::fmt::Error as FormatterError;
-use std::io::{Error, ErrorKind};
 use std::ops::{Index, IndexMut};
 
-use ebpf;
+use ebpf::{self, UserDefinedError};
 use JitProgram;
+use thiserror::Error;
 
 extern crate libc;
+
+/// Error definitions
+#[derive(Debug, Error)]
+pub enum JITError {
+    /// Failed to parse ELF file
+    #[error("Unknown eBPF opcode {0:#2x} (insn #{1:?})")]
+    UnknownOpCode(u8, usize),
+}
 
 const PAGE_SIZE: usize = 4096;
 
@@ -457,9 +465,9 @@ impl<'a> JitMemory<'a> {
         }
     }
 
-    fn jit_compile(&mut self, prog: &[u8],
+    fn jit_compile<E: UserDefinedError>(&mut self, prog: &[u8],
                    _helpers: &HashMap<u32,
-                   ebpf::Helper<'a>>) -> Result<(), Error> {
+                   ebpf::Helper<'a, E>>) -> Result<(), JITError> {
         emit_push(self, RBP);
         emit_push(self, RBX);
         emit_push(self, R13);
@@ -774,11 +782,7 @@ impl<'a> JitMemory<'a> {
                     };
                 },
 
-                _                => {
-                    return Err(Error::new(ErrorKind::Other,
-                                   format!("[JIT] Error: unknown eBPF opcode {:#2x} (insn #{:?})",
-                                           insn.opc, insn_ptr)));
-                },
+                _                => return Err(JITError::UnknownOpCode(insn.opc, insn_ptr)),
             }
 
             insn_ptr += 1;
@@ -825,7 +829,7 @@ impl<'a> JitMemory<'a> {
         Ok(())
     }
 
-    fn resolve_jumps(&mut self) -> Result<(), Error>
+    fn resolve_jumps(&mut self) -> Result<(), JITError>
     {
         for jump in &self.jumps {
             let target_loc = match self.special_targets.get(&jump.target_pc) {
@@ -879,8 +883,8 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
 }
 
 // In the end, this is the only thing we export
-pub fn compile<'a>(prog: &'a [u8], helpers: &HashMap<u32, ebpf::Helper<'a>>)
-    -> Result<JitProgram, Error> {
+pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8], helpers: &HashMap<u32, ebpf::Helper<'a, E>>)
+    -> Result<JitProgram, JITError> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length

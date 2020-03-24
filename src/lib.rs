@@ -28,13 +28,13 @@ extern crate combine;
 extern crate hash32;
 extern crate time;
 extern crate log;
+extern crate thiserror;
 
 use std::u32;
 use std::collections::HashMap;
-use std::io::{Error, ErrorKind};
 use elf::EBpfElf;
 use log::{debug, trace, log_enabled};
-use ebpf::{Helper, HelperFunction, HelperObject};
+use ebpf::{EbpfError, Helper, HelperFunction, HelperObject, UserDefinedError};
 use memory_region::{MemoryRegion, translate_addr};
 
 pub mod assembler;
@@ -44,10 +44,11 @@ pub mod elf;
 pub mod helpers;
 pub mod insn_builder;
 pub mod memory_region;
+pub mod verifier;
+pub mod user_error;
 mod asm_parser;
 #[cfg(not(windows))]
 mod jit;
-mod verifier;
 
 /// eBPF verification function that returns an error if the program does not meet its requirements.
 ///
@@ -57,7 +58,7 @@ mod verifier;
 ///   - Unknown instructions.
 ///   - Bad formed instruction.
 ///   - Unknown eBPF helper index.
-pub type Verifier = fn(prog: &[u8]) -> Result<(), Error>;
+pub type Verifier<E> = fn(prog: &[u8]) -> Result<(), E>;
 
 /// eBPF Jit-compiled program.
 pub type JitProgram = unsafe fn(*mut u8, usize, usize) -> u64;
@@ -132,11 +133,9 @@ impl CallFrames {
     }
 
     /// Push a frame
-    fn push(&mut self, saved_reg: &[u64], return_ptr: usize) -> Result<u64, Error> {
+    fn push<E: UserDefinedError>(&mut self, saved_reg: &[u64], return_ptr: usize) -> Result<u64, EbpfError<E>> {
         if self.frame + 1 >= self.frames.len() {
-            return Err(Error::new(ErrorKind::Other,
-                           format!("Exceeded max BPF to BPF call depth of {:?}",
-                                   self.frames.len())));
+            return Err(EbpfError::CallDepthExceeded(self.frames.len()));
         }
         self.frames[self.frame].saved_reg[..].copy_from_slice(saved_reg);
         self.frames[self.frame].return_ptr = return_ptr;
@@ -148,9 +147,9 @@ impl CallFrames {
     }
 
     /// Pop a frame
-    fn pop(&mut self) -> Result<([u64; ebpf::SCRATCH_REGS], u64, usize), Error> {
+    fn pop<E: UserDefinedError>(&mut self) -> Result<([u64; ebpf::SCRATCH_REGS], u64, usize), EbpfError<E>> {
         if self.frame == 0 {
-            return Err(Error::new(ErrorKind::Other, "Attempted to exit root call frame"));
+            return Err(EbpfError::ExitRootCallFrame);
         }
         self.frame -= 1;
         Ok((self.frames[self.frame].saved_reg,
@@ -164,6 +163,9 @@ impl CallFrames {
 /// # Examples
 ///
 /// ```
+/// use solana_rbpf::EbpfVm;
+/// use solana_rbpf::user_error::UserError;
+///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
 /// ];
@@ -172,23 +174,23 @@ impl CallFrames {
 /// ];
 ///
 /// // Instantiate a VM.
-/// let mut vm = solana_rbpf::EbpfVm::new(Some(prog)).unwrap();
+/// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
 ///
 /// // Provide a reference to the packet data.
 /// let res = vm.execute_program(mem, &[], &[]).unwrap();
 /// assert_eq!(res, 0);
 /// ```
-pub struct EbpfVm<'a> {
+pub struct EbpfVm<'a, E: UserDefinedError> {
     prog:            Option<&'a [u8]>,
     elf:             Option<EBpfElf>,
-    verifier:        Verifier,
+    verifier:        Option<Verifier<E>>,
     jit:             Option<JitProgram>,
-    helpers:         HashMap<u32, Helper<'a>>,
+    helpers:         HashMap<u32, Helper<'a, E>>,
     max_insn_count:  u64,
     last_insn_count: u64,
 }
 
-impl<'a> EbpfVm<'a> {
+impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
 
     /// Create a new virtual machine instance, and load an eBPF program into that instance.
     /// When attempting to load the program, it passes through a simple verifier.
@@ -196,22 +198,21 @@ impl<'a> EbpfVm<'a> {
     /// # Examples
     ///
     /// ```
+    /// use solana_rbpf::EbpfVm;
+    /// use solana_rbpf::user_error::UserError;
+    ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = solana_rbpf::EbpfVm::new(Some(prog)).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     /// ```
-    pub fn new(prog: Option<&'a [u8]>) -> Result<EbpfVm<'a>, Error> {
-        if let Some(prog) = prog {
-            verifier::check(prog)?;
-        }
-
+    pub fn new(prog: Option<&'a [u8]>) -> Result<EbpfVm<'a, E>, EbpfError<E>> {
         Ok(EbpfVm {
             prog:            prog,
             elf:             None,
-            verifier:        verifier::check,
+            verifier:        None,
             jit:             None,
             helpers:         HashMap::new(),
             max_insn_count:  0,
@@ -224,6 +225,9 @@ impl<'a> EbpfVm<'a> {
     /// # Examples
     ///
     /// ```
+    /// use solana_rbpf::EbpfVm;
+    /// use solana_rbpf::user_error::UserError;
+    ///
     /// let prog1 = &[
     ///     0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov r0, 0
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -233,40 +237,44 @@ impl<'a> EbpfVm<'a> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = solana_rbpf::EbpfVm::new(Some(prog1)).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(Some(prog1)).unwrap();
     /// vm.set_program(prog2).unwrap();
     /// ```
-    pub fn set_program(&mut self, prog: &'a [u8]) -> Result<(), Error> {
-        (self.verifier)(prog)?;
+    pub fn set_program(&mut self, prog: &'a [u8]) -> Result<(), EbpfError<E>> {
+        if let Some(verifier) = self.verifier {
+            verifier(prog)?;
+        }
         self.prog = Some(prog);
         Ok(())
     }
 
     /// Load a new eBPF program into the virtual machine instance.
-    pub fn set_elf(&mut self, elf_bytes: &'a [u8]) -> Result<(), Error> {
+    pub fn set_elf(&mut self, elf_bytes: &'a [u8]) -> Result<(), EbpfError<E>> {
         let elf = EBpfElf::load(elf_bytes)?;
         let (_, bytes) = elf.get_text_bytes()?;
-        (self.verifier)(bytes)?;
+        if let Some(verifier) = self.verifier {
+            verifier(bytes)?;
+        }
         self.elf = Some(elf);
         Ok(())
     }
 
-    /// Set a new verifier function. The function should return an `Error` if the program should be
+    /// Set a new verifier function. The function should return an `EbpfError` if the program should be
     /// rejected by the virtual machine. If a program has been loaded to the VM already, the
     /// verifier is immediately run.
     ///
     /// # Examples
     ///
     /// ```
-    /// use std::io::{Error, ErrorKind};
+    /// use solana_rbpf::EbpfVm;
     /// use solana_rbpf::ebpf;
+    /// use solana_rbpf::verifier::VerifierError;
     ///
     /// // Define a simple verifier function.
-    /// fn verifier(prog: &[u8]) -> Result<(), Error> {
+    /// fn verifier(prog: &[u8]) -> Result<(), VerifierError> {
     ///     let last_insn = ebpf::get_insn(prog, (prog.len() / ebpf::INSN_SIZE) - 1);
     ///     if last_insn.opc != ebpf::EXIT {
-    ///         return Err(Error::new(ErrorKind::Other,
-    ///                    "[Verifier] Error: program does not end with “EXIT” instruction"));
+    ///        return Err(VerifierError::InvalidLastInstruction.into());
     ///     }
     ///     Ok(())
     /// }
@@ -277,23 +285,23 @@ impl<'a> EbpfVm<'a> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = solana_rbpf::EbpfVm::new(Some(prog1)).unwrap();
+    /// let mut vm = EbpfVm::<VerifierError>::new(Some(prog1)).unwrap();
     /// // Change the verifier.
     /// vm.set_verifier(verifier).unwrap();
     /// ```
-    pub fn set_verifier(&mut self, verifier: Verifier) -> Result<(), Error> {
+    pub fn set_verifier(&mut self, verifier: Verifier<E>) -> Result<(), EbpfError<E>> {
         if let Some(ref elf) = self.elf {
             let (_, bytes) = elf.get_text_bytes()?;
             verifier(bytes)?;
         } else if let Some(ref prog) = self.prog {
             verifier(prog)?;
         }
-        self.verifier = verifier;
+        self.verifier = Some(verifier);
         Ok(())
     }
 
     /// Set a cap on the maximum number of instructions that a program may execute.
-    pub fn set_max_instruction_count(&mut self, count: u64) -> Result<(), Error> {
+    pub fn set_max_instruction_count(&mut self, count: u64) -> Result<(), EbpfError<E>> {
         self.max_insn_count = count;
         Ok(())
     }
@@ -313,7 +321,9 @@ impl<'a> EbpfVm<'a> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::helpers;
+    /// use solana_rbpf::EbpfVm;
+    /// use solana_rbpf::helpers::bpf_trace_printf;
+    /// use solana_rbpf::user_error::UserError;
     ///
     /// // This program was compiled with clang, from a C program containing the following single
     /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
@@ -331,17 +341,17 @@ impl<'a> EbpfVm<'a> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = solana_rbpf::EbpfVm::new(Some(prog)).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     ///
     /// // Register a helper.
     /// // On running the program this helper will print the content of registers r3, r4 and r5 to
     /// // standard output.
-    /// vm.register_helper(6, helpers::bpf_trace_printf).unwrap();
+    /// vm.register_helper(6, bpf_trace_printf::<UserError>).unwrap();
     /// ```
     pub fn register_helper(&mut self,
                            key: u32,
-                           helper: HelperFunction,
-    ) -> Result<(), Error> {
+                           helper: HelperFunction<E>,
+    ) -> Result<(), EbpfError<E>> {
         self.helpers.insert(key, Helper::Function(helper));
         Ok(())
     }
@@ -357,8 +367,8 @@ impl<'a> EbpfVm<'a> {
     /// symbol name use `ebpf::helpers::hash_symbol_name`.
     pub fn register_helper_ex(&mut self,
                               name: &str,
-                              helper: HelperFunction,
-    ) -> Result<(), Error> {
+                              helper: HelperFunction<E>,
+    ) -> Result<(), EbpfError<E>> {
         self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), Helper::Function(helper));
         Ok(())
     }
@@ -367,8 +377,8 @@ impl<'a> EbpfVm<'a> {
     /// along context needed by the helper
     pub fn register_helper_with_context_ex(&mut self,
         name: &str,
-        helper: Box<dyn HelperObject + 'a>,
-    ) -> Result<(), Error> {
+        helper: Box<dyn HelperObject<E> + 'a>,
+    ) -> Result<(), EbpfError<E>> {
     self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), Helper::Object(helper));
     Ok(())
     }
@@ -379,6 +389,9 @@ impl<'a> EbpfVm<'a> {
     /// # Examples
     ///
     /// ```
+    /// use solana_rbpf::EbpfVm;
+    /// use solana_rbpf::user_error::UserError;
+    ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
     /// ];
@@ -387,7 +400,7 @@ impl<'a> EbpfVm<'a> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = solana_rbpf::EbpfVm::new(Some(prog)).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     ///
     /// // Provide a reference to the packet data.
     /// let res = vm.execute_program(mem, &[], &[]).unwrap();
@@ -400,7 +413,7 @@ impl<'a> EbpfVm<'a> {
                            mem: &[u8],
                            granted_ro_regions: &[MemoryRegion],
                            granted_rw_regions: &[MemoryRegion],
-    ) -> Result<u64, Error> {
+    ) -> Result<u64, EbpfError<E>> {
         const U32MAX: u64 = u32::MAX as u64;
 
         let mut frames = CallFrames::new(ebpf::MAX_CALL_DEPTH, ebpf::STACK_FRAME_SIZE);
@@ -432,8 +445,7 @@ impl<'a> EbpfVm<'a> {
         } else if let Some(prog) = self.prog {
             (ebpf::MM_PROGRAM_START, prog)
         } else {
-            return Err(Error::new(ErrorKind::Other,
-                           "Error: no program or elf set"));
+            return Err(EbpfError::NothingToExecute);
         };
         ro_regions.push(MemoryRegion::new_from_slice(prog, prog_addr));
 
@@ -615,7 +627,7 @@ impl<'a> EbpfVm<'a> {
                 ebpf::DIV32_IMM  => reg[dst] = (reg[dst] as u32 / insn.imm             as u32)  as u64,
                 ebpf::DIV32_REG  => {
                     if reg[src] == 0 {
-                        return Err(Error::new(ErrorKind::Other,"Error: division by 0"));
+                        return Err(EbpfError::DivideByZero);
                     }
                     reg[dst] = (reg[dst] as u32 / reg[src] as u32) as u64;
                 },
@@ -631,7 +643,7 @@ impl<'a> EbpfVm<'a> {
                 ebpf::MOD32_IMM  =>   reg[dst] = (reg[dst] as u32             % insn.imm as u32) as u64,
                 ebpf::MOD32_REG  => {
                     if reg[src] == 0 {
-                        return Err(Error::new(ErrorKind::Other,"Error: division by 0"));
+                        return Err(EbpfError::DivideByZero);
                     }
                     reg[dst] = (reg[dst] as u32 % reg[src] as u32) as u64;
                 },
@@ -668,7 +680,7 @@ impl<'a> EbpfVm<'a> {
                 ebpf::DIV64_IMM  => reg[dst]                       /= insn.imm as u64,
                 ebpf::DIV64_REG  => {
                     if reg[src] == 0 {
-                        return Err(Error::new(ErrorKind::Other,"Error: division by 0"));
+                        return Err(EbpfError::DivideByZero);
                     }
                     reg[dst] /= reg[src];
                 },
@@ -684,7 +696,7 @@ impl<'a> EbpfVm<'a> {
                 ebpf::MOD64_IMM  => reg[dst] %=  insn.imm as u64,
                 ebpf::MOD64_REG  => {
                     if reg[src] == 0 {
-                        return Err(Error::new(ErrorKind::Other,"Error: division by 0"));
+                        return Err(EbpfError::DivideByZero);
                     }
                     reg[dst] %= reg[src];
                 },
@@ -726,9 +738,7 @@ impl<'a> EbpfVm<'a> {
                     reg[ebpf::STACK_REG] =
                         frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], pc)?;
                     if target_address < ebpf::MM_PROGRAM_START {
-                        return Err(Error::new(ErrorKind::Other,
-                                              format!("Error: callx at instruction #{:?} attempted to call outside of the text segment at addr {:#x}",
-                                                      pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET, reg[insn.imm as usize])));
+                        return Err(EbpfError::CallOutsideTextSegment(pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET, reg[insn.imm as usize]));
                     }
                     pc = (target_address - prog_addr) as usize / ebpf::INSN_SIZE;
                 },
@@ -757,14 +767,12 @@ impl<'a> EbpfVm<'a> {
                     } else {
                         // Note: Raw BPF programs (without ELF relocations) cannot support relative calls
                         // because there is no way to determine if the imm refers to a helper or an offset
-                        return Err(Error::new(ErrorKind::Other,
-                                              format!("Error: Unresolved symbol at instruction #{:?}",
-                                                      pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET)));
+                        return Err(EbpfError::UnresolvedSymbol(pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                 },
 
                 ebpf::EXIT       => {
-                    match frames.pop() {
+                    match frames.pop::<E>() {
                         Ok((saved_reg, stack_ptr, ptr)) => {
                             // Return from BPF to BPF call
                             reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
@@ -782,15 +790,11 @@ impl<'a> EbpfVm<'a> {
                 _                => unreachable!()
             }
             if (self.max_insn_count != 0) && (self.last_insn_count >= self.max_insn_count) {
-                return Err(Error::new(ErrorKind::Other,
-                               format!("Error: Exceeded maximum number of instructions allowed ({:?})",
-                                       self.max_insn_count)));
+                return Err(EbpfError::ExceededMaxInstructions(self.max_insn_count));
             }
         }
 
-        Err(Error::new(ErrorKind::Other,
-                       format!("Error: Attempted to call outside of the text segment, pc: {:?}",
-                               pc + ebpf::ELF_INSN_DUMP_OFFSET)))
+        Err(EbpfError::ExecutionOverrun(pc + ebpf::ELF_INSN_DUMP_OFFSET))
     }
 
     /// JIT-compile the loaded program. No argument required for this.
@@ -801,30 +805,31 @@ impl<'a> EbpfVm<'a> {
     /// # Examples
     ///
     /// ```
+    /// use solana_rbpf::EbpfVm;
+    /// use solana_rbpf::user_error::UserError;
+    ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = solana_rbpf::EbpfVm::new(Some(prog)).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     ///
     /// vm.jit_compile();
     /// ```
     #[cfg(not(windows))]
-    pub fn jit_compile(&mut self) -> Result<(), Error> {
+    pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
         let prog =
         if let Some(ref elf) = self.elf {
             if elf.get_ro_sections().is_ok() {
-                return Err(Error::new(ErrorKind::Other,
-                           "Error: JIT does not support RO data"));
+                return Err(EbpfError::ReadOnlyDataUnsupported);
             }
             let (_, bytes) = elf.get_text_bytes()?;
             bytes
         } else if let Some(ref prog) = self.prog {
             prog
         } else {
-            return Err(Error::new(ErrorKind::Other,
-                           "Error: no program or elf set"));
+            return Err(EbpfError::NothingToExecute);
         };
         self.jit = Some(jit::compile(prog, &self.helpers)?);
         Ok(())
@@ -845,6 +850,9 @@ impl<'a> EbpfVm<'a> {
     /// # Examples
     ///
     /// ```
+    /// use solana_rbpf::EbpfVm;
+    /// use solana_rbpf::user_error::UserError;
+    ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
     /// ];
@@ -853,7 +861,7 @@ impl<'a> EbpfVm<'a> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = solana_rbpf::EbpfVm::new(Some(prog)).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     ///
     /// # #[cfg(not(windows))]
     /// vm.jit_compile();
@@ -865,7 +873,7 @@ impl<'a> EbpfVm<'a> {
     ///     assert_eq!(res, 0);
     /// }
     /// ```
-    pub unsafe fn execute_program_jit(&self, mem: &mut [u8]) -> Result<u64, Error> {
+    pub unsafe fn execute_program_jit(&self, mem: &mut [u8]) -> Result<u64, EbpfError<E>> {
         // If packet data is empty, do not send the address of an empty slice; send a null pointer
         //  as first argument instead, as this is uBPF's behavior (empty packet should not happen
         //  in the kernel; anyway the verifier would prevent the use of uninitialized registers).
@@ -876,8 +884,7 @@ impl<'a> EbpfVm<'a> {
         };
         match self.jit {
             Some(jit) => Ok(jit(mem_ptr, mem.len(), 0)),
-            None => Err(Error::new(ErrorKind::Other,
-                        "Error: program has not been JIT-compiled")),
+            None => Err(EbpfError::JITNotCompiled),
         }
     }
 }
@@ -885,6 +892,7 @@ impl<'a> EbpfVm<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{user_error::UserError};
 
     #[test]
     fn test_frames() {
@@ -898,7 +906,7 @@ mod tests {
             ptrs.push(frames.get_stacks()[i].clone());
             assert_eq!(ptrs[i].len, SIZE as u64);
 
-            let top = frames.push(&registers[0..4], i).unwrap();
+            let top = frames.push::<UserError>(&registers[0..4], i).unwrap();
             let new_ptrs = frames.get_stacks();
             assert_eq!(top, new_ptrs[i+1].addr_vm + new_ptrs[i+1].len);
             assert_ne!(top, ptrs[i].addr_vm + ptrs[i].len - 1);
@@ -909,15 +917,15 @@ mod tests {
         assert_eq!(frames.get_frame_index(), i);
         ptrs.push(frames.get_stacks()[i].clone());
 
-        assert!(frames.push(&registers, DEPTH - 1).is_err());
+        assert!(frames.push::<UserError>(&registers, DEPTH - 1).is_err());
 
         for i in (0..DEPTH - 1).rev() {
-            let (saved_reg, stack_ptr, return_ptr) = frames.pop().unwrap();
+            let (saved_reg, stack_ptr, return_ptr) = frames.pop::<UserError>().unwrap();
             assert_eq!(saved_reg, [i as u64, i as u64, i as u64, i as u64]);
             assert_eq!(ptrs[i].addr_vm + ptrs[i].len, stack_ptr);
             assert_eq!(i, return_ptr);
         }
 
-        assert!(frames.pop().is_err());
+        assert!(frames.pop::<UserError>().is_err());
     }
 }

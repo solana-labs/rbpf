@@ -21,11 +21,12 @@
 #![allow(clippy::deprecated_cfg_attr)]
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
-use crate::memory_region::MemoryRegion;
+use crate::{elf::ELFError, jit::JITError, memory_region::MemoryRegion};
 use std::fmt;
-use std::io::Error;
+use std::error::Error;
 use byteorder::{ByteOrder, LittleEndian};
 use hash32::{Hash, Hasher, Murmur3Hasher};
+use thiserror::Error as ThisError;
 
 /// Maximum number of instructions in an eBPF program.
 pub const PROG_MAX_INSNS: usize = 65536;
@@ -420,6 +421,73 @@ pub const CALL_REG   : u8 = BPF_JMP   | BPF_X | BPF_CALL;
 /// BPF opcode: `exit` /// `return r0`.
 pub const EXIT       : u8 = BPF_JMP   | BPF_EXIT;
 
+/// User defined errors must implement this trait
+pub trait UserDefinedError: 'static + Error {}
+
+/// Error definitions
+#[derive(Debug, ThisError)]
+pub enum EbpfError<E: UserDefinedError> {
+    /// User defined error
+    #[error("{0}")]
+    UserError(
+        #[from]
+        E
+    ),
+    /// ELF error
+    #[error("ELF error: {0}")]
+    ELFError(
+        #[from]
+        ELFError
+    ),
+    /// JIT error
+    #[error("JIT error: {0}")]
+    JITError(
+        #[from]
+        JITError
+    ),
+    /// No program or ELF set
+    #[error("no program or ELF set")]
+    NothingToExecute,
+    /// Exceeded max BPF to BPF call depth
+    #[error("exceeded max BPF to BPF call depth of {0}")]
+    CallDepthExceeded(usize),
+    /// Attempt to exit from root call frame
+    #[error("attempted to exit root call frame")]
+    ExitRootCallFrame,
+    /// Divide by zero"
+    #[error("devide by zero")]
+    DivideByZero,
+    /// Exceeded max instructions allowed
+    #[error("attempted to execute past the end of the text segment at instruction #{0}")]
+    ExecutionOverrun(usize),
+    /// Attempt to call to an address outside the text segment
+    #[error("callx at instruction {0} attempted to call outside of the text segment to addr 0x{1:x}")]
+    CallOutsideTextSegment(usize, u64),
+    /// Unresolved symbol
+    #[error("unresolved symbol at instruction #{0}")]
+    UnresolvedSymbol(usize),
+    /// Exceeded max instructions allowed
+    #[error("exceeded maximum number of instructions allowed ({0})")]
+    ExceededMaxInstructions(u64),
+    /// JIT does not support read only data
+    #[error("JIT does not support read only data")]
+    ReadOnlyDataUnsupported,
+    /// Program has not been JIT-compiled
+    #[error("program has not been JIT-compiled")]
+    JITNotCompiled,
+    /// Invalid virtual address
+    #[error("invalid virtual address {0:x?}")]
+    InvalidVirtualAddress(u64),
+    /// Access violation
+    #[error("out of bounds memory {0} (insn #{1}), addr {2:#x}/{3:?} \n{4}")]
+    AccessViolation(
+        String,
+        usize,
+        u64,
+        usize,
+        String),
+}
+
 // Used in JIT
 /// Mask to extract the operation class from an operation code.
 pub const BPF_CLS_MASK    : u8 = 0x07;
@@ -427,7 +495,7 @@ pub const BPF_CLS_MASK    : u8 = 0x07;
 pub const BPF_ALU_OP_MASK : u8 = 0xf0;
 
 /// Helper function without context.
-pub type HelperFunction = fn(
+pub type HelperFunction<E> = fn(
     u64,
     u64,
     u64,
@@ -435,10 +503,10 @@ pub type HelperFunction = fn(
     u64,
     &[MemoryRegion],
     &[MemoryRegion],
-) -> Result<u64, Error>;
+) -> Result<u64, EbpfError<E>>;
 
 /// Helper with context
-pub trait HelperObject {
+pub trait HelperObject<E: UserDefinedError> {
     /// Call the helper function
     #[allow(clippy::too_many_arguments)]
     fn call(
@@ -450,15 +518,15 @@ pub trait HelperObject {
         u64,
         &[MemoryRegion],
         &[MemoryRegion],
-    ) -> Result<u64, Error>;
+    ) -> Result<u64, EbpfError<E>>;
 }
 
 /// Contains the helper
-pub enum Helper<'a> {
+pub enum Helper<'a, E: UserDefinedError> {
     /// Function
-    Function(HelperFunction),
+    Function(HelperFunction<E>),
     /// Trait object
-    Object(Box<dyn HelperObject + 'a>)
+    Object(Box<dyn HelperObject<E> + 'a>)
 }
 
 /// An eBPF instruction.

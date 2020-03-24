@@ -1,8 +1,7 @@
 //! This module defines memory regions
 
-use crate::ebpf::ELF_INSN_DUMP_OFFSET;
+use crate::ebpf::{EbpfError, UserDefinedError, ELF_INSN_DUMP_OFFSET};
 use std::fmt;
-use std::io::{Error, ErrorKind};
 
 /// Memory region for bounds checking and address translation
 #[derive(Clone, Default)]
@@ -25,12 +24,16 @@ impl MemoryRegion {
     }
 
     /// Convert a virtual machine address into a host address
-    pub fn vm_to_host(&self, vm_addr: u64, len: u64) -> Result<u64, Error> {
+    pub fn vm_to_host<E: UserDefinedError>(
+        &self,
+        vm_addr: u64,
+        len: u64,
+    ) -> Result<u64, EbpfError<E>> {
         if self.addr_vm <= vm_addr && vm_addr + len as u64 <= self.addr_vm + self.len {
             let host_addr = self.addr_host + (vm_addr - self.addr_vm);
             Ok(host_addr)
         } else {
-            Err(Error::new(ErrorKind::InvalidInput, ""))
+            Err(EbpfError::InvalidVirtualAddress(vm_addr))
         }
     }
 }
@@ -45,15 +48,15 @@ impl fmt::Debug for MemoryRegion {
 }
 
 /// Given a list of regions translate from virtual machine to host address
-pub fn translate_addr(
+pub fn translate_addr<E: UserDefinedError>(
     vm_addr: u64,
     len: usize,
     access_type: &str,
     mut pc: usize, // TODO helpers don't have this info
     regions: &[MemoryRegion],
-) -> Result<u64, Error> {
+) -> Result<u64, EbpfError<E>> {
     for region in regions.iter() {
-        if let Ok(host_addr) = region.vm_to_host(vm_addr, len as u64) {
+        if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
             return Ok(host_addr);
         }
     }
@@ -73,15 +76,11 @@ pub fn translate_addr(
     if pc == 0 {
         pc = 1;
     };
-    Err(Error::new(
-        ErrorKind::Other,
-        format!(
-            "Error: out of bounds memory {} (insn #{:?}), addr {:#x}/{:?} \n{}",
-            access_type,
-            pc - 1 + ELF_INSN_DUMP_OFFSET,
-            vm_addr,
-            len,
-            regions_string
-        ),
+    Err(EbpfError::AccessViolation(
+        access_type.to_string(),
+        pc - 1 + ELF_INSN_DUMP_OFFSET,
+        vm_addr,
+        len,
+        regions_string,
     ))
 }
