@@ -47,7 +47,6 @@ pub mod memory_region;
 pub mod verifier;
 pub mod user_error;
 mod asm_parser;
-// #[cfg(not(windows))]
 mod jit;
 
 /// eBPF verification function that returns an error if the program does not meet its requirements.
