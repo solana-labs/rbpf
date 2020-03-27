@@ -450,9 +450,16 @@ impl<'a> JitMemory<'a> {
         unsafe {
             let size = num_pages * PAGE_SIZE;
             let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
-            libc::posix_memalign(&mut raw, PAGE_SIZE, size);
-            libc::mprotect(raw, size, libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE);
-            std::ptr::write_bytes(raw, 0xc3, size);  // for now, prepopulate with 'RET' calls
+            #[cfg(windows)]
+            {
+                panic!("JIT not supported on windows");
+            }
+            #[cfg(not(windows))] // Without this block windows will fail ungracefully, hence panic above
+            {
+                libc::posix_memalign(&mut raw, PAGE_SIZE, size);
+                libc::mprotect(raw, size, libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE);
+                std::ptr::write_bytes(raw, 0xc3, size);  // for now, prepopulate with 'RET' calls
+            }
             contents = std::slice::from_raw_parts_mut(raw as *mut u8, num_pages * PAGE_SIZE);
         }
 
