@@ -454,7 +454,7 @@ impl<'a> JitMemory<'a> {
             {
                 panic!("JIT not supported on windows");
             }
-            #[cfg(not(windows))] // Without this block windows will fail ungracefully, hence panic above
+            #[cfg(not(windows))] // Without this block windows will fail ungracefully, hence the panic above
             {
                 libc::posix_memalign(&mut raw, PAGE_SIZE, size);
                 libc::mprotect(raw, size, libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE);
