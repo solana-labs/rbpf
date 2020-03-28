@@ -814,6 +814,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// // Instantiate a VM.
     /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     ///
+    /// # #[cfg(not(windows))]
     /// vm.jit_compile();
     /// ```
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
