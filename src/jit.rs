@@ -33,8 +33,6 @@ pub enum JITError {
     UnknownOpCode(u8, usize),
 }
 
-const PAGE_SIZE: usize = 4096;
-
 // Special values for target_pc in struct Jump
 const TARGET_OFFSET: isize = ebpf::PROG_MAX_INSNS as isize;
 const TARGET_PC_EXIT:         isize = TARGET_OFFSET + 1;
@@ -454,6 +452,7 @@ impl<'a> JitMemory<'a> {
         let contents: &mut[u8];
         #[cfg(not(windows))] // Without this block windows will fail ungracefully, hence the panic above
         unsafe {
+            const PAGE_SIZE: usize = 4096;
             let size = _num_pages * PAGE_SIZE;
             let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
             libc::posix_memalign(&mut raw, PAGE_SIZE, size);

@@ -816,7 +816,6 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// vm.jit_compile();
     /// ```
-    #[cfg(not(windows))]
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
         let prog =
         if let Some(ref elf) = self.elf {
@@ -862,11 +861,9 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// // Instantiate a VM.
     /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     ///
-    /// # #[cfg(not(windows))]
     /// vm.jit_compile();
     ///
     /// // Provide a reference to the packet data.
-    /// # #[cfg(not(windows))]
     /// unsafe {
     ///     let res = vm.execute_program_jit(mem).unwrap();
     ///     assert_eq!(res, 0);
