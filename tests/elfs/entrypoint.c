@@ -8,12 +8,12 @@ typedef unsigned long int uint64_t;
 extern void log(const char*, uint64_t);
 extern void log_64(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
-#include "helper.h"
+#include "syscall.h"
 
-uint64_t entrypoint_helper_function(uint64_t x) {
+uint64_t entrypoint_syscall_function(uint64_t x) {
   log(__func__, sizeof(__func__));
   if (x) {
-    x = helper_function(--x);
+    x = syscall_function(--x);
   }
   return x;
 }
@@ -21,7 +21,7 @@ uint64_t entrypoint_helper_function(uint64_t x) {
 extern uint64_t entrypoint(const uint8_t *input) {
   uint64_t x = (uint64_t)*input;
   if (x) {
-    x = helper_function(--x);
+    x = syscall_function(--x);
   }
   return x;
 }

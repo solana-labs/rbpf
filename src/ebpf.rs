@@ -184,7 +184,7 @@ pub const BPF_JNE   : u8 = 0x50;
 pub const BPF_JSGT  : u8 = 0x60;
 /// BPF JMP operation code: jump if greater or equal (signed).
 pub const BPF_JSGE  : u8 = 0x70;
-/// BPF JMP operation code: helper function call.
+/// BPF JMP operation code: syscall function call.
 pub const BPF_CALL  : u8 = 0x80;
 /// BPF JMP operation code: return from program.
 pub const BPF_EXIT  : u8 = 0x90;
@@ -414,7 +414,7 @@ pub const JSLE_IMM   : u8 = BPF_JMP   | BPF_K   | BPF_JSLE;
 /// BPF opcode: `jsle dst, src, +off` /// `PC += off if dst <= src (signed)`.
 pub const JSLE_REG   : u8 = BPF_JMP   | BPF_X   | BPF_JSLE;
 
-/// BPF opcode: `call imm` /// helper function call to helper with key `imm`.
+/// BPF opcode: `call imm` /// syscall function call to syscall with key `imm`.
 pub const CALL_IMM   : u8 = BPF_JMP   | BPF_CALL;
 /// BPF opcode: tail call.
 pub const CALL_REG   : u8 = BPF_JMP   | BPF_X | BPF_CALL;
@@ -494,8 +494,8 @@ pub const BPF_CLS_MASK    : u8 = 0x07;
 /// Mask to extract the arithmetic operation code from an instruction operation code.
 pub const BPF_ALU_OP_MASK : u8 = 0xf0;
 
-/// Helper function without context.
-pub type HelperFunction<E> = fn(
+/// Syscall function without context.
+pub type SyscallFunction<E> = fn(
     u64,
     u64,
     u64,
@@ -505,9 +505,9 @@ pub type HelperFunction<E> = fn(
     &[MemoryRegion],
 ) -> Result<u64, EbpfError<E>>;
 
-/// Helper with context
-pub trait HelperObject<E: UserDefinedError> {
-    /// Call the helper function
+/// Syscall with context
+pub trait SyscallObject<E: UserDefinedError> {
+    /// Call the syscall function
     #[allow(clippy::too_many_arguments)]
     fn call(
         &mut self,
@@ -521,12 +521,12 @@ pub trait HelperObject<E: UserDefinedError> {
     ) -> Result<u64, EbpfError<E>>;
 }
 
-/// Contains the helper
-pub enum Helper<'a, E: UserDefinedError> {
+/// Contains the syscall
+pub enum Syscall<'a, E: UserDefinedError> {
     /// Function
-    Function(HelperFunction<E>),
+    Function(SyscallFunction<E>),
     /// Trait object
-    Object(Box<dyn HelperObject<E> + 'a>)
+    Object(Box<dyn SyscallObject<E> + 'a>)
 }
 
 /// An eBPF instruction.
@@ -735,7 +735,7 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<Insn> {
 /// Hash a symbol name
 ///
 /// This function is used by both the relocator and the VM to translate symbol names
-/// into a 32 bit id used to identify a helper function.  The 32 bit id is used in the
+/// into a 32 bit id used to identify a syscall function.  The 32 bit id is used in the
 /// eBPF `call` instruction's imm field.
 pub fn hash_symbol_name(name: &[u8]) -> u32 {
     let mut hasher = Murmur3Hasher::default();

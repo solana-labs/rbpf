@@ -2,7 +2,7 @@
 // Copyright 2015 Big Switch Networks, Inc
 //      (uBPF: VM architecture, parts of the interpreter, originally in C)
 // Copyright 2016 6WIND S.A. <quentin.monnet@6wind.com>
-//      (Translation to Rust, MetaBuff/multiple classes addition, hashmaps for helpers)
+//      (Translation to Rust, MetaBuff/multiple classes addition, hashmaps for syscalls)
 //
 // Licensed under the Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0> or
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
@@ -34,14 +34,14 @@ use std::u32;
 use std::collections::HashMap;
 use elf::EBpfElf;
 use log::{debug, trace, log_enabled};
-use ebpf::{EbpfError, Helper, HelperFunction, HelperObject, UserDefinedError};
+use ebpf::{EbpfError, Syscall, SyscallFunction, SyscallObject, UserDefinedError};
 use memory_region::{MemoryRegion, translate_addr};
 
 pub mod assembler;
 pub mod disassembler;
 pub mod ebpf;
 pub mod elf;
-pub mod helpers;
+pub mod syscalls;
 pub mod insn_builder;
 pub mod memory_region;
 pub mod verifier;
@@ -56,7 +56,7 @@ mod jit;
 ///   - Program does not terminate.
 ///   - Unknown instructions.
 ///   - Bad formed instruction.
-///   - Unknown eBPF helper index.
+///   - Unknown eBPF syscall index.
 pub type Verifier<E> = fn(prog: &[u8]) -> Result<(), E>;
 
 /// eBPF Jit-compiled program.
@@ -70,7 +70,7 @@ struct CallFrame {
     return_ptr:  usize,
 }
 
-/// When BPF calls a function other then a `helper` it expect the new
+/// When BPF calls a function other then a `syscall` it expect the new
 /// function to be called in its own frame.  CallFrames manages
 /// call frames
 #[derive(Clone, Debug)]
@@ -184,7 +184,7 @@ pub struct EbpfVm<'a, E: UserDefinedError> {
     elf:             Option<EBpfElf>,
     verifier:        Option<Verifier<E>>,
     jit:             Option<JitProgram>,
-    helpers:         HashMap<u32, Helper<'a, E>>,
+    syscalls:         HashMap<u32, Syscall<'a, E>>,
     max_insn_count:  u64,
     last_insn_count: u64,
 }
@@ -213,7 +213,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
             elf:             None,
             verifier:        None,
             jit:             None,
-            helpers:         HashMap::new(),
+            syscalls:         HashMap::new(),
             max_insn_count:  0,
             last_insn_count: 0,
         })
@@ -310,18 +310,18 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         self.last_insn_count
     }
 
-    /// Register a built-in or user-defined helper function in order to use it later from within
-    /// the eBPF program. The helper is registered into a hashmap, so the `key` can be any `u32`.
+    /// Register a built-in or user-defined syscall function in order to use it later from within
+    /// the eBPF program. The syscall is registered into a hashmap, so the `key` can be any `u32`.
     ///
-    /// If using JIT-compiled eBPF programs, be sure to register all helpers before compiling the
-    /// program. You should be able to change registered helpers after compiling, but not to add
+    /// If using JIT-compiled eBPF programs, be sure to register all syscalls before compiling the
+    /// program. You should be able to change registered syscalls after compiling, but not to add
     /// new ones (i.e. with new keys).
     ///
     /// # Examples
     ///
     /// ```
     /// use solana_rbpf::EbpfVm;
-    /// use solana_rbpf::helpers::bpf_trace_printf;
+    /// use solana_rbpf::syscalls::bpf_trace_printf;
     /// use solana_rbpf::user_error::UserError;
     ///
     /// // This program was compiled with clang, from a C program containing the following single
@@ -335,50 +335,50 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///     0xb7, 0x03, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // mov r3, 1
     ///     0xb7, 0x04, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov r4, 2
     ///     0xb7, 0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, // mov r5, 3
-    ///     0x85, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, // call helper with key 6
+    ///     0x85, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, // call syscall with key 6
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
     /// ];
     ///
     /// // Instantiate a VM.
     /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
     ///
-    /// // Register a helper.
-    /// // On running the program this helper will print the content of registers r3, r4 and r5 to
+    /// // Register a syscall.
+    /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
     /// // standard output.
-    /// vm.register_helper(6, bpf_trace_printf::<UserError>).unwrap();
+    /// vm.register_syscall(6, bpf_trace_printf::<UserError>).unwrap();
     /// ```
-    pub fn register_helper(&mut self,
+    pub fn register_syscall(&mut self,
                            key: u32,
-                           helper: HelperFunction<E>,
+                           syscall: SyscallFunction<E>,
     ) -> Result<(), EbpfError<E>> {
-        self.helpers.insert(key, Helper::Function(helper));
+        self.syscalls.insert(key, Syscall::Function(syscall));
         Ok(())
     }
 
-    /// Register a user-defined helper function in order to use it later from within
-    /// the eBPF program.  Normally helper functions are referred to by an index. (See helpers)
+    /// Register a user-defined syscall function in order to use it later from within
+    /// the eBPF program.  Normally syscall functions are referred to by an index. (See syscalls)
     /// but this function takes the name of the function.  The name is then hashed into a 32 bit
     /// number and used in the `call` instructions imm field.  If calling `set_elf` then
     /// the elf's relocations must reference this symbol using the same name.  This can usually be
     /// achieved by building the elf with unresolved symbols (think `extern foo(void)`).  If
     /// providing a program directly via `set_program` then any `call` instructions must already
     /// have the hash of the symbol name in its imm field.  To generate the correct hash of the
-    /// symbol name use `ebpf::helpers::hash_symbol_name`.
-    pub fn register_helper_ex(&mut self,
+    /// symbol name use `ebpf::syscalls::hash_symbol_name`.
+    pub fn register_syscall_ex(&mut self,
                               name: &str,
-                              helper: HelperFunction<E>,
+                              syscall: SyscallFunction<E>,
     ) -> Result<(), EbpfError<E>> {
-        self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), Helper::Function(helper));
+        self.syscalls.insert(ebpf::hash_symbol_name(name.as_bytes()), Syscall::Function(syscall));
         Ok(())
     }
 
-    /// Same as register_helper_ex except reguster a helper trait object that carries
-    /// along context needed by the helper
-    pub fn register_helper_with_context_ex(&mut self,
+    /// Same as register_syscall_ex except reguster a syscall trait object that carries
+    /// along context needed by the syscall
+    pub fn register_syscall_with_context_ex(&mut self,
         name: &str,
-        helper: Box<dyn HelperObject<E> + 'a>,
+        syscall: Box<dyn SyscallObject<E> + 'a>,
     ) -> Result<(), EbpfError<E>> {
-    self.helpers.insert(ebpf::hash_symbol_name(name.as_bytes()), Helper::Object(helper));
+    self.syscalls.insert(ebpf::hash_symbol_name(name.as_bytes()), Syscall::Object(syscall));
     Ok(())
     }
 
@@ -745,13 +745,13 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 // Do not delegate the check to the verifier, since registered functions can be
                 // changed after the program has been verified.
                 ebpf::CALL_IMM   => {
-                    if let Some(mut helper) = self.helpers.get_mut(&(insn.imm as u32)) {
-                        reg[0] = match helper {
-                            Helper::Function(helper) => {
-                                helper(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?
+                    if let Some(mut syscall) = self.syscalls.get_mut(&(insn.imm as u32)) {
+                        reg[0] = match syscall {
+                            Syscall::Function(syscall) => {
+                                syscall(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?
                             }
-                            Helper::Object(helper) => {
-                                helper.call(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?
+                            Syscall::Object(syscall) => {
+                                syscall.call(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?
                             }
                         };
                     } else if let Some(ref elf) = self.elf {
@@ -765,7 +765,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                         }
                     } else {
                         // Note: Raw BPF programs (without ELF relocations) cannot support relative calls
-                        // because there is no way to determine if the imm refers to a helper or an offset
+                        // because there is no way to determine if the imm refers to a syscall or an offset
                         return Err(EbpfError::UnresolvedSymbol(pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                 },
@@ -798,7 +798,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
 
     /// JIT-compile the loaded program. No argument required for this.
     ///
-    /// If using helper functions, be sure to register them into the VM before calling this
+    /// If using syscall functions, be sure to register them into the VM before calling this
     /// function.
     ///
     /// # Examples
@@ -830,7 +830,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         } else {
             return Err(EbpfError::NothingToExecute);
         };
-        self.jit = Some(jit::compile(prog, &self.helpers)?);
+        self.jit = Some(jit::compile(prog, &self.syscalls)?);
         Ok(())
     }
 

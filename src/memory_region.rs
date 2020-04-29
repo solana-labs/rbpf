@@ -52,7 +52,7 @@ pub fn translate_addr<E: UserDefinedError>(
     vm_addr: u64,
     len: usize,
     access_type: &str,
-    mut pc: usize, // TODO helpers don't have this info
+    mut pc: usize, // TODO syscalls don't have this info
     regions: &[MemoryRegion],
 ) -> Result<u64, EbpfError<E>> {
     for region in regions.iter() {

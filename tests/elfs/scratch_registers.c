@@ -12,7 +12,7 @@ uint64_t __attribute__ ((noinline)) log_wrapper(uint64_t x) {
   return x;
 }
 
-uint64_t __attribute__ ((noinline)) helper(uint64_t x) {
+uint64_t __attribute__ ((noinline)) syscall(uint64_t x) {
   uint64_t y = 100;
   uint64_t z = 10;
   x += log_wrapper(x);
@@ -23,7 +23,7 @@ uint64_t __attribute__ ((noinline)) helper(uint64_t x) {
 
 extern uint64_t entrypoint(const uint8_t *input) {
   uint64_t x = (uint64_t)*input;
-  x = helper(x);
+  x = syscall(x);
   return x;
 }
 

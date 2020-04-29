@@ -471,8 +471,8 @@ impl<'a> JitMemory<'a> {
     }
 
     fn jit_compile<E: UserDefinedError>(&mut self, prog: &[u8],
-                   _helpers: &HashMap<u32,
-                   ebpf::Helper<'a, E>>) -> Result<(), JITError> {
+                   _syscalls: &HashMap<u32,
+                   ebpf::Syscall<'a, E>>) -> Result<(), JITError> {
         emit_push(self, RBP);
         emit_push(self, RBX);
         emit_push(self, R13);
@@ -761,22 +761,22 @@ impl<'a> JitMemory<'a> {
                 },
                 ebpf::CALL_IMM  => {
                     // TODO
-                    panic!("Helpers not supported");
-                    // // For JIT, helpers in use MUST be registered at compile time. They can be
+                    panic!("Syscalls not supported");
+                    // // For JIT, syscalls in use MUST be registered at compile time. They can be
                     // // updated later, but not created after compiling (we need the address of the
-                    // // helper function in the JIT-compiled program).
-                    // if let Some(helper) = helpers.get(&(insn.imm as u32)) {
-                    //     if helper.verifier.is_some() {
+                    // // syscall function in the JIT-compiled program).
+                    // if let Some(syscall) = syscalls.get(&(insn.imm as u32)) {
+                    //     if syscall.verifier.is_some() {
                     //         return Err(Error::new(ErrorKind::Other,
-                    //                        format!("[JIT] Error: helper verifier function not supported by jit (id: {:#x})",
+                    //                        format!("[JIT] Error: syscall verifier function not supported by jit (id: {:#x})",
                     //                                insn.imm as u32)));
                     //     }
                     //     // We reserve RCX for shifts
                     //     emit_mov(self, R9, RCX);
-                    //     emit_call(self, helper.function as usize);
+                    //     emit_call(self, syscall.function as usize);
                     // } else {
                     //     return Err(Error::new(ErrorKind::Other,
-                    //                    format!("[JIT] Error: unknown helper function (id: {:#x})",
+                    //                    format!("[JIT] Error: unknown syscall function (id: {:#x})",
                     //                            insn.imm as u32)));
                     // };
                 },
@@ -888,13 +888,13 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
 }
 
 // In the end, this is the only thing we export
-pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8], helpers: &HashMap<u32, ebpf::Helper<'a, E>>)
+pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8], syscalls: &HashMap<u32, ebpf::Syscall<'a, E>>)
     -> Result<JitProgram, JITError> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
     let mut jit = JitMemory::new(1);
-    jit.jit_compile(prog, helpers)?;
+    jit.jit_compile(prog, syscalls)?;
     jit.resolve_jumps()?;
 
     Ok(unsafe { mem::transmute(jit.contents.as_ptr()) })

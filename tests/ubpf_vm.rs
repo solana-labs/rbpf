@@ -27,7 +27,7 @@
 extern crate solana_rbpf;
 mod common;
 
-use solana_rbpf::{helpers, EbpfVm};
+use solana_rbpf::{syscalls, EbpfVm};
 use solana_rbpf::assembler::assemble;
 use solana_rbpf::user_error::UserError;
 use common::{TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
@@ -277,7 +277,7 @@ fn test_vm_call() {
         call 0
         exit").unwrap();
     let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
-    vm.register_helper(0, helpers::gather_bytes).unwrap();
+    vm.register_syscall(0, syscalls::gather_bytes).unwrap();
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x0102030405);
 }
 
@@ -295,11 +295,11 @@ fn test_vm_call_memfrob() {
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
     ];
     let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
-    vm.register_helper(1, helpers::memfrob).unwrap();
+    vm.register_syscall(1, syscalls::memfrob).unwrap();
     assert_eq!(vm.execute_program(mem, &[], &[]).unwrap(), 0x102292e2f2c0708);
 }
 
-// TODO: helpers::trash_registers needs asm!().
+// TODO: syscalls::trash_registers needs asm!().
 // Try this again once asm!() is available in stable.
 // #[ignore]
 // #[test]
@@ -318,7 +318,7 @@ fn test_vm_call_memfrob() {
 //         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 //     ];
 //     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-//     vm.register_helper(2, helpers::trash_registers, None);
+//     vm.register_syscall(2, syscalls::trash_registers, None);
 //     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x4321);
 // }
 
@@ -1391,8 +1391,8 @@ fn test_vm_stack2() {
         xor r0, 0x2a2a2a2a
         exit").unwrap();
     let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
-    vm.register_helper(0, helpers::gather_bytes).unwrap();
-    vm.register_helper(1, helpers::memfrob).unwrap();
+    vm.register_syscall(0, syscalls::gather_bytes).unwrap();
+    vm.register_syscall(1, syscalls::memfrob).unwrap();
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x01020304);
 }
 
@@ -1468,7 +1468,7 @@ fn test_vm_string_stack() {
         mov r0, 0x0
         exit").unwrap();
     let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
-    vm.register_helper(4, helpers::strcmp).unwrap();
+    vm.register_syscall(4, syscalls::strcmp).unwrap();
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x0);
 }
 

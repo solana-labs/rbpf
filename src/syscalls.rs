@@ -28,7 +28,7 @@ use std::u64;
 use time;
 use crate::{ebpf::{EbpfError, UserDefinedError}, memory_region::{MemoryRegion, translate_addr}};
 
-// Syscalls associated to kernel syscalls
+// syscalls associated to kernel syscalls
 // See also linux/include/uapi/linux/bpf.h in Linux kernel sources.
 
 // bpf_ktime_getns()
@@ -137,7 +137,7 @@ pub fn bpf_trace_printf<E: UserDefinedError> (
 }
 
 
-// Syscalls coming from uBPF <https://github.com/iovisor/ubpf/blob/master/vm/test.c>
+// syscalls coming from uBPF <https://github.com/iovisor/ubpf/blob/master/vm/test.c>
 
 /// The idea is to assemble five bytes into a single `u64`. For compatibility with the syscalls API,
 /// each argument must be a `u64`.

@@ -86,7 +86,7 @@ Here are the steps to follow to run an eBPF program with rbpf:
 1. Create a virtual machine. There are several kinds of machines, we will come
    back on this later. When creating the VM, pass the eBPF program as an
    argument to the constructor.
-2. If you want to use some helper functions, register them into the virtual
+2. If you want to use some syscall functions, register them into the virtual
    machine.
 3. If you want a JIT-compiled program, compile it.
 4. Execute your program: either run the interpreter or call the JIT-compiled
@@ -139,17 +139,17 @@ is not run if no program has been loaded (if `None` was passed to the `new()`
 method when creating the VM).
 
 ```rust,ignore
-pub type Helper = fn (u64, u64, u64, u64, u64) -> u64;
+pub type Syscall = fn (u64, u64, u64, u64, u64) -> u64;
 
-pub fn register_helper(&mut self,
+pub fn register_syscall(&mut self,
                        key: u32,
-                       function: Helper) -> Result<(), Error>
+                       function: Syscall) -> Result<(), Error>
 ```
 
-This function is used to register a helper function. The VM stores its
+This function is used to register a syscall function. The VM stores its
 registers in a hashmap, so the key can be any `u32` value you want. It may be
 useful for programs that should be compatible with the Linux kernel and
-therefore must use specific helper numbers.
+therefore must use specific syscall numbers.
 
 ```rust,ignore
 // for struct EbpfVm
@@ -166,7 +166,7 @@ pub fn jit_compile(&mut self) -> Result<(), Error>
 ```
 
 JIT-compile the loaded program, for x86_64 architecture. If the program is to
-use helper functions, they must be registered into the VM before this function
+use syscall functions, they must be registered into the VM before this function
 is called. The generated assembly function is internally stored in the VM.
 
 ```rust,ignore
@@ -368,7 +368,7 @@ Other than the language, obviously? Well, there are some differences:
   program silently returns the maximum value as an error code, while rbpf
   returns Rust type `Error`.
 
-* The registration of helper functions, that can be called from within an eBPF
+* The registration of syscall functions, that can be called from within an eBPF
   program, is not handled in the same way.
 
 * As for performance: theoretically the JITted programs are expected to run at
@@ -386,18 +386,18 @@ Polakov instead.
 ### What functionalities are implemented?
 
 Running and JIT-compiling eBPF programs work. There is also a mechanism to
-register user-defined helper functions. The eBPF implementation of the Linux
+register user-defined syscall functions. The eBPF implementation of the Linux
 kernel comes with [some additional
 features](https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md):
-a high number of helpers, several kinds of maps, tail calls.
+a high number of syscalls, several kinds of maps, tail calls.
 
-* Additional helpers should be easy to add, but very few of the existing Linux
-  helpers have been replicated in rbpf so far.
+* Additional syscalls should be easy to add, but very few of the existing Linux
+  syscalls have been replicated in rbpf so far.
 
 * Tail calls (“long jumps” from an eBPF program into another) are not
   implemented. This is probably not trivial to design and implement.
 
-* The interaction with maps is done through the use of specific helpers, so
+* The interaction with maps is done through the use of specific syscalls, so
   this should not be difficult to add. The maps themselves can reuse the maps
   in the kernel (if on Linux), to communicate with in-kernel eBPF programs for
   instance; or they can be handled in user space. Rust has arrays and hashmaps,
@@ -448,7 +448,7 @@ on your own.
 * Implement some traits (`Clone`, `Drop`, `Debug` are good candidates).
 * Provide built-in support for user-space array and hash BPF maps.
 * Improve safety of JIT-compiled programs with runtime memory checks.
-* Add helpers (some of those supported in the kernel, such as checksum update,
+* Add syscalls (some of those supported in the kernel, such as checksum update,
   could be helpful).
 * Improve verifier. Could we find a way to directly support programs compiled
   with clang?

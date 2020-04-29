@@ -38,7 +38,7 @@ use solana_rbpf::{
     assembler::assemble,
     ebpf::{self, EbpfError, UserDefinedError},
     EbpfVm,
-    helpers,
+    syscalls,
     memory_region::{MemoryRegion, translate_addr},
     user_error::UserError,
     verifier::{check, VerifierError},
@@ -111,7 +111,7 @@ use thiserror::Error;
 // Cargo.toml file (see comments above), so here we use just the hardcoded bytecode instructions
 // instead.
 
-#[ignore] // TODO jit does not support address translation or helpers
+#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsb() {
@@ -133,7 +133,7 @@ fn test_vm_jit_ldabsb() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or helpers
+#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsh() {
@@ -155,7 +155,7 @@ fn test_vm_jit_ldabsh() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or helpers
+#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsw() {
@@ -177,7 +177,7 @@ fn test_vm_jit_ldabsw() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or helpers
+#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsdw() {
@@ -229,7 +229,7 @@ fn test_vm_err_ldabsb_nomem() {
     // Memory check not implemented for JIT yet.
 }
 
-#[ignore] // TODO jit does not support address translation or helpers
+#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindb() {
@@ -252,7 +252,7 @@ fn test_vm_jit_ldindb() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or helpers
+#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindh() {
@@ -275,7 +275,7 @@ fn test_vm_jit_ldindh() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or helpers
+#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindw() {
@@ -298,7 +298,7 @@ fn test_vm_jit_ldindw() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or helpers
+#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldinddw() {
@@ -415,7 +415,7 @@ fn test_non_terminating() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.register_syscall(syscalls::BPF_TRACE_PRINTK_IDX, syscalls::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(1000).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
@@ -435,7 +435,7 @@ fn test_non_terminate_capped() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.register_syscall(syscalls::BPF_TRACE_PRINTK_IDX, syscalls::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(6).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
     assert!(vm.get_last_instruction_count() == 6);
@@ -456,7 +456,7 @@ fn test_non_terminate_early() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.register_syscall(syscalls::BPF_TRACE_PRINTK_IDX, syscalls::bpf_trace_printf).unwrap();
     vm.set_max_instruction_count(1000).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
     assert!(vm.get_last_instruction_count() == 1000);
@@ -468,13 +468,13 @@ fn test_get_last_instruction_count() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_helper(helpers::BPF_TRACE_PRINTK_IDX, helpers::bpf_trace_printf).unwrap();
+    vm.register_syscall(syscalls::BPF_TRACE_PRINTK_IDX, syscalls::bpf_trace_printf).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
     println!("count {:?}", vm.get_last_instruction_count());
     assert!(vm.get_last_instruction_count() == 1);
 }
 
-pub fn bpf_helper_string(vm_addr: u64,
+pub fn bpf_syscall_string(vm_addr: u64,
         len: u64,
         _arg3: u64,
         _arg4: u64,
@@ -497,7 +497,7 @@ pub fn bpf_helper_string(vm_addr: u64,
         }
 }
 
-pub fn bpf_helper_u64(arg1: u64,
+pub fn bpf_syscall_u64(arg1: u64,
         arg2: u64,
         arg3: u64,
         arg4: u64,
@@ -516,8 +516,8 @@ fn test_load_elf() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
-    vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
+    vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
@@ -529,7 +529,7 @@ fn test_load_elf_empty_noro() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
+    vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
@@ -541,7 +541,7 @@ fn test_load_elf_empty_rodata() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
+    vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
@@ -561,13 +561,13 @@ fn test_symbol_relocation() {
     let mut mem = [72, 101, 108, 108, 111, 0];
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.set_program(prog).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
 
 #[test]
-fn test_helper_parameter_on_stack() {
+fn test_syscall_parameter_on_stack() {
     let prog = &mut [
         0xbf, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r1 = r10
         0x07, 0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, // r1 += -256
@@ -579,7 +579,7 @@ fn test_helper_parameter_on_stack() {
     LittleEndian::write_u32(&mut prog[28..32], ebpf::hash_symbol_name(b"log"));
 
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
 
@@ -597,12 +597,12 @@ fn test_null_string() {
     let mut mem = [72, 101, 108, 108, 111, 0];
 
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
 
 #[test]
-fn test_helper_string() {
+fn test_syscall_string() {
     let prog = &mut [
         0xb7, 0x02, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, // r2 = 5
         0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
@@ -614,14 +614,14 @@ fn test_helper_string() {
     let mut mem = [72, 101, 108, 108, 111];
 
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
 
-#[ignore] // TODO jit does not support address translation or helpers
+#[ignore] // TODO jit does not support address translation or syscalls
 #[test]
-#[should_panic(expected = "[JIT] Error: helper verifier function not supported by jit")]
-fn test_jit_call_helper_wo_verifier() {
+#[should_panic(expected = "[JIT] Error: syscall verifier function not supported by jit")]
+fn test_jit_call_syscall_wo_verifier() {
     let prog = &mut [
         0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
         0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
@@ -632,7 +632,7 @@ fn test_jit_call_helper_wo_verifier() {
     let mut mem = [72, 101, 108, 108, 111, 0];
 
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.jit_compile().unwrap();
     unsafe { assert_eq!(vm.execute_program_jit(&mut mem).unwrap(), 0); }
 }
@@ -657,26 +657,26 @@ fn test_symbol_unresolved() {
 #[test]
 #[should_panic(expected = "UnresolvedSymbol(\"log_64\", 550, 4168)")]
 fn test_symbol_unresolved_elf() {
-    let mut file = File::open("tests/elfs/unresolved_helper.so").expect("file open failed");
+    let mut file = File::open("tests/elfs/unresolved_syscall.so").expect("file open failed");
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
 
 #[test]
 fn test_custom_entrypoint() {
-    let mut file = File::open("tests/elfs/unresolved_helper.so").expect("file open failed");
+    let mut file = File::open("tests/elfs/unresolved_syscall.so").expect("file open failed");
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
     elf[24] = 80; // Move entrypoint to later in the text section
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
     assert_eq!(2, vm.get_last_instruction_count());
@@ -689,7 +689,7 @@ fn test_bpf_to_bpf_depth() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
     for i in 0..ebpf::MAX_CALL_DEPTH {
@@ -707,7 +707,7 @@ fn test_bpf_to_bpf_too_deep() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
     let mut mem = [ebpf::MAX_CALL_DEPTH as u8];
@@ -721,7 +721,7 @@ fn test_relative_call() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
     let mut mem = [1 as u8];
@@ -796,8 +796,8 @@ fn test_bpf_to_bpf_scratch_registers() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
-    vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
+    vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
     vm.set_elf(&elf).unwrap();
 
     let mut mem = [1];
@@ -811,8 +811,8 @@ fn test_bpf_to_bpf_pass_stack_reference() {
     file.read_to_end(&mut elf).unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.register_helper_ex("log", bpf_helper_string).unwrap();
-    vm.register_helper_ex("log_64", bpf_helper_u64).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
+    vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
     vm.set_elf(&elf).unwrap();
 
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 42);
@@ -862,10 +862,10 @@ fn test_large_program() {
     }
 }
 
-struct HelperWithContext<'a> {
+struct SyscallWithContext<'a> {
     context: &'a mut u64
 }
-impl<'a> ebpf::HelperObject<UserError> for HelperWithContext<'a> {
+impl<'a> ebpf::SyscallObject<UserError> for SyscallWithContext<'a> {
     fn call (
         &mut self,
         _arg1: u64,
@@ -883,21 +883,21 @@ impl<'a> ebpf::HelperObject<UserError> for HelperWithContext<'a> {
 }
 
 #[test]
-fn test_helper_with_context() {
+fn test_syscall_with_context() {
     let prog = &mut [
         0xb7, 0x02, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, // r2 = 5
         0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
         0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
     ];
-    LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"helper"));
+    LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"syscall"));
 
     let mut mem = [72, 101, 108, 108, 111]; // TODO get rid of
 
     let mut number = 42;
     {
         let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-        vm.register_helper_with_context_ex("helper", Box::new(HelperWithContext { context: &mut number})).unwrap();
+        vm.register_syscall_with_context_ex("syscall", Box::new(SyscallWithContext { context: &mut number})).unwrap();
         vm.execute_program(&mut mem, &[], &[]).unwrap();
     }
     assert_eq!(number, 84);

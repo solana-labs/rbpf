@@ -8,14 +8,14 @@
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
 extern crate solana_rbpf;
-use solana_rbpf::helpers;
+use solana_rbpf::syscalls;
 use solana_rbpf::{EbpfVm};
 use solana_rbpf::user_error::UserError;
 
 // The main objectives of this example is to show:
 //
 // * the use of EbpfVm function,
-// * and the use of a helper.
+// * and the use of a syscall.
 //
 // The two eBPF programs are independent and are not related to one another.
 fn main() {
@@ -27,18 +27,18 @@ fn main() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit and return r0
     ];
 
-    // We use helper `bpf_time_getns()`, which is similar to helper `bpf_ktime_getns()` from Linux
-    // kernel. Hence helpers module provides the index of this in-kernel helper as a
+    // We use syscall `bpf_time_getns()`, which is similar to syscall `bpf_ktime_getns()` from Linux
+    // kernel. Hence syscalls module provides the index of this in-kernel syscall as a
     // constant, so that we can remain compatible with programs for the kernel. Here we also cast
     // it to a u8 so as to use it directly in program instructions.
-    let hkey = helpers::BPF_KTIME_GETNS_IDX as u8;
+    let hkey = syscalls::BPF_KTIME_GETNS_IDX as u8;
     let prog2 = &[
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov64 r1, 0
         0xb7, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov64 r1, 0
         0xb7, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov64 r1, 0
         0xb7, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov64 r1, 0
         0xb7, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov64 r1, 0
-        0x85, 0x00, 0x00, 0x00, hkey, 0x00, 0x00, 0x00, // call helper <hkey>
+        0x85, 0x00, 0x00, 0x00, hkey, 0x00, 0x00, 0x00, // call syscall <hkey>
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit and return r0
     ];
 
@@ -48,14 +48,14 @@ fn main() {
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x3);
 
     // We know prog1 will always return 3. There is an exception: when it uses
-    // helpers, the latter may have non-deterministic values, and all calls may not return the same
+    // syscalls, the latter may have non-deterministic values, and all calls may not return the same
     // value.
     //
-    // In the following example we use a helper to get the elapsed time since boot time: we
+    // In the following example we use a syscall to get the elapsed time since boot time: we
     // reimplement uptime in eBPF, in Rust. Because why not.
 
     vm.set_program(prog2).unwrap();
-    vm.register_helper(helpers::BPF_KTIME_GETNS_IDX, helpers::bpf_time_getns).unwrap();
+    vm.register_syscall(syscalls::BPF_KTIME_GETNS_IDX, syscalls::bpf_time_getns).unwrap();
 
     let time;
 
