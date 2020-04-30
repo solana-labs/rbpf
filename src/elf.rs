@@ -399,7 +399,7 @@ impl EBpfElf {
                 section_infos.push(SectionInfo {
                     va: section.header.addr,
                     len: section.header.size,
-                    bytes: bytes,
+                    bytes,
                 });
             }
             None => {
@@ -415,7 +415,7 @@ impl EBpfElf {
                     section_infos.push(SectionInfo {
                         va: section.header.addr,
                         len: section.header.size,
-                        bytes: bytes,
+                        bytes,
                     });
                 }
                 None => (),
@@ -430,7 +430,7 @@ impl EBpfElf {
                     section_infos.push(SectionInfo {
                         va: section.header.addr,
                         len: section.header.size,
-                        bytes: bytes,
+                        bytes,
                     });
                 }
                 None => (),
@@ -445,7 +445,7 @@ impl EBpfElf {
                     section_infos.push(SectionInfo {
                         va: section.header.addr,
                         len: section.header.size,
-                        bytes: bytes,
+                        bytes,
                     });
                 }
                 None => (),
@@ -631,7 +631,7 @@ impl EBpfElf {
                 println!("{:02X?}", eight_bytes);
                 eight_bytes.clear();
             } else {
-                eight_bytes.push(i.clone());
+                eight_bytes.push(*i);
             }
         }
     }
