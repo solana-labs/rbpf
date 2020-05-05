@@ -455,8 +455,8 @@ pub enum EbpfError<E: UserDefinedError> {
     #[error("attempted to exit root call frame")]
     ExitRootCallFrame,
     /// Divide by zero"
-    #[error("devide by zero")]
-    DivideByZero,
+    #[error("devide by zero at instruction {0}")]
+    DivideByZero(usize),
     /// Exceeded max instructions allowed
     #[error("attempted to execute past the end of the text segment at instruction #{0}")]
     ExecutionOverrun(usize),
@@ -486,6 +486,15 @@ pub enum EbpfError<E: UserDefinedError> {
         u64,
         usize,
         String),
+    /// Invalid instruction
+    #[error("Invalid instruction at {0}")]
+    InvalidInstruction(usize),
+    /// Unsupported instruction
+    #[error("Unsupported instruction at instruction {0}")]
+    UnsupportedInstruction(usize),
+    /// Shift with overflow
+    #[error("Shift with overflow at instruction {0}")]
+    ShiftWithOverflow(usize),
 }
 
 // Used in JIT
@@ -662,6 +671,10 @@ pub fn get_insn(prog: &[u8], idx: usize) -> Insn {
         panic!("Error: cannot reach instruction at index {:?} in program containing {:?} bytes",
                idx, prog.len());
     }
+    get_insn_unchecked(prog, idx)
+}
+/// Same as `get_insn` except not checked
+pub fn get_insn_unchecked(prog: &[u8], idx: usize) -> Insn {
     Insn {
         opc:  prog[INSN_SIZE * idx],
         dst:  prog[INSN_SIZE * idx + 1] & 0x0f,

@@ -28,11 +28,12 @@ combine = "2.5"
 libc = "0.2"
 time = "0.1"
 byteorder = "1.2"
-elfkit = "0.0.6"
-num-traits = "0.2.5"
+goblin = "0.2.1"
 hash32 = "0.1.0"
 log = "0.4.2"
 thiserror = "1.0"
+rand = "0.7.3"
+scroll = "0.10.1"
 
 [dev-dependencies]
 

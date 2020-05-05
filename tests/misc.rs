@@ -35,6 +35,7 @@ use std::str::from_utf8;
 use byteorder::{ByteOrder, LittleEndian};
 use libc::c_char;
 use solana_rbpf::{
+    fuzz,
     assembler::assemble,
     ebpf::{self, EbpfError, UserDefinedError},
     EbpfVm,
@@ -509,6 +510,10 @@ pub fn bpf_syscall_u64(arg1: u64,
         Ok(0)
 }
 
+pub fn user_check(prog: &[u8]) -> Result<(), UserError> {
+    check(prog).map_err(|e| UserError::VerifierError(e))
+}
+
 #[test]
 fn test_load_elf() {
     let mut file = File::open("tests/elfs/noop.so").expect("file open failed");
@@ -775,7 +780,7 @@ fn test_oob_callx_low() {
 }
 
 #[test]
-#[should_panic(expected = "ExecutionOverrun(2305843008139952157)")]
+#[should_panic(expected = "CallOutsideTextSegment(4, 18446744073709551615)")]
 fn test_oob_callx_high() {
     let prog = &mut [
         0xb7, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // r0 = 0
@@ -892,8 +897,7 @@ fn test_syscall_with_context() {
     ];
     LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"syscall"));
 
-    let mut mem = [72, 101, 108, 108, 111]; // TODO get rid of
-
+    let mut mem = [72, 101, 108, 108, 111];
     let mut number = 42;
     {
         let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
@@ -901,4 +905,30 @@ fn test_syscall_with_context() {
         vm.execute_program(&mut mem, &[], &[]).unwrap();
     }
     assert_eq!(number, 84);
+}
+
+#[test]
+#[ignore]
+fn test_fuzz_execute() {
+    let mut file = File::open("tests/elfs/pass_stack_reference.so").expect("file open failed");
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+
+    println!("mangle the whole file");
+    fuzz(
+        &elf,
+        1_000_000_000,
+        100,
+        0..elf.len(),
+        0..255,
+        |bytes: &mut [u8]| {
+            let mut vm = EbpfVm::<UserError>::new(None).unwrap();
+            vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
+            vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
+            vm.set_verifier(user_check).unwrap();
+            if vm.set_elf(&bytes).is_ok() {
+                let _ = vm.execute_program(&[], &[], &[]);
+            }
+        },
+    );
 }

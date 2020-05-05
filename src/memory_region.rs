@@ -29,7 +29,8 @@ impl MemoryRegion {
         vm_addr: u64,
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
-        if self.addr_vm <= vm_addr && vm_addr + len as u64 <= self.addr_vm + self.len {
+        if self.addr_vm <= vm_addr && vm_addr.saturating_add(len as u64) <= self.addr_vm + self.len
+        {
             let host_addr = self.addr_host + (vm_addr - self.addr_vm);
             Ok(host_addr)
         } else {

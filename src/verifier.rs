@@ -77,6 +77,12 @@ pub enum VerifierError {
     /// UnknownOpCode
     #[error("unknown eBPF opcode {0:#2x} (insn #{1:?})")]
     UnknownOpCode(u8, usize),
+    /// Shift with overflow
+    #[error("Shift with overflow at instruction {0}")]
+    ShiftWithOverflow(usize),
+    /// Invalid register specified
+    #[error("Invalid register specified at instruction {0}")]
+    InvalidRegister(usize),
 }
 impl UserDefinedError for VerifierError {}
 impl From<VerifierError> for UserError {
@@ -156,11 +162,27 @@ fn check_registers(insn: &ebpf::Insn, store: bool, insn_ptr: usize) -> Result<()
     }
 }
 
+/// Check that the imm is a valid shift operand
+fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
+    if insn.imm < 0 || insn.imm as u64 >= 64 {
+        return Err(VerifierError::ShiftWithOverflow(insn_ptr));
+    }
+    Ok(())
+}
+
+/// Check that the imm is a valid register number
+fn check_imm_register(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
+    if insn.imm < 0 || insn.imm > 10 {
+        return Err(VerifierError::InvalidRegister(insn_ptr));
+    }
+    Ok(())
+}
+
 /// Default eBPF verifier
 pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
     check_prog_len(prog)?;
 
-    let mut insn_ptr:usize = 0;
+    let mut insn_ptr: usize = 0;
     while insn_ptr * ebpf::INSN_SIZE < prog.len() {
         let insn = ebpf::get_insn(prog, insn_ptr);
         let mut store = false;
@@ -200,8 +222,6 @@ pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
             ebpf::ST_H_REG   => store = true,
             ebpf::ST_W_REG   => store = true,
             ebpf::ST_DW_REG  => store = true,
-            ebpf::ST_W_XADD  => { unimplemented!(); },
-            ebpf::ST_DW_XADD => { unimplemented!(); },
 
             // BPF_ALU class
             ebpf::ADD32_IMM  => {},
@@ -216,9 +236,9 @@ pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
             ebpf::OR32_REG   => {},
             ebpf::AND32_IMM  => {},
             ebpf::AND32_REG  => {},
-            ebpf::LSH32_IMM  => {},
+            ebpf::LSH32_IMM  => { check_imm_shift(&insn, insn_ptr)?; },
             ebpf::LSH32_REG  => {},
-            ebpf::RSH32_IMM  => {},
+            ebpf::RSH32_IMM  => { check_imm_shift(&insn, insn_ptr)?; },
             ebpf::RSH32_REG  => {},
             ebpf::NEG32      => {},
             ebpf::MOD32_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
@@ -227,7 +247,7 @@ pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
             ebpf::XOR32_REG  => {},
             ebpf::MOV32_IMM  => {},
             ebpf::MOV32_REG  => {},
-            ebpf::ARSH32_IMM => {},
+            ebpf::ARSH32_IMM => { check_imm_shift(&insn, insn_ptr)?; },
             ebpf::ARSH32_REG => {},
             ebpf::LE         => { check_imm_endian(&insn, insn_ptr)?; },
             ebpf::BE         => { check_imm_endian(&insn, insn_ptr)?; },
@@ -245,18 +265,18 @@ pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
             ebpf::OR64_REG   => {},
             ebpf::AND64_IMM  => {},
             ebpf::AND64_REG  => {},
-            ebpf::LSH64_IMM  => {},
+            ebpf::LSH64_IMM  => { check_imm_shift(&insn, insn_ptr)?; },
             ebpf::LSH64_REG  => {},
-            ebpf::RSH64_IMM  => {},
+            ebpf::RSH64_IMM  => { check_imm_shift(&insn, insn_ptr)?; },
             ebpf::RSH64_REG  => {},
             ebpf::NEG64      => {},
-            ebpf::MOD64_IMM  => {},
+            ebpf::MOD64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
             ebpf::MOD64_REG  => {},
             ebpf::XOR64_IMM  => {},
             ebpf::XOR64_REG  => {},
             ebpf::MOV64_IMM  => {},
             ebpf::MOV64_REG  => {},
-            ebpf::ARSH64_IMM => {},
+            ebpf::ARSH64_IMM => { check_imm_shift(&insn, insn_ptr)?; },
             ebpf::ARSH64_REG => {},
 
             // BPF_JMP class
@@ -284,7 +304,7 @@ pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
             ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
             ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr)?; },
             ebpf::CALL_IMM   => {},
-            ebpf::CALL_REG   => {},
+            ebpf::CALL_REG   => { check_imm_register(&insn, insn_ptr)?; },
             ebpf::EXIT       => {},
 
             _                => {
