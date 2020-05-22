@@ -780,7 +780,7 @@ fn test_oob_callx_low() {
 }
 
 #[test]
-#[should_panic(expected = "CallOutsideTextSegment(4, 18446744073709551615)")]
+#[should_panic(expected = "CallOutsideTextSegment(3, 18446744073709551615)")]
 fn test_oob_callx_high() {
     let prog = &mut [
         0xb7, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // r0 = 0

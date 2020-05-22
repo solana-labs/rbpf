@@ -467,9 +467,16 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         let insn_trace = log_enabled!(log::Level::Trace);
 
         // Loop on instructions
-        let mut pc: usize = entry;
+        let mut next_pc: usize = entry;
         self.last_insn_count = 0;
-        while pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= prog.len() {
+        while next_pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= prog.len() {
+            let pc = next_pc;
+            next_pc += 1;
+            let insn = ebpf::get_insn_unchecked(prog, pc);
+            let dst = insn.dst as usize;
+            let src = insn.src as usize;
+            self.last_insn_count += 1;
+
             if insn_trace {
                 trace!("    BPF: {:5?} {:016x?} frame {:?} pc {:4?} {}",
                        self.last_insn_count,
@@ -478,11 +485,6 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                        pc + ebpf::ELF_INSN_DUMP_OFFSET,
                        disassembler::to_insn_vec(&prog[pc * ebpf::INSN_SIZE..])[0].desc);
             }
-            let insn = ebpf::get_insn_unchecked(prog, pc);
-            let dst = insn.dst as usize;
-            let src = insn.src as usize;
-            pc += 1;
-            self.last_insn_count += 1;
 
             match insn.opc {
 
@@ -531,8 +533,8 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 },
 
                 ebpf::LD_DW_IMM  => {
-                    let next_insn = ebpf::get_insn(prog, pc);
-                    pc += 1;
+                    let next_insn = ebpf::get_insn(prog, next_pc);
+                    next_pc += 1;
                     reg[dst] = (insn.imm as u32) as u64 + ((next_insn.imm as u64) << 32);
                 },
 
@@ -622,7 +624,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::DIV32_IMM  => reg[dst] = (reg[dst] as u32 / insn.imm as u32)               as u64,
                 ebpf::DIV32_REG  => {
                     if reg[src] as u32 == 0 {
-                        return Err(EbpfError::DivideByZero(pc - 1));
+                        return Err(EbpfError::DivideByZero(pc));
                     }
                                     reg[dst] = (reg[dst] as u32 / reg[src] as u32)               as u64;
                 },
@@ -638,7 +640,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::MOD32_IMM  =>   reg[dst] = (reg[dst] as u32             % insn.imm as u32) as u64,
                 ebpf::MOD32_REG  => {
                     if reg[src] as u32 == 0 {
-                        return Err(EbpfError::DivideByZero(pc - 1));
+                        return Err(EbpfError::DivideByZero(pc));
                     }
                                       reg[dst] = (reg[dst] as u32            % reg[src]  as u32) as u64;
                 },
@@ -653,7 +655,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                         16 => (reg[dst] as u16).to_le() as u64,
                         32 => (reg[dst] as u32).to_le() as u64,
                         64 =>  reg[dst].to_le(),
-                        _  => return Err(EbpfError::UnsupportedInstruction(pc - 1)),
+                        _  => return Err(EbpfError::UnsupportedInstruction(pc)),
                     };
                 },
                 ebpf::BE         => {
@@ -661,7 +663,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                         16 => (reg[dst] as u16).to_be() as u64,
                         32 => (reg[dst] as u32).to_be() as u64,
                         64 =>  reg[dst].to_be(),
-                        _  => return Err(EbpfError::UnsupportedInstruction(pc - 1)),
+                        _  => return Err(EbpfError::UnsupportedInstruction(pc)),
                     };
                 },
 
@@ -675,7 +677,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::DIV64_IMM  => reg[dst] /= insn.imm as u64,
                 ebpf::DIV64_REG  => {
                     if reg[src] == 0 {
-                        return Err(EbpfError::DivideByZero(pc - 1));
+                        return Err(EbpfError::DivideByZero(pc));
                     }
                     reg[dst] /= reg[src];
                 },
@@ -686,14 +688,14 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::LSH64_IMM  => reg[dst] <<= insn.imm as u64,
                 ebpf::LSH64_REG  => {
                     if reg[src] >= 64 {
-                        return Err(EbpfError::ShiftWithOverflow(pc - 1));
+                        return Err(EbpfError::ShiftWithOverflow(pc));
                     }
                                     reg[dst] <<= reg[src]
                 },
                 ebpf::RSH64_IMM  => reg[dst] >>= insn.imm as u64,
                 ebpf::RSH64_REG  => {
                     if reg[src] >= 64 {
-                        return Err(EbpfError::ShiftWithOverflow(pc - 1));
+                        return Err(EbpfError::ShiftWithOverflow(pc));
                     }
                                     reg[dst] >>= reg[src]
                 },
@@ -701,7 +703,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::MOD64_IMM  => reg[dst] %= insn.imm  as u64,
                 ebpf::MOD64_REG  => {
                     if reg[src] == 0 {
-                        return Err(EbpfError::DivideByZero(pc - 1));
+                        return Err(EbpfError::DivideByZero(pc));
                     }
                                     reg[dst] %= reg[src];
                 },
@@ -712,44 +714,44 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::ARSH64_IMM => reg[dst] = (reg[dst]  as i64 >> insn.imm) as u64,
                 ebpf::ARSH64_REG => {
                     if reg[src] >= 64 {
-                        return Err(EbpfError::ShiftWithOverflow(pc - 1));
+                        return Err(EbpfError::ShiftWithOverflow(pc));
                     }
                     reg[dst] = (reg[dst] as i64 >> reg[src]) as u64
                 },
 
                 // BPF_JMP class
-                ebpf::JA         =>                                            pc = (pc as isize + insn.off as isize) as usize,
-                ebpf::JEQ_IMM    => if  reg[dst] == insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JEQ_REG    => if  reg[dst] == reg[src]                 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JGT_IMM    => if  reg[dst] >  insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JGT_REG    => if  reg[dst] >  reg[src]                 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JGE_IMM    => if  reg[dst] >= insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JGE_REG    => if  reg[dst] >= reg[src]                 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JLT_IMM    => if  reg[dst] <  insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JLT_REG    => if  reg[dst] <  reg[src]                 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JLE_IMM    => if  reg[dst] <= insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JLE_REG    => if  reg[dst] <= reg[src]                 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JSET_IMM   => if  reg[dst] &  insn.imm as u64 != 0     { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JSET_REG   => if  reg[dst] &  reg[src]        != 0     { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JNE_IMM    => if  reg[dst] != insn.imm as u64          { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JNE_REG    => if  reg[dst] != reg[src]                 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JSGT_IMM   => if  reg[dst] as i64 >   insn.imm  as i64 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JSGT_REG   => if  reg[dst] as i64 >   reg[src]  as i64 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JSGE_IMM   => if  reg[dst] as i64 >=  insn.imm  as i64 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JSGE_REG   => if  reg[dst] as i64 >=  reg[src] as i64  { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JSLT_IMM   => if (reg[dst] as i64) <  insn.imm  as i64 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JSLT_REG   => if (reg[dst] as i64) <  reg[src] as i64  { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JSLE_IMM   => if (reg[dst] as i64) <= insn.imm  as i64 { pc = (pc as isize + insn.off as isize) as usize; },
-                ebpf::JSLE_REG   => if (reg[dst] as i64) <= reg[src] as i64  { pc = (pc as isize + insn.off as isize) as usize; },
+                ebpf::JA         =>                                            next_pc = (next_pc as isize + insn.off as isize) as usize,
+                ebpf::JEQ_IMM    => if  reg[dst] == insn.imm as u64          { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JEQ_REG    => if  reg[dst] == reg[src]                 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JGT_IMM    => if  reg[dst] >  insn.imm as u64          { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JGT_REG    => if  reg[dst] >  reg[src]                 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JGE_IMM    => if  reg[dst] >= insn.imm as u64          { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JGE_REG    => if  reg[dst] >= reg[src]                 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JLT_IMM    => if  reg[dst] <  insn.imm as u64          { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JLT_REG    => if  reg[dst] <  reg[src]                 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JLE_IMM    => if  reg[dst] <= insn.imm as u64          { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JLE_REG    => if  reg[dst] <= reg[src]                 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JSET_IMM   => if  reg[dst] &  insn.imm as u64 != 0     { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JSET_REG   => if  reg[dst] &  reg[src]        != 0     { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JNE_IMM    => if  reg[dst] != insn.imm as u64          { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JNE_REG    => if  reg[dst] != reg[src]                 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JSGT_IMM   => if  reg[dst] as i64 >   insn.imm  as i64 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JSGT_REG   => if  reg[dst] as i64 >   reg[src]  as i64 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JSGE_IMM   => if  reg[dst] as i64 >=  insn.imm  as i64 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JSGE_REG   => if  reg[dst] as i64 >=  reg[src] as i64  { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JSLT_IMM   => if (reg[dst] as i64) <  insn.imm  as i64 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JSLT_REG   => if (reg[dst] as i64) <  reg[src] as i64  { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JSLE_IMM   => if (reg[dst] as i64) <= insn.imm  as i64 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+                ebpf::JSLE_REG   => if (reg[dst] as i64) <= reg[src] as i64  { next_pc = (next_pc as isize + insn.off as isize) as usize; },
 
                 ebpf::CALL_REG   => {
                     let target_address = reg[insn.imm as usize];
                     reg[ebpf::STACK_REG] =
-                        frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], pc)?;
+                        frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
                     if target_address < ebpf::MM_PROGRAM_START {
-                        return Err(EbpfError::CallOutsideTextSegment(pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET, reg[insn.imm as usize]));
+                        return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, reg[insn.imm as usize]));
                     }
-                    pc = Self::check_pc(&prog, pc, (target_address - prog_addr) as usize / ebpf::INSN_SIZE)?;
+                    next_pc = Self::check_pc(&prog, pc, (target_address - prog_addr) as usize / ebpf::INSN_SIZE)?;
                 },
 
                 // Do not delegate the check to the verifier, since registered functions can be
@@ -768,15 +770,15 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call
                             reg[ebpf::STACK_REG] =
-                                frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], pc)?;
-                            pc = Self::check_pc(&prog, pc, *new_pc)?;
+                                frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
+                            next_pc = Self::check_pc(&prog, pc, *new_pc)?;
                         } else {
-                            elf.report_unresolved_symbol(pc - 1)?;
+                            elf.report_unresolved_symbol(pc)?;
                         }
                     } else {
                         // Note: Raw BPF programs (without ELF relocations) cannot support relative calls
                         // because there is no way to determine if the imm refers to a syscall or an offset
-                        return Err(EbpfError::UnresolvedSymbol(pc - 1 + ebpf::ELF_INSN_DUMP_OFFSET));
+                        return Err(EbpfError::UnresolvedSymbol(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                 },
 
@@ -787,7 +789,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                             reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                                 .copy_from_slice(&saved_reg);
                             reg[ebpf::STACK_REG] = stack_ptr;
-                            pc = Self::check_pc(&prog, pc, ptr)?;
+                            next_pc = Self::check_pc(&prog, pc, ptr)?;
                         },
                         _ => {
                             debug!("BPF instructions executed: {:?}", self.last_insn_count);
@@ -796,14 +798,14 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                         },
                     }
                 },
-                _                => return Err(EbpfError::UnsupportedInstruction(pc - 1)),
+                _                => return Err(EbpfError::UnsupportedInstruction(pc)),
             }
             if (self.max_insn_count != 0) && (self.last_insn_count >= self.max_insn_count) {
                 return Err(EbpfError::ExceededMaxInstructions(self.max_insn_count));
             }
         }
 
-        Err(EbpfError::ExecutionOverrun(pc + ebpf::ELF_INSN_DUMP_OFFSET))
+        Err(EbpfError::ExecutionOverrun(next_pc + ebpf::ELF_INSN_DUMP_OFFSET))
     }
 
     fn check_pc(prog: &[u8], current_pc: usize, new_pc: usize) -> Result<usize, EbpfError<E>> {

@@ -74,12 +74,9 @@ pub fn translate_addr<E: UserDefinedError>(
             );
         }
     }
-    if pc == 0 {
-        pc = 1;
-    };
     Err(EbpfError::AccessViolation(
         access_type.to_string(),
-        pc - 1 + ELF_INSN_DUMP_OFFSET,
+        pc + ELF_INSN_DUMP_OFFSET,
         vm_addr,
         len,
         regions_string,
