@@ -26,7 +26,7 @@ use thiserror::Error;
 extern crate libc;
 
 /// Error definitions
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum JITError {
     /// Failed to parse ELF file
     #[error("Unknown eBPF opcode {0:#2x} (insn #{1:?})")]

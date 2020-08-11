@@ -30,7 +30,7 @@ use user_error::UserError;
 use thiserror::Error;
 
 /// Error definitions
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum VerifierError {
     /// ProgramLengthNotMultiple
     #[error("program length must be a multiple of {} octets", ebpf::INSN_SIZE)]

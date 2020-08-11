@@ -425,7 +425,7 @@ pub const EXIT       : u8 = BPF_JMP   | BPF_EXIT;
 pub trait UserDefinedError: 'static + Error {}
 
 /// Error definitions
-#[derive(Debug, ThisError)]
+#[derive(Debug, PartialEq, ThisError)]
 pub enum EbpfError<E: UserDefinedError> {
     /// User defined error
     #[error("{0}")]
