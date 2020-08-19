@@ -166,7 +166,7 @@ dependencies = [
 
 [[package]]
 name = "solana_rbpf"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "combine 2.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
