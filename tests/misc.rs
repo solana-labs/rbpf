@@ -39,10 +39,10 @@ use solana_rbpf::{
     assembler::assemble,
     ebpf::{self, EbpfError, UserDefinedError},
     EbpfVm,
-    syscalls,
     memory_region::{MemoryRegion, translate_addr},
     user_error::UserError,
     verifier::{check, VerifierError},
+    InstructionMeter,
 };
 use thiserror::Error;
 
@@ -400,6 +400,34 @@ fn test_verifier_fail() {
     vm.set_program(&prog).unwrap();
 }
 
+const BPF_TRACE_PRINTK_IDX: u32 = 6;
+fn bpf_trace_printf<E: UserDefinedError> (
+    _arg1: u64,
+    _arg2: u64,
+    _arg3: u64,
+    _arg4: u64,
+    _arg5: u64,
+    _ro_regions: &[MemoryRegion],
+    _rw_regions: &[MemoryRegion]
+) -> Result<u64, EbpfError<E>> {
+    Ok(0)
+}
+
+struct TestInstructionMeter {
+    remaining: u64,
+}
+impl InstructionMeter for TestInstructionMeter {
+    fn consume(&mut self, amount: u64) {
+        if amount > self.remaining {
+            panic!("Execution count exceeded");
+        }
+        self.remaining = self.remaining.saturating_sub(amount);
+    }
+    fn get_remaining(&self) -> u64 {
+        self.remaining
+    }
+}
+
 #[test]
 #[should_panic(expected = "ExceededMaxInstructions(1000)")]
 fn test_non_terminating() {
@@ -416,9 +444,9 @@ fn test_non_terminating() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_syscall(syscalls::BPF_TRACE_PRINTK_IDX, syscalls::bpf_trace_printf).unwrap();
-    vm.set_max_instruction_count(1000).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    vm.register_syscall(BPF_TRACE_PRINTK_IDX, bpf_trace_printf).unwrap();
+    let mut instruction_meter = TestInstructionMeter{remaining: 1000 };
+    let _ = vm.execute_program_metered(&[], &[], &[], instruction_meter).unwrap();
 }
 
 #[test]
@@ -436,10 +464,10 @@ fn test_non_terminate_capped() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_syscall(syscalls::BPF_TRACE_PRINTK_IDX, syscalls::bpf_trace_printf).unwrap();
-    vm.set_max_instruction_count(6).unwrap();
-    let _ = vm.execute_program(&[], &[], &[]);
-    assert!(vm.get_last_instruction_count() == 6);
+    vm.register_syscall(BPF_TRACE_PRINTK_IDX, bpf_trace_printf).unwrap();
+    let mut instruction_meter = TestInstructionMeter{remaining: 6 };
+    let _ = vm.execute_program_metered(&[], &[], &[], instruction_meter);
+    assert_eq!(vm.get_total_instruction_count(),6);
 }
 
 #[test]
@@ -457,22 +485,58 @@ fn test_non_terminate_early() {
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_syscall(syscalls::BPF_TRACE_PRINTK_IDX, syscalls::bpf_trace_printf).unwrap();
-    vm.set_max_instruction_count(1000).unwrap();
-    let _ = vm.execute_program(&[], &[], &[]);
-    assert!(vm.get_last_instruction_count() == 1000);
+    let mut instruction_meter = TestInstructionMeter{remaining: 100 };
+    let _ = vm.execute_program_metered(&[], &[], &[], instruction_meter);
+    assert_eq!(vm.get_total_instruction_count(), 7);
 }
 
 #[test]
-fn test_get_last_instruction_count() {
+fn test_get_total_instruction_count() {
     let prog = &[
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    vm.register_syscall(syscalls::BPF_TRACE_PRINTK_IDX, syscalls::bpf_trace_printf).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
-    println!("count {:?}", vm.get_last_instruction_count());
-    assert!(vm.get_last_instruction_count() == 1);
+    assert_eq!(vm.get_total_instruction_count(),1);
+}
+
+#[test]
+fn test_get_total_instruction_count_with_syscall() {
+    let prog = &mut [
+        0xb7, 0x02, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, // r2 = 5
+        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
+        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    ];
+    LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"log"));
+
+    let mut mem = [72, 101, 108, 108, 111];
+
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
+    let mut instruction_meter = TestInstructionMeter{remaining: 4 };
+    let _ = vm.execute_program_metered(&mut mem, &[], &[], instruction_meter);
+    assert_eq!(vm.get_total_instruction_count(),4);
+}
+
+#[test]
+#[should_panic(expected = "ExceededMaxInstructions(3)")]
+fn test_get_total_instruction_count_with_syscall_capped() {
+    let prog = &mut [
+        0xb7, 0x02, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, // r2 = 5
+        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
+        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    ];
+    LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"log"));
+
+    let mut mem = [72, 101, 108, 108, 111];
+
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    vm.register_syscall(BPF_TRACE_PRINTK_IDX, bpf_trace_printf).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
+    let mut instruction_meter = TestInstructionMeter{remaining: 3 };
+    vm.execute_program_metered(&mut mem, &[], &[], instruction_meter).unwrap();
 }
 
 pub fn bpf_syscall_string(vm_addr: u64,
@@ -684,7 +748,7 @@ fn test_custom_entrypoint() {
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.set_elf(&elf).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
-    assert_eq!(2, vm.get_last_instruction_count());
+    assert_eq!(2, vm.get_total_instruction_count());
 }
 
 #[test]
@@ -698,7 +762,6 @@ fn test_bpf_to_bpf_depth() {
     vm.set_elf(&elf).unwrap();
 
     for i in 0..ebpf::MAX_CALL_DEPTH {
-        println!("Depth: {:?}", i);
         let mut mem = [i as u8];
         assert_eq!(vm.execute_program(&mut mem, &[], &[]).unwrap(), 0);
     }

@@ -158,6 +158,24 @@ impl CallFrames {
     }
 }
 
+/// Instruction meter
+pub trait InstructionMeter {
+    /// Consume instructions
+    fn consume(&mut self, amount: u64);
+    /// Get the number of remaining instructions allowed
+    fn get_remaining(&self) -> u64;
+}
+
+struct DefaultInstructionMeter {}
+impl InstructionMeter for DefaultInstructionMeter {
+    fn consume(&mut self, _amount: u64) {
+        println!("default consume {:?}", _amount);
+    }
+    fn get_remaining(&self) -> u64 {
+        u64::MAX
+    }
+}
+
 /// A virtual machine to run eBPF program.
 ///
 /// # Examples
@@ -181,13 +199,13 @@ impl CallFrames {
 /// assert_eq!(res, 0);
 /// ```
 pub struct EbpfVm<'a, E: UserDefinedError> {
-    prog:            Option<&'a [u8]>,
-    elf:             Option<EBpfElf>,
-    verifier:        Option<Verifier<E>>,
-    jit:             Option<JitProgram>,
+    prog:             Option<&'a [u8]>,
+    elf:              Option<EBpfElf>,
+    verifier:         Option<Verifier<E>>,
+    jit:              Option<JitProgram>,
     syscalls:         HashMap<u32, Syscall<'a, E>>,
-    max_insn_count:  u64,
-    last_insn_count: u64,
+    last_insn_count:  u64,
+    total_insn_count: u64,
 }
 
 impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
@@ -210,13 +228,13 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// ```
     pub fn new(prog: Option<&'a [u8]>) -> Result<EbpfVm<'a, E>, EbpfError<E>> {
         Ok(EbpfVm {
-            prog:            prog,
-            elf:             None,
-            verifier:        None,
-            jit:             None,
+            prog:             prog,
+            elf:              None,
+            verifier:         None,
+            jit:              None,
             syscalls:         HashMap::new(),
-            max_insn_count:  0,
-            last_insn_count: 0,
+            last_insn_count:  0,
+            total_insn_count: 0,
         })
     }
 
@@ -300,15 +318,9 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         Ok(())
     }
 
-    /// Set a cap on the maximum number of instructions that a program may execute.
-    pub fn set_max_instruction_count(&mut self, count: u64) -> Result<(), EbpfError<E>> {
-        self.max_insn_count = count;
-        Ok(())
-    }
-
     /// Returns the number of instructions executed by the last program.
-    pub fn get_last_instruction_count(&self) -> u64 {
-        self.last_insn_count
+    pub fn get_total_instruction_count(&self) -> u64 {
+        self.total_insn_count
     }
 
     /// Register a built-in or user-defined syscall function in order to use it later from within
@@ -366,8 +378,8 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// have the hash of the symbol name in its imm field.  To generate the correct hash of the
     /// symbol name use `ebpf::syscalls::hash_symbol_name`.
     pub fn register_syscall_ex(&mut self,
-                              name: &str,
-                              syscall: SyscallFunction<E>,
+                               name: &str,
+                               syscall: SyscallFunction<E>,
     ) -> Result<(), EbpfError<E>> {
         self.syscalls.insert(ebpf::hash_symbol_name(name.as_bytes()), Syscall::Function(syscall));
         Ok(())
@@ -379,12 +391,14 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         name: &str,
         syscall: Box<dyn SyscallObject<E> + 'a>,
     ) -> Result<(), EbpfError<E>> {
-    self.syscalls.insert(ebpf::hash_symbol_name(name.as_bytes()), Syscall::Object(syscall));
-    Ok(())
+        self.syscalls.insert(ebpf::hash_symbol_name(name.as_bytes()), Syscall::Object(syscall));
+        Ok(())
     }
 
-    /// Execute the program loaded, with the given packet data.
+    /// Execute the program loaded, with the given packet data. 
     ///
+    /// Warning: The program is executed without limiting the number of
+    /// instructions that can be executed
     ///
     /// # Examples
     ///
@@ -406,13 +420,39 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// let res = vm.execute_program(mem, &[], &[]).unwrap();
     /// assert_eq!(res, 0);
     /// ```
-    #[allow(unknown_lints)]
-    #[allow(cyclomatic_complexity)]
-    #[allow(cognitive_complexity)]
     pub fn execute_program(&mut self,
                            mem: &[u8],
                            granted_ro_regions: &[MemoryRegion],
                            granted_rw_regions: &[MemoryRegion],
+    ) -> Result<u64, EbpfError<E>> {
+        self.execute_program_metered(mem,
+                                     granted_ro_regions,
+                                     granted_rw_regions,
+                                     DefaultInstructionMeter{})
+    }
+
+    /// Execute the program loaded, with the given packet data and instruction meter. 
+    pub fn execute_program_metered<I: InstructionMeter>(&mut self,
+        mem: &[u8],
+        granted_ro_regions: &[MemoryRegion],
+        granted_rw_regions: &[MemoryRegion],
+        mut instruction_meter: I,
+    ) -> Result<u64, EbpfError<E>> {
+        let result = self.execute_program_inner(mem,
+                                                  granted_ro_regions,
+                                                  granted_rw_regions,
+                                                  &mut instruction_meter);
+        instruction_meter.consume(self.last_insn_count);
+        result
+    }
+    #[allow(unknown_lints)]
+    #[allow(cyclomatic_complexity)]
+    #[allow(cognitive_complexity)]
+    fn execute_program_inner<I: InstructionMeter>(&mut self,
+                                                      mem: &[u8],
+                                                      granted_ro_regions: &[MemoryRegion],
+                                                      granted_rw_regions: &[MemoryRegion],
+                                                      mut instruction_meter: &mut I
     ) -> Result<u64, EbpfError<E>> {
         const U32MAX: u64 = u32::MAX as u64;
 
@@ -468,7 +508,9 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
 
         // Loop on instructions
         let mut next_pc: usize = entry;
+        let mut remaining_insn_count = instruction_meter.get_remaining();
         self.last_insn_count = 0;
+        self.total_insn_count = 0;
         while next_pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= prog.len() {
             let pc = next_pc;
             next_pc += 1;
@@ -476,10 +518,11 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
             let dst = insn.dst as usize;
             let src = insn.src as usize;
             self.last_insn_count += 1;
+            self.total_insn_count += 1;
 
             if insn_trace {
                 trace!("    BPF: {:5?} {:016x?} frame {:?} pc {:4?} {}",
-                       self.last_insn_count,
+                       self.total_insn_count,
                        reg,
                        frames.get_frame_index(),
                        pc + ebpf::ELF_INSN_DUMP_OFFSET,
@@ -758,6 +801,8 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 // changed after the program has been verified.
                 ebpf::CALL_IMM   => {
                     if let Some(mut syscall) = self.syscalls.get_mut(&(insn.imm as u32)) {
+                        let _ = instruction_meter.consume(self.last_insn_count);
+                        self.last_insn_count = 0;
                         reg[0] = match syscall {
                             Syscall::Function(syscall) => {
                                 syscall(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?
@@ -766,6 +811,8 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                                 syscall.call(reg[1], reg[2], reg[3], reg[4], reg[5], &ro_regions, &rw_regions)?
                             }
                         };
+                        remaining_insn_count = instruction_meter.get_remaining();
+
                     } else if let Some(ref elf) = self.elf {
                         if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
                             // make BPF to BPF call
@@ -792,7 +839,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                             next_pc = Self::check_pc(&prog, pc, ptr)?;
                         },
                         _ => {
-                            debug!("BPF instructions executed: {:?}", self.last_insn_count);
+                            debug!("BPF instructions executed: {:?}", self.total_insn_count);
                             debug!("Max frame depth reached: {:?}", frames.get_max_frame_index());
                             return Ok(reg[0])
                         },
@@ -800,8 +847,9 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 },
                 _                => return Err(EbpfError::UnsupportedInstruction(pc)),
             }
-            if (self.max_insn_count != 0) && (self.last_insn_count >= self.max_insn_count) {
-                return Err(EbpfError::ExceededMaxInstructions(self.max_insn_count));
+            println!("last {:?} remaining {:?} remaining {:?}", self.last_insn_count, remaining_insn_count, instruction_meter.get_remaining());
+            if self.last_insn_count >= remaining_insn_count {
+                return Err(EbpfError::ExceededMaxInstructions(self.total_insn_count));
             }
         }
 
