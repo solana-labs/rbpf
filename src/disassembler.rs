@@ -4,15 +4,10 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-
 //! Functions in this module are used to handle eBPF programs with a higher level representation,
 //! for example to disassemble the code into a human-readable format.
 
-#![allow(clippy::deprecated_cfg_attr)]
-#![cfg_attr(rustfmt, rustfmt_skip)]
-
 use ebpf;
-// use ebpf::{OpCodes};
 
 #[inline]
 fn alu_imm_str(name: &str, insn: &ebpf::Insn) -> String {
@@ -27,8 +22,11 @@ fn alu_reg_str(name: &str, insn: &ebpf::Insn) -> String {
 #[inline]
 fn byteswap_str(name: &str, insn: &ebpf::Insn) -> String {
     match insn.imm {
-        16 | 32 | 64 => {},
-        _ => println!("[Disassembler] Warning: Invalid offset value for {} insn", name)
+        16 | 32 | 64 => {}
+        _ => println!(
+            "[Disassembler] Warning: Invalid offset value for {} insn",
+            name
+        ),
     }
     format!("{}{} r{}", name, insn.imm, insn.dst)
 }
@@ -86,20 +84,20 @@ fn jmp_reg_str(name: &str, insn: &ebpf::Insn) -> String {
 #[derive(Debug, PartialEq)]
 pub struct HLInsn {
     /// Operation code.
-    pub opc:  u8,
+    pub opc: u8,
     /// Name (mnemonic). This name is not canon.
     pub name: String,
     /// Description of the instruction. This is not canon.
     pub desc: String,
     /// Destination register operand.
-    pub dst:  u8,
+    pub dst: u8,
     /// Source register operand.
-    pub src:  u8,
+    pub src: u8,
     /// Offset operand.
-    pub off:  i16,
+    pub off: i16,
     /// Immediate value operand. For `LD_DW_IMM` instructions, contains the whole value merged from
     /// the two 8-bytes parts of the instruction.
-    pub imm:  i64,
+    pub imm: i64,
 }
 
 /// Return a vector of `struct HLInsn` built from an eBPF program.
@@ -153,6 +151,7 @@ pub struct HLInsn {
 ///     },
 /// ]);
 /// ```
+#[rustfmt::skip]
 pub fn to_insn_vec(prog: &[u8]) -> Vec<HLInsn> {
     if prog.len() % ebpf::INSN_SIZE != 0 {
         panic!("[Disassembler] Error: eBPF program length must be a multiple of {:?} octets is {:?}",

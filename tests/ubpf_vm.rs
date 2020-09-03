@@ -27,9 +27,7 @@
 extern crate solana_rbpf;
 mod common;
 
-use solana_rbpf::{syscalls, EbpfVm};
-use solana_rbpf::assembler::assemble;
-use solana_rbpf::user_error::UserError;
+use solana_rbpf::{syscalls, vm::EbpfVm,assembler::assemble,user_error::UserError};
 use common::{TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 
 #[test]

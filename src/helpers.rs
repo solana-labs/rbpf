@@ -20,10 +20,6 @@
 //! value. Hence some syscalls have unused arguments, or return a 0 value in all cases, in order to
 //! respect this convention.
 
-#![cfg_attr(rustfmt, rustfmt_skip)]
-
-extern crate libc;
-
 use std::u64;
 use time;
 use crate::{ebpf::{EbpfError, UserDefinedError}, memory_region::{MemoryRegion, translate_addr}};

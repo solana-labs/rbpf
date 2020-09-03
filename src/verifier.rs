@@ -8,7 +8,6 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-
 //! This “verifier” performs simple checks when the eBPF program is loaded into the VM (before it is
 //! interpreted or JIT-compiled). It has nothing to do with the much more elaborated verifier inside
 //! Linux kernel. There is no verification regarding the program flow control (should be a Direct
@@ -22,12 +21,12 @@
 //!
 //! Contrary to the verifier of the Linux kernel, this one does not modify the bytecode at all.
 
-#![allow(clippy::deprecated_cfg_attr)]
-#![cfg_attr(rustfmt, rustfmt_skip)]
-
-use ebpf::{self, UserDefinedError};
-use user_error::UserError;
+use crate::{
+    ebpf::{self},
+    error::UserDefinedError,
+};
 use thiserror::Error;
+use user_error::UserError;
 
 /// Error definitions
 #[derive(Debug, Error, PartialEq)]
@@ -93,7 +92,7 @@ impl From<VerifierError> for UserError {
 
 fn check_prog_len(prog: &[u8]) -> Result<(), VerifierError> {
     if prog.len() % ebpf::INSN_SIZE != 0 {
-       return Err(VerifierError::ProgramLengthNotMultiple);
+        return Err(VerifierError::ProgramLengthNotMultiple);
     }
     if prog.len() > ebpf::PROG_MAX_SIZE {
         return Err(VerifierError::ProgramTooLarge(prog.len() / ebpf::INSN_SIZE));
@@ -142,11 +141,17 @@ fn check_jmp_offset(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
 
     let dst_insn_ptr = insn_ptr as isize + 1 + insn.off as isize;
     if dst_insn_ptr < 0 || dst_insn_ptr as usize >= (prog.len() / ebpf::INSN_SIZE) {
-        return Err(VerifierError::JumpOutOfCode(dst_insn_ptr as usize, insn_ptr));
+        return Err(VerifierError::JumpOutOfCode(
+            dst_insn_ptr as usize,
+            insn_ptr,
+        ));
     }
     let dst_insn = ebpf::get_insn(prog, dst_insn_ptr as usize);
     if dst_insn.opc == 0 {
-        return Err(VerifierError::JumpToMiddleOfLDDW(dst_insn_ptr as usize, insn_ptr));
+        return Err(VerifierError::JumpToMiddleOfLDDW(
+            dst_insn_ptr as usize,
+            insn_ptr,
+        ));
     }
     Ok(())
 }
@@ -179,6 +184,7 @@ fn check_imm_register(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), Verifier
 }
 
 /// Default eBPF verifier
+#[rustfmt::skip]
 pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
     check_prog_len(prog)?;
 

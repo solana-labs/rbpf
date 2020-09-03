@@ -24,10 +24,7 @@
 
 extern crate solana_rbpf;
 
-use solana_rbpf::assembler::assemble;
-use solana_rbpf::ebpf;
-use solana_rbpf::EbpfVm;
-use solana_rbpf::verifier::{check, VerifierError};
+use solana_rbpf::{assembler::assemble,ebpf,vm::EbpfVm,verifier::{check, VerifierError}};
 
 #[test]
 #[should_panic(expected = "UserError(DivisionByZero(1))")]

@@ -1,6 +1,9 @@
 //! This module defines memory regions
 
-use crate::ebpf::{EbpfError, UserDefinedError, ELF_INSN_DUMP_OFFSET};
+use crate::{
+    ebpf::ELF_INSN_DUMP_OFFSET,
+    error::{EbpfError, UserDefinedError},
+};
 use std::fmt;
 
 /// Memory region for bounds checking and address translation
@@ -53,7 +56,7 @@ pub fn translate_addr<E: UserDefinedError>(
     vm_addr: u64,
     len: usize,
     access_type: &str,
-    mut pc: usize, // TODO syscalls don't have this info
+    pc: usize, // TODO syscalls don't have this info
     regions: &[MemoryRegion],
 ) -> Result<u64, EbpfError<E>> {
     for region in regions.iter() {

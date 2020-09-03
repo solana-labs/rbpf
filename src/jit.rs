@@ -19,8 +19,7 @@ use std::fmt::Formatter;
 use std::fmt::Error as FormatterError;
 use std::ops::{Index, IndexMut};
 
-use ebpf::{self, UserDefinedError};
-use JitProgram;
+use crate::{vm::JitProgram, error::UserDefinedError, vm::Syscall, call_frames::CALL_FRAME_SIZE, ebpf::{self}};
 use thiserror::Error;
 
 extern crate libc;
@@ -92,8 +91,8 @@ macro_rules! emit_bytes {
         let size = mem::size_of::<$t>() as usize;
         assert!($jit.offset + size <= $jit.contents.len());
         unsafe {
-            #[allow(cast_ptr_alignment)]
-            let mut ptr = $jit.contents.as_ptr().add($jit.offset) as *mut $t;
+            #[allow(clippy::cast_ptr_alignment)]
+            let ptr = $jit.contents.as_ptr().add($jit.offset) as *mut $t;
             *ptr = $data as $t;
         }
         $jit.offset += size;
@@ -312,9 +311,8 @@ fn emit_load_imm(jit: &mut JitMemory, dst: u8, imm: i64) {
 // Store register src to [dst + offset]
 #[inline]
 fn emit_store(jit: &mut JitMemory, size: OperandSize, src: u8, dst: u8, offset: i32) {
-    match size {
-        OperandSize::S16 => emit1(jit, 0x66), // 16-bit override
-        _ => {},
+    if let OperandSize::S16 = size {
+        emit1(jit, 0x66) // 16-bit override
     };
     let (is_s8, is_u64, rexw) = match size {
         OperandSize::S8  => (true, false, 0),
@@ -340,9 +338,8 @@ fn emit_store(jit: &mut JitMemory, size: OperandSize, src: u8, dst: u8, offset: 
 // Store immediate to [dst + offset]
 #[inline]
 fn emit_store_imm32(jit: &mut JitMemory, size: OperandSize, dst: u8, offset: i32, imm: i32) {
-    match size {
-        OperandSize::S16 => emit1(jit, 0x66), // 16-bit override
-        _ => {},
+    if let OperandSize::S16 = size {
+        emit1(jit, 0x66) // 16-bit override
     };
     match size {
         OperandSize::S64 => emit_basic_rex(jit, 1, 0, dst),
@@ -472,7 +469,7 @@ impl<'a> JitMemory<'a> {
 
     fn jit_compile<E: UserDefinedError>(&mut self, prog: &[u8],
                    _syscalls: &HashMap<u32,
-                   ebpf::Syscall<'a, E>>) -> Result<(), JITError> {
+                   Syscall<'a, E>>) -> Result<(), JITError> {
         emit_push(self, RBP);
         emit_push(self, RBX);
         emit_push(self, R13);
@@ -495,7 +492,7 @@ impl<'a> JitMemory<'a> {
         emit_mov(self, RSP, map_register(10));
 
         // Allocate stack space
-        emit_alu64_imm32(self, 0x81, 5, RSP, ebpf::STACK_FRAME_SIZE as i32);
+        emit_alu64_imm32(self, 0x81, 5, RSP, CALL_FRAME_SIZE as i32);
 
         self.pc_locs = vec![0; prog.len() / ebpf::INSN_SIZE + 1];
 
@@ -802,7 +799,7 @@ impl<'a> JitMemory<'a> {
         }
 
         // Deallocate stack space
-        emit_alu64_imm32(self, 0x81, 0, RSP, ebpf::STACK_FRAME_SIZE as i32);
+        emit_alu64_imm32(self, 0x81, 0, RSP, CALL_FRAME_SIZE as i32);
 
         emit_pop(self, R15);
         emit_pop(self, R14);
@@ -888,7 +885,7 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
 }
 
 // In the end, this is the only thing we export
-pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8], syscalls: &HashMap<u32, ebpf::Syscall<'a, E>>)
+pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8], syscalls: &HashMap<u32, Syscall<'a, E>>)
     -> Result<JitProgram, JITError> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum

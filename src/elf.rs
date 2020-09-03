@@ -7,7 +7,6 @@
 // this loader will need to be re-written to use the program headers instead.
 
 extern crate goblin;
-extern crate rand;
 extern crate scroll;
 
 use byteorder::{ByteOrder, LittleEndian};
@@ -17,7 +16,6 @@ use elf::goblin::{
     error::Error as GoblinError,
 };
 use std::{collections::HashMap, mem, ops::Range, str};
-
 use thiserror::Error;
 
 /// Error definitions
@@ -179,7 +177,7 @@ pub struct EBpfElf {
 impl EBpfElf {
     /// Fully loads an ELF, including validation and relocation
     pub fn load(bytes: &[u8]) -> Result<Self, ELFError> {
-        let mut elf = Elf::parse(bytes)?;
+        let elf = Elf::parse(bytes)?;
         let mut elf_bytes = bytes.to_vec();
         Self::validate(&elf, &elf_bytes)?;
 
@@ -274,21 +272,20 @@ impl EBpfElf {
 
         let mut name = "Unknown";
         for relocation in &elf.dynrels {
-            match BPFRelocationType::from_x86_relocation_type(relocation.r_type) {
-                Some(BPFRelocationType::R_BPF_64_32) => {
-                    if relocation.r_offset as usize == file_offset {
-                        let sym = elf
-                            .dynsyms
-                            .get(relocation.r_sym)
-                            .ok_or(ELFError::UnknownSymbol(relocation.r_sym))?;
-                        name = elf
-                            .dynstrtab
-                            .get(sym.st_name)
-                            .ok_or(ELFError::UnknownSymbol(sym.st_name))?
-                            .map_err(|_| ELFError::UnknownSymbol(sym.st_name))?;
-                    }
+            if let Some(BPFRelocationType::R_BPF_64_32) =
+                BPFRelocationType::from_x86_relocation_type(relocation.r_type)
+            {
+                if relocation.r_offset as usize == file_offset {
+                    let sym = elf
+                        .dynsyms
+                        .get(relocation.r_sym)
+                        .ok_or(ELFError::UnknownSymbol(relocation.r_sym))?;
+                    name = elf
+                        .dynstrtab
+                        .get(sym.st_name)
+                        .ok_or(ELFError::UnknownSymbol(sym.st_name))?
+                        .map_err(|_| ELFError::UnknownSymbol(sym.st_name))?;
                 }
-                _ => (),
             }
         }
         Err(ELFError::UnresolvedSymbol(
@@ -325,7 +322,7 @@ impl EBpfElf {
                 }
 
                 insn.imm = hash as i32;
-                let mut checked_slice = elf_bytes
+                let checked_slice = elf_bytes
                     .get_mut(i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE)
                     .ok_or(ELFError::OutOfBounds)?;
                 checked_slice.copy_from_slice(&insn.to_vec());
@@ -538,8 +535,7 @@ impl EBpfElf {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::fuzz;
-    use ebpf;
+    use crate::{ebpf, fuzz::fuzz};
     use elf::scroll::Pwrite;
     use rand::{distributions::Uniform, Rng};
     use std::{collections::HashMap, fs::File, io::Read};
@@ -591,7 +587,7 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        let mut elf = EBpfElf::load(&elf_bytes).expect("validation failed");
+        let elf = EBpfElf::load(&elf_bytes).expect("validation failed");
         let mut parsed_elf = Elf::parse(&elf_bytes).unwrap();
         let initial_e_entry = parsed_elf.header.e_entry;
 
@@ -604,7 +600,7 @@ mod test {
         parsed_elf.header.e_entry = parsed_elf.header.e_entry + 8;
         let mut elf_bytes = elf_bytes.clone();
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
-        let mut elf = EBpfElf::load(&elf_bytes).expect("validation failed");
+        let elf = EBpfElf::load(&elf_bytes).expect("validation failed");
         assert_eq!(
             1,
             elf.get_entrypoint_instruction_offset()
@@ -635,7 +631,7 @@ mod test {
         parsed_elf.header.e_entry = initial_e_entry;
         let mut elf_bytes = elf_bytes.clone();
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
-        let mut elf = EBpfElf::load(&elf_bytes).expect("validation failed");
+        let elf = EBpfElf::load(&elf_bytes).expect("validation failed");
         assert_eq!(
             0,
             elf.get_entrypoint_instruction_offset()
@@ -801,7 +797,7 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        let mut parsed_elf = Elf::parse(&elf_bytes).unwrap();
+        let parsed_elf = Elf::parse(&elf_bytes).unwrap();
 
         // focus on elf header, small typically 64 bytes
         println!("mangle elf header");

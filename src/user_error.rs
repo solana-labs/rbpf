@@ -1,6 +1,6 @@
 //! This module defines an example user error definition
 
-use crate::{ebpf::UserDefinedError, verifier::VerifierError};
+use crate::{error::UserDefinedError, verifier::VerifierError};
 use thiserror::Error;
 
 /// User defined error

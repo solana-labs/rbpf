@@ -35,14 +35,14 @@ use std::str::from_utf8;
 use byteorder::{ByteOrder, LittleEndian};
 use libc::c_char;
 use solana_rbpf::{
-    fuzz,
+    fuzz::fuzz,
     assembler::assemble,
-    ebpf::{self, EbpfError, UserDefinedError},
-    EbpfVm,
+    ebpf::{self}, error::{EbpfError, UserDefinedError},
+    vm::{EbpfVm,InstructionMeter,SyscallObject},
+    call_frames::MAX_CALL_DEPTH,
     memory_region::{MemoryRegion, translate_addr},
     user_error::UserError,
     verifier::{check, VerifierError},
-    InstructionMeter,
 };
 use thiserror::Error;
 
@@ -761,7 +761,7 @@ fn test_bpf_to_bpf_depth() {
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
-    for i in 0..ebpf::MAX_CALL_DEPTH {
+    for i in 0..MAX_CALL_DEPTH {
         let mut mem = [i as u8];
         assert_eq!(vm.execute_program(&mut mem, &[], &[]).unwrap(), 0);
     }
@@ -778,7 +778,7 @@ fn test_bpf_to_bpf_too_deep() {
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.set_elf(&elf).unwrap();
 
-    let mut mem = [ebpf::MAX_CALL_DEPTH as u8];
+    let mut mem = [MAX_CALL_DEPTH as u8];
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
 
@@ -933,7 +933,7 @@ fn test_large_program() {
 struct SyscallWithContext<'a> {
     context: &'a mut u64
 }
-impl<'a> ebpf::SyscallObject<UserError> for SyscallWithContext<'a> {
+impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
     fn call (
         &mut self,
         _arg1: u64,

@@ -7,7 +7,6 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-
 //! This module implements some built-in syscalls that can be called from within an eBPF program.
 //!
 //! These syscalls may originate from several places:
@@ -20,13 +19,14 @@
 //! value. Hence some syscalls have unused arguments, or return a 0 value in all cases, in order to
 //! respect this convention.
 
-#![cfg_attr(rustfmt, rustfmt_skip)]
-
 extern crate libc;
 
+use crate::{
+    error::{EbpfError, UserDefinedError},
+    memory_region::{translate_addr, MemoryRegion},
+};
 use std::u64;
 use time;
-use crate::{ebpf::{EbpfError, UserDefinedError}, memory_region::{MemoryRegion, translate_addr}};
 
 // syscalls associated to kernel syscalls
 // See also linux/include/uapi/linux/bpf.h in Linux kernel sources.
@@ -56,7 +56,7 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 /// println!("Uptime: {:#x} == {} days {}:{}:{}, {} ns", t, d, h, m, s, ns);
 /// ```
 #[allow(dead_code)]
-pub fn bpf_time_getns<E: UserDefinedError> (
+pub fn bpf_time_getns<E: UserDefinedError>(
     _arg1: u64,
     _arg2: u64,
     _arg3: u64,
@@ -64,8 +64,7 @@ pub fn bpf_time_getns<E: UserDefinedError> (
     _arg5: u64,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion],
-) -> Result<u64, EbpfError<E>> 
-{
+) -> Result<u64, EbpfError<E>> {
     Ok(time::precise_time_ns())
 }
 
@@ -114,28 +113,28 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// This would equally print the three numbers in `/sys/kernel/debug/tracing` file each time the
 /// program is run.
 #[allow(dead_code)]
-pub fn bpf_trace_printf<E: UserDefinedError> (
+pub fn bpf_trace_printf<E: UserDefinedError>(
     _arg1: u64,
     _arg2: u64,
     arg3: u64,
     arg4: u64,
     arg5: u64,
     _ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion]
-) -> Result<u64, EbpfError<E>>
-{
-        println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
-        let size_arg = | x | {
-            if x == 0 {
-                1
-            } else {
-                (x as f64).log(16.0).floor() as u64 + 1
-            }
-        };
-        Ok("bpf_trace_printf: 0x, 0x, 0x\n".len() as u64
-            + size_arg(arg3) + size_arg(arg4) + size_arg(arg5))
+    _rw_regions: &[MemoryRegion],
+) -> Result<u64, EbpfError<E>> {
+    println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
+    let size_arg = |x| {
+        if x == 0 {
+            1
+        } else {
+            (x as f64).log(16.0).floor() as u64 + 1
+        }
+    };
+    Ok("bpf_trace_printf: 0x, 0x, 0x\n".len() as u64
+        + size_arg(arg3)
+        + size_arg(arg4)
+        + size_arg(arg5))
 }
-
 
 // syscalls coming from uBPF <https://github.com/iovisor/ubpf/blob/master/vm/test.c>
 
@@ -153,21 +152,20 @@ pub fn bpf_trace_printf<E: UserDefinedError> (
 /// let gathered = gather_bytes::<UserError>(0x11, 0x22, 0x33, 0x44, 0x55, &regions, &regions).unwrap();
 /// assert_eq!(gathered, 0x1122334455);
 /// ```
-pub fn gather_bytes<E: UserDefinedError> (
+pub fn gather_bytes<E: UserDefinedError>(
     arg1: u64,
     arg2: u64,
     arg3: u64,
     arg4: u64,
     arg5: u64,
     _ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion]
-) -> Result<u64, EbpfError<E>>
-{
-        Ok(arg1.wrapping_shl(32) |
-        arg2.wrapping_shl(24) |
-        arg3.wrapping_shl(16) |
-        arg4.wrapping_shl(8)  |
-        arg5)
+    _rw_regions: &[MemoryRegion],
+) -> Result<u64, EbpfError<E>> {
+    Ok(arg1.wrapping_shl(32)
+        | arg2.wrapping_shl(24)
+        | arg3.wrapping_shl(16)
+        | arg4.wrapping_shl(8)
+        | arg5)
 }
 
 /// Same as `void *memfrob(void *s, size_t n);` in `string.h` in C. See the GNU manual page (in
@@ -190,25 +188,23 @@ pub fn gather_bytes<E: UserDefinedError> (
 /// memfrob::<UserError>(val_va, 8, 0, 0, 0, &regions, &regions);
 /// assert_eq!(val, vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
 /// ```
-pub fn memfrob<E: UserDefinedError> (
+pub fn memfrob<E: UserDefinedError>(
     addr: u64,
-    len: u64, 
+    len: u64,
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
     _ro_regions: &[MemoryRegion],
-    rw_regions: &[MemoryRegion]
-) -> Result<u64, EbpfError<E>>
-{
-
-        let host_addr = translate_addr(addr, len as usize, "Store", 0, rw_regions)?;
-        for i in 0..len {
-            unsafe {
-                let mut p = (host_addr + i) as *mut u8;
-                *p ^= 0b101010;
-            }
+    rw_regions: &[MemoryRegion],
+) -> Result<u64, EbpfError<E>> {
+    let host_addr = translate_addr(addr, len as usize, "Store", 0, rw_regions)?;
+    for i in 0..len {
+        unsafe {
+            let p = (host_addr + i) as *mut u8;
+            *p ^= 0b101010;
         }
-        Ok(0)
+    }
+    Ok(0)
 }
 
 // TODO: Try again when asm!() is available in stable Rust.
@@ -247,17 +243,16 @@ pub fn memfrob<E: UserDefinedError> (
 /// assert_eq!(x, 3);
 /// ```
 #[allow(dead_code)]
-pub fn sqrti<E: UserDefinedError> (
+pub fn sqrti<E: UserDefinedError>(
     arg1: u64,
     _arg2: u64,
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
     _ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion]
-) -> Result<u64, EbpfError<E>>
-{
-        Ok((arg1 as f64).sqrt() as u64)
+    _rw_regions: &[MemoryRegion],
+) -> Result<u64, EbpfError<E>> {
+    Ok((arg1 as f64).sqrt() as u64)
 }
 
 /// C-like `strcmp`, return 0 if the strings are equal, and a non-null value otherwise.
@@ -280,37 +275,36 @@ pub fn sqrti<E: UserDefinedError> (
 /// assert!(strcmp::<UserError>(va_foo, va_bar, 0, 0, 0, &regions, &regions).unwrap() != 0);
 /// ```
 #[allow(dead_code)]
-pub fn strcmp<E: UserDefinedError> (
+pub fn strcmp<E: UserDefinedError>(
     arg1: u64,
     arg2: u64,
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
     ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion]
-) -> Result<u64, EbpfError<E>>
-{
-        // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
-        if arg1 == 0 || arg2 == 0 {
-            return Ok(u64::MAX);
+    _rw_regions: &[MemoryRegion],
+) -> Result<u64, EbpfError<E>> {
+    // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
+    if arg1 == 0 || arg2 == 0 {
+        return Ok(u64::MAX);
+    }
+    let mut a = translate_addr(arg1, 1, "Load", 0, ro_regions)?;
+    let mut b = translate_addr(arg2, 1, "Load", 0, ro_regions)?;
+    unsafe {
+        let mut a_val = *(a as *const u8);
+        let mut b_val = *(b as *const u8);
+        while a_val == b_val && a_val != 0 && b_val != 0 {
+            a += 1;
+            b += 1;
+            a_val = *(a as *const u8);
+            b_val = *(b as *const u8);
         }
-        let mut a = translate_addr(arg1, 1, "Load", 0, ro_regions)?;
-        let mut b = translate_addr(arg2, 1, "Load", 0, ro_regions)?;
-        unsafe {
-            let mut a_val = *(a as *const u8);
-            let mut b_val = *(b as *const u8);
-            while a_val == b_val && a_val != 0 && b_val != 0 {
-                a +=1 ;
-                b +=1 ;
-                a_val = *(a as *const u8);
-                b_val = *(b as *const u8);
-            }
-            if a_val >= b_val {
-                Ok((a_val - b_val) as u64)
-            } else {
-                Ok((b_val - a_val) as u64)
-            }
+        if a_val >= b_val {
+            Ok((a_val - b_val) as u64)
+        } else {
+            Ok((b_val - a_val) as u64)
         }
+    }
 }
 
 // Some additional syscalls
@@ -341,7 +335,7 @@ pub fn strcmp<E: UserDefinedError> (
 /// assert!(3 <= n && n <= 6);
 /// ```
 #[allow(dead_code)]
-pub fn rand<E: UserDefinedError> (
+pub fn rand<E: UserDefinedError>(
     min: u64,
     max: u64,
     _arg3: u64,
@@ -349,13 +343,10 @@ pub fn rand<E: UserDefinedError> (
     _arg5: u64,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion],
-) -> Result<u64, EbpfError<E>>
-{
-        let mut n = unsafe {
-            (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64
-        };
-        if min < max {
-            n = n % (max + 1 - min) + min;
-        };
-        Ok(n)
+) -> Result<u64, EbpfError<E>> {
+    let mut n = unsafe { (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64 };
+    if min < max {
+        n = n % (max + 1 - min) + min;
+    };
+    Ok(n)
 }

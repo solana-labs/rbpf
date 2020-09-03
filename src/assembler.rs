@@ -4,19 +4,17 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-
 //! This module translates eBPF assembly language to binary.
 
-#![allow(clippy::deprecated_cfg_attr)]
-#![cfg_attr(rustfmt, rustfmt_skip)]
-
-use asm_parser::{Instruction, Operand, parse};
+use self::InstructionType::{
+    AluBinary, AluUnary, CallImm, CallReg, Endian, JumpConditional, JumpUnconditional, LoadAbs,
+    LoadImm, LoadInd, LoadReg, NoOperand, StoreImm, StoreReg,
+};
+use asm_parser::Operand::{Integer, Memory, Nil, Register};
+use asm_parser::{parse, Instruction, Operand};
 use ebpf;
 use ebpf::Insn;
 use std::collections::HashMap;
-use self::InstructionType::{AluBinary, AluUnary, LoadAbs, LoadInd, LoadImm, LoadReg, StoreImm,
-                            StoreReg, JumpUnconditional, JumpConditional, CallImm, CallReg, Endian, NoOperand};
-use asm_parser::Operand::{Integer, Memory, Register, Nil};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum InstructionType {
@@ -39,33 +37,41 @@ enum InstructionType {
 fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
     let mut result = HashMap::new();
 
-    let alu_binary_ops = [("add", ebpf::BPF_ADD),
-                          ("sub", ebpf::BPF_SUB),
-                          ("mul", ebpf::BPF_MUL),
-                          ("div", ebpf::BPF_DIV),
-                          ("or", ebpf::BPF_OR),
-                          ("and", ebpf::BPF_AND),
-                          ("lsh", ebpf::BPF_LSH),
-                          ("rsh", ebpf::BPF_RSH),
-                          ("mod", ebpf::BPF_MOD),
-                          ("xor", ebpf::BPF_XOR),
-                          ("mov", ebpf::BPF_MOV),
-                          ("arsh", ebpf::BPF_ARSH)];
+    let alu_binary_ops = [
+        ("add", ebpf::BPF_ADD),
+        ("sub", ebpf::BPF_SUB),
+        ("mul", ebpf::BPF_MUL),
+        ("div", ebpf::BPF_DIV),
+        ("or", ebpf::BPF_OR),
+        ("and", ebpf::BPF_AND),
+        ("lsh", ebpf::BPF_LSH),
+        ("rsh", ebpf::BPF_RSH),
+        ("mod", ebpf::BPF_MOD),
+        ("xor", ebpf::BPF_XOR),
+        ("mov", ebpf::BPF_MOV),
+        ("arsh", ebpf::BPF_ARSH),
+    ];
 
-    let mem_sizes =
-        [("w", ebpf::BPF_W), ("h", ebpf::BPF_H), ("b", ebpf::BPF_B), ("dw", ebpf::BPF_DW)];
+    let mem_sizes = [
+        ("w", ebpf::BPF_W),
+        ("h", ebpf::BPF_H),
+        ("b", ebpf::BPF_B),
+        ("dw", ebpf::BPF_DW),
+    ];
 
-    let jump_conditions = [("jeq", ebpf::BPF_JEQ),
-                           ("jgt", ebpf::BPF_JGT),
-                           ("jge", ebpf::BPF_JGE),
-                           ("jlt", ebpf::BPF_JLT),
-                           ("jle", ebpf::BPF_JLE),
-                           ("jset", ebpf::BPF_JSET),
-                           ("jne", ebpf::BPF_JNE),
-                           ("jsgt", ebpf::BPF_JSGT),
-                           ("jsge", ebpf::BPF_JSGE),
-                           ("jslt", ebpf::BPF_JSLT),
-                           ("jsle", ebpf::BPF_JSLE)];
+    let jump_conditions = [
+        ("jeq", ebpf::BPF_JEQ),
+        ("jgt", ebpf::BPF_JGT),
+        ("jge", ebpf::BPF_JGE),
+        ("jlt", ebpf::BPF_JLT),
+        ("jle", ebpf::BPF_JLE),
+        ("jset", ebpf::BPF_JSET),
+        ("jne", ebpf::BPF_JNE),
+        ("jsgt", ebpf::BPF_JSGT),
+        ("jsge", ebpf::BPF_JSGE),
+        ("jslt", ebpf::BPF_JSLT),
+        ("jsle", ebpf::BPF_JSLE),
+    ];
 
     {
         let mut entry = |name: &str, inst_type: InstructionType, opc: u8| {
@@ -93,21 +99,31 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
 
         // LoadAbs, LoadInd, LoadReg, StoreImm, and StoreReg.
         for &(suffix, size) in &mem_sizes {
-            entry(&format!("ldabs{}", suffix),
-                  LoadAbs,
-                  ebpf::BPF_ABS | ebpf::BPF_LD | size);
-            entry(&format!("ldind{}", suffix),
-                  LoadInd,
-                  ebpf::BPF_IND | ebpf::BPF_LD | size);
-            entry(&format!("ldx{}", suffix),
-                  LoadReg,
-                  ebpf::BPF_MEM | ebpf::BPF_LDX | size);
-            entry(&format!("st{}", suffix),
-                  StoreImm,
-                  ebpf::BPF_MEM | ebpf::BPF_ST | size);
-            entry(&format!("stx{}", suffix),
-                  StoreReg,
-                  ebpf::BPF_MEM | ebpf::BPF_STX | size);
+            entry(
+                &format!("ldabs{}", suffix),
+                LoadAbs,
+                ebpf::BPF_ABS | ebpf::BPF_LD | size,
+            );
+            entry(
+                &format!("ldind{}", suffix),
+                LoadInd,
+                ebpf::BPF_IND | ebpf::BPF_LD | size,
+            );
+            entry(
+                &format!("ldx{}", suffix),
+                LoadReg,
+                ebpf::BPF_MEM | ebpf::BPF_LDX | size,
+            );
+            entry(
+                &format!("st{}", suffix),
+                StoreImm,
+                ebpf::BPF_MEM | ebpf::BPF_ST | size,
+            );
+            entry(
+                &format!("stx{}", suffix),
+                StoreReg,
+                ebpf::BPF_MEM | ebpf::BPF_STX | size,
+            );
         }
 
         // JumpConditional.
@@ -166,8 +182,8 @@ fn encode(inst_type: InstructionType, opc: u8, operands: &[Operand]) -> Result<I
         (AluUnary, Register(dst), Nil, Nil) => insn(opc, dst, 0, 0, 0),
         (LoadAbs, Integer(imm), Nil, Nil) => insn(opc, 0, 0, 0, imm),
         (LoadInd, Register(src), Integer(imm), Nil) => insn(opc, 0, src, 0, imm),
-        (LoadReg, Register(dst), Memory(src, off), Nil) |
-        (StoreReg, Memory(dst, off), Register(src), Nil) => insn(opc, dst, src, off, 0),
+        (LoadReg, Register(dst), Memory(src, off), Nil)
+        | (StoreReg, Memory(dst, off), Register(src), Nil) => insn(opc, dst, src, off, 0),
         (StoreImm, Memory(dst, off), Integer(imm), Nil) => insn(opc, dst, 0, off, imm),
         (NoOperand, Nil, Nil, Nil) => insn(opc, 0, 0, 0, 0),
         (JumpUnconditional, Integer(off), Nil, Nil) => insn(opc, 0, 0, off, 0),
