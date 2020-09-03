@@ -829,31 +829,6 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// For this reason the function should be called from within an `unsafe` bloc.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// use solana_rbpf::{vm::EbpfVm, user_error::UserError};
-    ///
-    /// let prog = &[
-    ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
-    /// ];
-    /// let mem = &mut [
-    ///     0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd
-    /// ];
-    ///
-    /// // Instantiate a VM.
-    /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
-    ///
-    /// # #[cfg(not(windows))]
-    /// vm.jit_compile();
-    ///
-    /// // Provide a reference to the packet data.
-    /// # #[cfg(not(windows))]
-    /// unsafe {
-    ///     let res = vm.execute_program_jit(mem).unwrap();
-    ///     assert_eq!(res, 0);
-    /// }
-    /// ```
     pub unsafe fn execute_program_jit(&self, mem: &mut [u8]) -> Result<u64, EbpfError<E>> {
         // If packet data is empty, do not send the address of an empty slice; send a null pointer
         //  as first argument instead, as this is uBPF's behavior (empty packet should not happen
