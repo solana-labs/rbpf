@@ -21,15 +21,10 @@
 
 extern crate solana_rbpf;
 
-use solana_rbpf::{
-    assembler::assemble,
-    ebpf,
-    verifier::{check, VerifierError},
-    vm::EbpfVm,
-};
+use solana_rbpf::{assembler::assemble, ebpf, user_error::UserError, verifier::check, vm::EbpfVm};
 
 #[test]
-#[should_panic(expected = "UserError(DivisionByZero(1))")]
+#[should_panic(expected = "DivisionByZero(1)")]
 fn test_verifier_err_div_by_zero_imm() {
     let prog = assemble(
         "
@@ -38,39 +33,33 @@ fn test_verifier_err_div_by_zero_imm() {
         exit",
     )
     .unwrap();
-    let mut vm = EbpfVm::<VerifierError>::new(Some(&prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(UnsupportedLEBEArgument(0))")]
+#[should_panic(expected = "UnsupportedLEBEArgument(0)")]
 fn test_verifier_err_endian_size() {
     let prog = &[
         0xdc, 0x01, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, //
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let mut vm = EbpfVm::<VerifierError>::new(Some(prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(IncompleteLDDW(0))")]
+#[should_panic(expected = "IncompleteLDDW(0)")]
 fn test_verifier_err_incomplete_lddw() {
     // Note: ubpf has test-err-incomplete-lddw2, which is the same
     let prog = &[
         0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let mut vm = EbpfVm::<VerifierError>::new(Some(prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(InfiniteLoop(0))")]
+#[should_panic(expected = "InfiniteLoop(0)")]
 fn test_verifier_err_infinite_loop() {
     let prog = assemble(
         "
@@ -78,13 +67,11 @@ fn test_verifier_err_infinite_loop() {
         exit",
     )
     .unwrap();
-    let mut vm = EbpfVm::<VerifierError>::new(Some(&prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(InvalidDestinationRegister(0))")]
+#[should_panic(expected = "InvalidDestinationRegister(0)")]
 fn test_verifier_err_invalid_reg_dst() {
     let prog = assemble(
         "
@@ -92,13 +79,11 @@ fn test_verifier_err_invalid_reg_dst() {
         exit",
     )
     .unwrap();
-    let mut vm = EbpfVm::<VerifierError>::new(Some(&prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(InvalidSourceRegister(0))")]
+#[should_panic(expected = "InvalidSourceRegister(0)")]
 fn test_verifier_err_invalid_reg_src() {
     let prog = assemble(
         "
@@ -106,13 +91,11 @@ fn test_verifier_err_invalid_reg_src() {
         exit",
     )
     .unwrap();
-    let mut vm = EbpfVm::<VerifierError>::new(Some(&prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(JumpToMiddleOfLDDW(2, 0))")]
+#[should_panic(expected = "JumpToMiddleOfLDDW(2, 0)")]
 fn test_verifier_err_jmp_lddw() {
     let prog = assemble(
         "
@@ -121,13 +104,11 @@ fn test_verifier_err_jmp_lddw() {
         exit",
     )
     .unwrap();
-    let mut vm = EbpfVm::<VerifierError>::new(Some(&prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(JumpOutOfCode(3, 0))")]
+#[should_panic(expected = "JumpOutOfCode(3, 0)")]
 fn test_verifier_err_jmp_out() {
     let prog = assemble(
         "
@@ -135,26 +116,22 @@ fn test_verifier_err_jmp_out() {
         exit",
     )
     .unwrap();
-    let mut vm = EbpfVm::<VerifierError>::new(Some(&prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(InvalidLastInstruction)")]
+#[should_panic(expected = "InvalidLastInstruction")]
 fn test_verifier_err_no_exit() {
     let prog = assemble(
         "
         mov32 r0, 0",
     )
     .unwrap();
-    let mut vm = EbpfVm::<VerifierError>::new(Some(&prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(ProgramTooLarge(65537))")]
+#[should_panic(expected = "ProgramTooLarge(65537)")]
 fn test_verifier_err_too_many_instructions() {
     let mut prog = (0..(65536 * ebpf::INSN_SIZE))
         .map(|x| match x % 8 {
@@ -165,25 +142,21 @@ fn test_verifier_err_too_many_instructions() {
         .collect::<Vec<u8>>();
     prog.append(&mut vec![0x95, 0, 0, 0, 0, 0, 0, 0]);
 
-    let mut vm = EbpfVm::<VerifierError>::new(Some(&prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(UnknownOpCode(6, 0))")]
+#[should_panic(expected = "UnknownOpCode(6, 0)")]
 fn test_verifier_err_unknown_opcode() {
     let prog = &[
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let mut vm = EbpfVm::<VerifierError>::new(Some(prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, Some(check)).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "UserError(CannotWriteR10(0))")]
+#[should_panic(expected = "CannotWriteR10(0)")]
 fn test_verifier_err_write_r10() {
     let prog = assemble(
         "
@@ -191,7 +164,5 @@ fn test_verifier_err_write_r10() {
         exit",
     )
     .unwrap();
-    let mut vm = EbpfVm::<VerifierError>::new(Some(&prog)).unwrap();
-    vm.set_verifier(check).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
 }

@@ -9,6 +9,10 @@
 extern crate goblin;
 extern crate scroll;
 
+use crate::{
+    error::{EbpfError, UserDefinedError},
+    vm::Executable,
+};
 use byteorder::{ByteOrder, LittleEndian};
 use ebpf;
 use elf::goblin::{
@@ -95,6 +99,11 @@ impl From<GoblinError> for ELFError {
         }
     }
 }
+impl<E: UserDefinedError> From<GoblinError> for EbpfError<E> {
+    fn from(error: GoblinError) -> Self {
+        ELFError::from(error).into()
+    }
+}
 
 // For more information on the BPF instruction set:
 // https://github.com/iovisor/bpf-docs/blob/master/eBPF.md
@@ -173,8 +182,93 @@ pub struct EBpfElf {
     /// Call resolution map
     calls: HashMap<u32, usize>,
 }
+impl<E: UserDefinedError> Executable<E> for EBpfElf {
+    /// Get the .text section virtual address and bytes
+    fn get_text_bytes(&self) -> Result<(u64, &[u8]), EbpfError<E>> {
+        Ok((
+            self.text_section_info.vaddr,
+            &self
+                .elf_bytes
+                .get(self.text_section_info.offset_range.clone())
+                .ok_or(ELFError::OutOfBounds)?,
+        ))
+    }
 
+    /// Get a vector of virtual addresses for each read-only section
+    fn get_ro_sections(&self) -> Result<Vec<(u64, &[u8])>, EbpfError<E>> {
+        self.ro_section_infos
+            .iter()
+            .map(|section_info| {
+                Ok((
+                    section_info.vaddr,
+                    self.elf_bytes
+                        .get(section_info.offset_range.clone())
+                        .ok_or(ELFError::OutOfBounds)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, EbpfError<E>>>()
+    }
+
+    /// Get the entry point offset into the text section
+    fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>> {
+        Ok(self.entrypoint)
+    }
+
+    /// Get a symbol's instruction offset
+    fn lookup_bpf_call(&self, hash: u32) -> Option<&usize> {
+        self.calls.get(&hash)
+    }
+
+    /// Report information on a symbol that failed to be resolved
+    fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<(), EbpfError<E>> {
+        let file_offset =
+            insn_offset * ebpf::INSN_SIZE + self.text_section_info.offset_range.start as usize;
+
+        let mut name = "Unknown";
+        if let Ok(elf) = Elf::parse(&self.elf_bytes) {
+            for relocation in &elf.dynrels {
+                if let Some(BPFRelocationType::R_BPF_64_32) =
+                    BPFRelocationType::from_x86_relocation_type(relocation.r_type)
+                {
+                    if relocation.r_offset as usize == file_offset {
+                        let sym = elf
+                            .dynsyms
+                            .get(relocation.r_sym)
+                            .ok_or(ELFError::UnknownSymbol(relocation.r_sym))?;
+                        name = elf
+                            .dynstrtab
+                            .get(sym.st_name)
+                            .ok_or(ELFError::UnknownSymbol(sym.st_name))?
+                            .map_err(|_| ELFError::UnknownSymbol(sym.st_name))?;
+                    }
+                }
+            }
+        }
+        Err(ELFError::UnresolvedSymbol(
+            name.to_string(),
+            file_offset / ebpf::INSN_SIZE + ebpf::ELF_INSN_DUMP_OFFSET,
+            file_offset,
+        )
+        .into())
+    }
+}
 impl EBpfElf {
+    /// Create from raw text section bytes (list of instructions)
+    pub fn new_from_text_bytes(text_bytes: &[u8]) -> Self {
+        Self {
+            elf_bytes: text_bytes.to_vec(),
+            entrypoint: 0,
+            text_section_info: SectionInfo {
+                vaddr: ebpf::MM_PROGRAM_START,
+                offset_range: Range {
+                    start: 0,
+                    end: text_bytes.len(),
+                },
+            },
+            ro_section_infos: vec![],
+            calls: HashMap::default(),
+        }
+    }
     /// Fully loads an ELF, including validation and relocation
     pub fn load(bytes: &[u8]) -> Result<Self, ELFError> {
         let elf = Elf::parse(bytes)?;
@@ -226,73 +320,6 @@ impl EBpfElf {
             ro_section_infos,
             calls,
         })
-    }
-
-    /// Get the .text section virtual address and bytes
-    pub fn get_text_bytes(&self) -> Result<(u64, &[u8]), ELFError> {
-        Ok((
-            self.text_section_info.vaddr,
-            &self
-                .elf_bytes
-                .get(self.text_section_info.offset_range.clone())
-                .ok_or(ELFError::OutOfBounds)?,
-        ))
-    }
-
-    /// Get a vector of virtual addresses for each read-only section
-    pub fn get_ro_sections(&self) -> Result<Vec<(u64, &[u8])>, ELFError> {
-        self.ro_section_infos
-            .iter()
-            .map(|section_info| {
-                Ok((
-                    section_info.vaddr,
-                    self.elf_bytes
-                        .get(section_info.offset_range.clone())
-                        .ok_or(ELFError::OutOfBounds)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, ELFError>>()
-    }
-
-    /// Get the entry point offset into the text section
-    pub fn get_entrypoint_instruction_offset(&self) -> Result<usize, ELFError> {
-        Ok(self.entrypoint)
-    }
-
-    /// Get a symbol's instruction offset
-    pub fn lookup_bpf_call(&self, hash: u32) -> Option<&usize> {
-        self.calls.get(&hash)
-    }
-
-    /// Report information on a symbol that failed to be resolved
-    pub fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<(), ELFError> {
-        let elf = Elf::parse(&self.elf_bytes)?;
-        let text_section = Self::get_section(&elf, ".text")?;
-        let file_offset = insn_offset * ebpf::INSN_SIZE + text_section.sh_offset as usize;
-
-        let mut name = "Unknown";
-        for relocation in &elf.dynrels {
-            if let Some(BPFRelocationType::R_BPF_64_32) =
-                BPFRelocationType::from_x86_relocation_type(relocation.r_type)
-            {
-                if relocation.r_offset as usize == file_offset {
-                    let sym = elf
-                        .dynsyms
-                        .get(relocation.r_sym)
-                        .ok_or(ELFError::UnknownSymbol(relocation.r_sym))?;
-                    name = elf
-                        .dynstrtab
-                        .get(sym.st_name)
-                        .ok_or(ELFError::UnknownSymbol(sym.st_name))?
-                        .map_err(|_| ELFError::UnknownSymbol(sym.st_name))?;
-                }
-            }
-        }
-        Err(ELFError::UnresolvedSymbol(
-            name.to_string(),
-            file_offset / ebpf::INSN_SIZE + ebpf::ELF_INSN_DUMP_OFFSET,
-            file_offset,
-        ))
     }
 
     // Functions exposed for tests
@@ -535,7 +562,7 @@ impl EBpfElf {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{ebpf, fuzz::fuzz};
+    use crate::{ebpf, fuzz::fuzz, user_error::UserError};
     use elf::scroll::Pwrite;
     use rand::{distributions::Uniform, Rng};
     use std::{collections::HashMap, fs::File, io::Read};
@@ -547,29 +574,29 @@ mod test {
         file.read_to_end(&mut bytes)
             .expect("failed to read elf file");
         let mut parsed_elf = Elf::parse(&bytes).unwrap();
-        let mut elf_bytes = bytes.to_vec();
+        let elf_bytes = bytes.to_vec();
 
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect("validation failed");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_ident[EI_CLASS] = ELFCLASS32;
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect_err("allowed bad class");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect_err("allowed bad class");
         parsed_elf.header.e_ident[EI_CLASS] = ELFCLASS64;
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect("validation failed");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_ident[EI_DATA] = ELFDATA2MSB;
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect_err("allowed big endian");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect_err("allowed big endian");
         parsed_elf.header.e_ident[EI_DATA] = ELFDATA2LSB;
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect("validation failed");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_ident[EI_OSABI] = 1;
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect_err("allowed wrong abi");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect_err("allowed wrong abi");
         parsed_elf.header.e_ident[EI_OSABI] = ELFOSABI_NONE;
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect("validation failed");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_machine = EM_QDSP6;
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect_err("allowed wrong machine");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect_err("allowed wrong machine");
         parsed_elf.header.e_machine = EM_BPF;
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect("validation failed");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_type = ET_REL;
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect_err("allowed wrong type");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect_err("allowed wrong type");
         parsed_elf.header.e_type = ET_DYN;
-        EBpfElf::validate(&parsed_elf, &mut elf_bytes).expect("validation failed");
+        EBpfElf::validate(&parsed_elf, &elf_bytes).expect("validation failed");
     }
 
     #[test]
@@ -590,25 +617,28 @@ mod test {
         let elf = EBpfElf::load(&elf_bytes).expect("validation failed");
         let mut parsed_elf = Elf::parse(&elf_bytes).unwrap();
         let initial_e_entry = parsed_elf.header.e_entry;
-
+        let executable: &dyn Executable<UserError> = &elf;
         assert_eq!(
             0,
-            elf.get_entrypoint_instruction_offset()
+            executable
+                .get_entrypoint_instruction_offset()
                 .expect("failed to get entrypoint")
         );
 
-        parsed_elf.header.e_entry = parsed_elf.header.e_entry + 8;
+        parsed_elf.header.e_entry += 8;
         let mut elf_bytes = elf_bytes.clone();
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         let elf = EBpfElf::load(&elf_bytes).expect("validation failed");
+        let executable: &dyn Executable<UserError> = &elf;
         assert_eq!(
             1,
-            elf.get_entrypoint_instruction_offset()
+            executable
+                .get_entrypoint_instruction_offset()
                 .expect("failed to get entrypoint")
         );
 
         parsed_elf.header.e_entry = 1;
-        let mut elf_bytes = elf_bytes.clone();
+        let mut elf_bytes = elf_bytes;
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         assert_eq!(
             Err(ELFError::EntrypointOutOfBounds),
@@ -616,7 +646,7 @@ mod test {
         );
 
         parsed_elf.header.e_entry = std::u64::MAX;
-        let mut elf_bytes = elf_bytes.clone();
+        let mut elf_bytes = elf_bytes;
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         assert_eq!(
             Err(ELFError::EntrypointOutOfBounds),
@@ -624,17 +654,19 @@ mod test {
         );
 
         parsed_elf.header.e_entry = initial_e_entry + ebpf::INSN_SIZE as u64 + 1;
-        let mut elf_bytes = elf_bytes.clone();
+        let mut elf_bytes = elf_bytes;
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         assert_eq!(Err(ELFError::InvalidEntrypoint), EBpfElf::load(&elf_bytes));
 
         parsed_elf.header.e_entry = initial_e_entry;
-        let mut elf_bytes = elf_bytes.clone();
+        let mut elf_bytes = elf_bytes;
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         let elf = EBpfElf::load(&elf_bytes).expect("validation failed");
+        let executable: &dyn Executable<UserError> = &elf;
         assert_eq!(
             0,
-            elf.get_entrypoint_instruction_offset()
+            executable
+                .get_entrypoint_instruction_offset()
                 .expect("failed to get entrypoint")
         );
     }

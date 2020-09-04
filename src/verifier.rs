@@ -185,7 +185,7 @@ fn check_imm_register(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), Verifier
 
 /// Default eBPF verifier
 #[rustfmt::skip]
-pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
+pub fn check(prog: &[u8]) -> Result<(), UserError> {
     check_prog_len(prog)?;
 
     let mut insn_ptr: usize = 0;
@@ -314,7 +314,7 @@ pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
             ebpf::EXIT       => {},
 
             _                => {
-                return Err(VerifierError::UnknownOpCode(insn.opc, insn_ptr));
+                return Err(VerifierError::UnknownOpCode(insn.opc, insn_ptr).into());
             }
         }
 
@@ -325,7 +325,7 @@ pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
 
     // insn_ptr should now be equal to number of instructions.
     if insn_ptr != prog.len() / ebpf::INSN_SIZE {
-        return Err(VerifierError::JumpOutOfCode(insn_ptr, insn_ptr));
+        return Err(VerifierError::JumpOutOfCode(insn_ptr, insn_ptr).into());
     }
 
     Ok(())

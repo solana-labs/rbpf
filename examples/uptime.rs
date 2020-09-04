@@ -38,7 +38,8 @@ fn main() {
     ];
 
     // Create a VM: this one takes no data. Load prog1 in it.
-    let mut vm = EbpfVm::<UserError>::new(Some(prog1)).unwrap();
+    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog1, None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     // Execute prog1.
     assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x3);
 
@@ -49,7 +50,8 @@ fn main() {
     // In the following example we use a syscall to get the elapsed time since boot time: we
     // reimplement uptime in eBPF, in Rust. Because why not.
 
-    vm.set_program(prog2).unwrap();
+    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog2, None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall(syscalls::BPF_KTIME_GETNS_IDX, syscalls::bpf_time_getns)
         .unwrap();
 

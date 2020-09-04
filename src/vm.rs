@@ -62,6 +62,20 @@ pub enum Syscall<'a, E: UserDefinedError> {
     Object(Box<dyn SyscallObject<E> + 'a>),
 }
 
+/// An relocated and ready to execute binary
+pub trait Executable<E: UserDefinedError>: Send + Sync {
+    /// Get the .text section virtual address and bytes
+    fn get_text_bytes(&self) -> Result<(u64, &[u8]), EbpfError<E>>;
+    /// Get a vector of virtual addresses for each read-only section
+    fn get_ro_sections(&self) -> Result<Vec<(u64, &[u8])>, EbpfError<E>>;
+    /// Get the entry point offset into the text section
+    fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>>;
+    /// Get a symbol's instruction offset
+    fn lookup_bpf_call(&self, hash: u32) -> Option<&usize>;
+    /// Report information on a symbol that failed to be resolved
+    fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<(), EbpfError<E>>;
+}
+
 /// Instruction meter
 pub trait InstructionMeter {
     /// Consume instructions
@@ -69,7 +83,6 @@ pub trait InstructionMeter {
     /// Get the number of remaining instructions allowed
     fn get_remaining(&self) -> u64;
 }
-
 struct DefaultInstructionMeter {}
 impl InstructionMeter for DefaultInstructionMeter {
     fn consume(&mut self, _amount: u64) {}
@@ -93,16 +106,15 @@ impl InstructionMeter for DefaultInstructionMeter {
 /// ];
 ///
 /// // Instantiate a VM.
-/// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+/// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
+/// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
 ///
 /// // Provide a reference to the packet data.
 /// let res = vm.execute_program(mem, &[], &[]).unwrap();
 /// assert_eq!(res, 0);
 /// ```
 pub struct EbpfVm<'a, E: UserDefinedError> {
-    prog: Option<&'a [u8]>,
-    elf: Option<EBpfElf>,
-    verifier: Option<Verifier<E>>,
+    executable: &'a dyn Executable<E>,
     jit: Option<JitProgram>,
     syscalls: HashMap<u32, Syscall<'a, E>>,
     last_insn_count: u64,
@@ -123,13 +135,12 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     /// ```
-    pub fn new(prog: Option<&'a [u8]>) -> Result<EbpfVm<'a, E>, EbpfError<E>> {
+    pub fn new(executable: &'a dyn Executable<E>) -> Result<EbpfVm<'a, E>, EbpfError<E>> {
         Ok(EbpfVm {
-            prog,
-            elf: None,
-            verifier: None,
+            executable,
             jit: None,
             syscalls: HashMap::new(),
             last_insn_count: 0,
@@ -137,81 +148,28 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         })
     }
 
-    /// Load a new eBPF program into the virtual machine instance.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use solana_rbpf::{vm::EbpfVm, user_error::UserError};
-    ///
-    /// let prog1 = &[
-    ///     0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov r0, 0
-    ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
-    /// ];
-    /// let prog2 = &[
-    ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
-    /// ];
-    ///
-    /// // Instantiate a VM.
-    /// let mut vm = EbpfVm::<UserError>::new(Some(prog1)).unwrap();
-    /// vm.set_program(prog2).unwrap();
-    /// ```
-    pub fn set_program(&mut self, prog: &'a [u8]) -> Result<(), EbpfError<E>> {
-        if let Some(verifier) = self.verifier {
-            verifier(prog)?;
-        }
-        self.prog = Some(prog);
-        Ok(())
-    }
-
-    /// Load a new eBPF program into the virtual machine instance.
-    pub fn set_elf(&mut self, elf_bytes: &'a [u8]) -> Result<(), EbpfError<E>> {
-        let elf = EBpfElf::load(elf_bytes)?;
-        let (_, bytes) = elf.get_text_bytes()?;
-        if let Some(verifier) = self.verifier {
+    /// Creates a post relocaiton/fixup executable
+    pub fn create_executable_from_elf(
+        elf_bytes: &'a [u8],
+        verifier: Option<Verifier<E>>,
+    ) -> Result<Box<dyn Executable<E>>, EbpfError<E>> {
+        let ebpf_elf = EBpfElf::load(elf_bytes)?;
+        let (_, bytes) = ebpf_elf.get_text_bytes()?;
+        if let Some(verifier) = verifier {
             verifier(bytes)?;
         }
-        self.elf = Some(elf);
-        Ok(())
+        Ok(Box::new(ebpf_elf))
     }
 
-    /// Set a new verifier function. The function should return an `EbpfError` if the program should be
-    /// rejected by the virtual machine. If a program has been loaded to the VM already, the
-    /// verifier is immediately run.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use solana_rbpf::{vm::EbpfVm, ebpf, verifier::VerifierError};
-    ///
-    /// // Define a simple verifier function.
-    /// fn verifier(prog: &[u8]) -> Result<(), VerifierError> {
-    ///     let last_insn = ebpf::get_insn(prog, (prog.len() / ebpf::INSN_SIZE) - 1);
-    ///     if last_insn.opc != ebpf::EXIT {
-    ///        return Err(VerifierError::InvalidLastInstruction.into());
-    ///     }
-    ///     Ok(())
-    /// }
-    ///
-    /// let prog1 = &[
-    ///     0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov r0, 0
-    ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
-    /// ];
-    ///
-    /// // Instantiate a VM.
-    /// let mut vm = EbpfVm::<VerifierError>::new(Some(prog1)).unwrap();
-    /// // Change the verifier.
-    /// vm.set_verifier(verifier).unwrap();
-    /// ```
-    pub fn set_verifier(&mut self, verifier: Verifier<E>) -> Result<(), EbpfError<E>> {
-        if let Some(ref elf) = self.elf {
-            let (_, bytes) = elf.get_text_bytes()?;
-            verifier(bytes)?;
-        } else if let Some(ref prog) = self.prog {
-            verifier(prog)?;
+    /// Creates a post relocaiton/fixup executable
+    pub fn create_executable_from_text_bytes(
+        text_bytes: &'a [u8],
+        verifier: Option<Verifier<E>>,
+    ) -> Result<Box<dyn Executable<E>>, EbpfError<E>> {
+        if let Some(verifier) = verifier {
+            verifier(text_bytes)?;
         }
-        self.verifier = Some(verifier);
-        Ok(())
+        Ok(Box::new(EBpfElf::new_from_text_bytes(text_bytes)))
     }
 
     /// Returns the number of instructions executed by the last program.
@@ -247,7 +205,8 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     ///
     /// // Register a syscall.
     /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
@@ -316,7 +275,8 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     ///
     /// // Provide a reference to the packet data.
     /// let res = vm.execute_program(mem, &[], &[]).unwrap();
@@ -378,22 +338,15 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         ro_regions.push(MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START));
         rw_regions.push(MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START));
 
-        let mut entry: usize = 0;
-        let (prog_addr, prog) = if let Some(ref elf) = self.elf {
-            if let Ok(sections) = elf.get_ro_sections() {
-                let regions: Vec<_> = sections
-                    .iter()
-                    .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr))
-                    .collect();
-                ro_regions.extend(regions);
-            }
-            entry = elf.get_entrypoint_instruction_offset()?;
-            elf.get_text_bytes()?
-        } else if let Some(prog) = self.prog {
-            (ebpf::MM_PROGRAM_START, prog)
-        } else {
-            return Err(EbpfError::NothingToExecute);
+        if let Ok(sections) = self.executable.get_ro_sections() {
+            let regions: Vec<_> = sections
+                .iter()
+                .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr))
+                .collect();
+            ro_regions.extend(regions);
         };
+        let entry = self.executable.get_entrypoint_instruction_offset()?;
+        let (prog_addr, prog) = self.executable.get_text_bytes()?;
         ro_regions.push(MemoryRegion::new_from_slice(prog, prog_addr));
 
         // Sort regions by addr_vm for binary search
@@ -725,22 +678,16 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                             )?,
                         };
                         remaining_insn_count = instruction_meter.get_remaining();
-                    } else if let Some(ref elf) = self.elf {
-                        if let Some(new_pc) = elf.lookup_bpf_call(insn.imm as u32) {
-                            // make BPF to BPF call
-                            reg[ebpf::STACK_REG] = frames.push(
-                                &reg[ebpf::FIRST_SCRATCH_REG
-                                    ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
-                                next_pc,
-                            )?;
-                            next_pc = Self::check_pc(&prog, pc, *new_pc)?;
-                        } else {
-                            elf.report_unresolved_symbol(pc)?;
-                        }
+                    } else if let Some(new_pc) = self.executable.lookup_bpf_call(insn.imm as u32) {
+                        // make BPF to BPF call
+                        reg[ebpf::STACK_REG] = frames.push(
+                            &reg[ebpf::FIRST_SCRATCH_REG
+                                ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
+                            next_pc,
+                        )?;
+                        next_pc = Self::check_pc(&prog, pc, *new_pc)?;
                     } else {
-                        // Note: Raw BPF programs (without ELF relocations) cannot support relative calls
-                        // because there is no way to determine if the imm refers to a syscall or an offset
-                        return Err(EbpfError::UnresolvedSymbol(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                        self.executable.report_unresolved_symbol(pc)?;
                     }
                 }
 
@@ -801,23 +748,21 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     ///
     /// # #[cfg(not(windows))]
     /// vm.jit_compile();
     /// ```
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        let prog = if let Some(ref elf) = self.elf {
-            if elf.get_ro_sections().is_ok() {
+        let prog = {
+            if self.executable.get_ro_sections().is_ok() {
                 return Err(EbpfError::ReadOnlyDataUnsupported);
             }
-            let (_, bytes) = elf.get_text_bytes()?;
+            let (_, bytes) = self.executable.get_text_bytes()?;
             bytes
-        } else if let Some(ref prog) = self.prog {
-            prog
-        } else {
-            return Err(EbpfError::NothingToExecute);
         };
+
         self.jit = Some(jit::compile(prog, &self.syscalls)?);
         Ok(())
     }

@@ -17,7 +17,7 @@ before_script:
 - rustup component add rustfmt
 script:
 - cargo fmt --all -- --check
-- cargo clippy -- --deny=warnings
+- cargo clippy --all --tests -- --deny=warnings
 - export RUSTFLAGS="-D warnings"; cargo build --verbose
 - export RUSTFLAGS="-D warnings"; cargo test --verbose
 before_deploy:

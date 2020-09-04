@@ -17,11 +17,11 @@ fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
 
 fn insn(opc: u8, dst: u8, src: u8, off: i16, imm: i32) -> ebpf::Insn {
     ebpf::Insn {
-        opc: opc,
-        dst: dst,
-        src: src,
-        off: off,
-        imm: imm,
+        opc,
+        dst,
+        src,
+        off,
+        imm,
     }
 }
 
