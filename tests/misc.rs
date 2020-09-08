@@ -214,7 +214,7 @@ fn test_vm_jit_ldabsdw() {
 #[should_panic(expected = "AccessViolation(\"load\", 29")]
 fn test_vm_err_ldabsb_oob() {
     let prog = assemble("
-        ldabsdw 0x33
+        ldabsb 0x33
         exit").unwrap();
     let mem = &mut [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
@@ -230,7 +230,7 @@ fn test_vm_err_ldabsb_oob() {
 #[should_panic(expected = "AccessViolation(\"load\", 29")]
 fn test_vm_err_ldabsb_nomem() {
     let prog = assemble("
-        ldabsdw 0x33
+        ldabsb 0x33
         exit").unwrap();
     let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
@@ -331,7 +331,7 @@ fn test_vm_jit_ldinddw() {
 fn test_vm_err_ldindb_oob() {
     let prog = assemble("
         mov64 r1, 0x5
-        ldabsdw 0x33
+        ldindb r1, 0x33
         exit").unwrap();
     let mem = &mut [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
@@ -348,7 +348,7 @@ fn test_vm_err_ldindb_oob() {
 fn test_vm_err_ldindb_nomem() {
     let prog = assemble("
         mov64 r1, 0x3
-        ldabsdw 0x3
+        ldindb r1, 0x3
         exit").unwrap();
     let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
