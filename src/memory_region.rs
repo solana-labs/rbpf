@@ -27,18 +27,19 @@ impl MemoryRegion {
     }
 
     /// Convert a virtual machine address into a host address
+    /// Does not perform a lower bounds check, as that is already done by the binary search in translate_addr
     pub fn vm_to_host<E: UserDefinedError>(
         &self,
         vm_addr: u64,
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
-        if self.addr_vm <= vm_addr && vm_addr.saturating_add(len as u64) <= self.addr_vm + self.len
-        {
-            let host_addr = self.addr_host + (vm_addr - self.addr_vm);
-            Ok(host_addr)
-        } else {
-            Err(EbpfError::InvalidVirtualAddress(vm_addr))
+        let begin_offset = vm_addr - self.addr_vm;
+        if let Some(end_offset) = begin_offset.checked_add(len as u64) {
+            if end_offset <= self.len {
+                return Ok(self.addr_host + begin_offset);
+            }
         }
+        Err(EbpfError::InvalidVirtualAddress(vm_addr))
     }
 }
 impl fmt::Debug for MemoryRegion {
