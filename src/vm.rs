@@ -353,6 +353,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         instruction_meter.consume(self.last_insn_count);
         result
     }
+
     #[rustfmt::skip]
     fn execute_program_inner<I: InstructionMeter>(
         &mut self,
@@ -437,46 +438,46 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
 
             match insn.opc {
 
-                                // BPF_LD class
-                // Since this pointer is constant, and since we already know it (mem), do not
-                // bother re-fetching it, just use mem already.
+                // BPF_LD class
+                // Since this pointer is constant, and since we already know it (ebpf::MM_INPUT_START), do not
+                // bother re-fetching it, just use ebpf::MM_INPUT_START already.
                 ebpf::LD_ABS_B   => {
-                    let vm_addr = (mem.as_ptr() as u64).saturating_add((insn.imm as u32) as u64);
-                    let host_ptr = translate_load_addr(vm_addr, 8, pc)? as *const u8;
+                    let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
+                    let host_ptr = translate_load_addr(vm_addr, 1, pc)? as *const u8;
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_ABS_H   =>  {
-                    let vm_addr = (mem.as_ptr() as u64).saturating_add((insn.imm as u32) as u64);
-                    let host_ptr = translate_load_addr(vm_addr, 8, pc)? as *const u16;
+                    let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
+                    let host_ptr = translate_load_addr(vm_addr, 2, pc)? as *const u16;
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_ABS_W   => {
-                    let vm_addr = (mem.as_ptr() as u64).saturating_add((insn.imm as u32) as u64);
-                    let host_ptr = translate_load_addr(vm_addr, 8, pc)? as *const u32;
+                    let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
+                    let host_ptr = translate_load_addr(vm_addr, 4, pc)? as *const u32;
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_ABS_DW  => {
-                    let vm_addr = (mem.as_ptr() as u64).saturating_add((insn.imm as u32) as u64);
+                    let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
                     let host_ptr = translate_load_addr(vm_addr, 8, pc)? as *const u64;
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_B   => {
-                    let vm_addr = (mem.as_ptr() as u64).saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
-                    let host_ptr = translate_load_addr(vm_addr, 8, pc)? as *const u8;
+                    let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
+                    let host_ptr = translate_load_addr(vm_addr, 1, pc)? as *const u8;
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_H   => {
-                    let vm_addr = (mem.as_ptr() as u64).saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
-                    let host_ptr = translate_load_addr(vm_addr, 8, pc)? as *const u16;
+                    let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
+                    let host_ptr = translate_load_addr(vm_addr, 2, pc)? as *const u16;
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_W   => {
-                    let vm_addr = (mem.as_ptr() as u64).saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
-                    let host_ptr = translate_load_addr(vm_addr, 8, pc)? as *const u32;
+                    let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
+                    let host_ptr = translate_load_addr(vm_addr, 4, pc)? as *const u32;
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_DW  => {
-                    let vm_addr = (mem.as_ptr() as u64).saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
+                    let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
                     let host_ptr = translate_load_addr(vm_addr, 8, pc)? as *const u64;
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
