@@ -115,15 +115,14 @@ use thiserror::Error;
 #[cfg(not(windows))]
 #[test]
 fn test_vm_ldabsb() {
-    let prog = &[
-        0x30, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        ldabsb 0x3
+        exit").unwrap();
     let mut mem = [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem, &[], &[]).unwrap(), 0x33);
 }
 
@@ -131,16 +130,15 @@ fn test_vm_ldabsb() {
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsb() {
-    let prog = &[
-        0x30, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        ldabsb 0x3
+        exit").unwrap();
     let mut mem1 = [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x33);
 
     vm.jit_compile().unwrap();
@@ -153,16 +151,15 @@ fn test_vm_jit_ldabsb() {
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsh() {
-    let prog = &[
-        0x28, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        ldabsh 0x3
+        exit").unwrap();
     let mut mem1 = [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x4433);
 
     vm.jit_compile().unwrap();
@@ -175,16 +172,15 @@ fn test_vm_jit_ldabsh() {
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsw() {
-    let prog = &[
-        0x20, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        ldabsw 0x3
+        exit").unwrap();
     let mut mem1 =[
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x66554433);
 
     vm.jit_compile().unwrap();
@@ -197,16 +193,15 @@ fn test_vm_jit_ldabsw() {
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsdw() {
-    let prog = &[
-        0x38, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        ldabsdw 0x3
+        exit").unwrap();
     let mut mem1 = [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0xaa99887766554433);
 
     vm.jit_compile().unwrap();
@@ -218,15 +213,14 @@ fn test_vm_jit_ldabsdw() {
 #[test]
 #[should_panic(expected = "AccessViolation(\"load\", 29")]
 fn test_vm_err_ldabsb_oob() {
-    let prog = &[
-        0x38, 0x00, 0x00, 0x00, 0x33, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        ldabsdw 0x33
+        exit").unwrap();
     let mem = &mut [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.execute_program(mem, &[], &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
@@ -235,11 +229,10 @@ fn test_vm_err_ldabsb_oob() {
 #[test]
 #[should_panic(expected = "AccessViolation(\"load\", 29")]
 fn test_vm_err_ldabsb_nomem() {
-    let prog = &[
-        0x38, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let prog = assemble("
+        ldabsdw 0x33
+        exit").unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
@@ -249,17 +242,16 @@ fn test_vm_err_ldabsb_nomem() {
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindb() {
-    let prog = &[
-        0xb7, 0x01, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
-        0x50, 0x10, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        mov64 r1, 0x5
+        ldindb r1, 0x3
+        exit").unwrap();
     let mut mem1 = [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x88);
 
     vm.jit_compile().unwrap();
@@ -272,17 +264,16 @@ fn test_vm_jit_ldindb() {
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindh() {
-    let prog = &[
-        0xb7, 0x01, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
-        0x48, 0x10, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        mov64 r1, 0x5
+        ldindh r1, 0x3
+        exit").unwrap();
     let mut mem1 = [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x9988);
 
     vm.jit_compile().unwrap();
@@ -295,17 +286,16 @@ fn test_vm_jit_ldindh() {
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindw() {
-    let prog = &[
-        0xb7, 0x01, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00,
-        0x40, 0x10, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        mov64 r1, 0x4
+        ldindw r1, 0x1
+        exit").unwrap();
     let mut mem1 = [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0x88776655);
 
     vm.jit_compile().unwrap();
@@ -318,17 +308,16 @@ fn test_vm_jit_ldindw() {
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldinddw() {
-    let prog = &[
-        0xb7, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
-        0x58, 0x10, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        mov64 r1, 0x2
+        ldinddw r1, 0x3
+        exit").unwrap();
     let mut mem1 = [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
     let mut mem2 = mem1.clone();
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     assert_eq!(vm.execute_program(&mut mem1, &[], &[]).unwrap(), 0xccbbaa9988776655);
 
     vm.jit_compile().unwrap();
@@ -340,16 +329,15 @@ fn test_vm_jit_ldinddw() {
 #[test]
 #[should_panic(expected = "AccessViolation(\"load\", 30")]
 fn test_vm_err_ldindb_oob() {
-    let prog = &[
-        0xb7, 0x01, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
-        0x38, 0x10, 0x00, 0x00, 0x33, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
+    let prog = assemble("
+        mov64 r1, 0x5
+        ldabsdw 0x33
+        exit").unwrap();
     let mem = &mut [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     ];
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.execute_program(mem, &[], &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
@@ -358,12 +346,11 @@ fn test_vm_err_ldindb_oob() {
 #[test]
 #[should_panic(expected = "AccessViolation(\"load\", 30")]
 fn test_vm_err_ldindb_nomem() {
-    let prog = &[
-        0xb7, 0x01, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x38, 0x10, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let prog = assemble("
+        mov64 r1, 0x3
+        ldabsdw 0x3
+        exit").unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
@@ -393,10 +380,9 @@ fn verifier_fail(_prog: &[u8]) -> Result<(), VerifierTestError> {
 
 #[test]
 fn test_verifier_success() {
-    let prog = assemble(
-        "mov32 r0, 0xBEE
-         exit",
-    ).unwrap();
+    let prog = assemble("
+        mov32 r0, 0xBEE
+        exit").unwrap();
     let mut vm = EbpfVm::<VerifierTestError>::new(None).unwrap();
     vm.set_verifier(verifier_success).unwrap();
     vm.set_program(&prog).unwrap();
@@ -406,10 +392,9 @@ fn test_verifier_success() {
 #[test]
 #[should_panic(expected = "Gaggablaghblagh!")]
 fn test_verifier_fail() {
-    let prog = assemble(
-        "mov32 r0, 0xBEE
-         exit",
-    ).unwrap();
+    let prog = assemble("
+        mov32 r0, 0xBEE
+        exit").unwrap();
     let mut vm = EbpfVm::<VerifierTestError>::new(None).unwrap();
     vm.set_verifier(verifier_fail).unwrap();
     vm.set_program(&prog).unwrap();
@@ -446,19 +431,18 @@ impl InstructionMeter for TestInstructionMeter {
 #[test]
 #[should_panic(expected = "ExceededMaxInstructions(1000)")]
 fn test_non_terminating() {
-    let prog = &[
-        0xb7, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xbf, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x85, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00,
-        0x07, 0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        0x05, 0x00, 0xf8, 0xff, 0x00, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ];
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let prog = assemble("
+        mov64 r6, 0x0
+        mov64 r1, 0x0
+        mov64 r2, 0x0
+        mov64 r3, 0x0
+        mov64 r4, 0x0
+        mov64 r5, r6
+        call 0x6
+        add64 r6, 0x1
+        ja -0x8
+        exit").unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.register_syscall(BPF_TRACE_PRINTK_IDX, bpf_trace_printf).unwrap();
     let mut instruction_meter = TestInstructionMeter{remaining: 1000 };
     let _ = vm.execute_program_metered(&[], &[], &[], instruction_meter).unwrap();
@@ -466,19 +450,18 @@ fn test_non_terminating() {
 
 #[test]
 fn test_non_terminate_capped() {
-    let prog = &[
-        0xb7, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xbf, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x85, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00,
-        0x07, 0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        0x05, 0x00, 0xf8, 0xff, 0x00, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ];
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let prog = assemble("
+        mov64 r6, 0x0
+        mov64 r1, 0x0
+        mov64 r2, 0x0
+        mov64 r3, 0x0
+        mov64 r4, 0x0
+        mov64 r5, r6
+        call 0x6
+        add64 r6, 0x1
+        ja -0x8
+        exit").unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.register_syscall(BPF_TRACE_PRINTK_IDX, bpf_trace_printf).unwrap();
     let mut instruction_meter = TestInstructionMeter{remaining: 6 };
     let _ = vm.execute_program_metered(&[], &[], &[], instruction_meter);
@@ -487,19 +470,18 @@ fn test_non_terminate_capped() {
 
 #[test]
 fn test_non_terminate_early() {
-    let prog = &[
-        0xb7, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xb7, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xbf, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x85, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00,
-        0x07, 0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        0x05, 0x00, 0xf8, 0xff, 0x00, 0x00, 0x00, 0x00,
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ];
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let prog = assemble("
+        mov64 r6, 0x0
+        mov64 r1, 0x0
+        mov64 r2, 0x0
+        mov64 r3, 0x0
+        mov64 r4, 0x0
+        mov64 r5, r6
+        call 0x6
+        add64 r6, 0x1
+        ja -0x8
+        exit").unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     let mut instruction_meter = TestInstructionMeter{remaining: 100 };
     let _ = vm.execute_program_metered(&[], &[], &[], instruction_meter);
     assert_eq!(vm.get_total_instruction_count(), 7);
@@ -507,27 +489,25 @@ fn test_non_terminate_early() {
 
 #[test]
 fn test_get_total_instruction_count() {
-    let prog = &[
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ];
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let prog = assemble("
+        exit").unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     let _ = vm.execute_program(&[], &[], &[]);
     assert_eq!(vm.get_total_instruction_count(),1);
 }
 
 #[test]
 fn test_get_total_instruction_count_with_syscall() {
-    let prog = &mut [
-        0xb7, 0x02, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, // r2 = 5
-        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let mut prog = assemble("
+        mov64 r2, 0x5
+        call -0x1
+        mov64 r0, 0x0
+        exit").unwrap();
     LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"log"));
 
     let mut mem = [72, 101, 108, 108, 111];
 
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     let mut instruction_meter = TestInstructionMeter{remaining: 4 };
     let _ = vm.execute_program_metered(&mut mem, &[], &[], instruction_meter);
@@ -537,17 +517,16 @@ fn test_get_total_instruction_count_with_syscall() {
 #[test]
 #[should_panic(expected = "ExceededMaxInstructions(3)")]
 fn test_get_total_instruction_count_with_syscall_capped() {
-    let prog = &mut [
-        0xb7, 0x02, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, // r2 = 5
-        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let mut prog = assemble("
+        mov64 r2, 0x5
+        call -0x1
+        mov64 r0, 0x0
+        exit").unwrap();
     LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"log"));
 
     let mut mem = [72, 101, 108, 108, 111];
 
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.register_syscall(BPF_TRACE_PRINTK_IDX, bpf_trace_printf).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     let mut instruction_meter = TestInstructionMeter{remaining: 3 };
@@ -632,37 +611,35 @@ fn test_load_elf_empty_rodata() {
 
 #[test]
 fn test_symbol_relocation() {
-        let prog = &mut [
-        0xbf, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r1 = r10
-        0x17, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // r1 -= 0x1
-        0xb7, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // r2 = 1
-        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let mut prog = assemble("
+        mov64 r1, r10
+        sub64 r1, 0x1
+        mov64 r2, 0x1
+        call -0x1
+        mov64 r0, 0x0
+        exit").unwrap();
     LittleEndian::write_u32(&mut prog[28..32], ebpf::hash_symbol_name(b"log"));
 
     let mut mem = [72, 101, 108, 108, 111, 0];
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
-    vm.set_program(prog).unwrap();
+    vm.set_program(&prog).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
 
 #[test]
 fn test_syscall_parameter_on_stack() {
-    let prog = &mut [
-        0xbf, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r1 = r10
-        0x07, 0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, // r1 += -256
-        0xb7, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // r2 = 10
-        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let mut prog = assemble("
+        mov64 r1, r10
+        add64 r1, -0x100
+        mov64 r2, 0x1
+        call -0x1
+        mov64 r0, 0x0
+        exit").unwrap();
     LittleEndian::write_u32(&mut prog[28..32], ebpf::hash_symbol_name(b"log"));
 
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.execute_program(&[], &[], &[]).unwrap();
 }
@@ -670,34 +647,32 @@ fn test_syscall_parameter_on_stack() {
 #[test]
 #[should_panic(expected = "AccessViolation(\"Load\", 29")]
 fn test_null_string() {
-    let prog = &mut [
-        0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r1 = 0
-        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let mut prog = assemble("
+        mov64 r1, 0x0
+        call -0x1
+        mov64 r0, 0x0
+        exit").unwrap();
     LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"log"));
 
     let mut mem = [72, 101, 108, 108, 111, 0];
 
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
 
 #[test]
 fn test_syscall_string() {
-    let prog = &mut [
-        0xb7, 0x02, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, // r2 = 5
-        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let mut prog = assemble("
+        mov64 r2, 0x5
+        call -0x1
+        mov64 r0, 0x0
+        exit").unwrap();
     LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"log"));
 
     let mut mem = [72, 101, 108, 108, 111];
 
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
@@ -706,16 +681,15 @@ fn test_syscall_string() {
 #[test]
 #[should_panic(expected = "[JIT] Error: syscall verifier function not supported by jit")]
 fn test_jit_call_syscall_wo_verifier() {
-    let prog = &mut [
-        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let mut prog = assemble("
+        call -0x1
+        mov64 r0, 0x0
+        exit").unwrap();
     LittleEndian::write_u32(&mut prog[4..8], ebpf::hash_symbol_name(b"log"));
 
     let mut mem = [72, 101, 108, 108, 111, 0];
 
-    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.jit_compile().unwrap();
     unsafe { assert_eq!(vm.execute_program_jit(&mut mem).unwrap(), 0); }
@@ -724,17 +698,16 @@ fn test_jit_call_syscall_wo_verifier() {
 #[test]
 #[should_panic(expected = "UnresolvedSymbol(29)")]
 fn test_symbol_unresolved() {
-        let prog = &mut [
-        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let mut prog = assemble("
+        call -0x1
+        mov64 r0, 0x0
+        exit").unwrap();
     LittleEndian::write_u32(&mut prog[4..8], ebpf::hash_symbol_name(b"log"));
 
     let mut mem = [72, 101, 108, 108, 111, 0];
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.set_program(prog).unwrap();
+    vm.set_program(&prog).unwrap();
     vm.execute_program(&mut mem, &[], &[]).unwrap();
 }
 
@@ -813,62 +786,60 @@ fn test_relative_call() {
 
 #[test]
 fn test_call_reg() {
-    let prog = &mut [
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0xb7, 0x08, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // r8 = 1
-        0x67, 0x08, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, // lsh r8, 32
-        0x47, 0x08, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, // or r8, 48
-        0x8D, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // callx r8
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-        0xb7, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00, // r0 = 42
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let prog = assemble("
+        mov64 r0, 0x0
+        mov64 r8, 0x1
+        lsh64 r8, 0x20
+        or64 r8, 0x30
+        callx 0x8
+        exit
+        mov64 r0, 0x2A
+        exit").unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.set_program(prog).unwrap();
+    vm.set_program(&prog).unwrap();
     assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
 }
 
 #[test]
 #[should_panic(expected = "CallDepthExceeded(20)")]
 fn test_call_reg_stack_depth() {
-    let prog = &mut [
-        0xb7, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // r0 = 1
-        0x67, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, // lsh r0, 32
-        0x8D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // callx r0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let prog = assemble("
+        mov64 r0, 0x1
+        lsh64 r0, 0x20
+        callx 0x0
+        exit").unwrap();
 
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.set_program(prog).unwrap();
+    vm.set_program(&prog).unwrap();
     assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
 }
 
 #[test]
 #[should_panic(expected = "CallOutsideTextSegment(30, 0)")]
 fn test_oob_callx_low() {
-    let prog = &mut [
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0x8D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // callx r0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let prog = assemble("
+        mov64 r0, 0x0
+        callx 0x0
+        exit").unwrap();
+
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.set_program(prog).unwrap();
+    vm.set_program(&prog).unwrap();
     assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
 }
 
 #[test]
 #[should_panic(expected = "CallOutsideTextSegment(3, 18446744073709551615)")]
 fn test_oob_callx_high() {
-    let prog = &mut [
-        0xb7, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // r0 = 0
-        0x67, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, // lsh r0, 32
-        0x47, 0x08, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // or r0, 0xffffffffr
-        0x8D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // callx r0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let prog = assemble("
+        mov64 r0, -0x1
+        lsh64 r0, 0x20
+        or64 r8, -0x1
+        callx 0x0
+        exit").unwrap();
+
     let mut vm = EbpfVm::<UserError>::new(None).unwrap();
-    vm.set_program(prog).unwrap();
+    vm.set_program(&prog).unwrap();
     assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
 }
 
@@ -967,18 +938,17 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
 
 #[test]
 fn test_syscall_with_context() {
-    let prog = &mut [
-        0xb7, 0x02, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, // r2 = 5
-        0x85, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // call -1
-        0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // r0 = 0
-        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
-    ];
+    let mut prog = assemble("
+        mov64 r2, 0x5
+        call -0x1
+        mov64 r0, 0x0
+        exit").unwrap();
     LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"syscall"));
 
     let mut mem = [72, 101, 108, 108, 111];
     let mut number = 42;
     {
-        let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+        let mut vm = EbpfVm::<UserError>::new(Some(&prog)).unwrap();
         vm.register_syscall_with_context_ex("syscall", Box::new(SyscallWithContext { context: &mut number})).unwrap();
         vm.execute_program(&mut mem, &[], &[]).unwrap();
     }
