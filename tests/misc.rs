@@ -112,6 +112,21 @@ use thiserror::Error;
 // Cargo.toml file (see comments above), so here we use just the hardcoded bytecode instructions
 // instead.
 
+#[cfg(not(windows))]
+#[test]
+fn test_vm_ldabsb() {
+    let prog = &[
+        0x30, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    ];
+    let mut mem = [
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+    ];
+    let mut vm = EbpfVm::<UserError>::new(Some(prog)).unwrap();
+    assert_eq!(vm.execute_program(&mut mem, &[], &[]).unwrap(), 0x33);
+}
+
 #[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
