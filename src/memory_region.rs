@@ -51,20 +51,13 @@ impl fmt::Debug for MemoryRegion {
     }
 }
 
-/// Given a list of regions translate from virtual machine to host address
-pub fn translate_addr<E: UserDefinedError>(
-    vm_addr: u64,
+/// Helper for translate_addr to generate errors
+fn generate_access_violation<E: UserDefinedError>(vm_addr: u64,
     len: usize,
     access_type: &str,
-    pc: usize, // TODO syscalls don't have this info
-    regions: &[MemoryRegion],
-) -> Result<u64, EbpfError<E>> {
-    for region in regions.iter() {
-        if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
-            return Ok(host_addr);
-        }
-    }
-
+    pc: usize,
+    regions: &[MemoryRegion]
+) -> EbpfError<E> {
     let mut regions_string = "".to_string();
     if !regions.is_empty() {
         regions_string = "regions:".to_string();
@@ -77,11 +70,36 @@ pub fn translate_addr<E: UserDefinedError>(
             );
         }
     }
-    Err(EbpfError::AccessViolation(
+    EbpfError::AccessViolation(
         access_type.to_string(),
         pc + ELF_INSN_DUMP_OFFSET,
         vm_addr,
         len,
         regions_string,
-    ))
+    )
+}
+
+/// Given a list of regions translate from virtual machine to host address
+pub fn translate_addr<E: UserDefinedError>(
+    vm_addr: u64,
+    len: usize,
+    access_type: &str,
+    pc: usize, // TODO syscalls don't have this info
+    regions: &[MemoryRegion],
+) -> Result<u64, EbpfError<E>> {
+    let index = match regions.binary_search_by(|probe| probe.addr_vm.cmp(&vm_addr)) {
+        Ok(index) => index,
+        Err(index) => {
+            if index == 0 {
+                return Err(generate_access_violation(vm_addr, len, access_type, pc, regions));
+            }
+            index - 1
+        }
+    };
+
+    if let Ok(host_addr) = regions[index].vm_to_host::<E>(vm_addr, len as u64) {
+        Ok(host_addr)
+    } else {
+        Err(generate_access_violation(vm_addr, len, access_type, pc, regions))
+    }
 }

@@ -395,6 +395,10 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         };
         ro_regions.push(MemoryRegion::new_from_slice(prog, prog_addr));
 
+        // Sort regions by addr_vm for binary search
+        ro_regions.sort_by(|a, b| a.addr_vm.cmp(&b.addr_vm));
+        rw_regions.sort_by(|a, b| a.addr_vm.cmp(&b.addr_vm));
+
         // R1 points to beginning of input memory, R10 to the stack of the first frame
         let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, frames.get_stack_top()];
 
