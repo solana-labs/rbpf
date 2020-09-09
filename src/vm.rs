@@ -755,14 +755,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// vm.jit_compile();
     /// ```
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        let prog = {
-            if self.executable.get_ro_sections().is_ok() {
-                return Err(EbpfError::ReadOnlyDataUnsupported);
-            }
-            let (_, bytes) = self.executable.get_text_bytes()?;
-            bytes
-        };
-
+        let (_, prog) = self.executable.get_text_bytes()?;
         self.jit = Some(jit::compile(prog, &self.syscalls)?);
         Ok(())
     }

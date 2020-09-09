@@ -105,25 +105,6 @@ use thiserror::Error;
 
 #[cfg(not(windows))]
 #[test]
-fn test_vm_ldabsb() {
-    let prog = assemble(
-        "
-        ldabsb 0x3
-        exit",
-    )
-    .unwrap();
-    let mem = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem, &[], &[]).unwrap(), 0x33);
-}
-
-#[ignore] // TODO jit does not support address translation or syscalls
-#[cfg(not(windows))]
-#[test]
 fn test_vm_jit_ldabsb() {
     let prog = assemble(
         "
@@ -146,7 +127,6 @@ fn test_vm_jit_ldabsb() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsh() {
@@ -171,7 +151,6 @@ fn test_vm_jit_ldabsh() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsw() {
@@ -196,7 +175,6 @@ fn test_vm_jit_ldabsw() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsdw() {
@@ -263,7 +241,6 @@ fn test_vm_err_ldabsb_nomem() {
     // Memory check not implemented for JIT yet.
 }
 
-#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindb() {
@@ -289,7 +266,6 @@ fn test_vm_jit_ldindb() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindh() {
@@ -315,7 +291,6 @@ fn test_vm_jit_ldindh() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindw() {
@@ -341,7 +316,6 @@ fn test_vm_jit_ldindw() {
     };
 }
 
-#[ignore] // TODO jit does not support address translation or syscalls
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldinddw() {
