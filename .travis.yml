@@ -15,6 +15,7 @@ before_script:
 - rustup update
 - rustup component add clippy-preview
 script:
+- cargo fmt --all -- --check
 - cargo clippy -- --deny=warnings
 - export RUSTFLAGS="-D warnings"; cargo build --verbose
 - export RUSTFLAGS="-D warnings"; cargo test --verbose

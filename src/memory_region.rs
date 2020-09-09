@@ -53,11 +53,12 @@ impl fmt::Debug for MemoryRegion {
 }
 
 /// Helper for translate_addr to generate errors
-fn generate_access_violation<E: UserDefinedError>(vm_addr: u64,
+fn generate_access_violation<E: UserDefinedError>(
+    vm_addr: u64,
     len: usize,
     access_type: &str,
     pc: usize,
-    regions: &[MemoryRegion]
+    regions: &[MemoryRegion],
 ) -> EbpfError<E> {
     let mut regions_string = "".to_string();
     if !regions.is_empty() {
@@ -92,7 +93,13 @@ pub fn translate_addr<E: UserDefinedError>(
         Ok(index) => index,
         Err(index) => {
             if index == 0 {
-                return Err(generate_access_violation(vm_addr, len, access_type, pc, regions));
+                return Err(generate_access_violation(
+                    vm_addr,
+                    len,
+                    access_type,
+                    pc,
+                    regions,
+                ));
             }
             index - 1
         }
@@ -101,6 +108,12 @@ pub fn translate_addr<E: UserDefinedError>(
     if let Ok(host_addr) = regions[index].vm_to_host::<E>(vm_addr, len as u64) {
         Ok(host_addr)
     } else {
-        Err(generate_access_violation(vm_addr, len, access_type, pc, regions))
+        Err(generate_access_violation(
+            vm_addr,
+            len,
+            access_type,
+            pc,
+            regions,
+        ))
     }
 }
