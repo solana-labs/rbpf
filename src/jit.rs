@@ -476,13 +476,12 @@ impl<'a> JitMemory<'a> {
         emit_push(self, R14);
         emit_push(self, R15);
 
-        // RDX: mem
-        // RCX: mem_len
-        // R8:  mem_offset
-        // R9:  mem_end_offset
+        // RDI: mem
+        // RSI: mem_len
+        // RDX: mem_offset
 
         // Save mem pointer for use with LD_ABS_* and LD_IND_* instructions
-        emit_mov(self, RDX, R10);
+        emit_mov(self, RDI, R10);
 
         if map_register(1) != RDX {
             emit_mov(self, RDX, map_register(1));
