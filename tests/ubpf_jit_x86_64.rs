@@ -1643,7 +1643,7 @@ fn test_jit_mul32_reg() {
 
 #[test]
 fn test_jit_mul32_reg_overflow() {
-       let prog = assemble(
+    let prog = assemble(
         "
         mov r0, 0x40000001
         mov r1, 4
