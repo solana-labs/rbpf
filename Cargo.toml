@@ -2,7 +2,7 @@
 
 # Project metadata
 name = "solana_rbpf"
-version = "0.1.30"
+version = "0.1.31"
 authors = ["Solana Maintainers <maintainers@solana.com>"]
 
 # Additional metadata for packaging
