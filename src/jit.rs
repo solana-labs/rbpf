@@ -21,7 +21,7 @@ use std::ops::{Index, IndexMut};
 
 use crate::{
     vm::JitProgram,
-    vm::Syscall,
+    vm::{Syscall, SyscallObjectVtable, SyscallTraitObject},
     call_frames::CALL_FRAME_SIZE,
     ebpf::{self},
     error::{EbpfError, UserDefinedError},
@@ -128,6 +128,12 @@ fn emit4(jit: &mut JitMemory, data: u32) {
 #[inline]
 fn emit8(jit: &mut JitMemory, data: u64) {
     emit_bytes!(jit, data, u64);
+}
+
+#[allow(dead_code)]
+#[inline]
+fn emit_debugger_trap(jit: &mut JitMemory) {
+    emit1(jit, 0xcc);
 }
 
 #[inline]
@@ -782,8 +788,12 @@ impl<'a> JitMemory<'a> {
                     // syscall function in the JIT-compiled program).
                     let func_ptr = match syscalls.get(&(insn.imm as u32)) {
                         Some(Syscall::Function(func)) => *func as *const u8,
-                        Some(Syscall::Object(_obj)) => {
-                            return Err(JITError::Unsupported(insn_ptr)); // TODO: Raw function for dyn trait objects
+                        Some(Syscall::Object(boxed)) => unsafe {
+                            let fat_ptr_ptr = std::mem::transmute::<_, *const *const SyscallTraitObject>(&boxed);
+                            let fat_ptr = std::mem::transmute::<_, *const SyscallTraitObject>(*fat_ptr_ptr);
+                            emit_load_imm(self, RSI, (*fat_ptr).data as i64);
+                            let vtable = std::mem::transmute::<_, &SyscallObjectVtable>((*fat_ptr).vtable);
+                            vtable.call
                         },
                         None => {
                             return Err(JITError::UnknownSyscall(insn.imm as u32, insn_ptr));
@@ -843,7 +853,7 @@ impl<'a> JitMemory<'a> {
             pc as i64 // Just to prevent warnings
         };
         emit_mov(self, RCX, RDI); // muldivmod stored pc in RCX
-        emit_call(self, log as i64);
+        emit_call(self, log as *const u8 as i64);
         emit_load_imm(self, map_register(0), -1);
         emit_jmp(self, TARGET_PC_EXIT);
         Ok(())

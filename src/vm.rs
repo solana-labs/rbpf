@@ -54,6 +54,18 @@ pub trait SyscallObject<E: UserDefinedError> {
     ) -> Result<u64, EbpfError<E>>;
 }
 
+pub struct SyscallObjectVtable {
+    pub drop: fn(*const u8),
+    pub size: usize,
+    pub align: usize,
+    pub call: *const u8,
+}
+
+pub struct SyscallTraitObject {
+    pub data: *const u8,
+    pub vtable: *const SyscallObjectVtable,
+}
+
 /// Contains the syscall
 pub enum Syscall<'a, E: UserDefinedError> {
     /// Function

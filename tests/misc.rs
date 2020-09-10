@@ -768,7 +768,7 @@ fn test_jit_call_syscall() {
         exit",
     )
     .unwrap();
-    LittleEndian::write_u32(&mut prog[11*4..12*4], ebpf::hash_symbol_name(b"log"));
+    LittleEndian::write_u32(&mut prog[44..48], ebpf::hash_symbol_name(b"log"));
 
     let mut mem = [72, 101, 108, 108, 111, 0];
 
