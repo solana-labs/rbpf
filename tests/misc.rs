@@ -594,7 +594,7 @@ fn test_get_total_instruction_count_with_syscall_capped() {
         .unwrap();
 }
 
-pub fn bpf_syscall_string(
+fn bpf_syscall_string(
     vm_addr: u64,
     len: u64,
     _arg3: u64,
@@ -618,7 +618,7 @@ pub fn bpf_syscall_string(
     }
 }
 
-pub fn bpf_syscall_u64(
+fn bpf_syscall_u64(
     arg1: u64,
     arg2: u64,
     arg3: u64,
@@ -632,10 +632,6 @@ pub fn bpf_syscall_u64(
         arg1, arg2, arg3, arg4, arg5
     );
     Ok(0)
-}
-
-pub fn user_check(prog: &[u8]) -> Result<(), UserError> {
-    check(prog)
 }
 
 #[test]
@@ -750,7 +746,7 @@ fn test_syscall_string() {
     .unwrap();
     LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"log"));
 
-    let mem = [72, 101, 108, 108, 111];
+    let mem = [72, 101, 108, 108, 111, 0];
 
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
@@ -758,24 +754,27 @@ fn test_syscall_string() {
     vm.execute_program(&mem, &[], &[]).unwrap();
 }
 
-#[ignore] // TODO jit does not support address translation or syscalls
 #[test]
-#[should_panic(expected = "[JIT] Error: syscall verifier function not supported by jit")]
-fn test_jit_call_syscall_wo_verifier() {
+fn test_jit_call_syscall() {
     let mut prog = assemble(
         "
+        mov64 r1, 0xAA
+        mov64 r2, 0xBB
+        mov64 r3, 0xCC
+        mov64 r4, 0xDD
+        mov64 r5, 0xEE
         call -0x1
         mov64 r0, 0x0
         exit",
     )
     .unwrap();
-    LittleEndian::write_u32(&mut prog[4..8], ebpf::hash_symbol_name(b"log"));
+    LittleEndian::write_u32(&mut prog[11*4..12*4], ebpf::hash_symbol_name(b"log"));
 
     let mut mem = [72, 101, 108, 108, 111, 0];
 
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
+    vm.register_syscall_ex("log", bpf_syscall_u64).unwrap();
     vm.jit_compile().unwrap();
     unsafe {
         assert_eq!(vm.execute_program_jit(&mut mem).unwrap(), 0);
@@ -1077,6 +1076,10 @@ fn test_fuzz_execute() {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").expect("file open failed");
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
+
+    fn user_check(prog: &[u8]) -> Result<(), UserError> {
+        check(prog)
+    }
 
     println!("mangle the whole file");
     fuzz(

@@ -87,7 +87,7 @@ struct DefaultInstructionMeter {}
 impl InstructionMeter for DefaultInstructionMeter {
     fn consume(&mut self, _amount: u64) {}
     fn get_remaining(&self) -> u64 {
-        u64::MAX
+        std::u64::MAX
     }
 }
 
