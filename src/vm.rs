@@ -54,15 +54,23 @@ pub trait SyscallObject<E: UserDefinedError> {
     ) -> Result<u64, EbpfError<E>>;
 }
 
+/// A virtual method table for SyscallObject
 pub struct SyscallObjectVtable {
+    /// Drops the dyn trait object
     pub drop: fn(*const u8),
+    /// Size of the dyn trait object in bytes
     pub size: usize,
+    /// Alignment of the dyn trait object in bytes
     pub align: usize,
+    /// The call method of the SyscallObject
     pub call: *const u8,
 }
 
+/// A dyn trait fat pointer for SyscallObject
 pub struct SyscallTraitObject {
+    /// Pointer to the actual object
     pub data: *const u8,
+    /// Pointer to the virtual method table
     pub vtable: *const SyscallObjectVtable,
 }
 

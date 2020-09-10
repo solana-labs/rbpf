@@ -792,7 +792,7 @@ impl<'a> JitMemory<'a> {
                             let fat_ptr_ptr = std::mem::transmute::<_, *const *const SyscallTraitObject>(&boxed);
                             let fat_ptr = std::mem::transmute::<_, *const SyscallTraitObject>(*fat_ptr_ptr);
                             emit_load_imm(self, RSI, (*fat_ptr).data as i64);
-                            let vtable = std::mem::transmute::<_, &SyscallObjectVtable>((*fat_ptr).vtable);
+                            let vtable = std::mem::transmute::<_, &SyscallObjectVtable>(&*(*fat_ptr).vtable);
                             vtable.call
                         },
                         None => {
