@@ -60,7 +60,7 @@ enum OperandSize {
 const RAX: u8 = 0;
 const RCX: u8 = 1;
 const RDX: u8 = 2;
-const RBX: u8 = 3;
+// const RBX: u8 = 3;
 const RSP: u8 = 4;
 const RBP: u8 = 5;
 const RSI: u8 = 6;
@@ -496,7 +496,7 @@ impl<'a> JitMemory<'a> {
     fn jit_compile<E: UserDefinedError>(&mut self, prog: &[u8],
                    syscalls: &HashMap<u32,
                    Syscall<'a, E>>) -> Result<(), JITError> {
-        emit_push(self, RBX);
+        // emit_push(self, RBX);
         emit_push(self, RBP);
         emit_push(self, R12);
         emit_push(self, R13);
@@ -510,11 +510,7 @@ impl<'a> JitMemory<'a> {
         // Save mem pointer for use with LD_ABS_* and LD_IND_* instructions
         emit_mov(self, RDI, R10);
 
-        if map_register(1) != RDX {
-            emit_mov(self, RDX, map_register(1));
-        }
-
-        // Copy stack pointer to R10
+        // Copy stack pointer to RBP
         emit_mov(self, RSP, map_register(10));
 
         // Allocate stack space
@@ -833,7 +829,7 @@ impl<'a> JitMemory<'a> {
         emit_pop(self, R13);
         emit_pop(self, R12);
         emit_pop(self, RBP);
-        emit_pop(self, RBX);
+        // emit_pop(self, RBX);
 
         emit1(self, 0xc3); // ret
 

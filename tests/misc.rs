@@ -754,6 +754,7 @@ fn test_syscall_string() {
     vm.execute_program(&mem, &[], &[]).unwrap();
 }
 
+#[cfg(not(windows))]
 #[test]
 fn test_jit_call_syscall() {
     let mut prog = assemble(
