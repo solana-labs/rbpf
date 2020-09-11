@@ -46,7 +46,8 @@ pub enum JITError {
 // Special values for target_pc in struct Jump
 const TARGET_OFFSET: isize = ebpf::PROG_MAX_INSNS as isize;
 const TARGET_PC_EXIT:         isize = TARGET_OFFSET + 1;
-const TARGET_PC_DIV_BY_ZERO:  isize = TARGET_OFFSET + 2;
+const TARGET_PC_EPILOGUE:     isize = TARGET_OFFSET + 2;
+const TARGET_PC_DIV_BY_ZERO:  isize = TARGET_OFFSET + 3;
 
 #[derive(Copy, Clone)]
 enum OperandSize {
@@ -60,7 +61,7 @@ enum OperandSize {
 const RAX: u8 = 0;
 const RCX: u8 = 1;
 const RDX: u8 = 2;
-// const RBX: u8 = 3;
+const RBX: u8 = 3;
 const RSP: u8 = 4;
 const RBP: u8 = 5;
 const RSI: u8 = 6;
@@ -74,21 +75,36 @@ const R13: u8 = 13;
 const R14: u8 = 14;
 const R15: u8 = 15;
 
+// System V AMD64 ABI
+// Works on: Linux, macOS, BSD and Solaris but not on Windows
+const ARGUMENT_REGISTERS: [u8; 6] = [
+    RDI, RSI, RDX, RCX, R8, R9
+];
+const CALLER_SAVED_REGISTERS: [u8; 9] = [
+    RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11
+];
+const CALLEE_SAVED_REGISTERS: [u8; 6] = [
+    RBP, RBX, R12, R13, R14, R15
+];
+
+// Special registers:
+// RDI Pointer to optional typed return value
+// R10 Stores a constant pointer to mem
+// R11 Scratch register for offsetting
+
 const REGISTER_MAP_SIZE: usize = 11;
-const REGISTER_MAP: [u8;REGISTER_MAP_SIZE] = [
+const REGISTER_MAP: [u8; REGISTER_MAP_SIZE] = [
     RAX, // 0  return value
-    RSI, // 1  arg 1
-    RDX, // 2  arg 2
-    RCX, // 3  arg 3
-    R8,  // 4  arg 4
-    R9,  // 5  arg 4
-    R12, // 6  callee-saved
-    R13, // 7  callee-saved
-    R14, // 8  callee-saved
-    R15, // 9  callee-saved
+    ARGUMENT_REGISTERS[1], // 1
+    ARGUMENT_REGISTERS[2], // 2
+    ARGUMENT_REGISTERS[3], // 3
+    ARGUMENT_REGISTERS[4], // 4
+    ARGUMENT_REGISTERS[5], // 5
+    CALLEE_SAVED_REGISTERS[2], // 6
+    CALLEE_SAVED_REGISTERS[3], // 7
+    CALLEE_SAVED_REGISTERS[4], // 8
+    CALLEE_SAVED_REGISTERS[5], // 9
     RBP, // 10 stack pointer
-    // R10 and R11 are used to compute store a constant pointer to mem and to compute offset for
-    // LD_ABS_* and LD_IND_* operations, so they are not mapped to any eBPF register.
 ];
 
 // Return the x86 register for the given eBPF register
@@ -386,14 +402,21 @@ fn emit_store_imm32(jit: &mut JitMemory, size: OperandSize, dst: u8, offset: i32
 
 #[inline]
 fn emit_call(jit: &mut JitMemory, target: i64) {
+    // Save registers
+    for reg in CALLER_SAVED_REGISTERS.iter() {
+        emit_push(jit, *reg);
+    }
+
     // TODO use direct call when possible
-    // TODO: Save all relevant registers
-    emit_push(jit, RDI);
     emit_load_imm(jit, RAX, target);
     // callq *%rax
     emit1(jit, 0xff);
     emit1(jit, 0xd0);
-    emit_pop(jit, RDI);
+
+    // Restore registers
+    for reg in CALLER_SAVED_REGISTERS.iter().rev() {
+        emit_pop(jit, *reg);
+    }
 }
 
 fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) {
@@ -500,13 +523,13 @@ impl<'a> JitMemory<'a> {
     fn jit_compile<E: UserDefinedError>(&mut self, prog: &[u8],
                    syscalls: &HashMap<u32,
                    Syscall<'a, E>>) -> Result<(), JITError> {
-        // emit_push(self, RBX);
-        emit_push(self, RBP);
-        emit_push(self, R12);
-        emit_push(self, R13);
-        emit_push(self, R14);
-        emit_push(self, R15);
-        emit_mov(self, RSP, RBP);
+        // Save registers
+        for reg in CALLEE_SAVED_REGISTERS.iter() {
+            emit_push(self, *reg);
+            if *reg == RBP {
+                emit_mov(self, RSP, RBP);
+            }
+        }
 
         // Save mem pointer for use with LD_ABS_* and LD_IND_* instructions
         emit_mov(self, RSI, R10);
@@ -793,15 +816,16 @@ impl<'a> JitMemory<'a> {
                             return Err(JITError::UnknownSyscall(insn.imm as u32, insn_ptr));
                         }
                     };
-                    // let result_size = std::mem::size_of::<Result<u64, EbpfError<UserError>>>() as i32;
-                    // let result_size_aligned = (result_size + 0xF) & (!0xF);
-                    // emit_alu64_imm32(self, 0x81, 5, RSP, result_size_aligned); // Allocate stack for result
-                    // emit_leaq(self, RBP, RDI, -result_size); // Pointer to store result in
+
                     // emit_mov(self, R9, R10); // TODO: Pass mem / regions
                     emit_call(self, func_ptr as i64);
-                    // emit_leaq(self, RBP, RDI, -result_size); // Pointer to result as return value
-                    // TODO: Validate return value
-                    // emit_alu64_imm32(self, 0x81, 0, RSP, result_size_aligned); // Deallocate stack for result
+
+                    // Throw error if the result indicates one
+                    emit_load(self, OperandSize::S64, RDI, map_register(0), 0);
+                    emit_jcc(self, 0x85, TARGET_PC_EPILOGUE);
+
+                    // Store Ok value in result register
+                    emit_load(self, OperandSize::S64, RDI, map_register(0), 8);
                 },
                 ebpf::CALL_REG  => { unimplemented!() },
                 ebpf::EXIT      => {
@@ -816,7 +840,7 @@ impl<'a> JitMemory<'a> {
             insn_ptr += 1;
         }
 
-        // Epilogue
+        // Quit gracefully
         set_anchor(self, TARGET_PC_EXIT);
 
         // Store result in optional type
@@ -825,15 +849,16 @@ impl<'a> JitMemory<'a> {
         emit_load_imm(self, map_register(0), 0);
         emit_store(self, OperandSize::S64, map_register(0), RDI, 0);
 
+        // Epilogue
+        set_anchor(self, TARGET_PC_EPILOGUE);
+
         // Deallocate stack space
         emit_alu64_imm32(self, 0x81, 0, RSP, CALL_FRAME_SIZE as i32);
 
-        emit_pop(self, R15);
-        emit_pop(self, R14);
-        emit_pop(self, R13);
-        emit_pop(self, R12);
-        emit_pop(self, RBP);
-        // emit_pop(self, RBX);
+        // Restore registers
+        for reg in CALLEE_SAVED_REGISTERS.iter().rev() {
+            emit_pop(self, *reg);
+        }
 
         emit1(self, 0xc3); // ret
 
@@ -856,7 +881,7 @@ impl<'a> JitMemory<'a> {
         emit_mov(self, RCX, RDI); // muldivmod stored pc in RCX
         emit_call(self, log as *const u8 as i64);
         emit_load_imm(self, map_register(0), -1);
-        emit_jmp(self, TARGET_PC_EXIT);
+        emit_jmp(self, TARGET_PC_EPILOGUE);
         Ok(())
     }
 
