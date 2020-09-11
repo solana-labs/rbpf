@@ -80,8 +80,8 @@ const R15: u8 = 15;
 const ARGUMENT_REGISTERS: [u8; 6] = [
     RDI, RSI, RDX, RCX, R8, R9
 ];
-const CALLER_SAVED_REGISTERS: [u8; 9] = [
-    RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11
+const CALLER_SAVED_REGISTERS: [u8; 7] = [
+    RAX, RCX, RDX, RSI, RDI, R8, R9 //, R10, R11: They aren't mapped and this also conveniently leaves R9 at the end, which is the first argument to be spilled
 ];
 const CALLEE_SAVED_REGISTERS: [u8; 6] = [
     RBP, RBX, R12, R13, R14, R15
@@ -401,12 +401,14 @@ fn emit_store_imm32(jit: &mut JitMemory, size: OperandSize, dst: u8, offset: i32
 }
 
 #[inline]
-fn emit_call(jit: &mut JitMemory, target: i64) {
-    // Save registers
+fn emit_register_saving_before_call(jit: &mut JitMemory) {
     for reg in CALLER_SAVED_REGISTERS.iter() {
         emit_push(jit, *reg);
     }
+}
 
+#[inline]
+fn emit_call(jit: &mut JitMemory, target: i64) {
     // TODO use direct call when possible
     emit_load_imm(jit, RAX, target);
     // callq *%rax
@@ -800,16 +802,24 @@ impl<'a> JitMemory<'a> {
                     emit_jcc(self, 0x8e, target_pc);
                 },
                 ebpf::CALL_IMM   => {
+                    // Save registers for call before displacement
+                    emit_register_saving_before_call(self);
+
                     // For JIT, syscalls MUST be registered at compile time. They can be
                     // updated later, but not created after compiling (we need the address of the
                     // syscall function in the JIT-compiled program).
                     let func_ptr = match syscalls.get(&(insn.imm as u32)) {
                         Some(Syscall::Function(func)) => *func as *const u8,
-                        Some(Syscall::Object(boxed)) => unsafe {
-                            let fat_ptr_ptr = std::mem::transmute::<_, *const *const SyscallTraitObject>(&boxed);
-                            let fat_ptr = std::mem::transmute::<_, *const SyscallTraitObject>(*fat_ptr_ptr);
-                            emit_load_imm(self, RSI, (*fat_ptr).data as i64);
-                            let vtable = std::mem::transmute::<_, &SyscallObjectVtable>(&*(*fat_ptr).vtable);
+                        Some(Syscall::Object(boxed)) => {
+                            let fat_ptr_ptr = unsafe { std::mem::transmute::<_, *const *const SyscallTraitObject>(&boxed) };
+                            let fat_ptr = unsafe { std::mem::transmute::<_, *const SyscallTraitObject>(*fat_ptr_ptr) };
+                            // Displace arguments to make room for RSI
+                            for i in (2..6).rev() {
+                                emit_mov(self, ARGUMENT_REGISTERS[i-1], ARGUMENT_REGISTERS[i]);
+                            }
+                            // RSI is the "&mut self" in the "call" method of the SyscallObject
+                            emit_load_imm(self, RSI, unsafe { (*fat_ptr).data } as i64);
+                            let vtable = unsafe { std::mem::transmute::<_, &SyscallObjectVtable>(&*(*fat_ptr).vtable) };
                             vtable.call
                         },
                         None => {
@@ -864,23 +874,8 @@ impl<'a> JitMemory<'a> {
 
         // Division by zero handler
         set_anchor(self, TARGET_PC_DIV_BY_ZERO);
-        fn log(pc: u64) -> i64 {
-            // TODO
-            // Write error message on stderr.
-            // We would like to panic!() instead (but does not work here), or maybe return an
-            // error, that is, if we also turn all other panics into errors someday.
-            // Note: needs `use std::io::Write;`
-            //     let res = writeln!(&mut std::io::stderr(),
-            //                        "[JIT] Error: division by zero (insn {:?})\n", pc);
-            //     match res {
-            //         Ok(_)  => 0,
-            //         Err(_) => -1
-            //     }
-            pc as i64 // Just to prevent warnings
-        };
         emit_mov(self, RCX, RDI); // muldivmod stored pc in RCX
-        emit_call(self, log as *const u8 as i64);
-        emit_load_imm(self, map_register(0), -1);
+        // TODO: Store error
         emit_jmp(self, TARGET_PC_EPILOGUE);
         Ok(())
     }
