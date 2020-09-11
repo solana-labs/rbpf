@@ -24,10 +24,10 @@ use crate::{
     vm::{Syscall, SyscallObjectVtable, SyscallTraitObject},
     call_frames::CALL_FRAME_SIZE,
     ebpf::{self},
-    error::{EbpfError, UserDefinedError},
+    error::UserDefinedError, // error::{EbpfError, UserDefinedError},
 };
 use thiserror::Error;
-use user_error::UserError;
+// use user_error::UserError;
 
 extern crate libc;
 
@@ -326,6 +326,7 @@ fn emit_load_imm(jit: &mut JitMemory, dst: u8, imm: i64) {
 }
 
 // Load effective address (64 bit)
+#[allow(dead_code)]
 #[inline]
 fn emit_leaq(jit: &mut JitMemory, src: u8, dst: u8, offset: i32) {
     emit_basic_rex(jit, 1, dst, src);
@@ -386,10 +387,13 @@ fn emit_store_imm32(jit: &mut JitMemory, size: OperandSize, dst: u8, offset: i32
 #[inline]
 fn emit_call(jit: &mut JitMemory, target: i64) {
     // TODO use direct call when possible
+    // TODO: Save all relevant registers
+    emit_push(jit, RDI);
     emit_load_imm(jit, RAX, target);
     // callq *%rax
     emit1(jit, 0xff);
     emit1(jit, 0xd0);
+    emit_pop(jit, RDI);
 }
 
 fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) {
@@ -502,16 +506,10 @@ impl<'a> JitMemory<'a> {
         emit_push(self, R13);
         emit_push(self, R14);
         emit_push(self, R15);
-
-        // RDI: mem
-        // RSI: mem_len
-        // RDX: mem_offset
+        emit_mov(self, RSP, RBP);
 
         // Save mem pointer for use with LD_ABS_* and LD_IND_* instructions
-        emit_mov(self, RDI, R10);
-
-        // Copy stack pointer to RBP
-        emit_mov(self, RSP, map_register(10));
+        emit_mov(self, RSI, R10);
 
         // Allocate stack space
         emit_alu64_imm32(self, 0x81, 5, RSP, CALL_FRAME_SIZE as i32);
@@ -795,10 +793,15 @@ impl<'a> JitMemory<'a> {
                             return Err(JITError::UnknownSyscall(insn.imm as u32, insn_ptr));
                         }
                     };
-                    // TODO: Alloca space for return value
-                    emit_leaq(self, RBP, RDI, -(std::mem::size_of::<Result<u64, EbpfError<UserError>>>() as i32));
+                    // let result_size = std::mem::size_of::<Result<u64, EbpfError<UserError>>>() as i32;
+                    // let result_size_aligned = (result_size + 0xF) & (!0xF);
+                    // emit_alu64_imm32(self, 0x81, 5, RSP, result_size_aligned); // Allocate stack for result
+                    // emit_leaq(self, RBP, RDI, -result_size); // Pointer to store result in
                     // emit_mov(self, R9, R10); // TODO: Pass mem / regions
                     emit_call(self, func_ptr as i64);
+                    // emit_leaq(self, RBP, RDI, -result_size); // Pointer to result as return value
+                    // TODO: Validate return value
+                    // emit_alu64_imm32(self, 0x81, 0, RSP, result_size_aligned); // Deallocate stack for result
                 },
                 ebpf::CALL_REG  => { unimplemented!() },
                 ebpf::EXIT      => {
@@ -816,10 +819,11 @@ impl<'a> JitMemory<'a> {
         // Epilogue
         set_anchor(self, TARGET_PC_EXIT);
 
-        // Move register 0 into rax
-        if map_register(0) != RAX {
-            emit_mov(self, map_register(0), RAX);
-        }
+        // Store result in optional type
+        emit_store(self, OperandSize::S64, map_register(0), RDI, 8);
+        // Also store that no error occured
+        emit_load_imm(self, map_register(0), 0);
+        emit_store(self, OperandSize::S64, map_register(0), RDI, 0);
 
         // Deallocate stack space
         emit_alu64_imm32(self, 0x81, 0, RSP, CALL_FRAME_SIZE as i32);
@@ -836,6 +840,7 @@ impl<'a> JitMemory<'a> {
         // Division by zero handler
         set_anchor(self, TARGET_PC_DIV_BY_ZERO);
         fn log(pc: u64) -> i64 {
+            // TODO
             // Write error message on stderr.
             // We would like to panic!() instead (but does not work here), or maybe return an
             // error, that is, if we also turn all other panics into errors someday.
@@ -910,7 +915,7 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
 
 // In the end, this is the only thing we export
 pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8], syscalls: &HashMap<u32, Syscall<'a, E>>)
-    -> Result<JitProgram, JITError> {
+    -> Result<JitProgram<E>, JITError> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
