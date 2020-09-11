@@ -1048,7 +1048,7 @@ fn test_large_program() {
 }
 
 #[test]
-fn test_syscall_with_context() {
+fn test_vm_syscall_with_context() {
     let mut prog = assemble(
         "
         mov64 r1, 0xAA
@@ -1063,12 +1063,9 @@ fn test_syscall_with_context() {
     .unwrap();
     LittleEndian::write_u32(&mut prog[44..48], ebpf::hash_symbol_name(b"syscall"));
 
-    let mem1 = [];
-    let mut mem2 = mem1;
     let mut number = 42;
 
     {
-        let number_ptr = &mut number as *mut u64;
         let executable =
             EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
         let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
@@ -1079,11 +1076,44 @@ fn test_syscall_with_context() {
             }),
         )
         .unwrap();
-        vm.execute_program(&mem1, &[], &[]).unwrap();
+        vm.execute_program(&[], &[], &[]).unwrap();
+    }
+    assert_eq!(number, 84);
+}
+
+#[cfg(not(windows))]
+#[test]
+fn test_jit_syscall_with_context() {
+    let mut prog = assemble(
+        "
+        mov64 r1, 0xAA
+        mov64 r2, 0xBB
+        mov64 r3, 0xCC
+        mov64 r4, 0xDD
+        mov64 r5, 0xEE
+        call -0x1
+        mov64 r0, 0x0
+        exit",
+    )
+    .unwrap();
+    LittleEndian::write_u32(&mut prog[44..48], ebpf::hash_symbol_name(b"syscall"));
+
+    let mut number = 42;
+
+    {
+        let executable =
+            EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
+        let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+        vm.register_syscall_with_context_ex(
+            "syscall",
+            Box::new(SyscallWithContext {
+                context: &mut number,
+            }),
+        )
+        .unwrap();
         vm.jit_compile().unwrap();
         unsafe {
-            *number_ptr = 42;
-            assert_eq!(vm.execute_program_jit(&mut mem2).unwrap(), 0);
+            assert_eq!(vm.execute_program_jit(&mut []).unwrap(), 0);
         }
     }
     assert_eq!(number, 84);
