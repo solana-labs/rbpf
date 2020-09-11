@@ -167,8 +167,6 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
     }
 }
 
-
-
 #[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsb() {
