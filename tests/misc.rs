@@ -32,7 +32,7 @@ use solana_rbpf::{
     memory_region::{translate_addr, MemoryRegion},
     user_error::UserError,
     verifier::check,
-    vm::{EbpfVm, InstructionMeter, SyscallObject},
+    vm::{EbpfVm, InstructionMeter, SyscallFunction, SyscallObject},
 };
 use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
 use thiserror::Error;
@@ -106,11 +106,18 @@ use thiserror::Error;
 type ExecResult = Result<u64, EbpfError<UserError>>;
 
 macro_rules! test_vm_and_jit {
-    ( $prog:tt, $mem:tt, $check:tt ) => {
+    ( $source:tt, $mem:tt, $syscalls:tt, $check:tt ) => {
+        let mut program = assemble($source).unwrap();
+        let syscalls: &[(u32, SyscallFunction<UserError>, usize)] = &$syscalls;
+        for syscall in syscalls {
+            LittleEndian::write_u32(&mut program[syscall.2..syscall.2 + 4], syscall.0);
+        }
         let executable =
-            EbpfVm::<UserError>::create_executable_from_text_bytes(&assemble($prog).unwrap(), None)
-                .unwrap();
+            EbpfVm::<UserError>::create_executable_from_text_bytes(&program, None).unwrap();
         let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+        for syscall in syscalls {
+            vm.register_syscall(syscall.0, syscall.1).unwrap();
+        }
         let check_closure = $check;
         let mem1 = $mem;
         #[cfg(not(windows))]
@@ -198,6 +205,7 @@ fn test_vm_jit_ldabsb() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
+        [],
         { |res: ExecResult| { res.unwrap() == 0x33 } }
     );
 }
@@ -212,6 +220,7 @@ fn test_vm_jit_ldabsh() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
+        [],
         { |res: ExecResult| { res.unwrap() == 0x4433 } }
     );
 }
@@ -226,6 +235,7 @@ fn test_vm_jit_ldabsw() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
+        [],
         { |res: ExecResult| { res.unwrap() == 0x66554433 } }
     );
 }
@@ -240,6 +250,7 @@ fn test_vm_jit_ldabsdw() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
+        [],
         { |res: ExecResult| { res.unwrap() == 0xaa99887766554433 } }
     );
 }
@@ -295,6 +306,7 @@ fn test_vm_jit_ldindb() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
+        [],
         { |res: ExecResult| { res.unwrap() == 0x88 } }
     );
 }
@@ -310,6 +322,7 @@ fn test_vm_jit_ldindh() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
+        [],
         { |res: ExecResult| { res.unwrap() == 0x9988 } }
     );
 }
@@ -325,6 +338,7 @@ fn test_vm_jit_ldindw() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
+        [],
         { |res: ExecResult| { res.unwrap() == 0x88776655 } }
     );
 }
@@ -340,6 +354,7 @@ fn test_vm_jit_ldinddw() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
+        [],
         { |res: ExecResult| { res.unwrap() == 0xccbbaa9988776655 } }
     );
 }
@@ -717,7 +732,7 @@ fn test_syscall_string() {
 
 #[test]
 fn test_call_syscall() {
-    let mut prog = assemble(
+    test_vm_and_jit!(
         "
         mov64 r1, 0xAA
         mov64 r2, 0xBB
@@ -727,24 +742,10 @@ fn test_call_syscall() {
         call -0x1
         mov64 r0, 0x0
         exit",
-    )
-    .unwrap();
-    LittleEndian::write_u32(&mut prog[44..48], ebpf::hash_symbol_name(b"log"));
-
-    let mem1 = [];
-    let mut mem2 = mem1;
-
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.register_syscall_ex("log", bpf_syscall_u64).unwrap();
-    vm.execute_program(&mem1, &[], &[]).unwrap();
-    #[cfg(not(windows))]
-    {
-        vm.jit_compile().unwrap();
-        unsafe {
-            assert_eq!(vm.execute_program_jit(&mut mem2).unwrap(), 0);
-        }
-    }
+        [],
+        [(ebpf::hash_symbol_name(b"log"), bpf_syscall_u64, 44)],
+        { |res: ExecResult| { res.unwrap() == 0 } }
+    );
 }
 
 #[test]
