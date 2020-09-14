@@ -16,7 +16,7 @@ pub struct MemoryRegion {
     /// Length in bytes
     pub len: u64,
     /// Is also writable (otherwise it is readonly)
-    pub writable: bool
+    pub writable: bool,
 }
 impl MemoryRegion {
     /// Creates a new MemoryRegion structure from a slice
@@ -61,7 +61,7 @@ pub enum AccessType {
     /// Read
     Load,
     /// Write
-    Store
+    Store,
 }
 
 /// Helper for translate_addr to generate errors
@@ -105,7 +105,13 @@ pub fn translate_addr<E: UserDefinedError>(
         Ok(index) => index,
         Err(index) => {
             if index == 0 {
-                return Err(generate_access_violation(vm_addr, len, access_type, pc, regions));
+                return Err(generate_access_violation(
+                    vm_addr,
+                    len,
+                    access_type,
+                    pc,
+                    regions
+                ));
             }
             index - 1
         }
@@ -115,5 +121,11 @@ pub fn translate_addr<E: UserDefinedError>(
             return Ok(host_addr);
         }
     }
-    Err(generate_access_violation(vm_addr, len, access_type, pc, regions))
+    Err(generate_access_violation(
+        vm_addr,
+        len,
+        access_type,
+        pc,
+        regions
+    ))
 }

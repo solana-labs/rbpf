@@ -16,7 +16,7 @@ use crate::{
     elf::EBpfElf,
     error::{EbpfError, UserDefinedError},
     jit,
-    memory_region::{translate_addr, MemoryRegion, AccessType},
+    memory_region::{translate_addr, AccessType, MemoryRegion},
 };
 use log::{debug, log_enabled, trace};
 use std::{collections::HashMap, u32};
@@ -42,15 +42,7 @@ pub type SyscallFunction<E> =
 pub trait SyscallObject<E: UserDefinedError> {
     /// Call the syscall function
     #[allow(clippy::too_many_arguments)]
-    fn call(
-        &mut self,
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        &[MemoryRegion],
-    ) -> Result<u64, EbpfError<E>>;
+    fn call(&mut self, u64, u64, u64, u64, u64, &[MemoryRegion]) -> Result<u64, EbpfError<E>>;
 }
 
 /// Contains the syscall
@@ -286,11 +278,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         mem: &[u8],
         granted_regions: &[MemoryRegion],
     ) -> Result<u64, EbpfError<E>> {
-        self.execute_program_metered(
-            mem,
-            granted_regions,
-            DefaultInstructionMeter {},
-        )
+        self.execute_program_metered(mem, granted_regions, DefaultInstructionMeter {})
     }
 
     /// Execute the program loaded, with the given packet data and instruction meter.
@@ -300,11 +288,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         granted_regions: &[MemoryRegion],
         mut instruction_meter: I,
     ) -> Result<u64, EbpfError<E>> {
-        let result = self.execute_program_inner(
-            mem,
-            granted_regions,
-            &mut instruction_meter,
-        );
+        let result = self.execute_program_inner(mem, granted_regions, &mut instruction_meter);
         instruction_meter.consume(self.last_insn_count);
         result
     }

@@ -23,7 +23,7 @@ extern crate libc;
 
 use crate::{
     error::{EbpfError, UserDefinedError},
-    memory_region::{translate_addr, MemoryRegion, AccessType},
+    memory_region::{translate_addr, AccessType, MemoryRegion},
 };
 use std::u64;
 use time;
