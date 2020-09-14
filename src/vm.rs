@@ -16,7 +16,7 @@ use crate::{
     elf::EBpfElf,
     error::{EbpfError, UserDefinedError},
     jit,
-    memory_region::{translate_addr, MemoryRegion},
+    memory_region::{translate_addr, MemoryRegion, AccessType},
 };
 use log::{debug, log_enabled, trace};
 use std::{collections::HashMap, u32};
@@ -36,7 +36,7 @@ pub type JitProgram<E> = unsafe fn(*mut u8, usize) -> Result<u64, EbpfError<E>>;
 
 /// Syscall function without context.
 pub type SyscallFunction<E> =
-    fn(u64, u64, u64, u64, u64, &[MemoryRegion], &[MemoryRegion]) -> Result<u64, EbpfError<E>>;
+    fn(u64, u64, u64, u64, u64, &[MemoryRegion]) -> Result<u64, EbpfError<E>>;
 
 /// Syscall with context
 pub trait SyscallObject<E: UserDefinedError> {
@@ -49,7 +49,6 @@ pub trait SyscallObject<E: UserDefinedError> {
         u64,
         u64,
         u64,
-        &[MemoryRegion],
         &[MemoryRegion],
     ) -> Result<u64, EbpfError<E>>;
 }
@@ -110,7 +109,7 @@ impl InstructionMeter for DefaultInstructionMeter {
 /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
 ///
 /// // Provide a reference to the packet data.
-/// let res = vm.execute_program(mem, &[], &[]).unwrap();
+/// let res = vm.execute_program(mem, &[]).unwrap();
 /// assert_eq!(res, 0);
 /// ```
 pub struct EbpfVm<'a, E: UserDefinedError> {
@@ -279,19 +278,17 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     ///
     /// // Provide a reference to the packet data.
-    /// let res = vm.execute_program(mem, &[], &[]).unwrap();
+    /// let res = vm.execute_program(mem, &[]).unwrap();
     /// assert_eq!(res, 0);
     /// ```
     pub fn execute_program(
         &mut self,
         mem: &[u8],
-        granted_ro_regions: &[MemoryRegion],
-        granted_rw_regions: &[MemoryRegion],
+        granted_regions: &[MemoryRegion],
     ) -> Result<u64, EbpfError<E>> {
         self.execute_program_metered(
             mem,
-            granted_ro_regions,
-            granted_rw_regions,
+            granted_regions,
             DefaultInstructionMeter {},
         )
     }
@@ -300,14 +297,12 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     pub fn execute_program_metered<I: InstructionMeter>(
         &mut self,
         mem: &[u8],
-        granted_ro_regions: &[MemoryRegion],
-        granted_rw_regions: &[MemoryRegion],
+        granted_regions: &[MemoryRegion],
         mut instruction_meter: I,
     ) -> Result<u64, EbpfError<E>> {
         let result = self.execute_program_inner(
             mem,
-            granted_ro_regions,
-            granted_rw_regions,
+            granted_regions,
             &mut instruction_meter,
         );
         instruction_meter.consume(self.last_insn_count);
@@ -318,40 +313,30 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     fn execute_program_inner<I: InstructionMeter>(
         &mut self,
         mem: &[u8],
-        granted_ro_regions: &[MemoryRegion],
-        granted_rw_regions: &[MemoryRegion],
+        granted_regions: &[MemoryRegion],
         instruction_meter: &mut I,
     ) -> Result<u64, EbpfError<E>> {
         const U32MAX: u64 = u32::MAX as u64;
 
+        let mut memory_mapping = Vec::new();
+        memory_mapping.extend_from_slice(granted_regions);
         let mut frames = CallFrames::default();
-        let mut ro_regions = Vec::new();
-        let mut rw_regions = Vec::new();
-        ro_regions.extend_from_slice(granted_ro_regions);
-        ro_regions.extend_from_slice(granted_rw_regions);
-        rw_regions.extend_from_slice(granted_rw_regions);
         for ptr in frames.get_stacks() {
-            ro_regions.push(ptr.clone());
-            rw_regions.push(ptr.clone());
+            memory_mapping.push(ptr.clone());
         }
-
-        ro_regions.push(MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START));
-        rw_regions.push(MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START));
-
+        memory_mapping.push(MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, true));
         if let Ok(sections) = self.executable.get_ro_sections() {
             let regions: Vec<_> = sections
                 .iter()
-                .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr))
+                .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr, false))
                 .collect();
-            ro_regions.extend(regions);
-        };
-        let entry = self.executable.get_entrypoint_instruction_offset()?;
+            memory_mapping.extend(regions);
+        }
         let (prog_addr, prog) = self.executable.get_text_bytes()?;
-        ro_regions.push(MemoryRegion::new_from_slice(prog, prog_addr));
+        memory_mapping.push(MemoryRegion::new_from_slice(prog, prog_addr, false));
 
         // Sort regions by addr_vm for binary search
-        ro_regions.sort_by(|a, b| a.addr_vm.cmp(&b.addr_vm));
-        rw_regions.sort_by(|a, b| a.addr_vm.cmp(&b.addr_vm));
+        memory_mapping.sort_by(|a, b| a.addr_vm.cmp(&b.addr_vm));
 
         // R1 points to beginning of input memory, R10 to the stack of the first frame
         let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, frames.get_stack_top()];
@@ -361,14 +346,15 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         }
 
         let translate_load_addr =
-            |addr: u64, len: usize, pc: usize| translate_addr(addr, len, "load", pc, &ro_regions);
+            |addr: u64, len: usize, pc: usize| translate_addr(addr, len, AccessType::Load, pc, &memory_mapping);
         let translate_store_addr =
-            |addr: u64, len: usize, pc: usize| translate_addr(addr, len, "store", pc, &rw_regions);
+            |addr: u64, len: usize, pc: usize| translate_addr(addr, len, AccessType::Store, pc, &memory_mapping);
 
         // Check trace logging outside the instruction loop, saves ~30%
         let insn_trace = log_enabled!(log::Level::Trace);
 
         // Loop on instructions
+        let entry = self.executable.get_entrypoint_instruction_offset()?;
         let mut next_pc: usize = entry;
         let mut remaining_insn_count = instruction_meter.get_remaining();
         self.last_insn_count = 0;
@@ -664,8 +650,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                                 reg[3],
                                 reg[4],
                                 reg[5],
-                                &ro_regions,
-                                &rw_regions,
+                                &memory_mapping,
                             )?,
                             Syscall::Object(syscall) => syscall.call(
                                 reg[1],
@@ -673,8 +658,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                                 reg[3],
                                 reg[4],
                                 reg[5],
-                                &ro_regions,
-                                &rw_regions,
+                                &memory_mapping,
                             )?,
                         };
                         remaining_insn_count = instruction_meter.get_remaining();

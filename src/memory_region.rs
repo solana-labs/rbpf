@@ -15,14 +15,17 @@ pub struct MemoryRegion {
     pub addr_vm: u64,
     /// Length in bytes
     pub len: u64,
+    /// Is also writable (otherwise it is readonly)
+    pub writable: bool
 }
 impl MemoryRegion {
     /// Creates a new MemoryRegion structure from a slice
-    pub fn new_from_slice(v: &[u8], addr_vm: u64) -> Self {
+    pub fn new_from_slice(v: &[u8], addr_vm: u64, writable: bool) -> Self {
         MemoryRegion {
             addr_host: v.as_ptr() as u64,
             addr_vm,
             len: v.len() as u64,
+            writable,
         }
     }
 
@@ -52,11 +55,20 @@ impl fmt::Debug for MemoryRegion {
     }
 }
 
+/// Type of memory access
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum AccessType {
+    /// Read
+    Load,
+    /// Write
+    Store
+}
+
 /// Helper for translate_addr to generate errors
 fn generate_access_violation<E: UserDefinedError>(
     vm_addr: u64,
     len: usize,
-    access_type: &str,
+    access_type: AccessType,
     pc: usize,
     regions: &[MemoryRegion],
 ) -> EbpfError<E> {
@@ -73,7 +85,7 @@ fn generate_access_violation<E: UserDefinedError>(
         }
     }
     EbpfError::AccessViolation(
-        access_type.to_string(),
+        access_type,
         pc + ELF_INSN_DUMP_OFFSET,
         vm_addr,
         len,
@@ -85,7 +97,7 @@ fn generate_access_violation<E: UserDefinedError>(
 pub fn translate_addr<E: UserDefinedError>(
     vm_addr: u64,
     len: usize,
-    access_type: &str,
+    access_type: AccessType,
     pc: usize, // TODO syscalls don't have this info
     regions: &[MemoryRegion],
 ) -> Result<u64, EbpfError<E>> {
@@ -93,27 +105,15 @@ pub fn translate_addr<E: UserDefinedError>(
         Ok(index) => index,
         Err(index) => {
             if index == 0 {
-                return Err(generate_access_violation(
-                    vm_addr,
-                    len,
-                    access_type,
-                    pc,
-                    regions,
-                ));
+                return Err(generate_access_violation(vm_addr, len, access_type, pc, regions));
             }
             index - 1
         }
     };
-
-    if let Ok(host_addr) = regions[index].vm_to_host::<E>(vm_addr, len as u64) {
-        Ok(host_addr)
-    } else {
-        Err(generate_access_violation(
-            vm_addr,
-            len,
-            access_type,
-            pc,
-            regions,
-        ))
+    if access_type == AccessType::Load || regions[index].writable {
+        if let Ok(host_addr) = regions[index].vm_to_host::<E>(vm_addr, len as u64) {
+            return Ok(host_addr);
+        }
     }
+    Err(generate_access_violation(vm_addr, len, access_type, pc, regions))
 }

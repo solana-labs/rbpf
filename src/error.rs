@@ -17,7 +17,7 @@
 //! <https://www.kernel.org/doc/Documentation/networking/filter.txt>, or for a shorter version of
 //! the list of the operation codes: <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md>
 
-use crate::{elf::ELFError, jit::JITError};
+use crate::{elf::ELFError, jit::JITError, memory_region::AccessType};
 use std::error::Error;
 use thiserror::Error as ThisError;
 
@@ -72,8 +72,8 @@ pub enum EbpfError<E: UserDefinedError> {
     #[error("invalid virtual address {0:x?}")]
     InvalidVirtualAddress(u64),
     /// Access violation
-    #[error("out of bounds memory {0} (insn #{1}), addr {2:#x}/{3:?} \n{4}")]
-    AccessViolation(String, usize, u64, usize, String),
+    #[error("out of bounds memory {0:?} (insn #{1}), addr {2:#x}/{3:?} \n{4}")]
+    AccessViolation(AccessType, usize, u64, usize, String),
     /// Invalid instruction
     #[error("Invalid instruction at {0}")]
     InvalidInstruction(usize),

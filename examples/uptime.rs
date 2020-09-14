@@ -41,7 +41,7 @@ fn main() {
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog1, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     // Execute prog1.
-    assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0x3);
+    assert_eq!(vm.execute_program(&[], &[]).unwrap(), 0x3);
 
     // We know prog1 will always return 3. There is an exception: when it uses
     // syscalls, the latter may have non-deterministic values, and all calls may not return the same
@@ -66,7 +66,7 @@ fn main() {
 
     #[cfg(windows)]
     {
-        time = vm.execute_program(&[], &[], &[]).unwrap();
+        time = vm.execute_program(&[], &[]).unwrap();
     }
 
     let days = time / 10u64.pow(9) / 60 / 60 / 24;

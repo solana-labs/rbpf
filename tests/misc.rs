@@ -29,7 +29,7 @@ use solana_rbpf::{
     ebpf::{self},
     error::{EbpfError, UserDefinedError},
     fuzz::fuzz,
-    memory_region::{translate_addr, MemoryRegion},
+    memory_region::{translate_addr, AccessType, MemoryRegion},
     user_error::UserError,
     verifier::check,
     vm::{EbpfVm, InstructionMeter, SyscallObject},
@@ -109,10 +109,9 @@ fn bpf_syscall_string(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion],
+    memory_mapping: &[MemoryRegion],
 ) -> Result<u64, EbpfError<UserError>> {
-    let host_addr = translate_addr(vm_addr, len as usize, "Load", 0, ro_regions)?;
+    let host_addr = translate_addr(vm_addr, len as usize, AccessType::Load, 0, memory_mapping)?;
     let c_buf: *const c_char = host_addr as *const c_char;
     unsafe {
         for i in 0..len {
@@ -133,8 +132,7 @@ fn bpf_syscall_u64(
     arg3: u64,
     arg4: u64,
     arg5: u64,
-    _ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion],
+    _memory_mapping: &[MemoryRegion],
 ) -> Result<u64, EbpfError<UserError>> {
     println!(
         "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}",
@@ -154,8 +152,7 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        _ro_regions: &[MemoryRegion],
-        _rw_regions: &[MemoryRegion],
+        _memory_mapping: &[MemoryRegion],
     ) -> Result<u64, EbpfError<UserError>> {
         println!(
             "SyscallWithContext: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}",
@@ -183,7 +180,7 @@ fn test_vm_jit_ldabsb() {
     let mut mem2 = mem1;
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[], &[]).unwrap(), 0x33);
+    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x33);
 
     vm.jit_compile().unwrap();
     unsafe {
@@ -207,7 +204,7 @@ fn test_vm_jit_ldabsh() {
     let mut mem2 = mem1;
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[], &[]).unwrap(), 0x4433);
+    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x4433);
 
     vm.jit_compile().unwrap();
     unsafe {
@@ -231,7 +228,7 @@ fn test_vm_jit_ldabsw() {
     let mut mem2 = mem1;
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[], &[]).unwrap(), 0x66554433);
+    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x66554433);
 
     vm.jit_compile().unwrap();
     unsafe {
@@ -255,10 +252,7 @@ fn test_vm_jit_ldabsdw() {
     let mut mem2 = mem1;
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(
-        vm.execute_program(&mem1, &[], &[]).unwrap(),
-        0xaa99887766554433
-    );
+    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0xaa99887766554433);
 
     vm.jit_compile().unwrap();
     unsafe {
@@ -270,7 +264,7 @@ fn test_vm_jit_ldabsdw() {
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(\"load\", 29")]
+#[should_panic(expected = "AccessViolation(Load, 29")]
 fn test_vm_err_ldabsb_oob() {
     let prog = assemble(
         "
@@ -284,13 +278,13 @@ fn test_vm_err_ldabsb_oob() {
     ];
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.execute_program(mem, &[], &[]).unwrap();
+    vm.execute_program(mem, &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(\"load\", 29")]
+#[should_panic(expected = "AccessViolation(Load, 29")]
 fn test_vm_err_ldabsb_nomem() {
     let prog = assemble(
         "
@@ -300,7 +294,7 @@ fn test_vm_err_ldabsb_nomem() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    vm.execute_program(&[], &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
 }
@@ -322,7 +316,7 @@ fn test_vm_jit_ldindb() {
     let mut mem2 = mem1;
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[], &[]).unwrap(), 0x88);
+    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x88);
 
     vm.jit_compile().unwrap();
     unsafe {
@@ -347,7 +341,7 @@ fn test_vm_jit_ldindh() {
     let mut mem2 = mem1;
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[], &[]).unwrap(), 0x9988);
+    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x9988);
 
     vm.jit_compile().unwrap();
     unsafe {
@@ -372,7 +366,7 @@ fn test_vm_jit_ldindw() {
     let mut mem2 = mem1;
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[], &[]).unwrap(), 0x88776655);
+    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x88776655);
 
     vm.jit_compile().unwrap();
     unsafe {
@@ -397,10 +391,7 @@ fn test_vm_jit_ldinddw() {
     let mut mem2 = mem1;
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(
-        vm.execute_program(&mem1, &[], &[]).unwrap(),
-        0xccbbaa9988776655
-    );
+    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0xccbbaa9988776655);
 
     vm.jit_compile().unwrap();
     unsafe {
@@ -412,7 +403,7 @@ fn test_vm_jit_ldinddw() {
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(\"load\", 30")]
+#[should_panic(expected = "AccessViolation(Load, 30")]
 fn test_vm_err_ldindb_oob() {
     let prog = assemble(
         "
@@ -427,13 +418,13 @@ fn test_vm_err_ldindb_oob() {
     ];
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.execute_program(mem, &[], &[]).unwrap();
+    vm.execute_program(mem, &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(\"load\", 30")]
+#[should_panic(expected = "AccessViolation(Load, 30")]
 fn test_vm_err_ldindb_nomem() {
     let prog = assemble(
         "
@@ -444,7 +435,7 @@ fn test_vm_err_ldindb_nomem() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    vm.execute_program(&[], &[]).unwrap();
 
     // Memory check not implemented for JIT yet.
 }
@@ -478,7 +469,7 @@ fn test_verifier_success() {
     )
     .unwrap();
     let mut vm = EbpfVm::<VerifierTestError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 0xBEE);
+    assert_eq!(vm.execute_program(&[], &[]).unwrap(), 0xBEE);
 }
 
 #[test]
@@ -502,8 +493,7 @@ fn bpf_trace_printf<E: UserDefinedError>(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    _ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion],
+    _memory_mapping: &[MemoryRegion],
 ) -> Result<u64, EbpfError<E>> {
     Ok(0)
 }
@@ -546,7 +536,7 @@ fn test_non_terminating() {
         .unwrap();
     let instruction_meter = TestInstructionMeter { remaining: 1000 };
     let _ = vm
-        .execute_program_metered(&[], &[], &[], instruction_meter)
+        .execute_program_metered(&[], &[], instruction_meter)
         .unwrap();
 }
 
@@ -571,7 +561,7 @@ fn test_non_terminate_capped() {
     vm.register_syscall(BPF_TRACE_PRINTK_IDX, bpf_trace_printf)
         .unwrap();
     let instruction_meter = TestInstructionMeter { remaining: 6 };
-    let _ = vm.execute_program_metered(&[], &[], &[], instruction_meter);
+    let _ = vm.execute_program_metered(&[], &[], instruction_meter);
     assert_eq!(vm.get_total_instruction_count(), 6);
 }
 
@@ -594,7 +584,7 @@ fn test_non_terminate_early() {
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     let instruction_meter = TestInstructionMeter { remaining: 100 };
-    let _ = vm.execute_program_metered(&[], &[], &[], instruction_meter);
+    let _ = vm.execute_program_metered(&[], &[], instruction_meter);
     assert_eq!(vm.get_total_instruction_count(), 7);
 }
 
@@ -607,7 +597,7 @@ fn test_get_total_instruction_count() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    let _ = vm.execute_program(&[], &[], &[]);
+    let _ = vm.execute_program(&[], &[]);
     assert_eq!(vm.get_total_instruction_count(), 1);
 }
 
@@ -629,7 +619,7 @@ fn test_get_total_instruction_count_with_syscall() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     let instruction_meter = TestInstructionMeter { remaining: 4 };
-    let _ = vm.execute_program_metered(&mem, &[], &[], instruction_meter);
+    let _ = vm.execute_program_metered(&mem, &[], instruction_meter);
     assert_eq!(vm.get_total_instruction_count(), 4);
 }
 
@@ -654,7 +644,7 @@ fn test_get_total_instruction_count_with_syscall_capped() {
         .unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     let instruction_meter = TestInstructionMeter { remaining: 3 };
-    vm.execute_program_metered(&mem, &[], &[], instruction_meter)
+    vm.execute_program_metered(&mem, &[], instruction_meter)
         .unwrap();
 }
 
@@ -668,7 +658,7 @@ fn test_load_elf() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    vm.execute_program(&[], &[]).unwrap();
 }
 
 #[test]
@@ -680,7 +670,7 @@ fn test_load_elf_empty_noro() {
     let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    vm.execute_program(&[], &[]).unwrap();
 }
 
 #[test]
@@ -692,7 +682,7 @@ fn test_load_elf_empty_rodata() {
     let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    vm.execute_program(&[], &[]).unwrap();
 }
 
 #[test]
@@ -714,7 +704,7 @@ fn test_symbol_relocation() {
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
-    vm.execute_program(&mem, &[], &[]).unwrap();
+    vm.execute_program(&mem, &[]).unwrap();
 }
 
 #[test]
@@ -734,11 +724,11 @@ fn test_syscall_parameter_on_stack() {
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    vm.execute_program(&[], &[]).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(\"Load\", 29")]
+#[should_panic(expected = "AccessViolation(Load, 29")]
 fn test_null_string() {
     let mut prog = assemble(
         "
@@ -755,7 +745,7 @@ fn test_null_string() {
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
-    vm.execute_program(&mem, &[], &[]).unwrap();
+    vm.execute_program(&mem, &[]).unwrap();
 }
 
 #[test]
@@ -775,7 +765,7 @@ fn test_syscall_string() {
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
-    vm.execute_program(&mem, &[], &[]).unwrap();
+    vm.execute_program(&mem, &[]).unwrap();
 }
 
 #[cfg(not(windows))]
@@ -801,7 +791,7 @@ fn test_call_syscall() {
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_u64).unwrap();
-    vm.execute_program(&mem1, &[], &[]).unwrap();
+    vm.execute_program(&mem1, &[]).unwrap();
     vm.jit_compile().unwrap();
     unsafe {
         assert_eq!(vm.execute_program_jit(&mut mem2).unwrap(), 0);
@@ -824,7 +814,7 @@ fn test_symbol_unresolved() {
 
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.execute_program(&mem, &[], &[]).unwrap();
+    vm.execute_program(&mem, &[]).unwrap();
 }
 
 #[test]
@@ -837,7 +827,7 @@ fn test_symbol_unresolved_elf() {
     let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    vm.execute_program(&[], &[]).unwrap();
 }
 
 #[test]
@@ -851,7 +841,7 @@ fn test_custom_entrypoint() {
     let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
-    vm.execute_program(&[], &[], &[]).unwrap();
+    vm.execute_program(&[], &[]).unwrap();
     assert_eq!(2, vm.get_total_instruction_count());
 }
 
@@ -867,7 +857,7 @@ fn test_bpf_to_bpf_depth() {
 
     for i in 0..MAX_CALL_DEPTH {
         let mem = [i as u8];
-        assert_eq!(vm.execute_program(&mem, &[], &[]).unwrap(), 0);
+        assert_eq!(vm.execute_program(&mem, &[]).unwrap(), 0);
     }
 }
 
@@ -883,7 +873,7 @@ fn test_bpf_to_bpf_too_deep() {
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
 
     let mem = [MAX_CALL_DEPTH as u8];
-    vm.execute_program(&mem, &[], &[]).unwrap();
+    vm.execute_program(&mem, &[]).unwrap();
 }
 
 #[test]
@@ -897,7 +887,7 @@ fn test_relative_call() {
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
 
     let mem = [1 as u8];
-    vm.execute_program(&mem, &[], &[]).unwrap();
+    vm.execute_program(&mem, &[]).unwrap();
 }
 
 #[test]
@@ -917,7 +907,7 @@ fn test_call_reg() {
 
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
+    assert_eq!(42, vm.execute_program(&[], &[]).unwrap());
 }
 
 #[test]
@@ -934,7 +924,7 @@ fn test_call_reg_stack_depth() {
 
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
+    assert_eq!(42, vm.execute_program(&[], &[]).unwrap());
 }
 
 #[test]
@@ -950,7 +940,7 @@ fn test_oob_callx_low() {
 
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
+    assert_eq!(42, vm.execute_program(&[], &[]).unwrap());
 }
 
 #[test]
@@ -968,7 +958,7 @@ fn test_oob_callx_high() {
 
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(42, vm.execute_program(&[], &[], &[]).unwrap());
+    assert_eq!(42, vm.execute_program(&[], &[]).unwrap());
 }
 
 #[test]
@@ -983,7 +973,7 @@ fn test_bpf_to_bpf_scratch_registers() {
     vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
 
     let mem = [1];
-    assert_eq!(vm.execute_program(&mem, &[], &[]).unwrap(), 112);
+    assert_eq!(vm.execute_program(&mem, &[]).unwrap(), 112);
 }
 
 #[test]
@@ -997,7 +987,7 @@ fn test_bpf_to_bpf_pass_stack_reference() {
     vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
     vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
 
-    assert_eq!(vm.execute_program(&[], &[], &[]).unwrap(), 42);
+    assert_eq!(vm.execute_program(&[], &[]).unwrap(), 42);
 }
 
 fn write_insn(prog: &mut [u8], insn: usize, asm: &str) {
@@ -1022,7 +1012,7 @@ fn test_large_program() {
         let executable =
             EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
         let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-        assert_eq!(0, vm.execute_program(&[], &[], &[]).unwrap());
+        assert_eq!(0, vm.execute_program(&[], &[]).unwrap());
     }
     // reset program
     write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "mov64 r0, 0");
@@ -1043,7 +1033,7 @@ fn test_large_program() {
         let executable =
             EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
         let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-        assert_eq!(0, vm.execute_program(&[], &[], &[]).unwrap());
+        assert_eq!(0, vm.execute_program(&[], &[]).unwrap());
     }
 }
 
@@ -1076,7 +1066,7 @@ fn test_vm_syscall_with_context() {
             }),
         )
         .unwrap();
-        vm.execute_program(&[], &[], &[]).unwrap();
+        vm.execute_program(&[], &[]).unwrap();
     }
     assert_eq!(number, 84);
 }
@@ -1144,7 +1134,7 @@ fn test_fuzz_execute() {
                 let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
                 vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
                 vm.register_syscall_ex("log_64", bpf_syscall_u64).unwrap();
-                let _ = vm.execute_program(&[], &[], &[]);
+                let _ = vm.execute_program(&[], &[]);
             }
         },
     );

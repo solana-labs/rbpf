@@ -43,11 +43,7 @@ impl CallFrames {
             max_frame: 0,
             frames: vec![
                 CallFrame {
-                    stack: MemoryRegion {
-                        addr_host: 0,
-                        addr_vm: 0,
-                        len: 0,
-                    },
+                    stack: MemoryRegion::default(),
                     saved_reg: [0u64; SCRATCH_REGS],
                     return_ptr: 0
                 };
@@ -60,7 +56,7 @@ impl CallFrames {
             // Seperate each stack frame's virtual address so that stack over/under-run is caught explicitly
             let addr_vm = MM_STACK_START + (i * 2 * size) as u64;
             frames.frames[i].stack =
-                MemoryRegion::new_from_slice(&frames.stack[start..end], addr_vm);
+                MemoryRegion::new_from_slice(&frames.stack[start..end], addr_vm, true);
         }
         frames
     }

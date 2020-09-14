@@ -60,7 +60,7 @@ pub fn bpf_time_getns<E: UserDefinedError> (
     _arg5: u64,
     _ro_regions: &[MemoryRegion],
     _rw_regions: &[MemoryRegion],
-) -> Result<u64, EbpfError<E>> 
+) -> Result<u64, EbpfError<E>>
 {
     Ok(time::precise_time_ns())
 }
@@ -188,16 +188,15 @@ pub fn gather_bytes<E: UserDefinedError> (
 /// ```
 pub fn memfrob<E: UserDefinedError> (
     addr: u64,
-    len: u64, 
+    len: u64,
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    _ro_regions: &[MemoryRegion],
-    rw_regions: &[MemoryRegion]
+    memory_mapping: &[MemoryRegion]
 ) -> Result<u64, EbpfError<E>>
 {
 
-        let host_addr = translate_addr(addr, len as usize, "Store", 0, rw_regions)?;
+        let host_addr = translate_addr(addr, len as usize, true, 0, memory_mapping)?;
         for i in 0..len {
             unsafe {
                 let mut p = (host_addr + i) as *mut u8;
@@ -282,16 +281,15 @@ pub fn strcmp<E: UserDefinedError> (
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    ro_regions: &[MemoryRegion],
-    _rw_regions: &[MemoryRegion]
+    memory_mapping: &[MemoryRegion]
 ) -> Result<u64, EbpfError<E>>
 {
         // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
         if arg1 == 0 || arg2 == 0 {
             return Ok(u64::MAX);
         }
-        let mut a = translate_addr(arg1, 1, "Load", 0, ro_regions)?;
-        let mut b = translate_addr(arg2, 1, "Load", 0, ro_regions)?;
+        let mut a = translate_addr(arg1, 1, false, 0, memory_mapping)?;
+        let mut b = translate_addr(arg2, 1, false, 0, memory_mapping)?;
         unsafe {
             let mut a_val = *(a as *const u8);
             let mut b_val = *(b as *const u8);
