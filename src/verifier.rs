@@ -25,11 +25,10 @@ use crate::{
     ebpf::{self},
     error::UserDefinedError,
 };
-use thiserror::Error;
 use user_error::UserError;
 
 /// Error definitions
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum VerifierError {
     /// ProgramLengthNotMultiple
     #[error("program length must be a multiple of {} octets", ebpf::INSN_SIZE)]

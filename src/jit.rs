@@ -24,9 +24,8 @@ use crate::{
     vm::Syscall,
     call_frames::CALL_FRAME_SIZE,
     ebpf::{self},
-    error::UserDefinedError,
+    error::{UserDefinedError, EbpfError},
 };
-use thiserror::Error;
 
 /// A virtual method table for SyscallObject
 pub struct SyscallObjectVtable {
@@ -52,7 +51,7 @@ pub struct SyscallTraitObject {
 extern crate libc;
 
 /// Error definitions
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum JITError {
     /// Failed to parse ELF file
     #[error("Unknown eBPF opcode {0:#2x} (insn #{1:?})")]
@@ -457,7 +456,7 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
         }
 
         // jz div_by_zero
-        //emit_jcc(jit, 0x84, TARGET_PC_DIV_BY_ZERO);
+        emit_jcc(jit, 0x84, TARGET_PC_DIV_BY_ZERO);
     }
 
     if dst != RAX {
@@ -893,8 +892,16 @@ impl<'a> JitMemory<'a> {
 
         // Division by zero handler
         set_anchor(self, TARGET_PC_DIV_BY_ZERO);
-        emit_mov(self, RCX, RDI); // muldivmod stored pc in RCX
-        // TODO: Store error
+        // Store that an error occured
+        emit_load_imm(self, map_register(0), 1);
+        emit_store(self, OperandSize::S64, map_register(0), RDI, 0);
+        // Store which error occured
+        let err = Result::<u64, EbpfError<E>>::Err(EbpfError::DivideByZero(0));
+        let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
+        emit_load_imm(self, map_register(0), err_kind as i64);
+        emit_store(self, OperandSize::S64, map_register(0), RDI, 8);
+        // muldivmod stored pc in RCX
+        emit_store(self, OperandSize::S64, RCX, RDI, 16);
         emit_jmp(self, TARGET_PC_EPILOGUE);
         Ok(())
     }

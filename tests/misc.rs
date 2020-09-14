@@ -1149,3 +1149,23 @@ fn test_fuzz_execute() {
         },
     );
 }
+
+#[cfg(not(windows))]
+#[test]
+#[should_panic(expected = "DivideByZero")]
+fn test_jit_err_div64_by_zero_reg() {
+    let prog = assemble(
+        "
+        mov32 r0, 1
+        mov32 r1, 0
+        div r0, r1
+        exit",
+    )
+    .unwrap();
+    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+    vm.jit_compile().unwrap();
+    unsafe {
+        assert_eq!(vm.execute_program_jit(&mut []).unwrap(), 0);
+    }
+}

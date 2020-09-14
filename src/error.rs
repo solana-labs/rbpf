@@ -18,14 +18,12 @@
 //! the list of the operation codes: <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md>
 
 use crate::{elf::ELFError, jit::JITError};
-use std::error::Error;
-use thiserror::Error as ThisError;
 
 /// User defined errors must implement this trait
-pub trait UserDefinedError: 'static + Error {}
+pub trait UserDefinedError: 'static + std::error::Error {}
 
 /// Error definitions
-#[derive(Debug, PartialEq, ThisError)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum EbpfError<E: UserDefinedError> {
     /// User defined error
     #[error("{0}")]
