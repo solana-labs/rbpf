@@ -286,18 +286,18 @@ fn test_vm_err_ldabsb_oob() {
     // let mut mem2 = mem1;
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert!(match vm.execute_program(&mem1, &[], &[]).unwrap_err() {
-        EbpfError::AccessViolation(_, _, _, _, _) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        vm.execute_program(&mem1, &[], &[]).unwrap_err(),
+        EbpfError::AccessViolation(_, _, _, _, _)
+    ));
     /* TODO Memory check not implemented for JIT yet.
     #[cfg(not(windows))]
     {
         vm.jit_compile().unwrap();
-        assert!(match unsafe { vm.execute_program_jit(&mut mem2) }.unwrap_err() {
-            EbpfError::AccessViolation(_, _, _, _, _) => true,
-            _ => false
-        });
+        assert!(matches!(
+            unsafe { vm.execute_program_jit(&mut mem2) }.unwrap_err(),
+            EbpfError::AccessViolation(_, _, _, _, _)
+        ));
     } */
 }
 
@@ -311,18 +311,18 @@ fn test_vm_err_ldabsb_nomem() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert!(match vm.execute_program(&[], &[], &[]).unwrap_err() {
-        EbpfError::AccessViolation(_, _, _, _, _) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        vm.execute_program(&[], &[], &[]).unwrap_err(),
+        EbpfError::AccessViolation(_, _, _, _, _)
+    ));
     /* TODO Memory check not implemented for JIT yet.
     #[cfg(not(windows))]
     {
         vm.jit_compile().unwrap();
-        assert!(match unsafe { vm.execute_program_jit(&mut []) }.unwrap_err() {
-            EbpfError::AccessViolation(_, _, _, _, _) => true,
-            _ => false
-        });
+        assert!(matches!(
+            unsafe { vm.execute_program_jit(&mut []) }.unwrap_err(),
+            EbpfError::AccessViolation(_, _, _, _, _)
+        ));
     } */
 }
 
@@ -450,18 +450,18 @@ fn test_vm_err_ldindb_oob() {
     // let mut mem2 = mem1;
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert!(match vm.execute_program(&mem1, &[], &[]).unwrap_err() {
-        EbpfError::AccessViolation(_, _, _, _, _) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        vm.execute_program(&mem1, &[], &[]).unwrap_err(),
+        EbpfError::AccessViolation(_, _, _, _, _)
+    ));
     /* TODO Memory check not implemented for JIT yet.
     #[cfg(not(windows))]
     {
         vm.jit_compile().unwrap();
-        assert!(match unsafe { vm.execute_program_jit(&mut mem2) }.unwrap_err() {
-            EbpfError::AccessViolation(_, _, _, _, _) => true,
-            _ => false
-        });
+        assert!(matches!(
+            unsafe { vm.execute_program_jit(&mut mem2) }.unwrap_err(),
+            EbpfError::AccessViolation(_, _, _, _, _)
+        ));
     } */
 }
 
@@ -476,18 +476,18 @@ fn test_vm_err_ldindb_nomem() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert!(match vm.execute_program(&[], &[], &[]).unwrap_err() {
-        EbpfError::AccessViolation(_, _, _, _, _) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        vm.execute_program(&[], &[], &[]).unwrap_err(),
+        EbpfError::AccessViolation(_, _, _, _, _)
+    ));
     /* TODO Memory check not implemented for JIT yet.
     #[cfg(not(windows))]
     {
         vm.jit_compile().unwrap();
-        assert!(match unsafe { vm.execute_program_jit(&mut []) }.unwrap_err() {
-            EbpfError::AccessViolation(_, _, _, _, _) => true,
-            _ => false
-        });
+        assert!(matches!(
+            unsafe { vm.execute_program_jit(&mut []) }.unwrap_err(),
+            EbpfError::AccessViolation(_, _, _, _, _)
+        ));
     } */
 }
 
