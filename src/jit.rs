@@ -21,13 +21,33 @@ use std::ops::{Index, IndexMut};
 
 use crate::{
     vm::JitProgram,
-    vm::{Syscall, SyscallObjectVtable, SyscallTraitObject},
+    vm::Syscall,
     call_frames::CALL_FRAME_SIZE,
     ebpf::{self},
-    error::UserDefinedError, // error::{EbpfError, UserDefinedError},
+    error::UserDefinedError,
 };
 use thiserror::Error;
-// use user_error::UserError;
+
+/// A virtual method table for SyscallObject
+pub struct SyscallObjectVtable {
+    /// Drops the dyn trait object
+    pub drop: fn(*const u8),
+    /// Size of the dyn trait object in bytes
+    pub size: usize,
+    /// Alignment of the dyn trait object in bytes
+    pub align: usize,
+    /// The call method of the SyscallObject
+    pub call: *const u8,
+}
+
+// Could be replaced by https://doc.rust-lang.org/std/raw/struct.TraitObject.html
+/// A dyn trait fat pointer for SyscallObject
+pub struct SyscallTraitObject {
+    /// Pointer to the actual object
+    pub data: *const u8,
+    /// Pointer to the virtual method table
+    pub vtable: *const SyscallObjectVtable,
+}
 
 extern crate libc;
 
@@ -92,8 +112,7 @@ const CALLEE_SAVED_REGISTERS: [u8; 6] = [
 // R10 Stores a constant pointer to mem
 // R11 Scratch register for offsetting
 
-const REGISTER_MAP_SIZE: usize = 11;
-const REGISTER_MAP: [u8; REGISTER_MAP_SIZE] = [
+const REGISTER_MAP: [u8; 11] = [
     RAX, // 0  return value
     ARGUMENT_REGISTERS[1], // 1
     ARGUMENT_REGISTERS[2], // 2
@@ -109,8 +128,8 @@ const REGISTER_MAP: [u8; REGISTER_MAP_SIZE] = [
 
 // Return the x86 register for the given eBPF register
 fn map_register(r: u8) -> u8 {
-    assert!(r < REGISTER_MAP_SIZE as u8);
-    REGISTER_MAP[(r % REGISTER_MAP_SIZE as u8) as usize]
+    assert!(r < REGISTER_MAP.len() as u8);
+    REGISTER_MAP[(r % REGISTER_MAP.len() as u8) as usize]
 }
 
 macro_rules! emit_bytes {
