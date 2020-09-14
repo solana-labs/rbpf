@@ -110,7 +110,7 @@ pub fn translate_addr<E: UserDefinedError>(
                     len,
                     access_type,
                     pc,
-                    regions
+                    regions,
                 ));
             }
             index - 1
@@ -126,6 +126,6 @@ pub fn translate_addr<E: UserDefinedError>(
         len,
         access_type,
         pc,
-        regions
+        regions,
     ))
 }
