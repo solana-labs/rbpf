@@ -1,9 +1,6 @@
 //! This module defines memory regions
 
-use crate::{
-    ebpf::ELF_INSN_DUMP_OFFSET,
-    error::{EbpfError, UserDefinedError},
-};
+use crate::error::{EbpfError, UserDefinedError};
 use std::fmt;
 
 /// Memory region for bounds checking and address translation
@@ -103,10 +100,9 @@ impl MemoryMapping {
     /// Given a list of regions translate from virtual machine to host address
     pub fn translate_addr<E: UserDefinedError>(
         &self,
+        access_type: AccessType,
         vm_addr: u64,
         len: u64,
-        access_type: AccessType,
-        pc: usize, // TODO syscalls don't have this info
     ) -> Result<u64, EbpfError<E>> {
         let index = match self
             .regions
@@ -115,7 +111,7 @@ impl MemoryMapping {
             Ok(index) => index,
             Err(index) => {
                 if index == 0 {
-                    return Err(self.generate_access_violation(vm_addr, len, access_type, pc));
+                    return Err(self.generate_access_violation(access_type, vm_addr, len));
                 }
                 index - 1
             }
@@ -126,16 +122,15 @@ impl MemoryMapping {
                 return Ok(host_addr);
             }
         }
-        Err(self.generate_access_violation(vm_addr, len, access_type, pc))
+        Err(self.generate_access_violation(access_type, vm_addr, len))
     }
 
     /// Helper for translate_addr to generate errors
     fn generate_access_violation<E: UserDefinedError>(
         &self,
+        access_type: AccessType,
         vm_addr: u64,
         len: u64,
-        access_type: AccessType,
-        pc: usize,
     ) -> EbpfError<E> {
         let mut regions_string = "".to_string();
         if !self.regions.is_empty() {
@@ -148,8 +143,8 @@ impl MemoryMapping {
             }
         }
         EbpfError::AccessViolation(
+            0, // Filled out later
             access_type,
-            pc + ELF_INSN_DUMP_OFFSET,
             vm_addr,
             len,
             regions_string,

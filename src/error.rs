@@ -72,8 +72,8 @@ pub enum EbpfError<E: UserDefinedError> {
     #[error("invalid virtual address {0:x?}")]
     InvalidVirtualAddress(u64),
     /// Access violation
-    #[error("out of bounds memory {0:?} (insn #{1}), addr {2:#x}/{3:?} \n{4}")]
-    AccessViolation(AccessType, usize, u64, u64, String),
+    #[error("out of bounds memory {1:?} (insn #{0}), addr {2:#x}/{3:?} \n{4}")]
+    AccessViolation(usize, AccessType, u64, u64, String),
     /// Invalid instruction
     #[error("Invalid instruction at {0}")]
     InvalidInstruction(usize),

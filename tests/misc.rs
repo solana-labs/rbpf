@@ -111,7 +111,7 @@ fn bpf_syscall_string(
     _arg5: u64,
     memory_mapping: &MemoryMapping,
 ) -> Result<u64, EbpfError<UserError>> {
-    let host_addr = memory_mapping.translate_addr(vm_addr, len, AccessType::Load, 0)?;
+    let host_addr = memory_mapping.translate_addr(AccessType::Load, vm_addr, len)?;
     let c_buf: *const c_char = host_addr as *const c_char;
     unsafe {
         for i in 0..len {
@@ -264,7 +264,7 @@ fn test_vm_jit_ldabsdw() {
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(Load, 29")]
+#[should_panic(expected = "AccessViolation(29, Load")]
 fn test_vm_err_ldabsb_oob() {
     let prog = assemble(
         "
@@ -284,7 +284,7 @@ fn test_vm_err_ldabsb_oob() {
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(Load, 29")]
+#[should_panic(expected = "AccessViolation(29, Load")]
 fn test_vm_err_ldabsb_nomem() {
     let prog = assemble(
         "
@@ -403,7 +403,7 @@ fn test_vm_jit_ldinddw() {
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(Load, 30")]
+#[should_panic(expected = "AccessViolation(30, Load")]
 fn test_vm_err_ldindb_oob() {
     let prog = assemble(
         "
@@ -424,7 +424,7 @@ fn test_vm_err_ldindb_oob() {
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(Load, 30")]
+#[should_panic(expected = "AccessViolation(30, Load")]
 fn test_vm_err_ldindb_nomem() {
     let prog = assemble(
         "
@@ -728,7 +728,7 @@ fn test_syscall_parameter_on_stack() {
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(Load, 29")]
+#[should_panic(expected = "AccessViolation(0, Load")]
 fn test_null_string() {
     let mut prog = assemble(
         "

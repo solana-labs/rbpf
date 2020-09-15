@@ -193,7 +193,7 @@ pub fn memfrob<E: UserDefinedError>(
     _arg5: u64,
     memory_mapping: &MemoryMapping,
 ) -> Result<u64, EbpfError<E>> {
-    let host_addr = memory_mapping.translate_addr(addr, len, AccessType::Store, 0)?;
+    let host_addr = memory_mapping.translate_addr(AccessType::Store, addr, len)?;
     for i in 0..len {
         unsafe {
             let p = (host_addr + i) as *mut u8;
@@ -282,8 +282,8 @@ pub fn strcmp<E: UserDefinedError>(
     if arg1 == 0 || arg2 == 0 {
         return Ok(u64::MAX);
     }
-    let mut a = memory_mapping.translate_addr(arg1, 1, AccessType::Load, 0)?;
-    let mut b = memory_mapping.translate_addr(arg2, 1, AccessType::Load, 0)?;
+    let mut a = memory_mapping.translate_addr(AccessType::Load, arg1, 1)?;
+    let mut b = memory_mapping.translate_addr(AccessType::Load, arg2, 1)?;
     unsafe {
         let mut a_val = *(a as *const u8);
         let mut b_val = *(b as *const u8);

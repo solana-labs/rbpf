@@ -551,7 +551,7 @@ fn test_vm_err_mod_by_zero_reg() {
 // above or below the current stack, to test out of bounds we have to
 // try significantly further away
 #[test]
-#[should_panic(expected = "AccessViolation(Store, 29")]
+#[should_panic(expected = "AccessViolation(29, Store")]
 fn test_vm_err_stack_out_of_bound() {
     let prog = assemble(
         "
@@ -1116,7 +1116,7 @@ fn test_vm_ldxdw() {
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(Load, 29")]
+#[should_panic(expected = "AccessViolation(29, Load")]
 fn test_vm_ldxdw_oob() {
     let prog = assemble(
         "

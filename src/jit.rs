@@ -67,9 +67,10 @@ pub enum JITError {
 
 // Special values for target_pc in struct Jump
 const TARGET_OFFSET: isize = ebpf::PROG_MAX_INSNS as isize;
-const TARGET_PC_EXIT:         isize = TARGET_OFFSET + 1;
-const TARGET_PC_EPILOGUE:     isize = TARGET_OFFSET + 2;
-const TARGET_PC_DIV_BY_ZERO:  isize = TARGET_OFFSET + 3;
+const TARGET_PC_EXIT: isize = TARGET_OFFSET + 1;
+const TARGET_PC_EPILOGUE: isize = TARGET_OFFSET + 2;
+const TARGET_PC_DIV_BY_ZERO: isize = TARGET_OFFSET + 3;
+const TARGET_NO_ACCESS_VIOLATION: isize = TARGET_OFFSET + 4;
 
 #[derive(Copy, Clone)]
 enum OperandSize {
@@ -464,14 +465,13 @@ fn emit_address_translation(jit: &mut JitMemory, host_addr: u8, vm_addr: Address
         AddressTranslationSrc::RegisterWithOffset(reg, offset) => {
             emit_load_imm(jit, R11, offset as i64 + ebpf::MM_INPUT_START as i64);
             emit_alu64(jit, 0x01, reg, R11);
-            emit_mov(jit, R11, ARGUMENT_REGISTERS[2]);
+            emit_mov(jit, R11, ARGUMENT_REGISTERS[3]);
         },
-        AddressTranslationSrc::ImmediateOnly(vm_addr) => emit_load_imm(jit, ARGUMENT_REGISTERS[2], vm_addr as i64 + ebpf::MM_INPUT_START as i64),
+        AddressTranslationSrc::ImmediateOnly(vm_addr) => emit_load_imm(jit, ARGUMENT_REGISTERS[3], vm_addr as i64 + ebpf::MM_INPUT_START as i64),
     }
     emit_mov(jit, R10, ARGUMENT_REGISTERS[1]);
-    emit_load_imm(jit, ARGUMENT_REGISTERS[3], len as i64);
-    emit_load_imm(jit, ARGUMENT_REGISTERS[4], access_type as i64);
-    emit_load_imm(jit, ARGUMENT_REGISTERS[5], pc as i64);
+    emit_load_imm(jit, ARGUMENT_REGISTERS[2], access_type as i64);
+    emit_load_imm(jit, ARGUMENT_REGISTERS[4], len as i64);
 
     let func_ptr = MemoryMapping::translate_addr::<UserError> as *const u8;
     emit_call(jit, func_ptr as i64);
@@ -479,9 +479,15 @@ fn emit_address_translation(jit: &mut JitMemory, host_addr: u8, vm_addr: Address
     // Throw error if the result indicates one
     emit_load(jit, OperandSize::S64, RDI, R11, 0);
     emit_test(jit, R11, R11);
-    emit_jcc(jit, 0x85, TARGET_PC_EPILOGUE);
+    emit_jcc(jit, 0x84, TARGET_NO_ACCESS_VIOLATION);
+
+    // Store pc in AccessViolation
+    emit_load_imm(jit, R11, pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
+    emit_store(jit, OperandSize::S64, R11, RDI, 16);
+    emit_jmp(jit, TARGET_PC_EPILOGUE);
 
     // Store Ok value in result register
+    set_anchor(jit, TARGET_NO_ACCESS_VIOLATION);
     emit_load(jit, OperandSize::S64, RDI, host_addr, 8);
 }
 
