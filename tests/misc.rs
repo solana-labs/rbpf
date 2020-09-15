@@ -253,43 +253,34 @@ fn test_vm_jit_ldabsdw() {
 }
 
 #[test]
-fn test_vm_err_ldabsb_oob() {
-    let prog = assemble(
+fn test_vm_jit_err_ldabsb_oob() {
+    test_vm_and_jit!(
         "
         ldabsb 0x33
         exit",
-    )
-    .unwrap();
-    let mem = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert!(matches!(
-        vm.execute_program(&mem, &[]).unwrap_err(),
-        EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29
-    ));
-    // TODO Memory check not implemented for JIT yet.
-    // test_vm_and_jit!(prog, mem, {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29) }});
+        [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
+            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
+        ],
+        [],
+        {
+            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29)
+        }
+    );
 }
 
 #[test]
-fn test_vm_err_ldabsb_nomem() {
-    let prog = assemble(
+fn test_vm_jit_err_ldabsb_nomem() {
+    test_vm_and_jit!(
         "
         ldabsb 0x33
         exit",
-    )
-    .unwrap();
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert!(matches!(
-        vm.execute_program(&[], &[]).unwrap_err(),
-        EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29
-    ));
-    // TODO Memory check not implemented for JIT yet.
-    // test_vm_and_jit!(prog, [], {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29) }});
+        [],
+        [],
+        {
+            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29)
+        }
+    );
 }
 
 #[test]
@@ -357,45 +348,36 @@ fn test_vm_jit_ldinddw() {
 }
 
 #[test]
-fn test_vm_err_ldindb_oob() {
-    let prog = assemble(
+fn test_vm_jit_err_ldindb_oob() {
+    test_vm_and_jit!(
         "
         mov64 r1, 0x5
         ldindb r1, 0x33
         exit",
-    )
-    .unwrap();
-    let mem = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert!(matches!(
-        vm.execute_program(&mem, &[]).unwrap_err(),
-        EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30
-    ));
-    // TODO Memory check not implemented for JIT yet.
-    // test_vm_and_jit!(prog, mem, {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30) }});
+        [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
+            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
+        ],
+        [],
+        {
+            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30)
+        }
+    );
 }
 
 #[test]
-fn test_vm_err_ldindb_nomem() {
-    let prog = assemble(
+fn test_vm_jit_err_ldindb_nomem() {
+    test_vm_and_jit!(
         "
-        mov64 r1, 0x3
-        ldindb r1, 0x3
+        mov64 r1, 0x5
+        ldindb r1, 0x33
         exit",
-    )
-    .unwrap();
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert!(matches!(
-        vm.execute_program(&[], &[]).unwrap_err(),
-        EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30
-    ));
-    // TODO Memory check not implemented for JIT yet.
-    // test_vm_and_jit!(prog, [], {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30) }});
+        [],
+        [],
+        {
+            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30)
+        }
+    );
 }
 
 /// Error definitions
