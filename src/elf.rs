@@ -20,10 +20,9 @@ use elf::goblin::{
     error::Error as GoblinError,
 };
 use std::{collections::HashMap, mem, ops::Range, str};
-use thiserror::Error;
 
 /// Error definitions
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ELFError {
     /// Failed to parse ELF file
     #[error("Failed to parse ELF file: {0}")]
@@ -139,7 +138,7 @@ enum BPFRelocationType {
     /// the post-load 64-bit physical address referenced by the imm field and writing
     /// that physical address back into the imm fields of the ldxdw instruction.
     R_BPF_64_RELATIVE = 8,
-    /// Relocation of a call instruction.  
+    /// Relocation of a call instruction.
     /// The existing imm field contains either an offset of the instruction to jump to
     /// (think local function call) or a special value of "-1".  If -1 the symbol must
     /// be looked up in the symbol table.  The relocation entry contains the symbol
