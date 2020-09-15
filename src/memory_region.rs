@@ -67,20 +67,21 @@ pub enum AccessType {
 /// Helper for translate_addr to generate errors
 fn generate_access_violation<E: UserDefinedError>(
     vm_addr: u64,
-    len: usize,
+    len: u64,
     access_type: AccessType,
     pc: usize,
-    regions: &[MemoryRegion],
+    regions: &Vec<MemoryRegion>,
 ) -> EbpfError<E> {
     let mut regions_string = "".to_string();
     if !regions.is_empty() {
         regions_string = "regions:".to_string();
         for region in regions.iter() {
             regions_string = format!(
-                "  {} \n{:#x}-{:#x}",
+                "  {} \n{:#x} {:#x} {:#x}",
                 regions_string,
+                region.addr_host,
                 region.addr_vm,
-                region.addr_vm + region.len - 1,
+                region.len,
             );
         }
     }
@@ -96,10 +97,10 @@ fn generate_access_violation<E: UserDefinedError>(
 /// Given a list of regions translate from virtual machine to host address
 pub fn translate_addr<E: UserDefinedError>(
     vm_addr: u64,
-    len: usize,
+    len: u64,
     access_type: AccessType,
     pc: usize, // TODO syscalls don't have this info
-    regions: &[MemoryRegion],
+    regions: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<E>> {
     let index = match regions.binary_search_by(|probe| probe.addr_vm.cmp(&vm_addr)) {
         Ok(index) => index,

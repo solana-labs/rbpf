@@ -46,8 +46,8 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 /// use solana_rbpf::memory_region::MemoryRegion;
 /// use solana_rbpf::user_error::UserError;
 ///
-/// let regions = [MemoryRegion::default()];
-/// let t = bpf_time_getns::<UserError>(0, 0, 0, 0, 0, &regions).unwrap();
+/// let memory_mapping = [MemoryRegion::default()];
+/// let t = bpf_time_getns::<UserError>(0, 0, 0, 0, 0, &memory_mapping.to_vec()).unwrap();
 /// let d =  t / 10u64.pow(9)  / 60   / 60  / 24;
 /// let h = (t / 10u64.pow(9)  / 60   / 60) % 24;
 /// let m = (t / 10u64.pow(9)  / 60 ) % 60;
@@ -62,7 +62,7 @@ pub fn bpf_time_getns<E: UserDefinedError>(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    _memory_mapping: &[MemoryRegion],
+    _memory_mapping: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<E>> {
     Ok(time::precise_time_ns())
 }
@@ -86,8 +86,8 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// use solana_rbpf::memory_region::MemoryRegion;
 /// use solana_rbpf::user_error::UserError;
 ///
-/// let regions = [MemoryRegion::default()];
-/// let res = bpf_trace_printf::<UserError>(0, 0, 1, 15, 32, &regions).unwrap();
+/// let memory_mapping = [MemoryRegion::default()];
+/// let res = bpf_trace_printf::<UserError>(0, 0, 1, 15, 32, &memory_mapping.to_vec()).unwrap();
 /// assert_eq!(res as usize, "bpf_trace_printf: 0x1, 0xf, 0x20\n".len());
 /// ```
 ///
@@ -118,7 +118,7 @@ pub fn bpf_trace_printf<E: UserDefinedError>(
     arg3: u64,
     arg4: u64,
     arg5: u64,
-    _memory_mapping: &[MemoryRegion],
+    _memory_mapping: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<E>> {
     println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
     let size_arg = |x| {
@@ -146,8 +146,8 @@ pub fn bpf_trace_printf<E: UserDefinedError>(
 /// use solana_rbpf::memory_region::MemoryRegion;
 /// use solana_rbpf::user_error::UserError;
 ///
-/// let regions = [MemoryRegion::default()];
-/// let gathered = gather_bytes::<UserError>(0x11, 0x22, 0x33, 0x44, 0x55, &regions).unwrap();
+/// let memory_mapping = [MemoryRegion::default()];
+/// let gathered = gather_bytes::<UserError>(0x11, 0x22, 0x33, 0x44, 0x55, &memory_mapping.to_vec()).unwrap();
 /// assert_eq!(gathered, 0x1122334455);
 /// ```
 pub fn gather_bytes<E: UserDefinedError>(
@@ -156,7 +156,7 @@ pub fn gather_bytes<E: UserDefinedError>(
     arg3: u64,
     arg4: u64,
     arg5: u64,
-    _memory_mapping: &[MemoryRegion],
+    _memory_mapping: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<E>> {
     Ok(arg1.wrapping_shl(32)
         | arg2.wrapping_shl(24)
@@ -178,11 +178,11 @@ pub fn gather_bytes<E: UserDefinedError>(
 ///
 /// let val = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
 /// let val_va = 0x1000;
-/// let regions = [MemoryRegion::new_from_slice(&val, val_va, true)];
+/// let memory_mapping = [MemoryRegion::new_from_slice(&val, val_va, true)];
 ///
-/// memfrob::<UserError>(val_va, 8, 0, 0, 0, &regions);
+/// memfrob::<UserError>(val_va, 8, 0, 0, 0, &memory_mapping.to_vec());
 /// assert_eq!(val, vec![0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
-/// memfrob::<UserError>(val_va, 8, 0, 0, 0, &regions);
+/// memfrob::<UserError>(val_va, 8, 0, 0, 0, &memory_mapping.to_vec());
 /// assert_eq!(val, vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
 /// ```
 pub fn memfrob<E: UserDefinedError>(
@@ -191,9 +191,9 @@ pub fn memfrob<E: UserDefinedError>(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    memory_mapping: &[MemoryRegion],
+    memory_mapping: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<E>> {
-    let host_addr = translate_addr(addr, len as usize, AccessType::Store, 0, memory_mapping)?;
+    let host_addr = translate_addr(addr, len, AccessType::Store, 0, memory_mapping)?;
     for i in 0..len {
         unsafe {
             let p = (host_addr + i) as *mut u8;
@@ -234,8 +234,8 @@ pub fn memfrob<E: UserDefinedError>(
 /// use solana_rbpf::memory_region::MemoryRegion;
 /// use solana_rbpf::user_error::UserError;
 ///
-/// let regions = [MemoryRegion::default()];
-/// let x = sqrti::<UserError>(9, 0, 0, 0, 0, &regions).unwrap();
+/// let memory_mapping = [MemoryRegion::default()];
+/// let x = sqrti::<UserError>(9, 0, 0, 0, 0, &memory_mapping.to_vec()).unwrap();
 /// assert_eq!(x, 3);
 /// ```
 #[allow(dead_code)]
@@ -245,7 +245,7 @@ pub fn sqrti<E: UserDefinedError>(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    _memory_mapping: &[MemoryRegion],
+    _memory_mapping: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<E>> {
     Ok((arg1 as f64).sqrt() as u64)
 }
@@ -263,11 +263,11 @@ pub fn sqrti<E: UserDefinedError>(
 /// let bar = "This is another sting.";
 /// let va_foo = 0x1000;
 /// let va_bar = 0x2000;
-/// let regions = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, false)];
-/// assert!(strcmp::<UserError>(va_foo, va_foo, 0, 0, 0, &regions).unwrap() == 0);
-/// let regions = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, false),
+/// let memory_mapping = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, false)];
+/// assert!(strcmp::<UserError>(va_foo, va_foo, 0, 0, 0, &memory_mapping.to_vec()).unwrap() == 0);
+/// let memory_mapping = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, false),
 ///                MemoryRegion::new_from_slice(bar.as_bytes(), va_bar, false)];
-/// assert!(strcmp::<UserError>(va_foo, va_bar, 0, 0, 0, &regions).unwrap() != 0);
+/// assert!(strcmp::<UserError>(va_foo, va_bar, 0, 0, 0, &memory_mapping.to_vec()).unwrap() != 0);
 /// ```
 #[allow(dead_code)]
 pub fn strcmp<E: UserDefinedError>(
@@ -276,7 +276,7 @@ pub fn strcmp<E: UserDefinedError>(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    memory_mapping: &[MemoryRegion],
+    memory_mapping: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<E>> {
     // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
     if arg1 == 0 || arg2 == 0 {
@@ -324,8 +324,8 @@ pub fn strcmp<E: UserDefinedError>(
 ///     libc::srand(time::precise_time_ns() as u32)
 /// }
 ///
-/// let regions = [MemoryRegion::default()];
-/// let n = rand::<UserError>(3, 6, 0, 0, 0, &regions).unwrap();
+/// let memory_mapping = [MemoryRegion::default()];
+/// let n = rand::<UserError>(3, 6, 0, 0, 0, &memory_mapping.to_vec()).unwrap();
 /// assert!(3 <= n && n <= 6);
 /// ```
 #[allow(dead_code)]
@@ -335,7 +335,7 @@ pub fn rand<E: UserDefinedError>(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    _memory_mapping: &[MemoryRegion],
+    _memory_mapping: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<E>> {
     let mut n = unsafe { (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64 };
     if min < max {

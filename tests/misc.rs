@@ -109,9 +109,9 @@ fn bpf_syscall_string(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    memory_mapping: &[MemoryRegion],
+    memory_mapping: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<UserError>> {
-    let host_addr = translate_addr(vm_addr, len as usize, AccessType::Load, 0, memory_mapping)?;
+    let host_addr = translate_addr(vm_addr, len, AccessType::Load, 0, memory_mapping)?;
     let c_buf: *const c_char = host_addr as *const c_char;
     unsafe {
         for i in 0..len {
@@ -132,7 +132,7 @@ fn bpf_syscall_u64(
     arg3: u64,
     arg4: u64,
     arg5: u64,
-    _memory_mapping: &[MemoryRegion],
+    _memory_mapping: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<UserError>> {
     println!(
         "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}",
@@ -152,7 +152,7 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        _memory_mapping: &[MemoryRegion],
+        _memory_mapping: &Vec<MemoryRegion>,
     ) -> Result<u64, EbpfError<UserError>> {
         println!(
             "SyscallWithContext: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}",
@@ -493,7 +493,7 @@ fn bpf_trace_printf<E: UserDefinedError>(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
-    _memory_mapping: &[MemoryRegion],
+    _memory_mapping: &Vec<MemoryRegion>,
 ) -> Result<u64, EbpfError<E>> {
     Ok(0)
 }

@@ -25,6 +25,8 @@ use crate::{
     call_frames::CALL_FRAME_SIZE,
     ebpf::{self},
     error::UserDefinedError,
+    memory_region::{translate_addr, AccessType},
+    user_error::UserError,
 };
 use thiserror::Error;
 
@@ -370,6 +372,15 @@ fn emit_leaq(jit: &mut JitMemory, src: u8, dst: u8, offset: i32) {
     emit_modrm_and_displacement(jit, dst, src, offset);
 }
 
+// Test (64 bit)
+#[inline]
+fn emit_test(jit: &mut JitMemory, a: u8, b: u8) {
+    emit_basic_rex(jit, 1, a, b);
+    // test a, b
+    emit1(jit, 0x85);
+    emit_modrm_reg2reg(jit, a, b);
+}
+
 // Store register src to [dst + offset]
 #[inline]
 fn emit_store(jit: &mut JitMemory, size: OperandSize, src: u8, dst: u8, offset: i32) {
@@ -438,6 +449,40 @@ fn emit_call(jit: &mut JitMemory, target: i64) {
     for reg in CALLER_SAVED_REGISTERS.iter().rev() {
         emit_pop(jit, *reg);
     }
+}
+
+enum AddressTranslationSrc {
+    RegisterWithOffset(u8, i32),
+    ImmediateOnly(i32)
+}
+
+#[inline]
+fn emit_address_translation(jit: &mut JitMemory, host_addr: u8, vm_addr: AddressTranslationSrc, len: u64, access_type: AccessType, pc: usize) {
+    emit_register_saving_before_call(jit);
+
+    match vm_addr {
+        AddressTranslationSrc::RegisterWithOffset(reg, offset) => {
+            emit_load_imm(jit, R11, offset as i64 + ebpf::MM_INPUT_START as i64);
+            emit_alu64(jit, 0x01, reg, R11);
+            emit_mov(jit, R11, ARGUMENT_REGISTERS[1]);
+        },
+        AddressTranslationSrc::ImmediateOnly(vm_addr) => emit_load_imm(jit, ARGUMENT_REGISTERS[1], vm_addr as i64 + ebpf::MM_INPUT_START as i64),
+    }
+    emit_load_imm(jit, ARGUMENT_REGISTERS[2], len as i64);
+    emit_load_imm(jit, ARGUMENT_REGISTERS[3], access_type as i64);
+    emit_load_imm(jit, ARGUMENT_REGISTERS[4], pc as i64);
+    emit_mov(jit, R10, ARGUMENT_REGISTERS[5]);
+
+    let func_ptr = translate_addr::<UserError> as *const u8;
+    emit_call(jit, func_ptr as i64);
+
+    // Throw error if the result indicates one
+    emit_load(jit, OperandSize::S64, RDI, R11, 0);
+    emit_test(jit, R11, R11);
+    emit_jcc(jit, 0x85, TARGET_PC_EPILOGUE);
+
+    // Store Ok value in result register
+    emit_load(jit, OperandSize::S64, RDI, host_addr, 8);
 }
 
 fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) {
@@ -552,8 +597,8 @@ impl<'a> JitMemory<'a> {
             }
         }
 
-        // Save mem pointer for use with LD_ABS_* and LD_IND_* instructions
-        emit_mov(self, RSI, R10);
+        // Save pointer to memory_mapping
+        emit_mov(self, ARGUMENT_REGISTERS[1], R10);
 
         // Allocate stack space
         emit_alu64_imm32(self, 0x81, 5, RSP, CALL_FRAME_SIZE as i32);
@@ -573,34 +618,37 @@ impl<'a> JitMemory<'a> {
             match insn.opc {
 
                 // BPF_LD class
-                // R10 is a constant pointer to mem.
-                ebpf::LD_ABS_B   =>
-                    emit_load(self, OperandSize::S8,  R10, RAX, insn.imm),
-                ebpf::LD_ABS_H   =>
-                    emit_load(self, OperandSize::S16, R10, RAX, insn.imm),
-                ebpf::LD_ABS_W   =>
-                    emit_load(self, OperandSize::S32, R10, RAX, insn.imm),
-                ebpf::LD_ABS_DW  =>
-                    emit_load(self, OperandSize::S64, R10, RAX, insn.imm),
+                ebpf::LD_ABS_B   => {
+                    emit_address_translation(self, R11, AddressTranslationSrc::ImmediateOnly(insn.imm), 1, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S8, R11, RAX, 0);
+                },
+                ebpf::LD_ABS_H   => {
+                    emit_address_translation(self, R11, AddressTranslationSrc::ImmediateOnly(insn.imm), 2, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S16, R11, RAX, 0);
+                },
+                ebpf::LD_ABS_W   => {
+                    emit_address_translation(self, R11, AddressTranslationSrc::ImmediateOnly(insn.imm), 4, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S32, R11, RAX, 0);
+                },
+                ebpf::LD_ABS_DW  => {
+                    emit_address_translation(self, R11, AddressTranslationSrc::ImmediateOnly(insn.imm), 8, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S64, R11, RAX, 0);
+                },
                 ebpf::LD_IND_B   => {
-                    emit_mov(self, R10, R11);                              // load mem into R11
-                    emit_alu64(self, 0x01, src, R11);                      // add src to R11
-                    emit_load(self, OperandSize::S8,  R11, RAX, insn.imm); // ld R0, mem[src+imm]
+                    emit_address_translation(self, R11, AddressTranslationSrc::RegisterWithOffset(src, insn.imm), 1, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S8, R11, RAX, 0);
                 },
                 ebpf::LD_IND_H   => {
-                    emit_mov(self, R10, R11);                              // load mem into R11
-                    emit_alu64(self, 0x01, src, R11);                      // add src to R11
-                    emit_load(self, OperandSize::S16, R11, RAX, insn.imm); // ld R0, mem[src+imm]
+                    emit_address_translation(self, R11, AddressTranslationSrc::RegisterWithOffset(src, insn.imm), 2, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S16, R11, RAX, 0);
                 },
                 ebpf::LD_IND_W   => {
-                    emit_mov(self, R10, R11);                              // load mem into R11
-                    emit_alu64(self, 0x01, src, R11);                      // add src to R11
-                    emit_load(self, OperandSize::S32, R11, RAX, insn.imm); // ld R0, mem[src+imm]
+                    emit_address_translation(self, R11, AddressTranslationSrc::RegisterWithOffset(src, insn.imm), 4, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S32, R11, RAX, 0);
                 },
                 ebpf::LD_IND_DW  => {
-                    emit_mov(self, R10, R11);                              // load mem into R11
-                    emit_alu64(self, 0x01, src, R11);                      // add src to R11
-                    emit_load(self, OperandSize::S64, R11, RAX, insn.imm); // ld R0, mem[src+imm]
+                    emit_address_translation(self, R11, AddressTranslationSrc::RegisterWithOffset(src, insn.imm), 8, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S64, R11, RAX, 0);
                 },
 
                 ebpf::LD_DW_IMM  => {
