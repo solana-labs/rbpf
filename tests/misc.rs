@@ -271,10 +271,10 @@ fn test_vm_err_ldabsb_oob() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     assert!(matches!(
         vm.execute_program(&mem, &[], &[]).unwrap_err(),
-        EbpfError::AccessViolation(_, _, _, _, _)
+        EbpfError::AccessViolation(access_type, pc, _, _, _) if access_type == "load" && pc == 29
     ));
     // TODO Memory check not implemented for JIT yet.
-    // test_vm_and_jit!(prog, mem, {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(_, _, _, _, _)) }});
+    // test_vm_and_jit!(prog, mem, {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(access_type, pc, _, _, _) if access_type == "load" && pc == 29) }});
 }
 
 #[test]
@@ -289,10 +289,10 @@ fn test_vm_err_ldabsb_nomem() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     assert!(matches!(
         vm.execute_program(&[], &[], &[]).unwrap_err(),
-        EbpfError::AccessViolation(_, _, _, _, _)
+        EbpfError::AccessViolation(access_type, pc, _, _, _) if access_type == "load" && pc == 29
     ));
     // TODO Memory check not implemented for JIT yet.
-    // test_vm_and_jit!(prog, [], {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(_, _, _, _, _)) }});
+    // test_vm_and_jit!(prog, [], {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(access_type, pc, _, _, _) if access_type == "load" && pc == 29) }});
 }
 
 #[test]
@@ -376,10 +376,10 @@ fn test_vm_err_ldindb_oob() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     assert!(matches!(
         vm.execute_program(&mem, &[], &[]).unwrap_err(),
-        EbpfError::AccessViolation(_, _, _, _, _)
+        EbpfError::AccessViolation(access_type, pc, _, _, _) if access_type == "load" && pc == 30
     ));
     // TODO Memory check not implemented for JIT yet.
-    // test_vm_and_jit!(prog, mem, {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(_, _, _, _, _)) }});
+    // test_vm_and_jit!(prog, mem, {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(access_type, pc, _, _, _) if access_type == "load" && pc == 30) }});
 }
 
 #[test]
@@ -395,10 +395,10 @@ fn test_vm_err_ldindb_nomem() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     assert!(matches!(
         vm.execute_program(&[], &[], &[]).unwrap_err(),
-        EbpfError::AccessViolation(_, _, _, _, _)
+        EbpfError::AccessViolation(access_type, pc, _, _, _) if access_type == "load" && pc == 30
     ));
     // TODO Memory check not implemented for JIT yet.
-    // test_vm_and_jit!(prog, [], {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(_, _, _, _, _)) }});
+    // test_vm_and_jit!(prog, [], {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(access_type, pc, _, _, _) if access_type == "load" && pc == 30) }});
 }
 
 /// Error definitions
