@@ -25,7 +25,7 @@ use crate::{
     call_frames::CALL_FRAME_SIZE,
     ebpf::{self},
     error::UserDefinedError,
-    memory_region::{translate_addr, AccessType},
+    memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
 };
 use thiserror::Error;
@@ -464,16 +464,16 @@ fn emit_address_translation(jit: &mut JitMemory, host_addr: u8, vm_addr: Address
         AddressTranslationSrc::RegisterWithOffset(reg, offset) => {
             emit_load_imm(jit, R11, offset as i64 + ebpf::MM_INPUT_START as i64);
             emit_alu64(jit, 0x01, reg, R11);
-            emit_mov(jit, R11, ARGUMENT_REGISTERS[1]);
+            emit_mov(jit, R11, ARGUMENT_REGISTERS[2]);
         },
-        AddressTranslationSrc::ImmediateOnly(vm_addr) => emit_load_imm(jit, ARGUMENT_REGISTERS[1], vm_addr as i64 + ebpf::MM_INPUT_START as i64),
+        AddressTranslationSrc::ImmediateOnly(vm_addr) => emit_load_imm(jit, ARGUMENT_REGISTERS[2], vm_addr as i64 + ebpf::MM_INPUT_START as i64),
     }
-    emit_load_imm(jit, ARGUMENT_REGISTERS[2], len as i64);
-    emit_load_imm(jit, ARGUMENT_REGISTERS[3], access_type as i64);
-    emit_load_imm(jit, ARGUMENT_REGISTERS[4], pc as i64);
-    emit_mov(jit, R10, ARGUMENT_REGISTERS[5]);
+    emit_mov(jit, R10, ARGUMENT_REGISTERS[1]);
+    emit_load_imm(jit, ARGUMENT_REGISTERS[3], len as i64);
+    emit_load_imm(jit, ARGUMENT_REGISTERS[4], access_type as i64);
+    emit_load_imm(jit, ARGUMENT_REGISTERS[5], pc as i64);
 
-    let func_ptr = translate_addr::<UserError> as *const u8;
+    let func_ptr = MemoryMapping::translate_addr::<UserError> as *const u8;
     emit_call(jit, func_ptr as i64);
 
     // Throw error if the result indicates one

@@ -64,69 +64,95 @@ pub enum AccessType {
     Store,
 }
 
-/// Helper for translate_addr to generate errors
-fn generate_access_violation<E: UserDefinedError>(
-    vm_addr: u64,
-    len: u64,
-    access_type: AccessType,
-    pc: usize,
-    regions: &Vec<MemoryRegion>,
-) -> EbpfError<E> {
-    let mut regions_string = "".to_string();
-    if !regions.is_empty() {
-        regions_string = "regions:".to_string();
-        for region in regions.iter() {
-            regions_string = format!(
-                "  {} \n{:#x} {:#x} {:#x}",
-                regions_string,
-                region.addr_host,
-                region.addr_vm,
-                region.len,
-            );
-        }
-    }
-    EbpfError::AccessViolation(
-        access_type,
-        pc + ELF_INSN_DUMP_OFFSET,
-        vm_addr,
-        len,
-        regions_string,
-    )
+/// Indirection to use instead of a slice to make handling easier
+#[derive(Default)]
+pub struct MemoryMapping {
+    /// Mapped (valid) regions
+    regions: Vec<MemoryRegion>,
 }
-
-/// Given a list of regions translate from virtual machine to host address
-pub fn translate_addr<E: UserDefinedError>(
-    vm_addr: u64,
-    len: u64,
-    access_type: AccessType,
-    pc: usize, // TODO syscalls don't have this info
-    regions: &Vec<MemoryRegion>,
-) -> Result<u64, EbpfError<E>> {
-    let index = match regions.binary_search_by(|probe| probe.addr_vm.cmp(&vm_addr)) {
-        Ok(index) => index,
-        Err(index) => {
-            if index == 0 {
-                return Err(generate_access_violation(
-                    vm_addr,
-                    len,
-                    access_type,
-                    pc,
-                    regions,
-                ));
-            }
-            index - 1
-        }
-    };
-    if access_type == AccessType::Load || regions[index].writable {
-        if let Ok(host_addr) = regions[index].vm_to_host::<E>(vm_addr, len as u64) {
-            return Ok(host_addr);
+impl MemoryMapping {
+    /// Creates a new MemoryMapping structure
+    pub fn new() -> Self {
+        Self {
+            regions: Vec::new(),
         }
     }
-    Err(generate_access_violation(
-        vm_addr,
-        len,
-        access_type,
-        pc,
-        regions,
-    ))
+
+    /// Creates a new MemoryMapping structure from the given regions
+    pub fn new_from_regions(regions: &[MemoryRegion]) -> Self {
+        Self {
+            regions: regions.to_vec(),
+        }
+    }
+
+    /// Adds a region
+    pub fn add_region(&mut self, region: MemoryRegion) {
+        self.regions.push(region);
+    }
+
+    /// Adds multiple regions
+    pub fn add_regions(&mut self, regions: Vec<MemoryRegion>) {
+        self.regions.extend(regions);
+    }
+
+    /// Call after the last change. Sorts regions by addr_vm for binary search
+    pub fn finalize(&mut self) {
+        self.regions.sort_by(|a, b| a.addr_vm.cmp(&b.addr_vm));
+    }
+
+    /// Given a list of regions translate from virtual machine to host address
+    pub fn translate_addr<E: UserDefinedError>(
+        &self,
+        vm_addr: u64,
+        len: u64,
+        access_type: AccessType,
+        pc: usize, // TODO syscalls don't have this info
+    ) -> Result<u64, EbpfError<E>> {
+        let index = match self
+            .regions
+            .binary_search_by(|probe| probe.addr_vm.cmp(&vm_addr))
+        {
+            Ok(index) => index,
+            Err(index) => {
+                if index == 0 {
+                    return Err(self.generate_access_violation(vm_addr, len, access_type, pc));
+                }
+                index - 1
+            }
+        };
+        let region = &self.regions[index];
+        if access_type == AccessType::Load || region.writable {
+            if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
+                return Ok(host_addr);
+            }
+        }
+        Err(self.generate_access_violation(vm_addr, len, access_type, pc))
+    }
+
+    /// Helper for translate_addr to generate errors
+    fn generate_access_violation<E: UserDefinedError>(
+        &self,
+        vm_addr: u64,
+        len: u64,
+        access_type: AccessType,
+        pc: usize,
+    ) -> EbpfError<E> {
+        let mut regions_string = "".to_string();
+        if !self.regions.is_empty() {
+            regions_string = "regions:".to_string();
+            for region in self.regions.iter() {
+                regions_string = format!(
+                    "  {} \n{:#x} {:#x} {:#x}",
+                    regions_string, region.addr_host, region.addr_vm, region.len,
+                );
+            }
+        }
+        EbpfError::AccessViolation(
+            access_type,
+            pc + ELF_INSN_DUMP_OFFSET,
+            vm_addr,
+            len,
+            regions_string,
+        )
+    }
 }

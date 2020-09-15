@@ -22,7 +22,10 @@
 
 use std::u64;
 use time;
-use crate::{ebpf::{EbpfError, UserDefinedError}, memory_region::{MemoryRegion, translate_addr}};
+use crate::{
+    ebpf::{EbpfError, UserDefinedError},
+    memory_region::{MemoryRegion, MemoryMapping}
+};
 
 // Syscalls associated to kernel syscalls
 // See also linux/include/uapi/linux/bpf.h in Linux kernel sources.
@@ -196,7 +199,7 @@ pub fn memfrob<E: UserDefinedError> (
 ) -> Result<u64, EbpfError<E>>
 {
 
-        let host_addr = translate_addr(addr, len as usize, true, 0, memory_mapping)?;
+        let host_addr = memory_mapping.translate_addr(addr, len as usize, AccessType::Store, 0)?;
         for i in 0..len {
             unsafe {
                 let mut p = (host_addr + i) as *mut u8;
@@ -288,8 +291,8 @@ pub fn strcmp<E: UserDefinedError> (
         if arg1 == 0 || arg2 == 0 {
             return Ok(u64::MAX);
         }
-        let mut a = translate_addr(arg1, 1, false, 0, memory_mapping)?;
-        let mut b = translate_addr(arg2, 1, false, 0, memory_mapping)?;
+        let mut a = memory_mapping.translate_addr(arg1, 1, AccessType::Load, 0)?;
+        let mut b = memory_mapping.translate_addr(arg2, 1, AccessType::Load, 0)?;
         unsafe {
             let mut a_val = *(a as *const u8);
             let mut b_val = *(b as *const u8);
