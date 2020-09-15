@@ -32,7 +32,7 @@ use solana_rbpf::{
     memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
     verifier::check,
-    vm::{EbpfVm, InstructionMeter, SyscallObject},
+    vm::{EbpfVm, InstructionMeter, SyscallFunction, SyscallObject},
 };
 use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
 use thiserror::Error;
@@ -103,6 +103,34 @@ use thiserror::Error;
 // Cargo.toml file (see comments above), so here we use just the hardcoded bytecode instructions
 // instead.
 
+type ExecResult = Result<u64, EbpfError<UserError>>;
+
+macro_rules! test_vm_and_jit {
+    ( $source:tt, $mem:tt, $syscalls:tt, $check:tt ) => {
+        let mut program = assemble($source).unwrap();
+        let syscalls: &[(u32, SyscallFunction<UserError>, usize)] = &$syscalls;
+        for syscall in syscalls {
+            LittleEndian::write_u32(&mut program[syscall.2..syscall.2 + 4], syscall.0);
+        }
+        let executable =
+            EbpfVm::<UserError>::create_executable_from_text_bytes(&program, None).unwrap();
+        let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+        for syscall in syscalls {
+            vm.register_syscall(syscall.0, syscall.1).unwrap();
+        }
+        let check_closure = $check;
+        let mem1 = $mem;
+        #[cfg(not(windows))]
+        let mut mem2 = mem1;
+        assert!(check_closure(vm.execute_program(&mem1, &[])));
+        #[cfg(not(windows))]
+        {
+            vm.jit_compile().unwrap();
+            assert!(check_closure(unsafe { vm.execute_program_jit(&mut mem2) }));
+        }
+    };
+}
+
 fn bpf_syscall_string(
     vm_addr: u64,
     len: u64,
@@ -110,7 +138,7 @@ fn bpf_syscall_string(
     _arg4: u64,
     _arg5: u64,
     memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<UserError>> {
+) -> ExecResult {
     let host_addr = memory_mapping.translate_addr(AccessType::Load, vm_addr, len)?;
     let c_buf: *const c_char = host_addr as *const c_char;
     unsafe {
@@ -133,7 +161,7 @@ fn bpf_syscall_u64(
     arg4: u64,
     arg5: u64,
     _memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<UserError>> {
+) -> ExecResult {
     println!(
         "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}",
         arg1, arg2, arg3, arg4, arg5
@@ -153,7 +181,7 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
         arg4: u64,
         arg5: u64,
         _memory_mapping: &MemoryMapping,
-    ) -> Result<u64, EbpfError<UserError>> {
+    ) -> ExecResult {
         println!(
             "SyscallWithContext: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}",
             arg1, arg2, arg3, arg4, arg5
@@ -164,107 +192,67 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
     }
 }
 
-#[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsb() {
-    let prog = assemble(
+    test_vm_and_jit!(
         "
         ldabsb 0x3
         exit",
-    )
-    .unwrap();
-    let mem1 = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let mut mem2 = mem1;
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x33);
-
-    vm.jit_compile().unwrap();
-    unsafe {
-        assert_eq!(vm.execute_program_jit(&mut mem2).unwrap(), 0x33);
-    };
+        [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
+            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x33 } }
+    );
 }
 
-#[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsh() {
-    let prog = assemble(
+    test_vm_and_jit!(
         "
         ldabsh 0x3
         exit",
-    )
-    .unwrap();
-    let mem1 = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let mut mem2 = mem1;
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x4433);
-
-    vm.jit_compile().unwrap();
-    unsafe {
-        assert_eq!(vm.execute_program_jit(&mut mem2).unwrap(), 0x4433);
-    };
+        [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
+            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x4433 } }
+    );
 }
 
-#[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsw() {
-    let prog = assemble(
+    test_vm_and_jit!(
         "
         ldabsw 0x3
         exit",
-    )
-    .unwrap();
-    let mem1 = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let mut mem2 = mem1;
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x66554433);
-
-    vm.jit_compile().unwrap();
-    unsafe {
-        assert_eq!(vm.execute_program_jit(&mut mem2).unwrap(), 0x66554433);
-    };
+        [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
+            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x66554433 } }
+    );
 }
 
-#[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldabsdw() {
-    let prog = assemble(
+    test_vm_and_jit!(
         "
         ldabsdw 0x3
         exit",
-    )
-    .unwrap();
-    let mem1 = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let mut mem2 = mem1;
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0xaa99887766554433);
-
-    vm.jit_compile().unwrap();
-    unsafe {
-        assert_eq!(
-            vm.execute_program_jit(&mut mem2).unwrap(),
-            0xaa99887766554433
-        );
-    };
+        [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
+            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0xaa99887766554433 } }
+    );
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(29, Load")]
 fn test_vm_err_ldabsb_oob() {
     let prog = assemble(
         "
@@ -272,19 +260,21 @@ fn test_vm_err_ldabsb_oob() {
         exit",
     )
     .unwrap();
-    let mem = &[
+    let mem = [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
     ];
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.execute_program(mem, &[]).unwrap();
-
-    // Memory check not implemented for JIT yet.
+    assert!(matches!(
+        vm.execute_program(&mem, &[]).unwrap_err(),
+        EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29
+    ));
+    // TODO Memory check not implemented for JIT yet.
+    // test_vm_and_jit!(prog, mem, {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29) }});
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(29, Load")]
 fn test_vm_err_ldabsb_nomem() {
     let prog = assemble(
         "
@@ -294,116 +284,79 @@ fn test_vm_err_ldabsb_nomem() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.execute_program(&[], &[]).unwrap();
-
-    // Memory check not implemented for JIT yet.
+    assert!(matches!(
+        vm.execute_program(&[], &[]).unwrap_err(),
+        EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29
+    ));
+    // TODO Memory check not implemented for JIT yet.
+    // test_vm_and_jit!(prog, [], {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29) }});
 }
 
-#[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindb() {
-    let prog = assemble(
+    test_vm_and_jit!(
         "
         mov64 r1, 0x5
         ldindb r1, 0x3
         exit",
-    )
-    .unwrap();
-    let mem1 = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let mut mem2 = mem1;
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x88);
-
-    vm.jit_compile().unwrap();
-    unsafe {
-        assert_eq!(vm.execute_program_jit(&mut mem2).unwrap(), 0x88);
-    };
+        [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
+            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x88 } }
+    );
 }
 
-#[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindh() {
-    let prog = assemble(
+    test_vm_and_jit!(
         "
         mov64 r1, 0x5
         ldindh r1, 0x3
         exit",
-    )
-    .unwrap();
-    let mem1 = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let mut mem2 = mem1;
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x9988);
-
-    vm.jit_compile().unwrap();
-    unsafe {
-        assert_eq!(vm.execute_program_jit(&mut mem2).unwrap(), 0x9988);
-    };
+        [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
+            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x9988 } }
+    );
 }
 
-#[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldindw() {
-    let prog = assemble(
+    test_vm_and_jit!(
         "
         mov64 r1, 0x4
         ldindw r1, 0x1
         exit",
-    )
-    .unwrap();
-    let mem1 = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let mut mem2 = mem1;
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0x88776655);
-
-    vm.jit_compile().unwrap();
-    unsafe {
-        assert_eq!(vm.execute_program_jit(&mut mem2).unwrap(), 0x88776655);
-    };
+        [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
+            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x88776655 } }
+    );
 }
 
-#[cfg(not(windows))]
 #[test]
 fn test_vm_jit_ldinddw() {
-    let prog = assemble(
+    test_vm_and_jit!(
         "
         mov64 r1, 0x2
         ldinddw r1, 0x3
         exit",
-    )
-    .unwrap();
-    let mem1 = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-    ];
-    let mut mem2 = mem1;
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    assert_eq!(vm.execute_program(&mem1, &[]).unwrap(), 0xccbbaa9988776655);
-
-    vm.jit_compile().unwrap();
-    unsafe {
-        assert_eq!(
-            vm.execute_program_jit(&mut mem2).unwrap(),
-            0xccbbaa9988776655
-        );
-    };
+        [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
+            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0xccbbaa9988776655 } }
+    );
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(30, Load")]
 fn test_vm_err_ldindb_oob() {
     let prog = assemble(
         "
@@ -412,19 +365,21 @@ fn test_vm_err_ldindb_oob() {
         exit",
     )
     .unwrap();
-    let mem = &mut [
+    let mem = [
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
     ];
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.execute_program(mem, &[]).unwrap();
-
-    // Memory check not implemented for JIT yet.
+    assert!(matches!(
+        vm.execute_program(&mem, &[]).unwrap_err(),
+        EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30
+    ));
+    // TODO Memory check not implemented for JIT yet.
+    // test_vm_and_jit!(prog, mem, {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30) }});
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(30, Load")]
 fn test_vm_err_ldindb_nomem() {
     let prog = assemble(
         "
@@ -435,9 +390,12 @@ fn test_vm_err_ldindb_nomem() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.execute_program(&[], &[]).unwrap();
-
-    // Memory check not implemented for JIT yet.
+    assert!(matches!(
+        vm.execute_program(&[], &[]).unwrap_err(),
+        EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30
+    ));
+    // TODO Memory check not implemented for JIT yet.
+    // test_vm_and_jit!(prog, [], {|res: ExecResult| { matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30) }});
 }
 
 /// Error definitions
@@ -768,10 +726,9 @@ fn test_syscall_string() {
     vm.execute_program(&mem, &[]).unwrap();
 }
 
-#[cfg(not(windows))]
 #[test]
 fn test_call_syscall() {
-    let mut prog = assemble(
+    test_vm_and_jit!(
         "
         mov64 r1, 0xAA
         mov64 r2, 0xBB
@@ -781,21 +738,10 @@ fn test_call_syscall() {
         call -0x1
         mov64 r0, 0x0
         exit",
-    )
-    .unwrap();
-    LittleEndian::write_u32(&mut prog[44..48], ebpf::hash_symbol_name(b"log"));
-
-    let mem1 = [];
-    let mut mem2 = mem1;
-
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.register_syscall_ex("log", bpf_syscall_u64).unwrap();
-    vm.execute_program(&mem1, &[]).unwrap();
-    vm.jit_compile().unwrap();
-    unsafe {
-        assert_eq!(vm.execute_program_jit(&mut mem2).unwrap(), 0);
-    }
+        [],
+        [(ebpf::hash_symbol_name(b"log"), bpf_syscall_u64, 44)],
+        { |res: ExecResult| { res.unwrap() == 0 } }
+    );
 }
 
 #[test]
@@ -1038,7 +984,7 @@ fn test_large_program() {
 }
 
 #[test]
-fn test_vm_syscall_with_context() {
+fn test_syscall_with_context() {
     let mut prog = assemble(
         "
         mov64 r1, 0xAA
@@ -1054,8 +1000,8 @@ fn test_vm_syscall_with_context() {
     LittleEndian::write_u32(&mut prog[44..48], ebpf::hash_symbol_name(b"syscall"));
 
     let mut number = 42;
-
     {
+        let number_ptr = &mut number as *mut u64;
         let executable =
             EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
         let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
@@ -1067,46 +1013,19 @@ fn test_vm_syscall_with_context() {
         )
         .unwrap();
         vm.execute_program(&[], &[]).unwrap();
-    }
-    assert_eq!(number, 84);
-}
-
-#[cfg(not(windows))]
-#[test]
-fn test_jit_syscall_with_context() {
-    let mut prog = assemble(
-        "
-        mov64 r1, 0xAA
-        mov64 r2, 0xBB
-        mov64 r3, 0xCC
-        mov64 r4, 0xDD
-        mov64 r5, 0xEE
-        call -0x1
-        mov64 r0, 0x0
-        exit",
-    )
-    .unwrap();
-    LittleEndian::write_u32(&mut prog[44..48], ebpf::hash_symbol_name(b"syscall"));
-
-    let mut number = 42;
-
-    {
-        let executable =
-            EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-        let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-        vm.register_syscall_with_context_ex(
-            "syscall",
-            Box::new(SyscallWithContext {
-                context: &mut number,
-            }),
-        )
-        .unwrap();
-        vm.jit_compile().unwrap();
         unsafe {
-            assert_eq!(vm.execute_program_jit(&mut []).unwrap(), 0);
+            assert_eq!(*number_ptr, 84);
+        }
+        #[cfg(not(windows))]
+        {
+            vm.jit_compile().unwrap();
+            unsafe {
+                *number_ptr = 42;
+                assert_eq!(vm.execute_program_jit(&mut []).unwrap(), 0);
+                assert_eq!(*number_ptr, 84);
+            }
         }
     }
-    assert_eq!(number, 84);
 }
 
 #[test]
@@ -1138,4 +1057,24 @@ fn test_fuzz_execute() {
             }
         },
     );
+}
+
+#[cfg(not(windows))]
+#[test]
+#[should_panic(expected = "DivideByZero")]
+fn test_jit_err_div64_by_zero_reg() {
+    let prog = assemble(
+        "
+        mov32 r0, 1
+        mov32 r1, 0
+        div r0, r1
+        exit",
+    )
+    .unwrap();
+    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+    vm.jit_compile().unwrap();
+    unsafe {
+        assert_eq!(vm.execute_program_jit(&mut []).unwrap(), 0);
+    }
 }

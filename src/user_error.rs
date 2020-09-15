@@ -1,10 +1,9 @@
 //! This module defines an example user error definition
 
 use crate::{error::UserDefinedError, verifier::VerifierError};
-use thiserror::Error;
 
 /// User defined error
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum UserError {
     /// Verifier error
     #[error("VerifierError")]
