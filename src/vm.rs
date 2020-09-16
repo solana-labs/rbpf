@@ -56,7 +56,7 @@ macro_rules! translate_memory_access {
 pub type Verifier<E> = fn(prog: &[u8]) -> Result<(), E>;
 
 /// eBPF Jit-compiled program.
-pub type JitProgram<E> = unsafe fn(&MemoryMapping) -> Result<u64, EbpfError<E>>;
+pub type JitProgram<E> = unsafe fn(u64, &MemoryMapping) -> Result<u64, EbpfError<E>>;
 
 /// Syscall function without context.
 pub type SyscallFunction<E> =
@@ -762,8 +762,17 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// For this reason the function should be called from within an `unsafe` bloc.
     ///
     pub unsafe fn execute_program_jit(&self) -> Result<u64, EbpfError<E>> {
+        let reg1 = if self
+            .memory_mapping
+            .translate_addr::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1)
+            .is_ok()
+        {
+            ebpf::MM_INPUT_START
+        } else {
+            0
+        };
         match self.compiled_prog {
-            Some(compiled_prog) => compiled_prog(&self.memory_mapping),
+            Some(compiled_prog) => compiled_prog(reg1, &self.memory_mapping),
             None => Err(EbpfError::JITNotCompiled),
         }
     }

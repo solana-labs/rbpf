@@ -635,11 +635,13 @@ impl<'a> JitMemory<'a> {
         }
 
         // Save pointer to memory_mapping
-        emit_mov(self, ARGUMENT_REGISTERS[1], R10);
+        emit_mov(self, ARGUMENT_REGISTERS[2], R10);
 
         // Initialize registers
         for (i, reg) in REGISTER_MAP.iter().enumerate() {
-            emit_load_imm(self, *reg, if i == 1 { ebpf::MM_INPUT_START as i64 } else { 0 });
+            if i != 1 {
+                emit_load_imm(self, *reg, 0);
+            }
         }
 
         // Allocate stack space
