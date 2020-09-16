@@ -122,16 +122,19 @@ impl InstructionMeter for DefaultInstructionMeter {
 ///
 /// // Instantiate a VM.
 /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
-/// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+/// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), mem, &[]).unwrap();
 ///
 /// // Provide a reference to the packet data.
-/// let res = vm.execute_program(mem, &[]).unwrap();
+/// let res = vm.execute_program().unwrap();
 /// assert_eq!(res, 0);
 /// ```
 pub struct EbpfVm<'a, E: UserDefinedError> {
     executable: &'a dyn Executable<E>,
-    jit: Option<JitProgram<E>>,
+    compiled_prog: Option<JitProgram<E>>,
     syscalls: HashMap<u32, Syscall<'a, E>>,
+    prog: &'a [u8],
+    prog_addr: u64,
+    frames: CallFrames,
     memory_mapping: MemoryMapping,
     last_insn_count: u64,
     total_insn_count: u64,
@@ -152,14 +155,42 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// // Instantiate a VM.
     /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
     /// ```
-    pub fn new(executable: &'a dyn Executable<E>) -> Result<EbpfVm<'a, E>, EbpfError<E>> {
+    pub fn new(
+        executable: &'a dyn Executable<E>,
+        mem: &[u8],
+        granted_regions: &[MemoryRegion],
+    ) -> Result<EbpfVm<'a, E>, EbpfError<E>> {
+        let (prog_addr, prog) = executable.get_text_bytes()?;
+        let frames = CallFrames::default();
+        let mut memory_mapping = MemoryMapping::new();
+        memory_mapping.add_regions(granted_regions.to_vec());
+        for ptr in frames.get_stacks() {
+            memory_mapping.add_region(ptr.clone());
+        }
+        memory_mapping.add_region(MemoryRegion::new_from_slice(
+            &mem,
+            ebpf::MM_INPUT_START,
+            true,
+        ));
+        if let Ok(sections) = executable.get_ro_sections() {
+            let regions: Vec<_> = sections
+                .iter()
+                .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr, false))
+                .collect();
+            memory_mapping.add_regions(regions);
+        }
+        memory_mapping.add_region(MemoryRegion::new_from_slice(prog, prog_addr, false));
+        memory_mapping.finalize();
         Ok(EbpfVm {
             executable,
-            jit: None,
+            compiled_prog: None,
             syscalls: HashMap::new(),
-            memory_mapping: MemoryMapping::new(),
+            prog,
+            prog_addr,
+            frames,
+            memory_mapping,
             last_insn_count: 0,
             total_insn_count: 0,
         })
@@ -223,7 +254,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// // Instantiate a VM.
     /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
     ///
     /// // Register a syscall.
     /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
@@ -293,28 +324,22 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// // Instantiate a VM.
     /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), mem, &[]).unwrap();
     ///
     /// // Provide a reference to the packet data.
-    /// let res = vm.execute_program(mem, &[]).unwrap();
+    /// let res = vm.execute_program().unwrap();
     /// assert_eq!(res, 0);
     /// ```
-    pub fn execute_program(
-        &mut self,
-        mem: &[u8],
-        granted_regions: &[MemoryRegion],
-    ) -> Result<u64, EbpfError<E>> {
-        self.execute_program_metered(mem, granted_regions, DefaultInstructionMeter {})
+    pub fn execute_program(&mut self) -> Result<u64, EbpfError<E>> {
+        self.execute_program_metered(DefaultInstructionMeter {})
     }
 
-    /// Execute the program loaded, with the given packet data and instruction meter.
+    /// Execute the program loaded, with the given instruction meter.
     pub fn execute_program_metered<I: InstructionMeter>(
         &mut self,
-        mem: &[u8],
-        granted_regions: &[MemoryRegion],
         mut instruction_meter: I,
     ) -> Result<u64, EbpfError<E>> {
-        let result = self.execute_program_inner(mem, granted_regions, &mut instruction_meter);
+        let result = self.execute_program_inner(&mut instruction_meter);
         instruction_meter.consume(self.last_insn_count);
         result
     }
@@ -322,33 +347,14 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     #[rustfmt::skip]
     fn execute_program_inner<I: InstructionMeter>(
         &mut self,
-        mem: &[u8],
-        granted_regions: &[MemoryRegion],
         instruction_meter: &mut I,
     ) -> Result<u64, EbpfError<E>> {
         const U32MAX: u64 = u32::MAX as u64;
 
-        self.memory_mapping.add_regions(granted_regions.to_vec());
-        let mut frames = CallFrames::default();
-        for ptr in frames.get_stacks() {
-            self.memory_mapping.add_region(ptr.clone());
-        }
-        self.memory_mapping.add_region(MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, true));
-        if let Ok(sections) = self.executable.get_ro_sections() {
-            let regions: Vec<_> = sections
-                .iter()
-                .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr, false))
-                .collect();
-            self.memory_mapping.add_regions(regions);
-        }
-        let (prog_addr, prog) = self.executable.get_text_bytes()?;
-        self.memory_mapping.add_region(MemoryRegion::new_from_slice(prog, prog_addr, false));
-        self.memory_mapping.finalize();
-
         // R1 points to beginning of input memory, R10 to the stack of the first frame
-        let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, frames.get_stack_top()];
+        let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.frames.get_stack_top()];
 
-        if !mem.is_empty() {
+        if self.memory_mapping.translate_addr::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1).is_ok() {
             reg[1] = ebpf::MM_INPUT_START;
         }
 
@@ -361,10 +367,10 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         let mut remaining_insn_count = instruction_meter.get_remaining();
         self.last_insn_count = 0;
         self.total_insn_count = 0;
-        while next_pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= prog.len() {
+        while next_pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= self.prog.len() {
             let pc = next_pc;
             next_pc += 1;
-            let insn = ebpf::get_insn_unchecked(prog, pc);
+            let insn = ebpf::get_insn_unchecked(self.prog, pc);
             let dst = insn.dst as usize;
             let src = insn.src as usize;
             self.last_insn_count += 1;
@@ -375,9 +381,9 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                     "    BPF: {:5?} {:016x?} frame {:?} pc {:4?} {}",
                     self.total_insn_count,
                     reg,
-                    frames.get_frame_index(),
+                    self.frames.get_frame_index(),
                     pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    disassembler::to_insn_vec(&prog[pc * ebpf::INSN_SIZE..])[0].desc
+                    disassembler::to_insn_vec(&self.prog[pc * ebpf::INSN_SIZE..])[0].desc
                 );
             }
 
@@ -428,7 +434,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 },
 
                 ebpf::LD_DW_IMM  => {
-                    let next_insn = ebpf::get_insn(prog, next_pc);
+                    let next_insn = ebpf::get_insn(self.prog, next_pc);
                     next_pc += 1;
                     reg[dst] = (insn.imm as u32) as u64 + ((next_insn.imm as u64) << 32);
                 },
@@ -632,11 +638,11 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::CALL_REG   => {
                     let target_address = reg[insn.imm as usize];
                     reg[ebpf::STACK_REG] =
-                        frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
+                        self.frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
                     if target_address < ebpf::MM_PROGRAM_START {
                         return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, reg[insn.imm as usize]));
                     }
-                    next_pc = Self::check_pc(&prog, pc, (target_address - prog_addr) as usize / ebpf::INSN_SIZE)?;
+                    next_pc = Self::check_pc(&self.prog, pc, (target_address - self.prog_addr) as usize / ebpf::INSN_SIZE)?;
                 },
 
                 // Do not delegate the check to the verifier, since registered functions can be
@@ -666,32 +672,32 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                         remaining_insn_count = instruction_meter.get_remaining();
                     } else if let Some(new_pc) = self.executable.lookup_bpf_call(insn.imm as u32) {
                         // make BPF to BPF call
-                        reg[ebpf::STACK_REG] = frames.push(
+                        reg[ebpf::STACK_REG] = self.frames.push(
                             &reg[ebpf::FIRST_SCRATCH_REG
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
                             next_pc,
                         )?;
-                        next_pc = Self::check_pc(&prog, pc, *new_pc)?;
+                        next_pc = Self::check_pc(&self.prog, pc, *new_pc)?;
                     } else {
                         self.executable.report_unresolved_symbol(pc)?;
                     }
                 }
 
                 ebpf::EXIT => {
-                    match frames.pop::<E>() {
+                    match self.frames.pop::<E>() {
                         Ok((saved_reg, stack_ptr, ptr)) => {
                             // Return from BPF to BPF call
                             reg[ebpf::FIRST_SCRATCH_REG
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                                 .copy_from_slice(&saved_reg);
                             reg[ebpf::STACK_REG] = stack_ptr;
-                            next_pc = Self::check_pc(&prog, pc, ptr)?;
+                            next_pc = Self::check_pc(&self.prog, pc, ptr)?;
                         }
                         _ => {
                             debug!("BPF instructions executed: {:?}", self.total_insn_count);
                             debug!(
                                 "Max frame depth reached: {:?}",
-                                frames.get_max_frame_index()
+                                self.frames.get_max_frame_index()
                             );
                             return Ok(reg[0]);
                         }
@@ -735,21 +741,18 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// // Instantiate a VM.
     /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
     ///
     /// # #[cfg(not(windows))]
     /// vm.jit_compile();
     /// ```
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        let (_, prog) = self.executable.get_text_bytes()?;
-        self.jit = Some(jit::compile(prog, &self.syscalls)?);
+        self.compiled_prog = Some(jit::compile(self.prog, &self.syscalls)?);
         Ok(())
     }
 
     /// Execute the previously JIT-compiled program, with the given packet data in a manner
-    /// very similar to `execute_program(&[], &[])`.
-    /// TODO: This in fact requires execute_program to be run beforehand,
-    /// so that the memory_mapping is defined.
+    /// very similar to `execute_program()`.
     ///
     /// # Safety
     ///
@@ -759,8 +762,8 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// For this reason the function should be called from within an `unsafe` bloc.
     ///
     pub unsafe fn execute_program_jit(&self) -> Result<u64, EbpfError<E>> {
-        match self.jit {
-            Some(jit) => jit(&self.memory_mapping),
+        match self.compiled_prog {
+            Some(compiled_prog) => compiled_prog(&self.memory_mapping),
             None => Err(EbpfError::JITNotCompiled),
         }
     }

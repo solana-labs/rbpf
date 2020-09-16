@@ -153,8 +153,7 @@ therefore must use specific syscall numbers.
 
 ```rust,ignore
 // for struct EbpfVm
-pub fn execute_program(&self,
-                 mem: &'a mut [u8]) -> Result<(u64), Error>
+pub fn execute_program(&mut self) -> Result<(u64), Error>
 ```
 
 Interprets the loaded program. The function takes a reference to the packet
@@ -171,8 +170,7 @@ is called. The generated assembly function is internally stored in the VM.
 
 ```rust,ignore
 // for struct EbpfVm
-pub unsafe fn execute_program_jit(&self, 
-                                  mem: &'a mut [u8]) -> Result<(u64), Error>
+pub unsafe fn execute_program_jit(&self) -> Result<(u64), Error>
 ```
 
 Calls the JIT-compiled program. The arguments to provide are the same as for
@@ -205,10 +203,10 @@ fn main() {
     // Instantiate a struct EbpfVmNoData. This is an eBPF VM for programs that
     // takes no packet data in argument.
     // The eBPF program is passed to the constructor.
-    let vm = rbpf::EbpfVm::new(prog).unwrap();
+    let vm = rbpf::EbpfVm::new(prog, &[]. &[]).unwrap();
 
     // Execute (interpret) the program.
-    assert_eq!(vm.execute_program(&[], &[]. &[]).unwrap(), 0x3);
+    assert_eq!(vm.execute_program().unwrap(), 0x3);
 }
 ```
 
