@@ -119,14 +119,11 @@ macro_rules! test_vm_and_jit {
             vm.register_syscall(syscall.0, syscall.1).unwrap();
         }
         let check_closure = $check;
-        let mem1 = $mem;
-        #[cfg(not(windows))]
-        let mut mem2 = mem1;
-        assert!(check_closure(vm.execute_program(&mem1, &[])));
+        assert!(check_closure(vm.execute_program(&$mem, &[])));
         #[cfg(not(windows))]
         {
             vm.jit_compile().unwrap();
-            assert!(check_closure(unsafe { vm.execute_program_jit(&mut mem2) }));
+            assert!(check_closure(unsafe { vm.execute_program_jit() }));
         }
     };
 }
@@ -150,8 +147,8 @@ fn bpf_syscall_string(
         }
         let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize)).unwrap();
         println!("log: {}", message);
-        Ok(0)
     }
+    Ok(0)
 }
 
 fn bpf_syscall_u64(
@@ -688,48 +685,42 @@ fn test_syscall_parameter_on_stack() {
 }
 
 #[test]
-#[should_panic(expected = "AccessViolation(0, Load")]
-fn test_null_string() {
-    let mut prog = assemble(
+fn test_vm_jit_err_syscall_string() {
+    test_vm_and_jit!(
         "
         mov64 r1, 0x0
         call -0x1
         mov64 r0, 0x0
         exit",
-    )
-    .unwrap();
-    LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"log"));
-
-    let mem = [72, 101, 108, 108, 111];
-
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
-    vm.execute_program(&mem, &[]).unwrap();
+        [72, 101, 108, 108, 111],
+        [(ebpf::hash_symbol_name(b"log"), bpf_syscall_string, 12)],
+        {
+            |res: ExecResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::AccessViolation(pc, access_type, _, _, _)
+                    if access_type == AccessType::Load && pc == 0
+                )
+            }
+        }
+    );
 }
 
 #[test]
-fn test_syscall_string() {
-    let mut prog = assemble(
+fn test_vm_jit_syscall_string() {
+    test_vm_and_jit!(
         "
         mov64 r2, 0x5
         call -0x1
         mov64 r0, 0x0
         exit",
-    )
-    .unwrap();
-    LittleEndian::write_u32(&mut prog[12..16], ebpf::hash_symbol_name(b"log"));
-
-    let mem = [72, 101, 108, 108, 111];
-
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
-    vm.register_syscall_ex("log", bpf_syscall_string).unwrap();
-    vm.execute_program(&mem, &[]).unwrap();
+        [72, 101, 108, 108, 111],
+        [(ebpf::hash_symbol_name(b"log"), bpf_syscall_string, 12)],
+        { |res: ExecResult| { res.unwrap() == 0 } }
+    );
 }
 
 #[test]
-fn test_call_syscall() {
+fn test_vm_jit_syscall() {
     test_vm_and_jit!(
         "
         mov64 r1, 0xAA
@@ -1023,7 +1014,7 @@ fn test_syscall_with_context() {
             vm.jit_compile().unwrap();
             unsafe {
                 *number_ptr = 42;
-                assert_eq!(vm.execute_program_jit(&mut []).unwrap(), 0);
+                assert_eq!(vm.execute_program_jit().unwrap(), 0);
                 assert_eq!(*number_ptr, 84);
             }
         }
@@ -1077,6 +1068,6 @@ fn test_jit_err_div64_by_zero_reg() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
     vm.jit_compile().unwrap();
     unsafe {
-        assert_eq!(vm.execute_program_jit(&mut []).unwrap(), 0);
+        assert_eq!(vm.execute_program_jit().unwrap(), 0);
     }
 }

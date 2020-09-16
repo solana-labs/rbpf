@@ -746,19 +746,19 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         Ok(())
     }
 
-    /// Execute the previously JIT-compiled program, with the given packet data
-    /// in a manner very similar to `execute_program(&[], &[])`.
+    /// Execute the previously JIT-compiled program, with the given packet data in a manner
+    /// very similar to `execute_program(&[], &[])`.
+    /// TODO: This in fact requires execute_program to be run beforehand,
+    /// so that the memory_mapping is defined.
     ///
     /// # Safety
     ///
-    /// **WARNING:** JIT-compiled assembly code is not safe, in particular there is no runtime
-    /// check for memory access; so if the eBPF program attempts erroneous accesses, this may end
-    /// very bad (program may segfault). It may be wise to check that the program works with the
-    /// interpreter before running the JIT-compiled version of it.
+    /// **WARNING:** JIT-compiled assembly code is not safe. It may be wise to check that
+    /// the program works with the interpreter before running the JIT-compiled version of it.
     ///
     /// For this reason the function should be called from within an `unsafe` bloc.
     ///
-    pub unsafe fn execute_program_jit(&self, _mem: &mut [u8]) -> Result<u64, EbpfError<E>> {
+    pub unsafe fn execute_program_jit(&self) -> Result<u64, EbpfError<E>> {
         match self.jit {
             Some(jit) => jit(&self.memory_mapping),
             None => Err(EbpfError::JITNotCompiled),

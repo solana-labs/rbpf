@@ -637,6 +637,11 @@ impl<'a> JitMemory<'a> {
         // Save pointer to memory_mapping
         emit_mov(self, ARGUMENT_REGISTERS[1], R10);
 
+        // Initialize registers
+        for (i, reg) in REGISTER_MAP.iter().enumerate() {
+            emit_load_imm(self, *reg, if i == 1 { ebpf::MM_INPUT_START as i64 } else { 0 });
+        }
+
         // Allocate stack space
         emit_alu64_imm32(self, 0x81, 5, RSP, CALL_FRAME_SIZE as i32);
 
@@ -944,7 +949,7 @@ impl<'a> JitMemory<'a> {
                     emit_jcc(self, 0x85, TARGET_PC_EPILOGUE);
 
                     // Store Ok value in result register
-                    emit_load(self, OperandSize::S64, RDI, map_register(0), 8);
+                    emit_load(self, OperandSize::S64, RDI, REGISTER_MAP[0], 8);
                 },
                 ebpf::CALL_REG  => { unimplemented!() },
                 ebpf::EXIT      => {
@@ -963,10 +968,10 @@ impl<'a> JitMemory<'a> {
         set_anchor(self, TARGET_PC_EXIT);
 
         // Store result in optional type
-        emit_store(self, OperandSize::S64, map_register(0), RDI, 8);
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8);
         // Also store that no error occured
-        emit_load_imm(self, map_register(0), 0);
-        emit_store(self, OperandSize::S64, map_register(0), RDI, 0);
+        emit_load_imm(self, REGISTER_MAP[0], 0);
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 0);
 
         // Epilogue
         set_anchor(self, TARGET_PC_EPILOGUE);
@@ -984,13 +989,13 @@ impl<'a> JitMemory<'a> {
         // Division by zero handler
         set_anchor(self, TARGET_PC_DIV_BY_ZERO);
         // Store that an error occured
-        emit_load_imm(self, map_register(0), 1);
-        emit_store(self, OperandSize::S64, map_register(0), RDI, 0);
+        emit_load_imm(self, REGISTER_MAP[0], 1);
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 0);
         // Store which error occured
         let err = Result::<u64, EbpfError<E>>::Err(EbpfError::DivideByZero(0));
         let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
-        emit_load_imm(self, map_register(0), err_kind as i64);
-        emit_store(self, OperandSize::S64, map_register(0), RDI, 8);
+        emit_load_imm(self, REGISTER_MAP[0], err_kind as i64);
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8);
         // muldivmod stored pc in RCX
         emit_store(self, OperandSize::S64, RCX, RDI, 16);
         emit_jmp(self, TARGET_PC_EPILOGUE);

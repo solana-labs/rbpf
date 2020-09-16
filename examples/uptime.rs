@@ -61,7 +61,7 @@ fn main() {
     {
         vm.jit_compile().unwrap();
 
-        time = unsafe { vm.execute_program_jit(&mut []).unwrap() };
+        time = unsafe { vm.execute_program_jit().unwrap() };
     }
 
     #[cfg(windows)]
