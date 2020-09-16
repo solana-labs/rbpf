@@ -160,11 +160,11 @@ fn bpf_syscall_u64(
     arg3: u64,
     arg4: u64,
     arg5: u64,
-    _memory_mapping: &MemoryMapping,
+    memory_mapping: &MemoryMapping,
 ) -> ExecResult {
     println!(
-        "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}",
-        arg1, arg2, arg3, arg4, arg5
+        "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
+        arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
     );
     Ok(0)
 }
@@ -180,11 +180,11 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        _memory_mapping: &MemoryMapping,
+        memory_mapping: &MemoryMapping,
     ) -> ExecResult {
         println!(
-            "SyscallWithContext: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}",
-            arg1, arg2, arg3, arg4, arg5
+            "SyscallWithContext: {:?}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
+            self as *const _, arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
         );
         assert_eq!(*self.context, 42);
         *self.context = 84;
@@ -264,7 +264,12 @@ fn test_vm_jit_err_ldabsb_oob() {
         ],
         [],
         {
-            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29)
+            |res: ExecResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::AccessViolation(pc, access_type, _, _, _)
+                    if access_type == AccessType::Load && pc == 29
+                )
+            }
         }
     );
 }
@@ -278,7 +283,12 @@ fn test_vm_jit_err_ldabsb_nomem() {
         [],
         [],
         {
-            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 29)
+            |res: ExecResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::AccessViolation(pc, access_type, _, _, _)
+                    if access_type == AccessType::Load && pc == 29
+                )
+            }
         }
     );
 }
@@ -360,7 +370,12 @@ fn test_vm_jit_err_ldindb_oob() {
         ],
         [],
         {
-            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30)
+            |res: ExecResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::AccessViolation(pc, access_type, _, _, _)
+                    if access_type == AccessType::Load && pc == 30
+                )
+            }
         }
     );
 }
@@ -375,7 +390,12 @@ fn test_vm_jit_err_ldindb_nomem() {
         [],
         [],
         {
-            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::AccessViolation(pc, access_type, _, _, _) if access_type == AccessType::Load && pc == 30)
+            |res: ExecResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::AccessViolation(pc, access_type, _, _, _)
+                    if access_type == AccessType::Load && pc == 30
+                )
+            }
         }
     );
 }

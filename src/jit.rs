@@ -102,8 +102,8 @@ const R15: u8 = 15;
 const ARGUMENT_REGISTERS: [u8; 6] = [
     RDI, RSI, RDX, RCX, R8, R9
 ];
-const CALLER_SAVED_REGISTERS: [u8; 7] = [
-    RAX, RCX, RDX, RSI, RDI, R8, R9 //, R10, R11: They aren't mapped and this also conveniently leaves R9 at the end, which is the first argument to be spilled
+const CALLER_SAVED_REGISTERS: [u8; 9] = [
+    RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11
 ];
 const CALLEE_SAVED_REGISTERS: [u8; 6] = [
     RBP, RBX, R12, R13, R14, R15
@@ -430,54 +430,86 @@ fn emit_store_imm32(jit: &mut JitMemory, size: OperandSize, dst: u8, offset: i32
     };
 }
 
-#[inline]
-fn emit_register_saving_before_call(jit: &mut JitMemory) {
-    for reg in CALLER_SAVED_REGISTERS.iter() {
-        emit_push(jit, *reg);
-    }
+enum Value {
+    Register(u8),
+    RegisterPlusConstant(u8, i64),
+    Constant(i64)
 }
 
 #[inline]
-fn emit_call(jit: &mut JitMemory, target: i64) {
+fn emit_rust_call(jit: &mut JitMemory, function: *const u8, arguments: &[(usize, Value)]) {
+    let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
+
+    // Pass arguments via stack
+    for argument in arguments {
+        if argument.0 < ARGUMENT_REGISTERS.len() {
+            continue;
+        }
+        match argument.1 {
+            Value::Register(reg) => {
+                let src = saved_registers.iter().position(|x| *x == reg).unwrap();
+                saved_registers.remove(src);
+                let dst = saved_registers.len()-(argument.0-ARGUMENT_REGISTERS.len());
+                saved_registers.insert(dst, reg);
+            },
+            _ => panic!()
+        }
+    }
+
+    // Save registers on stack
+    for reg in saved_registers.iter() {
+        emit_push(jit, *reg);
+    }
+
+    // Pass arguments via registers
+    for argument in arguments {
+        if argument.0 >= ARGUMENT_REGISTERS.len() {
+            continue;
+        }
+        let dst = ARGUMENT_REGISTERS[argument.0];
+        match argument.1 {
+            Value::Register(reg) => {
+                if reg != dst {
+                    emit_mov(jit, reg, dst);
+                }
+            },
+            Value::RegisterPlusConstant(reg, offset) => {
+                emit_load_imm(jit, R11, offset);
+                emit_alu64(jit, 0x01, reg, R11);
+                emit_mov(jit, R11, dst);
+            },
+            Value::Constant(value) => {
+                emit_load_imm(jit, dst, value);
+            },
+        }
+    }
+
     // TODO use direct call when possible
-    emit_load_imm(jit, RAX, target);
+    emit_load_imm(jit, RAX, function as i64);
     // callq *%rax
     emit1(jit, 0xff);
     emit1(jit, 0xd0);
 
-    // Restore registers
-    for reg in CALLER_SAVED_REGISTERS.iter().rev() {
+    // Restore registers from stack
+    for reg in saved_registers.iter().rev() {
         emit_pop(jit, *reg);
     }
-}
 
-enum AddressTranslationSrc {
-    RegisterWithOffset(u8, i32),
-    ImmediateOnly(i32)
+    // Test if result indicates that an rerror occured
+    emit_load(jit, OperandSize::S64, RDI, R11, 0);
+    emit_test(jit, R11, R11);
 }
 
 #[inline]
-fn emit_address_translation(jit: &mut JitMemory, host_addr: u8, vm_addr: AddressTranslationSrc, len: u64, access_type: AccessType, pc: usize) {
-    emit_register_saving_before_call(jit);
-
-    match vm_addr {
-        AddressTranslationSrc::RegisterWithOffset(reg, offset) => {
-            emit_load_imm(jit, R11, offset as i64 + ebpf::MM_INPUT_START as i64);
-            emit_alu64(jit, 0x01, reg, R11);
-            emit_mov(jit, R11, ARGUMENT_REGISTERS[3]);
-        },
-        AddressTranslationSrc::ImmediateOnly(vm_addr) => emit_load_imm(jit, ARGUMENT_REGISTERS[3], vm_addr as i64 + ebpf::MM_INPUT_START as i64),
-    }
-    emit_mov(jit, R10, ARGUMENT_REGISTERS[1]);
-    emit_load_imm(jit, ARGUMENT_REGISTERS[2], access_type as i64);
-    emit_load_imm(jit, ARGUMENT_REGISTERS[4], len as i64);
-
-    let func_ptr = MemoryMapping::translate_addr::<UserError> as *const u8;
-    emit_call(jit, func_ptr as i64);
+fn emit_address_translation(jit: &mut JitMemory, host_addr: u8, vm_addr: Value, len: u64, access_type: AccessType, pc: usize) {
+    emit_rust_call(jit, MemoryMapping::translate_addr::<UserError> as *const u8, &[
+        (3, vm_addr), // Specify first as the src register could be overwritten by other arguments
+        (1, Value::Register(R10)), // memory_mapping
+        (2, Value::Constant(access_type as i64)),
+        (4, Value::Constant(len as i64)),
+    ]);
 
     // Throw error if the result indicates one
-    emit_load(jit, OperandSize::S64, RDI, R11, 0);
-    emit_test(jit, R11, R11);
     emit_jcc(jit, 0x84, TARGET_NO_ACCESS_VIOLATION);
 
     // Store pc in AccessViolation
@@ -624,35 +656,35 @@ impl<'a> JitMemory<'a> {
 
                 // BPF_LD class
                 ebpf::LD_ABS_B   => {
-                    emit_address_translation(self, R11, AddressTranslationSrc::ImmediateOnly(insn.imm), 1, AccessType::Load, insn_ptr);
+                    emit_address_translation(self, R11, Value::Constant(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 1, AccessType::Load, insn_ptr);
                     emit_load(self, OperandSize::S8, R11, RAX, 0);
                 },
                 ebpf::LD_ABS_H   => {
-                    emit_address_translation(self, R11, AddressTranslationSrc::ImmediateOnly(insn.imm), 2, AccessType::Load, insn_ptr);
+                    emit_address_translation(self, R11, Value::Constant(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 2, AccessType::Load, insn_ptr);
                     emit_load(self, OperandSize::S16, R11, RAX, 0);
                 },
                 ebpf::LD_ABS_W   => {
-                    emit_address_translation(self, R11, AddressTranslationSrc::ImmediateOnly(insn.imm), 4, AccessType::Load, insn_ptr);
+                    emit_address_translation(self, R11, Value::Constant(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 4, AccessType::Load, insn_ptr);
                     emit_load(self, OperandSize::S32, R11, RAX, 0);
                 },
                 ebpf::LD_ABS_DW  => {
-                    emit_address_translation(self, R11, AddressTranslationSrc::ImmediateOnly(insn.imm), 8, AccessType::Load, insn_ptr);
+                    emit_address_translation(self, R11, Value::Constant(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 8, AccessType::Load, insn_ptr);
                     emit_load(self, OperandSize::S64, R11, RAX, 0);
                 },
                 ebpf::LD_IND_B   => {
-                    emit_address_translation(self, R11, AddressTranslationSrc::RegisterWithOffset(src, insn.imm), 1, AccessType::Load, insn_ptr);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 1, AccessType::Load, insn_ptr);
                     emit_load(self, OperandSize::S8, R11, RAX, 0);
                 },
                 ebpf::LD_IND_H   => {
-                    emit_address_translation(self, R11, AddressTranslationSrc::RegisterWithOffset(src, insn.imm), 2, AccessType::Load, insn_ptr);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 2, AccessType::Load, insn_ptr);
                     emit_load(self, OperandSize::S16, R11, RAX, 0);
                 },
                 ebpf::LD_IND_W   => {
-                    emit_address_translation(self, R11, AddressTranslationSrc::RegisterWithOffset(src, insn.imm), 4, AccessType::Load, insn_ptr);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 4, AccessType::Load, insn_ptr);
                     emit_load(self, OperandSize::S32, R11, RAX, 0);
                 },
                 ebpf::LD_IND_DW  => {
-                    emit_address_translation(self, R11, AddressTranslationSrc::RegisterWithOffset(src, insn.imm), 8, AccessType::Load, insn_ptr);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 8, AccessType::Load, insn_ptr);
                     emit_load(self, OperandSize::S64, R11, RAX, 0);
                 },
 
@@ -874,36 +906,41 @@ impl<'a> JitMemory<'a> {
                     emit_jcc(self, 0x8e, target_pc);
                 },
                 ebpf::CALL_IMM   => {
-                    // Save registers for call before displacement
-                    emit_register_saving_before_call(self);
-
                     // For JIT, syscalls MUST be registered at compile time. They can be
                     // updated later, but not created after compiling (we need the address of the
                     // syscall function in the JIT-compiled program).
-                    let func_ptr = match syscalls.get(&(insn.imm as u32)) {
-                        Some(Syscall::Function(func)) => *func as *const u8,
+                    match syscalls.get(&(insn.imm as u32)) {
+                        Some(Syscall::Function(func)) => {
+                            emit_rust_call(self, *func as *const u8, &[
+                                (1, Value::Register(ARGUMENT_REGISTERS[1])),
+                                (2, Value::Register(ARGUMENT_REGISTERS[2])),
+                                (3, Value::Register(ARGUMENT_REGISTERS[3])),
+                                (4, Value::Register(ARGUMENT_REGISTERS[4])),
+                                (5, Value::Register(ARGUMENT_REGISTERS[5])),
+                                (6, Value::Register(R10)), // memory_mapping
+                            ]);
+                        },
                         Some(Syscall::Object(boxed)) => {
                             let fat_ptr_ptr = unsafe { std::mem::transmute::<_, *const *const SyscallTraitObject>(&boxed) };
                             let fat_ptr = unsafe { std::mem::transmute::<_, *const SyscallTraitObject>(*fat_ptr_ptr) };
-                            // Displace arguments to make room for RSI
-                            for i in (2..6).rev() {
-                                emit_mov(self, ARGUMENT_REGISTERS[i-1], ARGUMENT_REGISTERS[i]);
-                            }
-                            // RSI is the "&mut self" in the "call" method of the SyscallObject
-                            emit_load_imm(self, RSI, unsafe { (*fat_ptr).data } as i64);
                             let vtable = unsafe { std::mem::transmute::<_, &SyscallObjectVtable>(&*(*fat_ptr).vtable) };
-                            vtable.call
+                            // Specify register arguments in reverse order for displacement (shift one up)
+                            emit_rust_call(self, vtable.call, &[
+                                (5, Value::Register(ARGUMENT_REGISTERS[4])),
+                                (4, Value::Register(ARGUMENT_REGISTERS[3])),
+                                (3, Value::Register(ARGUMENT_REGISTERS[2])),
+                                (2, Value::Register(ARGUMENT_REGISTERS[1])),
+                                (1, Value::Constant(unsafe { (*fat_ptr).data } as i64)), // "&mut self" in the "call" method of the SyscallObject
+                                (6, Value::Register(ARGUMENT_REGISTERS[5])),
+                                (7, Value::Register(R10)), // memory_mapping
+                            ]);
                         },
                         None => {
                             return Err(JITError::UnknownSyscall(insn.imm as u32, insn_ptr));
                         }
-                    };
-
-                    // emit_mov(self, R9, R10); // TODO: Pass mem / regions
-                    emit_call(self, func_ptr as i64);
+                    }
 
                     // Throw error if the result indicates one
-                    emit_load(self, OperandSize::S64, RDI, map_register(0), 0);
                     emit_jcc(self, 0x85, TARGET_PC_EPILOGUE);
 
                     // Store Ok value in result register
