@@ -69,7 +69,7 @@ const TARGET_OFFSET: isize = ebpf::PROG_MAX_INSNS as isize;
 const TARGET_PC_EXIT: isize = TARGET_OFFSET + 1;
 const TARGET_PC_EPILOGUE: isize = TARGET_OFFSET + 2;
 const TARGET_PC_DIV_BY_ZERO: isize = TARGET_OFFSET + 3;
-const TARGET_NO_ACCESS_VIOLATION: isize = TARGET_OFFSET + 4;
+const TARGET_PC_EXCEPTION_AT: isize = TARGET_OFFSET + 4;
 
 #[derive(Copy, Clone)]
 enum OperandSize {
@@ -515,15 +515,10 @@ fn emit_address_translation(jit: &mut JitMemory, host_addr: u8, vm_addr: Value, 
     ]);
 
     // Throw error if the result indicates one
-    emit_jcc(jit, 0x84, TARGET_NO_ACCESS_VIOLATION);
-
-    // Store pc in AccessViolation
     emit_load_imm(jit, R11, pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
-    emit_store(jit, OperandSize::S64, R11, RDI, 16);
-    emit_jmp(jit, TARGET_PC_EPILOGUE);
+    emit_jcc(jit, 0x85, TARGET_PC_EXCEPTION_AT);
 
     // Store Ok value in result register
-    set_anchor(jit, TARGET_NO_ACCESS_VIOLATION);
     emit_load(jit, OperandSize::S64, RDI, host_addr, 8);
 }
 
@@ -534,7 +529,7 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
     let is64 = (opc & ebpf::BPF_CLS_MASK) == ebpf::BPF_ALU64;
 
     if div || modrm {
-        emit_load_imm(jit, RCX, pc as i64);
+        emit_load_imm(jit, R11, pc as i64);
 
         // test src,src
         if is64 {
@@ -708,34 +703,58 @@ impl<'a> JitMemory<'a> {
                 },
 
                 // BPF_LDX class
-                ebpf::LD_B_REG   =>
-                    emit_load(self, OperandSize::S8,  src, dst, insn.off as i32),
-                ebpf::LD_H_REG   =>
-                    emit_load(self, OperandSize::S16, src, dst, insn.off as i32),
-                ebpf::LD_W_REG   =>
-                    emit_load(self, OperandSize::S32, src, dst, insn.off as i32),
-                ebpf::LD_DW_REG  =>
-                    emit_load(self, OperandSize::S64, src, dst, insn.off as i32),
+                ebpf::LD_B_REG   => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.off as i64), 1, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S8, R11, dst, 0);
+                },
+                ebpf::LD_H_REG   => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.off as i64), 2, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S16, R11, dst, 0);
+                },
+                ebpf::LD_W_REG   => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.off as i64), 4, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S32, R11, dst, 0);
+                },
+                ebpf::LD_DW_REG  => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.off as i64), 8, AccessType::Load, insn_ptr);
+                    emit_load(self, OperandSize::S64, R11, dst, 0);
+                },
 
                 // BPF_ST class
-                ebpf::ST_B_IMM   =>
-                    emit_store_imm32(self, OperandSize::S8,  dst, insn.off as i32, insn.imm),
-                ebpf::ST_H_IMM   =>
-                    emit_store_imm32(self, OperandSize::S16, dst, insn.off as i32, insn.imm),
-                ebpf::ST_W_IMM   =>
-                    emit_store_imm32(self, OperandSize::S32, dst, insn.off as i32, insn.imm),
-                ebpf::ST_DW_IMM  =>
-                    emit_store_imm32(self, OperandSize::S64, dst, insn.off as i32, insn.imm),
+                ebpf::ST_B_IMM   => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 1, AccessType::Store, insn_ptr);
+                    emit_store_imm32(self, OperandSize::S8, R11, 0, insn.imm);
+                },
+                ebpf::ST_H_IMM   => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 2, AccessType::Store, insn_ptr);
+                    emit_store_imm32(self, OperandSize::S16, R11, 0, insn.imm);
+                },
+                ebpf::ST_W_IMM   => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 4, AccessType::Store, insn_ptr);
+                    emit_store_imm32(self, OperandSize::S32, R11, 0, insn.imm);
+                },
+                ebpf::ST_DW_IMM  => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 8, AccessType::Store, insn_ptr);
+                    emit_store_imm32(self, OperandSize::S64, R11, 0, insn.imm);
+                },
 
                 // BPF_STX class
-                ebpf::ST_B_REG   =>
-                    emit_store(self, OperandSize::S8,  src, dst, insn.off as i32),
-                ebpf::ST_H_REG   =>
-                    emit_store(self, OperandSize::S16, src, dst, insn.off as i32),
-                ebpf::ST_W_REG   =>
-                    emit_store(self, OperandSize::S32, src, dst, insn.off as i32),
-                ebpf::ST_DW_REG  =>
-                    emit_store(self, OperandSize::S64, src, dst, insn.off as i32),
+                ebpf::ST_B_REG  => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 1, AccessType::Store, insn_ptr);
+                    emit_store(self, OperandSize::S8, src, R11, 0);
+                },
+                ebpf::ST_H_REG  => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 2, AccessType::Store, insn_ptr);
+                    emit_store(self, OperandSize::S16, src, R11, 0);
+                },
+                ebpf::ST_W_REG  => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 4, AccessType::Store, insn_ptr);
+                    emit_store(self, OperandSize::S32, src, R11, 0);
+                },
+                ebpf::ST_DW_REG  => {
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 8, AccessType::Store, insn_ptr);
+                    emit_store(self, OperandSize::S64, src, R11, 0);
+                },
                 ebpf::ST_W_XADD  => unimplemented!(),
                 ebpf::ST_DW_XADD => unimplemented!(),
 
@@ -995,19 +1014,24 @@ impl<'a> JitMemory<'a> {
 
         emit1(self, 0xc3); // ret
 
-        // Division by zero handler
+        // Handler for division by zero exceptions
         set_anchor(self, TARGET_PC_DIV_BY_ZERO);
-        // Store that an error occured
-        emit_load_imm(self, REGISTER_MAP[0], 1);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 0);
         // Store which error occured
         let err = Result::<u64, EbpfError<E>>::Err(EbpfError::DivideByZero(0));
         let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
         emit_load_imm(self, REGISTER_MAP[0], err_kind as i64);
         emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8);
-        // muldivmod stored pc in RCX
-        emit_store(self, OperandSize::S64, RCX, RDI, 16);
+        // Fall-through to TARGET_PC_EXCEPTION_AT
+
+        // Handler for exceptions which report their PC
+        set_anchor(self, TARGET_PC_EXCEPTION_AT);
+        // Store that an error occured
+        emit_load_imm(self, REGISTER_MAP[0], 1);
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 0);
+        // muldivmod stored pc in R11
+        emit_store(self, OperandSize::S64, R11, RDI, 16);
         emit_jmp(self, TARGET_PC_EPILOGUE);
+
         Ok(())
     }
 
