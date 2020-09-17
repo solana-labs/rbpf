@@ -190,7 +190,7 @@ pub fn gather_bytes<E: UserDefinedError> (
 /// assert_eq!(val, vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
 /// ```
 pub fn memfrob<E: UserDefinedError> (
-    addr: u64,
+    vm_addr: u64,
     len: u64,
     _arg3: u64,
     _arg4: u64,
@@ -199,7 +199,7 @@ pub fn memfrob<E: UserDefinedError> (
 ) -> Result<u64, EbpfError<E>>
 {
 
-        let host_addr = memory_mapping.map(AccessType::Store, addr, len as usize)?;
+        let host_addr = memory_mapping.map(AccessType::Store, vm_addr, len as usize)?;
         for i in 0..len {
             unsafe {
                 let mut p = (host_addr + i) as *mut u8;

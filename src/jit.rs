@@ -644,7 +644,7 @@ impl<'a> JitMemory<'a> {
 
         // Initialize registers
         for (i, reg) in REGISTER_MAP.iter().enumerate() {
-            if i != 1 {
+            if i != 1 && i != 10 {
                 emit_load_imm(self, *reg, 0);
             }
         }
