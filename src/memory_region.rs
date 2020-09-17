@@ -4,7 +4,7 @@ use crate::error::{EbpfError, UserDefinedError};
 use std::fmt;
 
 /// Memory region for bounds checking and address translation
-#[derive(Clone, PartialEq, Eq, Ord, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct MemoryRegion {
     /// start host address
     pub host_addr: u64,
@@ -53,7 +53,12 @@ impl fmt::Debug for MemoryRegion {
 }
 impl std::cmp::PartialOrd for MemoryRegion {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.vm_addr.cmp(&other.vm_addr))
+        Some(self.cmp(&other))
+    }
+}
+impl std::cmp::Ord for MemoryRegion {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.vm_addr.cmp(&other.vm_addr)
     }
 }
 
