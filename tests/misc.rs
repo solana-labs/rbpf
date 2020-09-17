@@ -114,14 +114,20 @@ macro_rules! test_vm_and_jit {
         }
         let executable =
             EbpfVm::<UserError>::create_executable_from_text_bytes(&program, None).unwrap();
-        let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &$mem, &[]).unwrap();
-        for syscall in syscalls {
-            vm.register_syscall(syscall.0, syscall.1).unwrap();
-        }
         let check_closure = $check;
-        assert!(check_closure(vm.execute_program()));
+        {
+            let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &$mem, &[]).unwrap();
+            for syscall in syscalls {
+                vm.register_syscall(syscall.0, syscall.1).unwrap();
+            }
+            assert!(check_closure(vm.execute_program()));
+        }
         #[cfg(not(windows))]
         {
+            let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &$mem, &[]).unwrap();
+            for syscall in syscalls {
+                vm.register_syscall(syscall.0, syscall.1).unwrap();
+            }
             vm.jit_compile().unwrap();
             assert!(check_closure(unsafe { vm.execute_program_jit() }));
         }
