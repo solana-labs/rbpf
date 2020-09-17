@@ -136,7 +136,7 @@ fn bpf_syscall_string(
     _arg5: u64,
     memory_mapping: &MemoryMapping,
 ) -> ExecResult {
-    let host_addr = memory_mapping.translate_addr(AccessType::Load, vm_addr, len)?;
+    let host_addr = memory_mapping.map(AccessType::Load, vm_addr, len)?;
     let c_buf: *const c_char = host_addr as *const c_char;
     unsafe {
         for i in 0..len {

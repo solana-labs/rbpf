@@ -4,39 +4,39 @@ use crate::error::{EbpfError, UserDefinedError};
 use std::fmt;
 
 /// Memory region for bounds checking and address translation
-#[derive(Clone, Default)]
+#[derive(Clone, PartialEq, Eq, Ord, Default)]
 pub struct MemoryRegion {
     /// start host address
-    pub addr_host: u64,
+    pub host_addr: u64,
     /// start virtual address
-    pub addr_vm: u64,
+    pub vm_addr: u64,
     /// Length in bytes
     pub len: u64,
     /// Is also writable (otherwise it is readonly)
-    pub writable: bool,
+    pub is_writable: bool,
 }
 impl MemoryRegion {
     /// Creates a new MemoryRegion structure from a slice
-    pub fn new_from_slice(v: &[u8], addr_vm: u64, writable: bool) -> Self {
+    pub fn new_from_slice(v: &[u8], vm_addr: u64, is_writable: bool) -> Self {
         MemoryRegion {
-            addr_host: v.as_ptr() as u64,
-            addr_vm,
+            host_addr: v.as_ptr() as u64,
+            vm_addr,
             len: v.len() as u64,
-            writable,
+            is_writable,
         }
     }
 
     /// Convert a virtual machine address into a host address
-    /// Does not perform a lower bounds check, as that is already done by the binary search in translate_addr
+    /// Does not perform a lower bounds check, as that is already done by the binary search in MemoryMapping::map()
     pub fn vm_to_host<E: UserDefinedError>(
         &self,
         vm_addr: u64,
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
-        let begin_offset = vm_addr - self.addr_vm;
+        let begin_offset = vm_addr - self.vm_addr;
         if let Some(end_offset) = begin_offset.checked_add(len as u64) {
             if end_offset <= self.len {
-                return Ok(self.addr_host + begin_offset);
+                return Ok(self.host_addr + begin_offset);
             }
         }
         Err(EbpfError::InvalidVirtualAddress(vm_addr))
@@ -46,9 +46,14 @@ impl fmt::Debug for MemoryRegion {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "addr_host: {:#x?}, addr_vm: {:#x?}, len: {}",
-            self.addr_host, self.addr_vm, self.len
+            "host_addr: {:#x?}, vm_addr: {:#x?}, len: {}",
+            self.host_addr, self.vm_addr, self.len
         )
+    }
+}
+impl std::cmp::PartialOrd for MemoryRegion {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.vm_addr.cmp(&other.vm_addr))
     }
 }
 
@@ -68,37 +73,14 @@ pub struct MemoryMapping {
     regions: Vec<MemoryRegion>,
 }
 impl MemoryMapping {
-    /// Creates a new MemoryMapping structure
-    pub fn new() -> Self {
-        Self {
-            regions: Vec::new(),
-        }
-    }
-
     /// Creates a new MemoryMapping structure from the given regions
-    pub fn new_from_regions(regions: &[MemoryRegion]) -> Self {
-        Self {
-            regions: regions.to_vec(),
-        }
-    }
-
-    /// Adds a region
-    pub fn add_region(&mut self, region: MemoryRegion) {
-        self.regions.push(region);
-    }
-
-    /// Adds multiple regions
-    pub fn add_regions(&mut self, regions: Vec<MemoryRegion>) {
-        self.regions.extend(regions);
-    }
-
-    /// Call after the last change. Sorts regions by addr_vm for binary search
-    pub fn finalize(&mut self) {
-        self.regions.sort_by(|a, b| a.addr_vm.cmp(&b.addr_vm));
+    pub fn new_from_regions(mut regions: Vec<MemoryRegion>) -> Self {
+        regions.sort();
+        Self { regions }
     }
 
     /// Given a list of regions translate from virtual machine to host address
-    pub fn translate_addr<E: UserDefinedError>(
+    pub fn map<E: UserDefinedError>(
         &self,
         access_type: AccessType,
         vm_addr: u64,
@@ -106,7 +88,7 @@ impl MemoryMapping {
     ) -> Result<u64, EbpfError<E>> {
         let index = match self
             .regions
-            .binary_search_by(|probe| probe.addr_vm.cmp(&vm_addr))
+            .binary_search_by(|probe| probe.vm_addr.cmp(&vm_addr))
         {
             Ok(index) => index,
             Err(index) => {
@@ -117,7 +99,7 @@ impl MemoryMapping {
             }
         };
         let region = &self.regions[index];
-        if access_type == AccessType::Load || region.writable {
+        if access_type == AccessType::Load || region.is_writable {
             if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
                 return Ok(host_addr);
             }
@@ -125,7 +107,7 @@ impl MemoryMapping {
         Err(self.generate_access_violation(access_type, vm_addr, len))
     }
 
-    /// Helper for translate_addr to generate errors
+    /// Helper for map to generate errors
     fn generate_access_violation<E: UserDefinedError>(
         &self,
         access_type: AccessType,
@@ -138,7 +120,7 @@ impl MemoryMapping {
             for region in self.regions.iter() {
                 regions_string = format!(
                     "  {} \n{:#x} {:#x} {:#x}",
-                    regions_string, region.addr_host, region.addr_vm, region.len,
+                    regions_string, region.host_addr, region.vm_addr, region.len,
                 );
             }
         }

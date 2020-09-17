@@ -54,9 +54,9 @@ impl CallFrames {
             let start = i * size;
             let end = start + size;
             // Seperate each stack frame's virtual address so that stack over/under-run is caught explicitly
-            let addr_vm = MM_STACK_START + (i * 2 * size) as u64;
+            let vm_addr = MM_STACK_START + (i * 2 * size) as u64;
             frames.frames[i].stack =
-                MemoryRegion::new_from_slice(&frames.stack[start..end], addr_vm, true);
+                MemoryRegion::new_from_slice(&frames.stack[start..end], vm_addr, true);
         }
         frames
     }
@@ -72,7 +72,7 @@ impl CallFrames {
 
     /// Get the address of a frame's top of stack
     pub fn get_stack_top(&self) -> u64 {
-        self.frames[self.frame].stack.addr_vm + self.frames[self.frame].stack.len
+        self.frames[self.frame].stack.vm_addr + self.frames[self.frame].stack.len
     }
 
     /// Get current call frame index, 0 is the root frame
@@ -139,11 +139,11 @@ mod tests {
 
             let top = frames.push::<UserError>(&registers[0..4], i).unwrap();
             let new_ptrs = frames.get_stacks();
-            assert_eq!(top, new_ptrs[i + 1].addr_vm + new_ptrs[i + 1].len);
-            assert_ne!(top, ptrs[i].addr_vm + ptrs[i].len - 1);
+            assert_eq!(top, new_ptrs[i + 1].vm_addr + new_ptrs[i + 1].len);
+            assert_ne!(top, ptrs[i].vm_addr + ptrs[i].len - 1);
             assert!(
-                !(ptrs[i].addr_vm <= new_ptrs[i + 1].addr_vm
-                    && new_ptrs[i + 1].addr_vm < ptrs[i].addr_vm + ptrs[i].len)
+                !(ptrs[i].vm_addr <= new_ptrs[i + 1].vm_addr
+                    && new_ptrs[i + 1].vm_addr < ptrs[i].vm_addr + ptrs[i].len)
             );
         }
         let i = DEPTH - 1;
@@ -156,7 +156,7 @@ mod tests {
         for i in (0..DEPTH - 1).rev() {
             let (saved_reg, stack_ptr, return_ptr) = frames.pop::<UserError>().unwrap();
             assert_eq!(saved_reg, [i as u64, i as u64, i as u64, i as u64]);
-            assert_eq!(ptrs[i].addr_vm + ptrs[i].len, stack_ptr);
+            assert_eq!(ptrs[i].vm_addr + ptrs[i].len, stack_ptr);
             assert_eq!(i, return_ptr);
         }
 

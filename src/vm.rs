@@ -25,7 +25,7 @@ use std::{collections::HashMap, u32};
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
 macro_rules! translate_memory_access {
     ( $self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty ) => {
-        match $self.memory_mapping.translate_addr::<UserError>(
+        match $self.memory_mapping.map::<UserError>(
             $access_type,
             $vm_addr,
             std::mem::size_of::<$T>() as u64,
@@ -162,27 +162,30 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         mem: &[u8],
         granted_regions: &[MemoryRegion],
     ) -> Result<EbpfVm<'a, E>, EbpfError<E>> {
-        let (prog_addr, prog) = executable.get_text_bytes()?;
         let frames = CallFrames::default();
-        let mut memory_mapping = MemoryMapping::new();
-        memory_mapping.add_regions(granted_regions.to_vec());
-        for ptr in frames.get_stacks() {
-            memory_mapping.add_region(ptr.clone());
-        }
-        memory_mapping.add_region(MemoryRegion::new_from_slice(
+        let stack_regions = frames.get_stacks();
+        let const_data_regions: Vec<MemoryRegion> =
+            if let Ok(sections) = executable.get_ro_sections() {
+                sections
+                    .iter()
+                    .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr, false))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+        let mut regions: Vec<MemoryRegion> = Vec::with_capacity(
+            granted_regions.len() + stack_regions.len() + const_data_regions.len() + 2,
+        );
+        regions.extend(granted_regions.iter().cloned());
+        regions.extend(stack_regions.iter().cloned());
+        regions.extend(const_data_regions);
+        regions.push(MemoryRegion::new_from_slice(
             &mem,
             ebpf::MM_INPUT_START,
             true,
         ));
-        if let Ok(sections) = executable.get_ro_sections() {
-            let regions: Vec<_> = sections
-                .iter()
-                .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr, false))
-                .collect();
-            memory_mapping.add_regions(regions);
-        }
-        memory_mapping.add_region(MemoryRegion::new_from_slice(prog, prog_addr, false));
-        memory_mapping.finalize();
+        let (prog_addr, prog) = executable.get_text_bytes()?;
+        regions.push(MemoryRegion::new_from_slice(prog, prog_addr, false));
         Ok(EbpfVm {
             executable,
             compiled_prog: None,
@@ -190,7 +193,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
             prog,
             prog_addr,
             frames,
-            memory_mapping,
+            memory_mapping: MemoryMapping::new_from_regions(regions),
             last_insn_count: 0,
             total_insn_count: 0,
         })
@@ -354,7 +357,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         // R1 points to beginning of input memory, R10 to the stack of the first frame
         let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.frames.get_stack_top()];
 
-        if self.memory_mapping.translate_addr::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1).is_ok() {
+        if self.memory_mapping.map::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1).is_ok() {
             reg[1] = ebpf::MM_INPUT_START;
         }
 
@@ -394,43 +397,43 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 // bother re-fetching it, just use ebpf::MM_INPUT_START already.
                 ebpf::LD_ABS_B   => {
                     let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
-                    reg[0] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
+                    reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_ABS_H   =>  {
                     let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
-                    reg[0] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
+                    reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_ABS_W   => {
                     let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
-                    reg[0] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
+                    reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_ABS_DW  => {
                     let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
-                    reg[0] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
+                    reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_B   => {
                     let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
-                    reg[0] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
+                    reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_H   => {
                     let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
-                    reg[0] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
+                    reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_W   => {
                     let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
-                    reg[0] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
+                    reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_DW  => {
                     let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
-                    reg[0] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
+                    reg[0] = unsafe { *host_ptr as u64 };
                 },
 
                 ebpf::LD_DW_IMM  => {
@@ -442,67 +445,67 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 // BPF_LDX class
                 ebpf::LD_B_REG   => {
                     let vm_addr = (reg[src] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
-                    reg[dst] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
+                    reg[dst] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_H_REG   => {
                     let vm_addr = (reg[src] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
-                    reg[dst] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
+                    reg[dst] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_W_REG   => {
                     let vm_addr = (reg[src] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
-                    reg[dst] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
+                    reg[dst] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_DW_REG  => {
                     let vm_addr = (reg[src] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
-                    reg[dst] = unsafe { *host_addr as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
+                    reg[dst] = unsafe { *host_ptr as u64 };
                 },
 
                 // BPF_ST class
                 ebpf::ST_B_IMM   => {
                     let vm_addr = (reg[dst] as i64).saturating_add( insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u8);
-                    unsafe { *host_addr = insn.imm as u8 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u8);
+                    unsafe { *host_ptr = insn.imm as u8 };
                 },
                 ebpf::ST_H_IMM   => {
                     let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u16);
-                    unsafe { *host_addr = insn.imm as u16 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u16);
+                    unsafe { *host_ptr = insn.imm as u16 };
                 },
                 ebpf::ST_W_IMM   => {
                     let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u32);
-                    unsafe { *host_addr = insn.imm as u32 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u32);
+                    unsafe { *host_ptr = insn.imm as u32 };
                 },
                 ebpf::ST_DW_IMM  => {
                     let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u64);
-                    unsafe { *host_addr = insn.imm as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u64);
+                    unsafe { *host_ptr = insn.imm as u64 };
                 },
 
                 // BPF_STX class
                 ebpf::ST_B_REG   => {
                     let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u8);
-                    unsafe { *host_addr = reg[src] as u8 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u8);
+                    unsafe { *host_ptr = reg[src] as u8 };
                 },
                 ebpf::ST_H_REG   => {
                     let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u16);
-                    unsafe { *host_addr = reg[src] as u16 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u16);
+                    unsafe { *host_ptr = reg[src] as u16 };
                 },
                 ebpf::ST_W_REG   => {
                     let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u32);
-                    unsafe { *host_addr = reg[src] as u32 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u32);
+                    unsafe { *host_ptr = reg[src] as u32 };
                 },
                 ebpf::ST_DW_REG  => {
                     let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
-                    let host_addr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u64);
-                    unsafe { *host_addr = reg[src] as u64 };
+                    let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u64);
+                    unsafe { *host_ptr = reg[src] as u64 };
                 },
 
                 // BPF_ALU class
@@ -764,7 +767,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     pub unsafe fn execute_program_jit(&self) -> Result<u64, EbpfError<E>> {
         let reg1 = if self
             .memory_mapping
-            .translate_addr::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1)
+            .map::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1)
             .is_ok()
         {
             ebpf::MM_INPUT_START

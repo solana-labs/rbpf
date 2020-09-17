@@ -436,20 +436,25 @@ enum Value {
     Constant(i64)
 }
 
+struct Argument {
+    index: usize,
+    value: Value,
+}
+
 #[inline]
-fn emit_rust_call(jit: &mut JitMemory, function: *const u8, arguments: &[(usize, Value)]) {
+fn emit_rust_call(jit: &mut JitMemory, function: *const u8, arguments: &[Argument]) {
     let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
 
     // Pass arguments via stack
     for argument in arguments {
-        if argument.0 < ARGUMENT_REGISTERS.len() {
+        if argument.index < ARGUMENT_REGISTERS.len() {
             continue;
         }
-        match argument.1 {
+        match argument.value {
             Value::Register(reg) => {
                 let src = saved_registers.iter().position(|x| *x == reg).unwrap();
                 saved_registers.remove(src);
-                let dst = saved_registers.len()-(argument.0-ARGUMENT_REGISTERS.len());
+                let dst = saved_registers.len()-(argument.index-ARGUMENT_REGISTERS.len());
                 saved_registers.insert(dst, reg);
             },
             _ => panic!()
@@ -463,11 +468,11 @@ fn emit_rust_call(jit: &mut JitMemory, function: *const u8, arguments: &[(usize,
 
     // Pass arguments via registers
     for argument in arguments {
-        if argument.0 >= ARGUMENT_REGISTERS.len() {
+        if argument.index >= ARGUMENT_REGISTERS.len() {
             continue;
         }
-        let dst = ARGUMENT_REGISTERS[argument.0];
-        match argument.1 {
+        let dst = ARGUMENT_REGISTERS[argument.index];
+        match argument.value {
             Value::Register(reg) => {
                 if reg != dst {
                     emit_mov(jit, reg, dst);
@@ -502,11 +507,11 @@ fn emit_rust_call(jit: &mut JitMemory, function: *const u8, arguments: &[(usize,
 
 #[inline]
 fn emit_address_translation(jit: &mut JitMemory, host_addr: u8, vm_addr: Value, len: u64, access_type: AccessType, pc: usize) {
-    emit_rust_call(jit, MemoryMapping::translate_addr::<UserError> as *const u8, &[
-        (3, vm_addr), // Specify first as the src register could be overwritten by other arguments
-        (1, Value::Register(R10)), // memory_mapping
-        (2, Value::Constant(access_type as i64)),
-        (4, Value::Constant(len as i64)),
+    emit_rust_call(jit, MemoryMapping::map::<UserError> as *const u8, &[
+        Argument { index: 3, value: vm_addr }, // Specify first as the src register could be overwritten by other arguments
+        Argument { index: 1, value: Value::Register(R10) }, // memory_mapping
+        Argument { index: 2, value: Value::Constant(access_type as i64) },
+        Argument { index: 4, value: Value::Constant(len as i64) },
     ]);
 
     // Throw error if the result indicates one
@@ -919,27 +924,29 @@ impl<'a> JitMemory<'a> {
                     match syscalls.get(&(insn.imm as u32)) {
                         Some(Syscall::Function(func)) => {
                             emit_rust_call(self, *func as *const u8, &[
-                                (1, Value::Register(ARGUMENT_REGISTERS[1])),
-                                (2, Value::Register(ARGUMENT_REGISTERS[2])),
-                                (3, Value::Register(ARGUMENT_REGISTERS[3])),
-                                (4, Value::Register(ARGUMENT_REGISTERS[4])),
-                                (5, Value::Register(ARGUMENT_REGISTERS[5])),
-                                (6, Value::Register(R10)), // memory_mapping
+                                Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
+                                Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
+                                Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
+                                Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
+                                Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
+                                Argument { index: 6, value: Value::Register(R10) }, // memory_mapping
                             ]);
                         },
                         Some(Syscall::Object(boxed)) => {
                             let fat_ptr_ptr = unsafe { std::mem::transmute::<_, *const *const SyscallTraitObject>(&boxed) };
                             let fat_ptr = unsafe { std::mem::transmute::<_, *const SyscallTraitObject>(*fat_ptr_ptr) };
                             let vtable = unsafe { std::mem::transmute::<_, &SyscallObjectVtable>(&*(*fat_ptr).vtable) };
-                            // Specify register arguments in reverse order for displacement (shift one up)
+                            // We need to displace the arguments by one in upward direction to make room for "&mut self".
+                            // Therefore, we Specify register arguments in reverse order, so that the move instructions do not overwrite each other.
+                            // This only affects the order of the move instructions, not the arguments.
                             emit_rust_call(self, vtable.call, &[
-                                (5, Value::Register(ARGUMENT_REGISTERS[4])),
-                                (4, Value::Register(ARGUMENT_REGISTERS[3])),
-                                (3, Value::Register(ARGUMENT_REGISTERS[2])),
-                                (2, Value::Register(ARGUMENT_REGISTERS[1])),
-                                (1, Value::Constant(unsafe { (*fat_ptr).data } as i64)), // "&mut self" in the "call" method of the SyscallObject
-                                (6, Value::Register(ARGUMENT_REGISTERS[5])),
-                                (7, Value::Register(R10)), // memory_mapping
+                                Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[4]) },
+                                Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[3]) },
+                                Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[2]) },
+                                Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[1]) },
+                                Argument { index: 1, value: Value::Constant(unsafe { (*fat_ptr).data } as i64) }, // "&mut self" in the "call" method of the SyscallObject
+                                Argument { index: 6, value: Value::Register(ARGUMENT_REGISTERS[5]) },
+                                Argument { index: 7, value: Value::Register(R10) }, // memory_mapping
                             ]);
                         },
                         None => {
