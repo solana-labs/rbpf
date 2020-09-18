@@ -372,15 +372,6 @@ fn emit_leaq(jit: &mut JitMemory, src: u8, dst: u8, offset: i32) {
     emit_modrm_and_displacement(jit, dst, src, offset);
 }
 
-// Test (64 bit)
-#[inline]
-fn emit_test(jit: &mut JitMemory, a: u8, b: u8) {
-    emit_basic_rex(jit, 1, a, b);
-    // test a, b
-    emit1(jit, 0x85);
-    emit_modrm_reg2reg(jit, a, b);
-}
-
 // Store register src to [dst + offset]
 #[inline]
 fn emit_store(jit: &mut JitMemory, size: OperandSize, src: u8, dst: u8, offset: i32) {
@@ -500,9 +491,9 @@ fn emit_rust_call(jit: &mut JitMemory, function: *const u8, arguments: &[Argumen
         emit_pop(jit, *reg);
     }
 
-    // Test if result indicates that an rerror occured
+    // Test if result indicates that an error occured
     emit_load(jit, OperandSize::S64, RDI, R11, 0);
-    emit_test(jit, R11, R11);
+    emit_alu64(jit, 0x85, R11, R11);
 }
 
 #[inline]
@@ -529,6 +520,7 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
     let is64 = (opc & ebpf::BPF_CLS_MASK) == ebpf::BPF_ALU64;
 
     if div || modrm {
+        // Save pc
         emit_load_imm(jit, R11, pc as i64);
 
         // test src,src
@@ -538,7 +530,7 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
             emit_alu32(jit, 0x85, src, src);
         }
 
-        // jz div_by_zero
+        // Jump if src is zero
         emit_jcc(jit, 0x84, TARGET_PC_DIV_BY_ZERO);
     }
 
@@ -548,13 +540,17 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
     if dst != RDX {
         emit_push(jit, RDX);
     }
+    emit_mov(jit, RCX, R11);
+
     if imm != 0 {
         emit_load_imm(jit, RCX, imm as i64);
     } else {
         emit_mov(jit, src, RCX);
     }
 
-    emit_mov(jit, dst, RAX);
+    if dst != RAX {
+        emit_mov(jit, dst, RAX);
+    }
 
     if div || modrm {
         // xor %edx,%edx
@@ -568,6 +564,7 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
     // mul %ecx or div %ecx
     emit_alu32(jit, 0xf7, if mul { 4 } else { 6 }, RCX);
 
+    emit_mov(jit, R11, RCX);
     if dst != RDX {
         if modrm {
             emit_mov(jit, RDX, dst);
@@ -773,13 +770,17 @@ impl<'a> JitMemory<'a> {
                 ebpf::AND32_REG  => emit_alu32(self, 0x21, src, dst),
                 ebpf::LSH32_IMM  => emit_alu32_imm8(self, 0xc1, 4, dst, insn.imm as i8),
                 ebpf::LSH32_REG  => {
+                    emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
                     emit_alu32(self, 0xd3, 4, dst);
+                    emit_mov(self, R11, RCX);
                 },
                 ebpf::RSH32_IMM  => emit_alu32_imm8(self, 0xc1, 5, dst, insn.imm as i8),
                 ebpf::RSH32_REG  => {
+                    emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
                     emit_alu32(self, 0xd3, 5, dst);
+                    emit_mov(self, R11, RCX);
                 },
                 ebpf::NEG32      => emit_alu32(self, 0xf7, 3, dst),
                 ebpf::XOR32_IMM  => emit_alu32_imm32(self, 0x81, 6, dst, insn.imm),
@@ -788,8 +789,10 @@ impl<'a> JitMemory<'a> {
                 ebpf::MOV32_REG  => emit_mov(self, src, dst),
                 ebpf::ARSH32_IMM => emit_alu32_imm8(self, 0xc1, 7, dst, insn.imm as i8),
                 ebpf::ARSH32_REG => {
+                    emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
                     emit_alu32(self, 0xd3, 7, dst);
+                    emit_mov(self, R11, RCX);
                 },
                 ebpf::LE         => {}, // No-op
                 ebpf::BE         => {
@@ -827,13 +830,17 @@ impl<'a> JitMemory<'a> {
                 ebpf::AND64_REG  => emit_alu64(self, 0x21, src, dst),
                 ebpf::LSH64_IMM  => emit_alu64_imm8(self, 0xc1, 4, dst, insn.imm as i8),
                 ebpf::LSH64_REG  => {
+                    emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
                     emit_alu64(self, 0xd3, 4, dst);
+                    emit_mov(self, R11, RCX);
                 },
                 ebpf::RSH64_IMM  =>  emit_alu64_imm8(self, 0xc1, 5, dst, insn.imm as i8),
                 ebpf::RSH64_REG  => {
+                    emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
                     emit_alu64(self, 0xd3, 5, dst);
+                    emit_mov(self, R11, RCX);
                 },
                 ebpf::NEG64      => emit_alu64(self, 0xf7, 3, dst),
                 ebpf::XOR64_IMM  => emit_alu64_imm32(self, 0x81, 6, dst, insn.imm),
@@ -842,8 +849,10 @@ impl<'a> JitMemory<'a> {
                 ebpf::MOV64_REG  => emit_mov(self, src, dst),
                 ebpf::ARSH64_IMM => emit_alu64_imm8(self, 0xc1, 7, dst, insn.imm as i8),
                 ebpf::ARSH64_REG => {
+                    emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
                     emit_alu64(self, 0xd3, 7, dst);
+                    emit_mov(self, R11, RCX);
                 },
 
                 // BPF_JMP class
