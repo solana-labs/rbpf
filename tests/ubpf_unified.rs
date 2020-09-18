@@ -37,7 +37,8 @@ macro_rules! test_vm_and_jit {
             EbpfVm::<UserError>::create_executable_from_text_bytes(&program, None).unwrap();
         let check_closure = $check;
         {
-            let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mut $mem, &[]).unwrap();
+            let mem = $mem;
+            let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
             for syscall in syscalls {
                 vm.register_syscall(syscall.0, syscall.1).unwrap();
             }
@@ -45,7 +46,8 @@ macro_rules! test_vm_and_jit {
         }
         #[cfg(not(windows))]
         {
-            let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mut $mem, &[]).unwrap();
+            let mem = $mem;
+            let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
             for syscall in syscalls {
                 vm.register_syscall(syscall.0, syscall.1).unwrap();
             }
