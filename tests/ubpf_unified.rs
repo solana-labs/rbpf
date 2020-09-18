@@ -9,7 +9,10 @@ extern crate libc;
 extern crate solana_rbpf;
 extern crate thiserror;
 
+mod common;
+
 use byteorder::{ByteOrder, LittleEndian};
+use common::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 use libc::c_char;
 use solana_rbpf::{
     assembler::assemble,
@@ -115,7 +118,7 @@ fn test_vm_jit_bounce() {
 }
 
 #[test]
-fn test_vm_jit_add() {
+fn test_vm_jit_add32() {
     test_vm_and_jit!(
         "
         mov32 r0, 0
@@ -130,7 +133,91 @@ fn test_vm_jit_add() {
 }
 
 #[test]
-fn test_vm_jit_alu_bit() {
+fn test_vm_jit_neg32() {
+    test_vm_and_jit!(
+        "
+        mov32 r0, 2
+        neg32 r0
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0xfffffffe } }
+    );
+}
+
+#[test]
+fn test_vm_jit_neg64() {
+    test_vm_and_jit!(
+        "
+        mov32 r0, 2
+        neg r0
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0xfffffffffffffffe } }
+    );
+}
+
+#[test]
+fn test_vm_jit_alu32_arithmetic() {
+    test_vm_and_jit!(
+        "
+        mov32 r0, 0
+        mov32 r1, 1
+        mov32 r2, 2
+        mov32 r3, 3
+        mov32 r4, 4
+        mov32 r5, 5
+        mov32 r6, 6
+        mov32 r7, 7
+        mov32 r8, 8
+        mov32 r9, 9
+        add32 r0, 23
+        add32 r0, r7
+        sub32 r0, 13
+        sub32 r0, r1
+        mul32 r0, 7
+        mul32 r0, r3
+        div32 r0, 2
+        div32 r0, r4
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x2a } }
+    );
+}
+
+#[test]
+fn test_vm_jit_alu64_arithmetic() {
+    test_vm_and_jit!(
+        "
+        mov r0, 0
+        mov r1, 1
+        mov r2, 2
+        mov r3, 3
+        mov r4, 4
+        mov r5, 5
+        mov r6, 6
+        mov r7, 7
+        mov r8, 8
+        mov r9, 9
+        add r0, 23
+        add r0, r7
+        sub r0, 13
+        sub r0, r1
+        mul r0, 7
+        mul r0, r3
+        div r0, 2
+        div r0, r4
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x2a } }
+    );
+}
+
+#[test]
+fn test_vm_jit_alu32_logic() {
     test_vm_and_jit!(
         "
         mov32 r0, 0
@@ -157,6 +244,244 @@ fn test_vm_jit_alu_bit() {
         [],
         [],
         { |res: ExecResult| { res.unwrap() == 0x11 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_alu64_logic() {
+    test_vm_and_jit!(
+        "
+        mov r0, 0
+        mov r1, 1
+        mov r2, 2
+        mov r3, 3
+        mov r4, 4
+        mov r5, 5
+        mov r6, 6
+        mov r7, 7
+        mov r8, 8
+        or r0, r5
+        or r0, 0xa0
+        and r0, 0xa3
+        mov r9, 0x91
+        and r0, r9
+        lsh r0, 32
+        lsh r0, 22
+        lsh r0, r8
+        rsh r0, 32
+        rsh r0, 19
+        rsh r0, r7
+        xor r0, 0x03
+        xor r0, r2
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x11 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_arsh32_high_shift() {
+    test_vm_and_jit!(
+        "
+        mov r0, 8
+        lddw r1, 0x100000001
+        arsh32 r0, r1
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x4 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_arsh32_imm() {
+    test_vm_and_jit!(
+        "
+        mov32 r0, 0xf8
+        lsh32 r0, 28
+        arsh32 r0, 16
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0xffff8000 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_arsh32_reg() {
+    test_vm_and_jit!(
+        "
+        mov32 r0, 0xf8
+        mov32 r1, 16
+        lsh32 r0, 28
+        arsh32 r0, r1
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0xffff8000 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_arsh64() {
+    test_vm_and_jit!(
+        "
+        mov32 r0, 1
+        lsh r0, 63
+        arsh r0, 55
+        mov32 r1, 5
+        arsh r0, r1
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0xfffffffffffffff8 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_lsh64_reg() {
+    test_vm_and_jit!(
+        "
+        mov r0, 0x1
+        mov r7, 4
+        lsh r0, r7
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x10 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_rhs32_imm() {
+    test_vm_and_jit!(
+        "
+        xor r0, r0
+        sub r0, 1
+        rsh32 r0, 8
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x00ffffff } }
+    );
+}
+
+#[test]
+fn test_vm_jit_rsh64_reg() {
+    test_vm_and_jit!(
+        "
+        mov r0, 0x10
+        mov r7, 4
+        rsh r0, r7
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x1 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_be16() {
+    test_vm_and_jit!(
+        "
+        ldxh r0, [r1]
+        be16 r0
+        exit",
+        [0x11, 0x22],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x1122 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_be16_high() {
+    test_vm_and_jit!(
+        "
+        ldxdw r0, [r1]
+        be16 r0
+        exit",
+        [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x1122 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_be32() {
+    test_vm_and_jit!(
+        "
+        ldxw r0, [r1]
+        be32 r0
+        exit",
+        [0x11, 0x22, 0x33, 0x44],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x11223344 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_be32_high() {
+    test_vm_and_jit!(
+        "
+        ldxdw r0, [r1]
+        be32 r0
+        exit",
+        [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x11223344 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_be64() {
+    test_vm_and_jit!(
+        "
+        ldxdw r0, [r1]
+        be64 r0
+        exit",
+        [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_le16() {
+    test_vm_and_jit!(
+        "
+        ldxh r0, [r1]
+        le16 r0
+        exit",
+        [0x22, 0x11],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x1122 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_le32() {
+    test_vm_and_jit!(
+        "
+        ldxw r0, [r1]
+        le32 r0
+        exit",
+        [0x44, 0x33, 0x22, 0x11],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x11223344 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_le64() {
+    test_vm_and_jit!(
+        "
+        ldxdw r0, [r1]
+        le64 r0
+        exit",
+        [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } }
     );
 }
 
@@ -327,7 +652,7 @@ fn test_vm_jit_err_div_by_zero_reg() {
 }
 
 #[test]
-fn test_vm_jit_mod() {
+fn test_vm_jit_mod32() {
     test_vm_and_jit!(
         "
         mov32 r0, 5748
@@ -342,7 +667,7 @@ fn test_vm_jit_mod() {
 }
 
 #[test]
-fn test_vm_jit_mod32() {
+fn test_vm_jit_mod32_imm() {
     test_vm_and_jit!(
         "
         lddw r0, 0x100000003
@@ -701,15 +1026,203 @@ fn test_vm_jit_err_ldxdw_oob() {
 }
 
 #[test]
+fn test_vm_jit_ldxb_all() {
+    test_vm_and_jit!(
+        "
+        mov r0, r1
+        ldxb r9, [r0+0]
+        lsh r9, 0
+        ldxb r8, [r0+1]
+        lsh r8, 4
+        ldxb r7, [r0+2]
+        lsh r7, 8
+        ldxb r6, [r0+3]
+        lsh r6, 12
+        ldxb r5, [r0+4]
+        lsh r5, 16
+        ldxb r4, [r0+5]
+        lsh r4, 20
+        ldxb r3, [r0+6]
+        lsh r3, 24
+        ldxb r2, [r0+7]
+        lsh r2, 28
+        ldxb r1, [r0+8]
+        lsh r1, 32
+        ldxb r0, [r0+9]
+        lsh r0, 36
+        or r0, r1
+        or r0, r2
+        or r0, r3
+        or r0, r4
+        or r0, r5
+        or r0, r6
+        or r0, r7
+        or r0, r8
+        or r0, r9
+        exit",
+        [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, //
+            0x08, 0x09, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x9876543210 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_ldxh_all() {
+    test_vm_and_jit!(
+        "
+        mov r0, r1
+        ldxh r9, [r0+0]
+        be16 r9
+        lsh r9, 0
+        ldxh r8, [r0+2]
+        be16 r8
+        lsh r8, 4
+        ldxh r7, [r0+4]
+        be16 r7
+        lsh r7, 8
+        ldxh r6, [r0+6]
+        be16 r6
+        lsh r6, 12
+        ldxh r5, [r0+8]
+        be16 r5
+        lsh r5, 16
+        ldxh r4, [r0+10]
+        be16 r4
+        lsh r4, 20
+        ldxh r3, [r0+12]
+        be16 r3
+        lsh r3, 24
+        ldxh r2, [r0+14]
+        be16 r2
+        lsh r2, 28
+        ldxh r1, [r0+16]
+        be16 r1
+        lsh r1, 32
+        ldxh r0, [r0+18]
+        be16 r0
+        lsh r0, 36
+        or r0, r1
+        or r0, r2
+        or r0, r3
+        or r0, r4
+        or r0, r5
+        or r0, r6
+        or r0, r7
+        or r0, r8
+        or r0, r9
+        exit",
+        [
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, //
+            0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, //
+            0x00, 0x08, 0x00, 0x09, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x9876543210 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_ldxh_all2() {
+    test_vm_and_jit!(
+        "
+        mov r0, r1
+        ldxh r9, [r0+0]
+        be16 r9
+        ldxh r8, [r0+2]
+        be16 r8
+        ldxh r7, [r0+4]
+        be16 r7
+        ldxh r6, [r0+6]
+        be16 r6
+        ldxh r5, [r0+8]
+        be16 r5
+        ldxh r4, [r0+10]
+        be16 r4
+        ldxh r3, [r0+12]
+        be16 r3
+        ldxh r2, [r0+14]
+        be16 r2
+        ldxh r1, [r0+16]
+        be16 r1
+        ldxh r0, [r0+18]
+        be16 r0
+        or r0, r1
+        or r0, r2
+        or r0, r3
+        or r0, r4
+        or r0, r5
+        or r0, r6
+        or r0, r7
+        or r0, r8
+        or r0, r9
+        exit",
+        [
+            0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00, 0x08, //
+            0x00, 0x10, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, //
+            0x01, 0x00, 0x02, 0x00, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x3ff } }
+    );
+}
+
+#[test]
+fn test_vm_jit_ldxw_all() {
+    test_vm_and_jit!(
+        "
+        mov r0, r1
+        ldxw r9, [r0+0]
+        be32 r9
+        ldxw r8, [r0+4]
+        be32 r8
+        ldxw r7, [r0+8]
+        be32 r7
+        ldxw r6, [r0+12]
+        be32 r6
+        ldxw r5, [r0+16]
+        be32 r5
+        ldxw r4, [r0+20]
+        be32 r4
+        ldxw r3, [r0+24]
+        be32 r3
+        ldxw r2, [r0+28]
+        be32 r2
+        ldxw r1, [r0+32]
+        be32 r1
+        ldxw r0, [r0+36]
+        be32 r0
+        or r0, r1
+        or r0, r2
+        or r0, r3
+        or r0, r4
+        or r0, r5
+        or r0, r6
+        or r0, r7
+        or r0, r8
+        or r0, r9
+        exit",
+        [
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, //
+            0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x08, //
+            0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, //
+            0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x08, 0x00, //
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x030f0f } }
+    );
+}
+
+#[test]
 fn test_vm_jit_lddw() {
     test_vm_and_jit!(
         "
         lddw r0, 0x1122334455667788
         exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
+        [],
         [],
         { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } }
     );
@@ -850,6 +1363,89 @@ fn test_vm_jit_stxdw() {
         ],
         [],
         { |res: ExecResult| { res.unwrap() == 0x8877665544332211 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_stxb_all() {
+    test_vm_and_jit!(
+        "
+        mov r0, 0xf0
+        mov r2, 0xf2
+        mov r3, 0xf3
+        mov r4, 0xf4
+        mov r5, 0xf5
+        mov r6, 0xf6
+        mov r7, 0xf7
+        mov r8, 0xf8
+        stxb [r1], r0
+        stxb [r1+1], r2
+        stxb [r1+2], r3
+        stxb [r1+3], r4
+        stxb [r1+4], r5
+        stxb [r1+5], r6
+        stxb [r1+6], r7
+        stxb [r1+7], r8
+        ldxdw r0, [r1]
+        be64 r0
+        exit",
+        [
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0xf0f2f3f4f5f6f7f8 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_stxb_all2() {
+    test_vm_and_jit!(
+        "
+        mov r0, r1
+        mov r1, 0xf1
+        mov r9, 0xf9
+        stxb [r0], r1
+        stxb [r0+1], r9
+        ldxh r0, [r0]
+        be16 r0
+        exit",
+        [0xff, 0xff],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0xf1f9 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_stxb_chain() {
+    test_vm_and_jit!(
+        "
+        mov r0, r1
+        ldxb r9, [r0+0]
+        stxb [r0+1], r9
+        ldxb r8, [r0+1]
+        stxb [r0+2], r8
+        ldxb r7, [r0+2]
+        stxb [r0+3], r7
+        ldxb r6, [r0+3]
+        stxb [r0+4], r6
+        ldxb r5, [r0+4]
+        stxb [r0+5], r5
+        ldxb r4, [r0+5]
+        stxb [r0+6], r4
+        ldxb r3, [r0+6]
+        stxb [r0+7], r3
+        ldxb r2, [r0+7]
+        stxb [r0+8], r2
+        ldxb r1, [r0+8]
+        stxb [r0+9], r1
+        ldxb r0, [r0+9]
+        exit",
+        [
+            0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x2a } }
     );
 }
 
@@ -1465,4 +2061,197 @@ fn test_vm_jit_call_memfrob() {
         [(1, syscalls::memfrob, None)],
         { |res: ExecResult| { res.unwrap() == 0x102292e2f2c0708 } }
     );
+}
+
+// Programs
+
+#[test]
+fn test_vm_jit_mul_loop() {
+    test_vm_and_jit!(
+        "
+        mov r0, 0x7
+        add r1, 0xa
+        lsh r1, 0x20
+        rsh r1, 0x20
+        jeq r1, 0x0, +4
+        mov r0, 0x7
+        mul r0, 0x7
+        add r1, -1
+        jne r1, 0x0, -3
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x75db9c97 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_prime() {
+    test_vm_and_jit!(
+        "
+        mov r1, 67
+        mov r0, 0x1
+        mov r2, 0x2
+        jgt r1, 0x2, +4
+        ja +10
+        add r2, 0x1
+        mov r0, 0x1
+        jge r2, r1, +7
+        mov r3, r1
+        div r3, r2
+        mul r3, r2
+        mov r4, r1
+        sub r4, r3
+        mov r0, 0x0
+        jne r4, 0x0, -10
+        exit",
+        [],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x1 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_subnet() {
+    test_vm_and_jit!(
+        "
+        mov r2, 0xe
+        ldxh r3, [r1+12]
+        jne r3, 0x81, +2
+        mov r2, 0x12
+        ldxh r3, [r1+16]
+        and r3, 0xffff
+        jne r3, 0x8, +5
+        add r1, r2
+        mov r0, 0x1
+        ldxw r1, [r1+16]
+        and r1, 0xffffff
+        jeq r1, 0x1a8c0, +1
+        mov r0, 0x0
+        exit",
+        [
+            0x00, 0x00, 0xc0, 0x9f, 0xa0, 0x97, 0x00, 0xa0, //
+            0xcc, 0x3b, 0xbf, 0xfa, 0x08, 0x00, 0x45, 0x10, //
+            0x00, 0x3c, 0x46, 0x3c, 0x40, 0x00, 0x40, 0x06, //
+            0x73, 0x1c, 0xc0, 0xa8, 0x01, 0x02, 0xc0, 0xa8, //
+            0x01, 0x01, 0x06, 0x0e, 0x00, 0x17, 0x99, 0xc5, //
+            0xa0, 0xec, 0x00, 0x00, 0x00, 0x00, 0xa0, 0x02, //
+            0x7d, 0x78, 0xe0, 0xa3, 0x00, 0x00, 0x02, 0x04, //
+            0x05, 0xb4, 0x04, 0x02, 0x08, 0x0a, 0x00, 0x9c, //
+            0x27, 0x24, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, //
+            0x03, 0x00, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x1 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_tcp_port80_match() {
+    test_vm_and_jit!(
+        PROG_TCP_PORT_80,
+        [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
+            0x07, 0x08, 0x09, 0x0a, 0x08, 0x00, 0x45, 0x00, //
+            0x00, 0x56, 0x00, 0x01, 0x00, 0x00, 0x40, 0x06, //
+            0xf9, 0x4d, 0xc0, 0xa8, 0x00, 0x01, 0xc0, 0xa8, //
+            0x00, 0x02, 0x27, 0x10, 0x00, 0x50, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x02, //
+            0x20, 0x00, 0xc5, 0x18, 0x00, 0x00, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x1 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_tcp_port80_nomatch() {
+    test_vm_and_jit!(
+        PROG_TCP_PORT_80,
+        [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
+            0x07, 0x08, 0x09, 0x0a, 0x08, 0x00, 0x45, 0x00, //
+            0x00, 0x56, 0x00, 0x01, 0x00, 0x00, 0x40, 0x06, //
+            0xf9, 0x4d, 0xc0, 0xa8, 0x00, 0x01, 0xc0, 0xa8, //
+            0x00, 0x02, 0x00, 0x16, 0x27, 0x10, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x51, 0x02, //
+            0x20, 0x00, 0xc5, 0x18, 0x00, 0x00, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x0 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_tcp_port80_nomatch_ethertype() {
+    test_vm_and_jit!(
+        PROG_TCP_PORT_80,
+        [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
+            0x07, 0x08, 0x09, 0x0a, 0x08, 0x01, 0x45, 0x00, //
+            0x00, 0x56, 0x00, 0x01, 0x00, 0x00, 0x40, 0x06, //
+            0xf9, 0x4d, 0xc0, 0xa8, 0x00, 0x01, 0xc0, 0xa8, //
+            0x00, 0x02, 0x27, 0x10, 0x00, 0x50, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x02, //
+            0x20, 0x00, 0xc5, 0x18, 0x00, 0x00, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x0 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_tcp_port80_nomatch_proto() {
+    test_vm_and_jit!(
+        PROG_TCP_PORT_80,
+        [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
+            0x07, 0x08, 0x09, 0x0a, 0x08, 0x00, 0x45, 0x00, //
+            0x00, 0x56, 0x00, 0x01, 0x00, 0x00, 0x40, 0x11, //
+            0xf9, 0x4d, 0xc0, 0xa8, 0x00, 0x01, 0xc0, 0xa8, //
+            0x00, 0x02, 0x27, 0x10, 0x00, 0x50, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x02, //
+            0x20, 0x00, 0xc5, 0x18, 0x00, 0x00, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, //
+        ],
+        [],
+        { |res: ExecResult| { res.unwrap() == 0x0 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_tcp_sack_match() {
+    test_vm_and_jit!(TCP_SACK_ASM, TCP_SACK_MATCH, [], {
+        |res: ExecResult| res.unwrap() == 0x1
+    });
+}
+
+#[test]
+fn test_vm_jit_tcp_sack_nomatch() {
+    test_vm_and_jit!(TCP_SACK_ASM, TCP_SACK_NOMATCH, [], {
+        |res: ExecResult| res.unwrap() == 0x0
+    });
 }

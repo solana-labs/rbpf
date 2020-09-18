@@ -9,6 +9,28 @@
 // Assembly code and data for tcp_sack testcases.
 
 #[allow(dead_code)]
+pub const PROG_TCP_PORT_80: &str = "
+    ldxb r2, [r1+0xc]
+    ldxb r3, [r1+0xd]
+    lsh64 r3, 0x8
+    or64 r3, r2
+    mov64 r0, 0x0
+    jne r3, 0x8, +0xc
+    ldxb r2, [r1+0x17]
+    jne r2, 0x6, +0xa
+    ldxb r2, [r1+0xe]
+    add64 r1, 0xe
+    and64 r2, 0xf
+    lsh64 r2, 0x2
+    add64 r1, r2
+    ldxh r2, [r1+0x2]
+    jeq r2, 0x5000, +0x2
+    ldxh r1, [r1+0x0]
+    jne r1, 0x5000, +0x1
+    mov64 r0, 0x1
+    exit";
+
+#[allow(dead_code)]
 pub const TCP_SACK_ASM: &str = "
     ldxb r2, [r1+12]
     ldxb r3, [r1+13]

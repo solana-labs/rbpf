@@ -764,3 +764,22 @@ fn test_fuzz_execute() {
         },
     );
 }
+
+#[test]
+#[should_panic(expected = "UnresolvedSymbol(\"Unknown\", 34, 40)")]
+fn test_err_call_unresolved() {
+    let prog = assemble(
+        "
+        mov r1, 1
+        mov r2, 2
+        mov r3, 3
+        mov r4, 4
+        mov r5, 5
+        call 63
+        exit",
+    )
+    .unwrap();
+    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
+    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
+    vm.execute_program().unwrap();
+}
