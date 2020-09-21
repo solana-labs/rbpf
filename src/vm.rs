@@ -734,7 +734,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// vm.jit_compile();
     /// ```
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        self.compiled_prog = Some(jit::compile(self.prog, &self.syscalls)?);
+        self.compiled_prog = Some(jit::compile(self.prog, self.executable, &self.syscalls)?);
         Ok(())
     }
 

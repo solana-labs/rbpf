@@ -21,9 +21,9 @@ use std::ops::{Index, IndexMut};
 
 use crate::{
     vm::JitProgram,
-    vm::Syscall,
+    vm::{Executable, Syscall},
     call_frames::CALL_FRAME_SIZE,
-    ebpf::{self},
+    ebpf::{self, FIRST_SCRATCH_REG, SCRATCH_REGS, STACK_REG, MM_STACK_START},
     error::{UserDefinedError, EbpfError},
     memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
@@ -433,6 +433,31 @@ struct Argument {
 }
 
 #[inline]
+fn emit_bpf_call(jit: &mut JitMemory, dst: Value) {
+    for reg in FIRST_SCRATCH_REG..FIRST_SCRATCH_REG + SCRATCH_REGS {
+        emit_push(jit, reg as u8);
+    }
+    emit_push(jit, REGISTER_MAP[STACK_REG]);
+
+    emit_alu64_imm32(jit, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1)); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1);
+    emit_alu64_imm32(jit, 0x81, 0, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 2); // stack_ptr += !(CALL_FRAME_SIZE * 2);
+
+    match dst {
+        // Value::Register(reg) => {}, // TODO Translate target
+        Value::Constant(target_pc) => {
+            emit1(jit, 0xe8);
+            emit_jump_offset(jit, target_pc as isize);
+        },
+        _ => panic!()
+    }
+
+    emit_pop(jit, REGISTER_MAP[STACK_REG]);
+    for reg in (FIRST_SCRATCH_REG..FIRST_SCRATCH_REG + SCRATCH_REGS).rev() {
+        emit_pop(jit, reg as u8);
+    }
+}
+
+#[inline]
 fn emit_rust_call(jit: &mut JitMemory, function: *const u8, arguments: &[Argument]) {
     let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
 
@@ -621,8 +646,8 @@ impl<'a> JitMemory<'a> {
     }
 
     fn jit_compile<E: UserDefinedError>(&mut self, prog: &[u8],
-                   syscalls: &HashMap<u32,
-                   Syscall<'a, E>>) -> Result<(), JITError> {
+                   executable: &'a dyn Executable<E>,
+                   syscalls: &HashMap<u32,  Syscall<'a, E>>) -> Result<(), JITError> {
         // Save registers
         for reg in CALLEE_SAVED_REGISTERS.iter() {
             emit_push(self, *reg);
@@ -949,50 +974,64 @@ impl<'a> JitMemory<'a> {
                     // For JIT, syscalls MUST be registered at compile time. They can be
                     // updated later, but not created after compiling (we need the address of the
                     // syscall function in the JIT-compiled program).
-                    match syscalls.get(&(insn.imm as u32)) {
-                        Some(Syscall::Function(func)) => {
-                            emit_rust_call(self, *func as *const u8, &[
-                                Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
-                                Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
-                                Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
-                                Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
-                                Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
-                                Argument { index: 6, value: Value::Register(R10) }, // memory_mapping
-                            ]);
-                        },
-                        Some(Syscall::Object(boxed)) => {
-                            let fat_ptr_ptr = unsafe { std::mem::transmute::<_, *const *const SyscallTraitObject>(&boxed) };
-                            let fat_ptr = unsafe { std::mem::transmute::<_, *const SyscallTraitObject>(*fat_ptr_ptr) };
-                            let vtable = unsafe { std::mem::transmute::<_, &SyscallObjectVtable>(&*(*fat_ptr).vtable) };
-                            // We need to displace the arguments by one in upward direction to make room for "&mut self".
-                            // Therefore, we Specify register arguments in reverse order, so that the move instructions do not overwrite each other.
-                            // This only affects the order of the move instructions, not the arguments.
-                            emit_rust_call(self, vtable.call, &[
-                                Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[4]) },
-                                Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[3]) },
-                                Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[2]) },
-                                Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[1]) },
-                                Argument { index: 1, value: Value::Constant(unsafe { (*fat_ptr).data } as i64) }, // "&mut self" in the "call" method of the SyscallObject
-                                Argument { index: 6, value: Value::Register(ARGUMENT_REGISTERS[5]) },
-                                Argument { index: 7, value: Value::Register(R10) }, // memory_mapping
-                            ]);
-                        },
-                        None => {
-                            return Err(JITError::UnknownSyscall(insn.imm as u32, insn_ptr));
+                    if let Some(syscall) = syscalls.get(&(insn.imm as u32)) {
+                        match syscall {
+                            Syscall::Function(func) => {
+                                emit_rust_call(self, *func as *const u8, &[
+                                    Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
+                                    Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
+                                    Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
+                                    Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
+                                    Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
+                                    Argument { index: 6, value: Value::Register(R10) }, // memory_mapping
+                                ]);
+                            },
+                            Syscall::Object(boxed) => {
+                                let fat_ptr_ptr = unsafe { std::mem::transmute::<_, *const *const SyscallTraitObject>(&boxed) };
+                                let fat_ptr = unsafe { std::mem::transmute::<_, *const SyscallTraitObject>(*fat_ptr_ptr) };
+                                let vtable = unsafe { std::mem::transmute::<_, &SyscallObjectVtable>(&*(*fat_ptr).vtable) };
+                                // We need to displace the arguments by one in upward direction to make room for "&mut self".
+                                // Therefore, we Specify register arguments in reverse order, so that the move instructions do not overwrite each other.
+                                // This only affects the order of the move instructions, not the arguments.
+                                emit_rust_call(self, vtable.call, &[
+                                    Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[4]) },
+                                    Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[3]) },
+                                    Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[2]) },
+                                    Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[1]) },
+                                    Argument { index: 1, value: Value::Constant(unsafe { (*fat_ptr).data } as i64) }, // "&mut self" in the "call" method of the SyscallObject
+                                    Argument { index: 6, value: Value::Register(ARGUMENT_REGISTERS[5]) },
+                                    Argument { index: 7, value: Value::Register(R10) }, // memory_mapping
+                                ]);
+                            },
                         }
+
+                        // Throw error if the result indicates one
+                        emit_jcc(self, 0x85, TARGET_PC_EPILOGUE);
+
+                        // Store Ok value in result register
+                        emit_load(self, OperandSize::S64, RDI, REGISTER_MAP[0], 8);
+                    } else {
+                        let target_pc = executable.lookup_bpf_call(insn.imm as u32).unwrap();
+                        emit_bpf_call(self, Value::Constant(*target_pc as i64));
                     }
-
-                    // Throw error if the result indicates one
-                    emit_jcc(self, 0x85, TARGET_PC_EPILOGUE);
-
-                    // Store Ok value in result register
-                    emit_load(self, OperandSize::S64, RDI, REGISTER_MAP[0], 8);
                 },
-                ebpf::CALL_REG  => { unimplemented!() },
+                ebpf::CALL_REG  => {
+                    unimplemented!();
+                    // emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]));
+                },
                 ebpf::EXIT      => {
-                    if insn_ptr != prog.len() / ebpf::INSN_SIZE - 1 {
-                        emit_jmp(self, TARGET_PC_EXIT);
-                    };
+                    emit_alu64_imm32(self, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1)); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1);
+                    emit_alu64_imm32(self, 0x81, 5, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 2); // stack_ptr -= !(CALL_FRAME_SIZE * 2);
+
+                    // if(stack_ptr < MM_STACK_START) goto exit;
+                    emit_mov(self, REGISTER_MAP[0], R11);
+                    emit_load_imm(self, REGISTER_MAP[0], MM_STACK_START as i64);
+                    emit_cmp(self, REGISTER_MAP[STACK_REG], REGISTER_MAP[0]);
+                    emit_mov(self, R11, REGISTER_MAP[0]);
+                    emit_jcc(self, 0x82, TARGET_PC_EXIT);
+
+                    // else return;
+                    emit1(self, 0xc3); // ret near
                 },
 
                 _               => return Err(JITError::UnknownOpCode(insn.opc, insn_ptr)),
@@ -1098,13 +1137,15 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
 }
 
 // In the end, this is the only thing we export
-pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8], syscalls: &HashMap<u32, Syscall<'a, E>>)
+pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8],
+    executable: &'a dyn Executable<E>,
+    syscalls: &HashMap<u32, Syscall<'a, E>>)
     -> Result<JitProgram<E>, JITError> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
     let mut jit = JitMemory::new(1);
-    jit.jit_compile(prog, syscalls)?;
+    jit.jit_compile(prog, executable, syscalls)?;
     jit.resolve_jumps()?;
 
     Ok(unsafe { mem::transmute(jit.contents.as_ptr()) })
