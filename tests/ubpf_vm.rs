@@ -21,7 +21,12 @@
 
 extern crate solana_rbpf;
 
-use solana_rbpf::{assembler::assemble, syscalls, user_error::UserError, vm::EbpfVm};
+use solana_rbpf::{
+    assembler::assemble,
+    syscalls,
+    user_error::UserError,
+    vm::{EbpfVm, Syscall},
+};
 
 // TODO: syscalls::trash_registers needs asm!().
 // Try this again once asm!() is available in stable.
@@ -112,8 +117,10 @@ fn test_vm_stack2() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    vm.register_syscall(0, syscalls::gather_bytes).unwrap();
-    vm.register_syscall(1, syscalls::memfrob).unwrap();
+    vm.register_syscall(0, Syscall::Function(syscalls::gather_bytes))
+        .unwrap();
+    vm.register_syscall(1, Syscall::Function(syscalls::memfrob))
+        .unwrap();
     assert_eq!(vm.execute_program().unwrap(), 0x01020304);
 }
 
@@ -153,6 +160,7 @@ fn test_vm_string_stack() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    vm.register_syscall(4, syscalls::strcmp).unwrap();
+    vm.register_syscall(4, Syscall::Function(syscalls::strcmp))
+        .unwrap();
     assert_eq!(vm.execute_program().unwrap(), 0x0);
 }

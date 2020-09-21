@@ -238,7 +238,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::EbpfVm, syscalls::bpf_trace_printf, user_error::UserError};
+    /// use solana_rbpf::{vm::{EbpfVm, Syscall}, syscalls::bpf_trace_printf, user_error::UserError};
     ///
     /// // This program was compiled with clang, from a C program containing the following single
     /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
@@ -262,14 +262,14 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// // Register a syscall.
     /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
     /// // standard output.
-    /// vm.register_syscall(6, bpf_trace_printf::<UserError>).unwrap();
+    /// vm.register_syscall(6, Syscall::Function(bpf_trace_printf::<UserError>)).unwrap();
     /// ```
     pub fn register_syscall(
         &mut self,
         key: u32,
-        syscall: SyscallFunction<E>,
+        syscall: Syscall<'a, E>,
     ) -> Result<(), EbpfError<E>> {
-        self.syscalls.insert(key, Syscall::Function(syscall));
+        self.syscalls.insert(key, syscall);
         Ok(())
     }
 
@@ -285,26 +285,10 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     pub fn register_syscall_ex(
         &mut self,
         name: &str,
-        syscall: SyscallFunction<E>,
+        syscall: Syscall<'a, E>,
     ) -> Result<(), EbpfError<E>> {
-        self.syscalls.insert(
-            ebpf::hash_symbol_name(name.as_bytes()),
-            Syscall::Function(syscall),
-        );
-        Ok(())
-    }
-
-    /// Same as register_syscall_ex except reguster a syscall trait object that carries
-    /// along context needed by the syscall
-    pub fn register_syscall_with_context_ex(
-        &mut self,
-        name: &str,
-        syscall: Box<dyn SyscallObject<E> + 'a>,
-    ) -> Result<(), EbpfError<E>> {
-        self.syscalls.insert(
-            ebpf::hash_symbol_name(name.as_bytes()),
-            Syscall::Object(syscall),
-        );
+        self.syscalls
+            .insert(ebpf::hash_symbol_name(name.as_bytes()), syscall);
         Ok(())
     }
 

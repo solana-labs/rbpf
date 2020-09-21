@@ -11,52 +11,59 @@ extern crate thiserror;
 
 mod common;
 
-use byteorder::{ByteOrder, LittleEndian};
 use common::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 use libc::c_char;
 use solana_rbpf::{
     assembler::assemble,
-    ebpf::{self},
+    ebpf::hash_symbol_name,
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
     syscalls,
     user_error::UserError,
-    vm::{EbpfVm, SyscallFunction, SyscallObject},
+    vm::{EbpfVm, Syscall, SyscallObject},
 };
-use std::{slice::from_raw_parts, str::from_utf8};
+use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
 
 type ExecResult = Result<u64, EbpfError<UserError>>;
 
 macro_rules! test_vm_and_jit {
-    ( $source:tt, $mem:tt, $syscalls:tt, $check:tt ) => {
-        let mut program = assemble($source).unwrap();
-        let syscalls: &[(u32, SyscallFunction<UserError>, Option<usize>)] = &$syscalls;
-        for syscall in syscalls {
-            if let Some(offset) = syscall.2 {
-                LittleEndian::write_u32(&mut program[offset..offset + 4], syscall.0);
-            }
-        }
-        let executable =
-            EbpfVm::<UserError>::create_executable_from_text_bytes(&program, None).unwrap();
+    ($vm:expr, $($location:expr => $syscall:expr),*) => {
+        $($vm.register_syscall($location, $syscall).unwrap();)*
+    };
+    ( $executable:expr, $mem:tt, ($($location:expr => $syscall:expr),*), $check:tt ) => {
         let check_closure = $check;
         {
             let mem = $mem;
-            let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
-            for syscall in syscalls {
-                vm.register_syscall(syscall.0, syscall.1).unwrap();
-            }
+            let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
+            test_vm_and_jit!(vm, $($location => $syscall),*);
             assert!(check_closure(vm.execute_program()));
         }
         #[cfg(not(windows))]
         {
             let mem = $mem;
-            let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
-            for syscall in syscalls {
-                vm.register_syscall(syscall.0, syscall.1).unwrap();
-            }
+            let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
+            test_vm_and_jit!(vm, $($location => $syscall),*);
             vm.jit_compile().unwrap();
             assert!(check_closure(unsafe { vm.execute_program_jit() }));
         }
+    };
+}
+
+macro_rules! test_vm_and_jit_asm {
+    ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:tt ) => {
+        let program = assemble($source).unwrap();
+        let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&program, None).unwrap();
+        test_vm_and_jit!(executable, $mem, ($($location => $syscall),*), $check);
+    };
+}
+
+macro_rules! test_vm_and_jit_elf {
+    ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:tt ) => {
+        let mut file = File::open($source).unwrap();
+        let mut elf = Vec::new();
+        file.read_to_end(&mut elf).unwrap();
+        let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
+        test_vm_and_jit!(executable, $mem, ($($location => $syscall),*), $check);
     };
 }
 
@@ -64,45 +71,45 @@ macro_rules! test_vm_and_jit {
 
 #[test]
 fn test_vm_jit_mov() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r1, 1
         mov32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_mov32_imm_large() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, -1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xffffffff } }
     );
 }
 
 #[test]
 fn test_vm_jit_mov_large() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r1, -1
         mov32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xffffffff } }
     );
 }
 
 #[test]
 fn test_vm_jit_bounce() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 1
         mov r6, r0
@@ -112,14 +119,14 @@ fn test_vm_jit_bounce() {
         mov r0, r9
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_add32() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 2
@@ -127,40 +134,40 @@ fn test_vm_jit_add32() {
         add32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x3 } }
     );
 }
 
 #[test]
 fn test_vm_jit_neg32() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 2
         neg32 r0
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xfffffffe } }
     );
 }
 
 #[test]
 fn test_vm_jit_neg64() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 2
         neg r0
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xfffffffffffffffe } }
     );
 }
 
 #[test]
 fn test_vm_jit_alu32_arithmetic() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 1
@@ -182,14 +189,14 @@ fn test_vm_jit_alu32_arithmetic() {
         div32 r0, r4
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x2a } }
     );
 }
 
 #[test]
 fn test_vm_jit_alu64_arithmetic() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0
         mov r1, 1
@@ -211,14 +218,14 @@ fn test_vm_jit_alu64_arithmetic() {
         div r0, r4
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x2a } }
     );
 }
 
 #[test]
 fn test_vm_jit_alu32_logic() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 1
@@ -242,14 +249,14 @@ fn test_vm_jit_alu32_logic() {
         xor32 r0, r2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x11 } }
     );
 }
 
 #[test]
 fn test_vm_jit_alu64_logic() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0
         mov r1, 1
@@ -275,42 +282,42 @@ fn test_vm_jit_alu64_logic() {
         xor r0, r2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x11 } }
     );
 }
 
 #[test]
 fn test_vm_jit_arsh32_high_shift() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 8
         lddw r1, 0x100000001
         arsh32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x4 } }
     );
 }
 
 #[test]
 fn test_vm_jit_arsh32_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0xf8
         lsh32 r0, 28
         arsh32 r0, 16
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xffff8000 } }
     );
 }
 
 #[test]
 fn test_vm_jit_arsh32_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0xf8
         mov32 r1, 16
@@ -318,14 +325,14 @@ fn test_vm_jit_arsh32_reg() {
         arsh32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xffff8000 } }
     );
 }
 
 #[test]
 fn test_vm_jit_arsh64() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 1
         lsh r0, 63
@@ -334,283 +341,283 @@ fn test_vm_jit_arsh64() {
         arsh r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xfffffffffffffff8 } }
     );
 }
 
 #[test]
 fn test_vm_jit_lsh64_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0x1
         mov r7, 4
         lsh r0, r7
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x10 } }
     );
 }
 
 #[test]
 fn test_vm_jit_rhs32_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         xor r0, r0
         sub r0, 1
         rsh32 r0, 8
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x00ffffff } }
     );
 }
 
 #[test]
 fn test_vm_jit_rsh64_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0x10
         mov r7, 4
         rsh r0, r7
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_be16() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxh r0, [r1]
         be16 r0
         exit",
         [0x11, 0x22],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1122 } }
     );
 }
 
 #[test]
 fn test_vm_jit_be16_high() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxdw r0, [r1]
         be16 r0
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1122 } }
     );
 }
 
 #[test]
 fn test_vm_jit_be32() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxw r0, [r1]
         be32 r0
         exit",
         [0x11, 0x22, 0x33, 0x44],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x11223344 } }
     );
 }
 
 #[test]
 fn test_vm_jit_be32_high() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxdw r0, [r1]
         be32 r0
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x11223344 } }
     );
 }
 
 #[test]
 fn test_vm_jit_be64() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxdw r0, [r1]
         be64 r0
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } }
     );
 }
 
 #[test]
 fn test_vm_jit_le16() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxh r0, [r1]
         le16 r0
         exit",
         [0x22, 0x11],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1122 } }
     );
 }
 
 #[test]
 fn test_vm_jit_le32() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxw r0, [r1]
         le32 r0
         exit",
         [0x44, 0x33, 0x22, 0x11],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x11223344 } }
     );
 }
 
 #[test]
 fn test_vm_jit_le64() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxdw r0, [r1]
         le64 r0
         exit",
         [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } }
     );
 }
 
 #[test]
 fn test_vm_jit_mul32_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 3
         mul32 r0, 4
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xc } }
     );
 }
 
 #[test]
 fn test_vm_jit_mul32_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 3
         mov r1, 4
         mul32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xc } }
     );
 }
 
 #[test]
 fn test_vm_jit_mul32_reg_overflow() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0x40000001
         mov r1, 4
         mul32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x4 } }
     );
 }
 
 #[test]
 fn test_vm_jit_mul64_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0x40000001
         mul r0, 4
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x100000004 } }
     );
 }
 
 #[test]
 fn test_vm_jit_mul64_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0x40000001
         mov r1, 4
         mul r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x100000004 } }
     );
 }
 
 #[test]
 fn test_vm_jit_div32_high_divisor() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 12
         lddw r1, 0x100000004
         div32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x3 } }
     );
 }
 
 #[test]
 fn test_vm_jit_div32_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         lddw r0, 0x10000000c
         div32 r0, 4
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x3 } }
     );
 }
 
 #[test]
 fn test_vm_jit_div32_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         lddw r0, 0x10000000c
         mov r1, 4
         div32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x3 } }
     );
 }
 
 #[test]
 fn test_vm_jit_div64_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0xc
         lsh r0, 32
         div r0, 4
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x300000000 } }
     );
 }
 
 #[test]
 fn test_vm_jit_div64_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0xc
         lsh r0, 32
@@ -618,42 +625,42 @@ fn test_vm_jit_div64_reg() {
         div r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x300000000 } }
     );
 }
 
 #[test]
 fn test_vm_jit_err_div64_by_zero_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
         div r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 2) }
     );
 }
 
 #[test]
 fn test_vm_jit_err_div_by_zero_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
         div32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 2) }
     );
 }
 
 #[test]
 fn test_vm_jit_mod32() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 5748
         mod32 r0, 92
@@ -661,27 +668,27 @@ fn test_vm_jit_mod32() {
         mod32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x5 } }
     );
 }
 
 #[test]
 fn test_vm_jit_mod32_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         lddw r0, 0x100000003
         mod32 r0, 3
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x0 } }
     );
 }
 
 #[test]
 fn test_vm_jit_mod64() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, -1316649930
         lsh r0, 32
@@ -693,35 +700,35 @@ fn test_vm_jit_mod64() {
         mod r0, 0x658f1778
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x30ba5a04 } }
     );
 }
 
 #[test]
 fn test_vm_jit_err_mod64_by_zero_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
         mod r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 2) }
     );
 }
 
 #[test]
 fn test_vm_jit_err_mod_by_zero_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
         mod32 r0, r1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 2) }
     );
 }
@@ -730,7 +737,7 @@ fn test_vm_jit_err_mod_by_zero_reg() {
 
 #[test]
 fn test_vm_jit_ldabsb() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldabsb 0x3
         exit",
@@ -738,14 +745,14 @@ fn test_vm_jit_ldabsb() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x33 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldabsh() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldabsh 0x3
         exit",
@@ -753,14 +760,14 @@ fn test_vm_jit_ldabsh() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x4433 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldabsw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldabsw 0x3
         exit",
@@ -768,14 +775,14 @@ fn test_vm_jit_ldabsw() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x66554433 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldabsdw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldabsdw 0x3
         exit",
@@ -783,14 +790,14 @@ fn test_vm_jit_ldabsdw() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xaa99887766554433 } }
     );
 }
 
 #[test]
 fn test_vm_jit_err_ldabsb_oob() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldabsb 0x33
         exit",
@@ -798,7 +805,7 @@ fn test_vm_jit_err_ldabsb_oob() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
-        [],
+        (),
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
@@ -812,12 +819,12 @@ fn test_vm_jit_err_ldabsb_oob() {
 
 #[test]
 fn test_vm_jit_err_ldabsb_nomem() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldabsb 0x33
         exit",
         [],
-        [],
+        (),
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
@@ -831,7 +838,7 @@ fn test_vm_jit_err_ldabsb_nomem() {
 
 #[test]
 fn test_vm_jit_ldindb() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov64 r1, 0x5
         ldindb r1, 0x3
@@ -840,14 +847,14 @@ fn test_vm_jit_ldindb() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x88 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldindh() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov64 r1, 0x5
         ldindh r1, 0x3
@@ -856,14 +863,14 @@ fn test_vm_jit_ldindh() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x9988 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldindw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov64 r1, 0x4
         ldindw r1, 0x1
@@ -872,14 +879,14 @@ fn test_vm_jit_ldindw() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x88776655 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldinddw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov64 r1, 0x2
         ldinddw r1, 0x3
@@ -888,14 +895,14 @@ fn test_vm_jit_ldinddw() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xccbbaa9988776655 } }
     );
 }
 
 #[test]
 fn test_vm_jit_err_ldindb_oob() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov64 r1, 0x5
         ldindb r1, 0x33
@@ -904,7 +911,7 @@ fn test_vm_jit_err_ldindb_oob() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
-        [],
+        (),
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
@@ -918,13 +925,13 @@ fn test_vm_jit_err_ldindb_oob() {
 
 #[test]
 fn test_vm_jit_err_ldindb_nomem() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov64 r1, 0x5
         ldindb r1, 0x33
         exit",
         [],
-        [],
+        (),
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
@@ -938,59 +945,59 @@ fn test_vm_jit_err_ldindb_nomem() {
 
 #[test]
 fn test_vm_jit_ldxb() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxb r0, [r1+2]
         exit",
         [0xaa, 0xbb, 0x11, 0xcc, 0xdd],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x11 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldxh() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxh r0, [r1+2]
         exit",
         [0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x2211 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldxw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxw r0, [r1+2]
         exit",
         [
             0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0xcc, 0xdd, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x44332211 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldxh_same_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, r1
         sth [r0], 0x1234
         ldxh r0, [r0]
         exit",
         [0xff, 0xff],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1234 } }
     );
 }
 
 #[test]
 fn test_vm_jit_lldxdw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxdw r0, [r1+2]
         exit",
@@ -998,14 +1005,14 @@ fn test_vm_jit_lldxdw() {
             0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, //
             0x77, 0x88, 0xcc, 0xdd, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x8877665544332211 } }
     );
 }
 
 #[test]
 fn test_vm_jit_err_ldxdw_oob() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         ldxdw r0, [r1+6]
         exit",
@@ -1013,7 +1020,7 @@ fn test_vm_jit_err_ldxdw_oob() {
             0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, //
             0x77, 0x88, 0xcc, 0xdd, //
         ],
-        [],
+        (),
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
@@ -1027,7 +1034,7 @@ fn test_vm_jit_err_ldxdw_oob() {
 
 #[test]
 fn test_vm_jit_ldxb_all() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, r1
         ldxb r9, [r0+0]
@@ -1064,14 +1071,14 @@ fn test_vm_jit_ldxb_all() {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, //
             0x08, 0x09, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x9876543210 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldxh_all() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, r1
         ldxh r9, [r0+0]
@@ -1119,14 +1126,14 @@ fn test_vm_jit_ldxh_all() {
             0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, //
             0x00, 0x08, 0x00, 0x09, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x9876543210 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldxh_all2() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, r1
         ldxh r9, [r0+0]
@@ -1164,14 +1171,14 @@ fn test_vm_jit_ldxh_all2() {
             0x00, 0x10, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, //
             0x01, 0x00, 0x02, 0x00, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x3ff } }
     );
 }
 
 #[test]
 fn test_vm_jit_ldxw_all() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, r1
         ldxw r9, [r0+0]
@@ -1211,51 +1218,51 @@ fn test_vm_jit_ldxw_all() {
             0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x08, 0x00, //
             0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x030f0f } }
     );
 }
 
 #[test]
 fn test_vm_jit_lddw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         lddw r0, 0x1122334455667788
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } }
     );
 }
 
 #[test]
 fn test_vm_jit_lddw2() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         lddw r0, 0x0000000080000000
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x80000000 } }
     );
 }
 
 #[test]
 fn test_vm_jit_stb() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         stb [r1+2], 0x11
         ldxb r0, [r1+2]
         exit",
         [0xaa, 0xbb, 0xff, 0xcc, 0xdd],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x11 } }
     );
 }
 
 #[test]
 fn test_vm_jit_sth() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         sth [r1+2], 0x2211
         ldxh r0, [r1+2]
@@ -1263,14 +1270,14 @@ fn test_vm_jit_sth() {
         [
             0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x2211 } }
     );
 }
 
 #[test]
 fn test_vm_jit_stw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         stw [r1+2], 0x44332211
         ldxw r0, [r1+2]
@@ -1278,14 +1285,14 @@ fn test_vm_jit_stw() {
         [
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x44332211 } }
     );
 }
 
 #[test]
 fn test_vm_jit_stdw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         stdw [r1+2], 0x44332211
         ldxdw r0, [r1+2]
@@ -1294,14 +1301,14 @@ fn test_vm_jit_stdw() {
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
             0xff, 0xff, 0xcc, 0xdd, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x44332211 } }
     );
 }
 
 #[test]
 fn test_vm_jit_stxb() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r2, 0x11
         stxb [r1+2], r2
@@ -1310,14 +1317,14 @@ fn test_vm_jit_stxb() {
         [
             0xaa, 0xbb, 0xff, 0xcc, 0xdd, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x11 } }
     );
 }
 
 #[test]
 fn test_vm_jit_stxh() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r2, 0x2211
         stxh [r1+2], r2
@@ -1326,14 +1333,14 @@ fn test_vm_jit_stxh() {
         [
             0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x2211 } }
     );
 }
 
 #[test]
 fn test_vm_jit_stxw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r2, 0x44332211
         stxw [r1+2], r2
@@ -1342,14 +1349,14 @@ fn test_vm_jit_stxw() {
         [
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x44332211 } }
     );
 }
 
 #[test]
 fn test_vm_jit_stxdw() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r2, -2005440939
         lsh r2, 32
@@ -1361,14 +1368,14 @@ fn test_vm_jit_stxdw() {
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
             0xff, 0xff, 0xcc, 0xdd, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x8877665544332211 } }
     );
 }
 
 #[test]
 fn test_vm_jit_stxb_all() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0xf0
         mov r2, 0xf2
@@ -1392,14 +1399,14 @@ fn test_vm_jit_stxb_all() {
         [
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xf0f2f3f4f5f6f7f8 } }
     );
 }
 
 #[test]
 fn test_vm_jit_stxb_all2() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, r1
         mov r1, 0xf1
@@ -1410,14 +1417,14 @@ fn test_vm_jit_stxb_all2() {
         be16 r0
         exit",
         [0xff, 0xff],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0xf1f9 } }
     );
 }
 
 #[test]
 fn test_vm_jit_stxb_chain() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, r1
         ldxb r9, [r0+0]
@@ -1444,7 +1451,7 @@ fn test_vm_jit_stxb_chain() {
             0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
             0x00, 0x00, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x2a } }
     );
 }
@@ -1453,47 +1460,47 @@ fn test_vm_jit_stxb_chain() {
 
 #[test]
 fn test_vm_jit_exit() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x0 } }
     );
 }
 
 #[test]
 fn test_vm_jit_early_exit() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 3
         exit
         mov r0, 4
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x3 } }
     );
 }
 
 #[test]
 fn test_vm_jit_ja() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 1
         ja +1
         mov r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jeq_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xa
@@ -1504,14 +1511,14 @@ fn test_vm_jit_jeq_imm() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jeq_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xa
@@ -1523,14 +1530,14 @@ fn test_vm_jit_jeq_reg() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jge_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xa
@@ -1541,14 +1548,14 @@ fn test_vm_jit_jge_imm() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jge_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xa
@@ -1560,14 +1567,14 @@ fn test_vm_jit_jge_reg() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jle_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 5
@@ -1579,14 +1586,14 @@ fn test_vm_jit_jle_imm() {
         mov32 r0, 1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jle_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0
         mov r1, 5
@@ -1600,14 +1607,14 @@ fn test_vm_jit_jle_reg() {
         mov r0, 1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jgt_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 5
@@ -1618,14 +1625,14 @@ fn test_vm_jit_jgt_imm() {
         mov32 r0, 1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jgt_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0
         mov r1, 5
@@ -1638,14 +1645,14 @@ fn test_vm_jit_jgt_reg() {
         mov r0, 1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jlt_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 5
@@ -1656,14 +1663,14 @@ fn test_vm_jit_jlt_imm() {
         mov32 r0, 1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jlt_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0
         mov r1, 5
@@ -1676,14 +1683,14 @@ fn test_vm_jit_jlt_reg() {
         mov r0, 1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jne_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xb
@@ -1694,14 +1701,14 @@ fn test_vm_jit_jne_imm() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jne_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xb
@@ -1713,14 +1720,14 @@ fn test_vm_jit_jne_reg() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jset_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0x7
@@ -1731,14 +1738,14 @@ fn test_vm_jit_jset_imm() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jset_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0x7
@@ -1750,14 +1757,14 @@ fn test_vm_jit_jset_reg() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jsge_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -1769,14 +1776,14 @@ fn test_vm_jit_jsge_imm() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jsge_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -1790,14 +1797,14 @@ fn test_vm_jit_jsge_reg() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jsle_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -1809,14 +1816,14 @@ fn test_vm_jit_jsle_imm() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jsle_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -1
@@ -1831,14 +1838,14 @@ fn test_vm_jit_jsle_reg() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jsgt_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -1849,14 +1856,14 @@ fn test_vm_jit_jsgt_imm() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jsgt_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -1868,14 +1875,14 @@ fn test_vm_jit_jsgt_reg() {
         mov32 r0, 2
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jslt_imm() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -1886,14 +1893,14 @@ fn test_vm_jit_jslt_imm() {
         mov32 r0, 1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_jslt_reg() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -1906,7 +1913,7 @@ fn test_vm_jit_jslt_reg() {
         mov32 r0, 1
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
@@ -1976,14 +1983,14 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
 
 #[test]
 fn test_vm_jit_err_syscall_string() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov64 r1, 0x0
-        call -0x1
+        call 0
         mov64 r0, 0x0
         exit",
         [72, 101, 108, 108, 111],
-        [(ebpf::hash_symbol_name(b"log"), bpf_syscall_string, Some(12))],
+        (0 => Syscall::Function(bpf_syscall_string)),
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
@@ -1997,39 +2004,39 @@ fn test_vm_jit_err_syscall_string() {
 
 #[test]
 fn test_vm_jit_syscall_string() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov64 r2, 0x5
-        call -0x1
+        call 0
         mov64 r0, 0x0
         exit",
         [72, 101, 108, 108, 111],
-        [(ebpf::hash_symbol_name(b"log"), bpf_syscall_string, Some(12))],
+        (0 => Syscall::Function(bpf_syscall_string)),
         { |res: ExecResult| { res.unwrap() == 0 } }
     );
 }
 
 #[test]
 fn test_vm_jit_syscall() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov64 r1, 0xAA
         mov64 r2, 0xBB
         mov64 r3, 0xCC
         mov64 r4, 0xDD
         mov64 r5, 0xEE
-        call -0x1
+        call 0
         mov64 r0, 0x0
         exit",
         [],
-        [(ebpf::hash_symbol_name(b"log"), bpf_syscall_u64, Some(44))],
+        (0 => Syscall::Function(bpf_syscall_u64)),
         { |res: ExecResult| { res.unwrap() == 0 } }
     );
 }
 
 #[test]
-fn test_vm_jit_call() {
-    test_vm_and_jit!(
+fn test_vm_jit_call_gather_bytes() {
+    test_vm_and_jit_asm!(
         "
         mov r1, 1
         mov r2, 2
@@ -2039,27 +2046,94 @@ fn test_vm_jit_call() {
         call 0
         exit",
         [],
-        [(0, syscalls::gather_bytes, None)],
+        (0 => Syscall::Function(syscalls::gather_bytes)),
         { |res: ExecResult| { res.unwrap() == 0x0102030405 } }
     );
 }
 
 #[test]
 fn test_vm_jit_call_memfrob() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r6, r1
         add r1, 2
         mov r2, 4
-        call 1
+        call 0
         ldxdw r0, [r6]
         be64 r0
         exit",
         [
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, //
         ],
-        [(1, syscalls::memfrob, None)],
+        (0 => Syscall::Function(syscalls::memfrob)),
         { |res: ExecResult| { res.unwrap() == 0x102292e2f2c0708 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_syscall_with_context() {
+    let mut number = 42;
+    let number_ptr = &mut number as *mut u64;
+    test_vm_and_jit_asm!(
+        "
+        mov64 r1, 0xAA
+        mov64 r2, 0xBB
+        mov64 r3, 0xCC
+        mov64 r4, 0xDD
+        mov64 r5, 0xEE
+        call 0
+        mov64 r0, 0x0
+        exit",
+        [],
+        (0 => Syscall::Object(Box::new(SyscallWithContext {
+            context: &mut number,
+        }))),
+        { |res: ExecResult| {
+            unsafe {
+                assert_eq!(*number_ptr, 84);
+                *number_ptr = 42;
+            }
+            res.unwrap() == 0
+        }}
+    );
+}
+
+// Elf
+
+#[test]
+fn test_vm_jit_load_elf() {
+    test_vm_and_jit_elf!(
+        "tests/elfs/noop.so",
+        [],
+        (
+            (hash_symbol_name(b"log")) => Syscall::Function(bpf_syscall_string),
+            (hash_symbol_name(b"log_64")) => Syscall::Function(bpf_syscall_u64),
+        ),
+        { |res: ExecResult| { res.unwrap() == 0 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_load_elf_empty_noro() {
+    test_vm_and_jit_elf!(
+        "tests/elfs/noro.so",
+        [],
+        (
+            (hash_symbol_name(b"log_64")) => Syscall::Function(bpf_syscall_u64),
+        ),
+        { |res: ExecResult| { res.unwrap() == 0 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_load_elf_empty_rodata() {
+    test_vm_and_jit_elf!(
+        "tests/elfs/empty_rodata.so",
+        [],
+        (
+            (hash_symbol_name(b"log_64")) => Syscall::Function(bpf_syscall_u64),
+        ),
+        { |res: ExecResult| { res.unwrap() == 0 } }
     );
 }
 
@@ -2067,7 +2141,7 @@ fn test_vm_jit_call_memfrob() {
 
 #[test]
 fn test_vm_jit_mul_loop() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r0, 0x7
         add r1, 0xa
@@ -2080,14 +2154,14 @@ fn test_vm_jit_mul_loop() {
         jne r1, 0x0, -3
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x75db9c97 } }
     );
 }
 
 #[test]
 fn test_vm_jit_prime() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r1, 67
         mov r0, 0x1
@@ -2106,14 +2180,14 @@ fn test_vm_jit_prime() {
         jne r4, 0x0, -10
         exit",
         [],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_subnet() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         "
         mov r2, 0xe
         ldxh r3, [r1+12]
@@ -2141,14 +2215,14 @@ fn test_vm_jit_subnet() {
             0x27, 0x24, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, //
             0x03, 0x00, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_tcp_port80_match() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         PROG_TCP_PORT_80,
         [
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
@@ -2165,14 +2239,14 @@ fn test_vm_jit_tcp_port80_match() {
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
             0x44, 0x44, 0x44, 0x44, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x1 } }
     );
 }
 
 #[test]
 fn test_vm_jit_tcp_port80_nomatch() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         PROG_TCP_PORT_80,
         [
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
@@ -2189,14 +2263,14 @@ fn test_vm_jit_tcp_port80_nomatch() {
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
             0x44, 0x44, 0x44, 0x44, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x0 } }
     );
 }
 
 #[test]
 fn test_vm_jit_tcp_port80_nomatch_ethertype() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         PROG_TCP_PORT_80,
         [
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
@@ -2213,14 +2287,14 @@ fn test_vm_jit_tcp_port80_nomatch_ethertype() {
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
             0x44, 0x44, 0x44, 0x44, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x0 } }
     );
 }
 
 #[test]
 fn test_vm_jit_tcp_port80_nomatch_proto() {
-    test_vm_and_jit!(
+    test_vm_and_jit_asm!(
         PROG_TCP_PORT_80,
         [
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
@@ -2237,21 +2311,21 @@ fn test_vm_jit_tcp_port80_nomatch_proto() {
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
             0x44, 0x44, 0x44, 0x44, //
         ],
-        [],
+        (),
         { |res: ExecResult| { res.unwrap() == 0x0 } }
     );
 }
 
 #[test]
 fn test_vm_jit_tcp_sack_match() {
-    test_vm_and_jit!(TCP_SACK_ASM, TCP_SACK_MATCH, [], {
+    test_vm_and_jit_asm!(TCP_SACK_ASM, TCP_SACK_MATCH, (), {
         |res: ExecResult| res.unwrap() == 0x1
     });
 }
 
 #[test]
 fn test_vm_jit_tcp_sack_nomatch() {
-    test_vm_and_jit!(TCP_SACK_ASM, TCP_SACK_NOMATCH, [], {
+    test_vm_and_jit_asm!(TCP_SACK_ASM, TCP_SACK_NOMATCH, (), {
         |res: ExecResult| res.unwrap() == 0x0
     });
 }

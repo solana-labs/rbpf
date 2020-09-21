@@ -5,7 +5,11 @@
 // copied, modified, or distributed except according to those terms.
 
 extern crate solana_rbpf;
-use solana_rbpf::{syscalls, user_error::UserError, vm::EbpfVm};
+use solana_rbpf::{
+    syscalls,
+    user_error::UserError,
+    vm::{EbpfVm, Syscall},
+};
 
 // The main objectives of this example is to show:
 //
@@ -52,8 +56,11 @@ fn main() {
 
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog2, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    vm.register_syscall(syscalls::BPF_KTIME_GETNS_IDX, syscalls::bpf_time_getns)
-        .unwrap();
+    vm.register_syscall(
+        syscalls::BPF_KTIME_GETNS_IDX,
+        Syscall::Function(syscalls::bpf_time_getns),
+    )
+    .unwrap();
 
     let time;
 
