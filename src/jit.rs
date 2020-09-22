@@ -665,9 +665,6 @@ impl<'a> JitMemory<'a> {
             }
         }
 
-        // Allocate stack space
-        emit_alu64_imm32(self, 0x81, 5, RSP, CALL_FRAME_SIZE as i32);
-
         let entry = executable.get_entrypoint_instruction_offset().unwrap();
         if entry != 0 {
             emit_jmp(self, entry as isize);
@@ -1056,8 +1053,10 @@ impl<'a> JitMemory<'a> {
         // Epilogue
         set_anchor(self, TARGET_PC_EPILOGUE);
 
-        // Deallocate stack space
-        emit_alu64_imm32(self, 0x81, 0, RSP, CALL_FRAME_SIZE as i32);
+        // Restore stack pointer in case the BPF stack was used
+        emit_mov(self, RBP, REGISTER_MAP[0]);
+        emit_alu64_imm32(self, 0x81, 5, REGISTER_MAP[0], (CALLEE_SAVED_REGISTERS.len()-1) as i32 * 8);
+        emit_mov(self, REGISTER_MAP[0], RSP); // RSP = RBP - (CALLEE_SAVED_REGISTERS.len() - 1) * 8;
 
         // Restore registers
         for reg in CALLEE_SAVED_REGISTERS.iter().rev() {
@@ -1080,8 +1079,9 @@ impl<'a> JitMemory<'a> {
         // Store that an error occured
         emit_load_imm(self, REGISTER_MAP[0], 1);
         emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 0);
-        // muldivmod stored pc in R11
+        // emit_address_translation and muldivmod store pc in R11
         emit_store(self, OperandSize::S64, R11, RDI, 16);
+        // goto exit
         emit_jmp(self, TARGET_PC_EPILOGUE);
 
         Ok(())
