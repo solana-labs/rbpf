@@ -125,7 +125,7 @@ const REGISTER_MAP: [u8; 11] = [
     CALLEE_SAVED_REGISTERS[3], // 7
     CALLEE_SAVED_REGISTERS[4], // 8
     CALLEE_SAVED_REGISTERS[5], // 9
-    RBP, // 10 stack pointer
+    RBX, // 10 stack pointer
 ];
 
 // Return the x86 register for the given eBPF register
@@ -435,7 +435,7 @@ struct Argument {
 #[inline]
 fn emit_bpf_call(jit: &mut JitMemory, dst: Value) {
     for reg in FIRST_SCRATCH_REG..FIRST_SCRATCH_REG + SCRATCH_REGS {
-        emit_push(jit, reg as u8);
+        emit_push(jit, REGISTER_MAP[reg]);
     }
     emit_push(jit, REGISTER_MAP[STACK_REG]);
 
@@ -453,7 +453,7 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value) {
 
     emit_pop(jit, REGISTER_MAP[STACK_REG]);
     for reg in (FIRST_SCRATCH_REG..FIRST_SCRATCH_REG + SCRATCH_REGS).rev() {
-        emit_pop(jit, reg as u8);
+        emit_pop(jit, REGISTER_MAP[reg]);
     }
 }
 
@@ -656,12 +656,11 @@ impl<'a> JitMemory<'a> {
             }
         }
 
-        // Save pointer to memory_mapping
-        emit_mov(self, ARGUMENT_REGISTERS[2], R10);
-
         // Initialize registers
-        for (i, reg) in REGISTER_MAP.iter().enumerate() {
-            if i != 1 && i != 10 {
+        emit_mov(self, ARGUMENT_REGISTERS[2], R10); // memory_mapping
+        emit_load_imm(self, REGISTER_MAP[STACK_REG], MM_STACK_START as i64);
+        for reg in REGISTER_MAP.iter() {
+            if *reg != REGISTER_MAP[1] && *reg != REGISTER_MAP[STACK_REG] {
                 emit_load_imm(self, *reg, 0);
             }
         }
@@ -1026,7 +1025,7 @@ impl<'a> JitMemory<'a> {
                     // if(stack_ptr < MM_STACK_START) goto exit;
                     emit_mov(self, REGISTER_MAP[0], R11);
                     emit_load_imm(self, REGISTER_MAP[0], MM_STACK_START as i64);
-                    emit_cmp(self, REGISTER_MAP[STACK_REG], REGISTER_MAP[0]);
+                    emit_cmp(self, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
                     emit_mov(self, R11, REGISTER_MAP[0]);
                     emit_jcc(self, 0x82, TARGET_PC_EXIT);
 
