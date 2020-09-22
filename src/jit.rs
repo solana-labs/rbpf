@@ -440,7 +440,7 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value) {
     emit_push(jit, REGISTER_MAP[STACK_REG]);
 
     emit_alu64_imm32(jit, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1)); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1);
-    emit_alu64_imm32(jit, 0x81, 0, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 2); // stack_ptr += !(CALL_FRAME_SIZE * 2);
+    emit_alu64_imm32(jit, 0x81, 0, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 3); // stack_ptr += CALL_FRAME_SIZE * 3;
 
     match dst {
         // Value::Register(reg) => {}, // TODO Translate target
@@ -658,7 +658,7 @@ impl<'a> JitMemory<'a> {
 
         // Initialize registers
         emit_mov(self, ARGUMENT_REGISTERS[2], R10); // memory_mapping
-        emit_load_imm(self, REGISTER_MAP[STACK_REG], MM_STACK_START as i64);
+        emit_load_imm(self, REGISTER_MAP[STACK_REG], MM_STACK_START as i64 + CALL_FRAME_SIZE as i64);
         for reg in REGISTER_MAP.iter() {
             if *reg != REGISTER_MAP[1] && *reg != REGISTER_MAP[STACK_REG] {
                 emit_load_imm(self, *reg, 0);
@@ -1022,7 +1022,7 @@ impl<'a> JitMemory<'a> {
                 },
                 ebpf::EXIT      => {
                     emit_alu64_imm32(self, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1)); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1);
-                    emit_alu64_imm32(self, 0x81, 5, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 2); // stack_ptr -= !(CALL_FRAME_SIZE * 2);
+                    emit_alu64_imm32(self, 0x81, 5, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 2); // stack_ptr -= CALL_FRAME_SIZE * 2;
 
                     // if(stack_ptr < MM_STACK_START) goto exit;
                     emit_mov(self, REGISTER_MAP[0], R11);

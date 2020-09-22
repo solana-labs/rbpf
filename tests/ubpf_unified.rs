@@ -1944,6 +1944,16 @@ fn test_vm_jit_bpf_to_bpf_scratch_registers() {
     );
 }
 
+#[test]
+fn test_vm_jit_bpf_to_bpf_pass_stack_reference() {
+    test_vm_and_jit_elf!(
+        "tests/elfs/pass_stack_reference.so",
+        [],
+        (),
+        { |res: ExecResult| { res.unwrap() == 42 } }
+    );
+}
+
 // CALL_IMM : Syscalls
 
 fn bpf_syscall_string(

@@ -541,22 +541,6 @@ fn test_oob_callx_high() {
     assert_eq!(42, vm.execute_program().unwrap());
 }
 
-#[test]
-fn test_bpf_to_bpf_pass_stack_reference() {
-    let mut file = File::open("tests/elfs/pass_stack_reference.so").expect("file open failed");
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-
-    let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    vm.register_syscall_ex("log", Syscall::Function(bpf_syscall_string))
-        .unwrap();
-    vm.register_syscall_ex("log_64", Syscall::Function(bpf_syscall_u64))
-        .unwrap();
-
-    assert_eq!(vm.execute_program().unwrap(), 42);
-}
-
 fn write_insn(prog: &mut [u8], insn: usize, asm: &str) {
     prog[insn * ebpf::INSN_SIZE..insn * ebpf::INSN_SIZE + ebpf::INSN_SIZE]
         .copy_from_slice(&assemble(asm).unwrap());
