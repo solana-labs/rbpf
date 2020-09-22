@@ -58,8 +58,6 @@ pub enum JITError {
     /// Failed to parse ELF file
     #[error("Unknown eBPF opcode {0:#2x} (insn #{1:?})")]
     UnknownOpCode(u8, usize),
-    #[error("Unknown syscall {0:#x} (insn #{1:?})")]
-    UnknownSyscall(u32, usize),
     #[error("Unsupported (insn #{0:?})")]
     Unsupported(usize),
 }
@@ -647,7 +645,7 @@ impl<'a> JitMemory<'a> {
 
     fn jit_compile<E: UserDefinedError>(&mut self, prog: &[u8],
                    executable: &'a dyn Executable<E>,
-                   syscalls: &HashMap<u32,  Syscall<'a, E>>) -> Result<(), JITError> {
+                   syscalls: &HashMap<u32,  Syscall<'a, E>>) -> Result<(), EbpfError<E>> {
         // Save registers
         for reg in CALLEE_SAVED_REGISTERS.iter() {
             emit_push(self, *reg);
@@ -1012,8 +1010,12 @@ impl<'a> JitMemory<'a> {
                         // Store Ok value in result register
                         emit_load(self, OperandSize::S64, RDI, REGISTER_MAP[0], 8);
                     } else {
-                        let target_pc = executable.lookup_bpf_call(insn.imm as u32).unwrap();
-                        emit_bpf_call(self, Value::Constant(*target_pc as i64));
+                        match executable.lookup_bpf_call(insn.imm as u32) {
+                            Some(target_pc) => {
+                                emit_bpf_call(self, Value::Constant(*target_pc as i64));
+                            },
+                            None => executable.report_unresolved_symbol(insn_ptr)?,
+                        }
                     }
                 },
                 ebpf::CALL_REG  => {
@@ -1035,7 +1037,7 @@ impl<'a> JitMemory<'a> {
                     emit1(self, 0xc3); // ret near
                 },
 
-                _               => return Err(JITError::UnknownOpCode(insn.opc, insn_ptr)),
+                _               => return Err(EbpfError::JITError(JITError::UnknownOpCode(insn.opc, insn_ptr))),
             }
 
             insn_ptr += 1;
@@ -1144,7 +1146,7 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
 pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8],
     executable: &'a dyn Executable<E>,
     syscalls: &HashMap<u32, Syscall<'a, E>>)
-    -> Result<JitProgram<E>, JITError> {
+    -> Result<JitProgram<E>, EbpfError<E>> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length

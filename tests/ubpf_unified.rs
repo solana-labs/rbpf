@@ -16,6 +16,7 @@ use libc::c_char;
 use solana_rbpf::{
     assembler::assemble,
     ebpf::hash_symbol_name,
+    elf::ELFError,
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
     syscalls,
@@ -43,8 +44,10 @@ macro_rules! test_vm_and_jit {
             let mem = $mem;
             let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
             test_vm_and_jit!(vm, $($location => $syscall),*);
-            vm.jit_compile().unwrap();
-            assert!(check_closure(unsafe { vm.execute_program_jit() }));
+            match vm.jit_compile() {
+                Err(err) => assert!(check_closure(Err(err))),
+                Ok(()) => assert!(check_closure(unsafe { vm.execute_program_jit() })),
+            }
         }
     };
 }
@@ -1946,11 +1949,24 @@ fn test_vm_jit_bpf_to_bpf_scratch_registers() {
 
 #[test]
 fn test_vm_jit_bpf_to_bpf_pass_stack_reference() {
-    test_vm_and_jit_elf!(
-        "tests/elfs/pass_stack_reference.so",
+    test_vm_and_jit_elf!("tests/elfs/pass_stack_reference.so", [], (), {
+        |res: ExecResult| res.unwrap() == 42
+    });
+}
+
+#[test]
+fn test_vm_jit_syscall_parameter_on_stack() {
+    test_vm_and_jit_asm!(
+        "
+        mov64 r1, r10
+        add64 r1, -0x100
+        mov64 r2, 0x1
+        call 0
+        mov64 r0, 0x0
+        exit",
         [],
-        (),
-        { |res: ExecResult| { res.unwrap() == 42 } }
+        (0 => Syscall::Function(bpf_syscall_string)),
+        { |res: ExecResult| { res.unwrap() == 0 } }
     );
 }
 
@@ -2170,6 +2186,70 @@ fn test_vm_jit_load_elf_empty_rodata() {
             (hash_symbol_name(b"log_64")) => Syscall::Function(bpf_syscall_u64),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } }
+    );
+}
+
+// Symbols and Relocation
+
+#[test]
+fn test_vm_jit_symbol_relocation() {
+    test_vm_and_jit_asm!(
+        "
+        mov64 r1, r10
+        sub64 r1, 0x1
+        mov64 r2, 0x1
+        call 0
+        mov64 r0, 0x0
+        exit",
+        [72, 101, 108, 108, 111],
+        (0 => Syscall::Function(bpf_syscall_string)),
+        { |res: ExecResult| { res.unwrap() == 0 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_err_symbol_unresolved() {
+    test_vm_and_jit_asm!(
+        "
+        call 0
+        mov64 r0, 0x0
+        exit",
+        [],
+        (),
+        {
+            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 29 && offset == 0)
+        }
+    );
+}
+
+#[test]
+fn test_vm_jit_err_call_unresolved() {
+    test_vm_and_jit_asm!(
+        "
+        mov r1, 1
+        mov r2, 2
+        mov r3, 3
+        mov r4, 4
+        mov r5, 5
+        call 63
+        exit",
+        [],
+        (),
+        {
+            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 34 && offset == 40)
+        }
+    );
+}
+
+#[test]
+fn test_vm_jit_err_unresolved_elf() {
+    test_vm_and_jit_elf!(
+        "tests/elfs/unresolved_syscall.so",
+        [],
+        (hash_symbol_name(b"log") => Syscall::Function(bpf_syscall_string)),
+        {
+            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "log_64" && pc == 550 && offset == 4168)
+        }
     );
 }
 
