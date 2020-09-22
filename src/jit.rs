@@ -668,6 +668,11 @@ impl<'a> JitMemory<'a> {
         // Allocate stack space
         emit_alu64_imm32(self, 0x81, 5, RSP, CALL_FRAME_SIZE as i32);
 
+        let entry = executable.get_entrypoint_instruction_offset().unwrap();
+        if entry != 0 {
+            emit_jmp(self, entry as isize);
+        }
+
         self.pc_locs = vec![0; prog.len() / ebpf::INSN_SIZE + 1];
 
         let mut insn_ptr:usize = 0;
