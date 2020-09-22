@@ -340,8 +340,6 @@ fn test_get_total_instruction_count_with_syscall_capped() {
 
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
-    vm.register_syscall(BPF_TRACE_PRINTK_IDX, Syscall::Function(bpf_trace_printf))
-        .unwrap();
     vm.register_syscall(0, Syscall::Function(bpf_syscall_string))
         .unwrap();
     let instruction_meter = TestInstructionMeter { remaining: 3 };
@@ -473,21 +471,6 @@ fn test_bpf_to_bpf_too_deep() {
 }
 
 #[test]
-fn test_relative_call() {
-    let mut file = File::open("tests/elfs/relative_call.so").expect("file open failed");
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-
-    let mem = [1 as u8];
-    let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
-    vm.register_syscall_ex("log", Syscall::Function(bpf_syscall_string))
-        .unwrap();
-
-    vm.execute_program().unwrap();
-}
-
-#[test]
 fn test_call_reg() {
     let prog = assemble(
         "
@@ -556,23 +539,6 @@ fn test_oob_callx_high() {
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
     assert_eq!(42, vm.execute_program().unwrap());
-}
-
-#[test]
-fn test_bpf_to_bpf_scratch_registers() {
-    let mut file = File::open("tests/elfs/scratch_registers.so").expect("file open failed");
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-
-    let mem = [1];
-    let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
-    vm.register_syscall_ex("log", Syscall::Function(bpf_syscall_string))
-        .unwrap();
-    vm.register_syscall_ex("log_64", Syscall::Function(bpf_syscall_u64))
-        .unwrap();
-
-    assert_eq!(vm.execute_program().unwrap(), 112);
 }
 
 #[test]

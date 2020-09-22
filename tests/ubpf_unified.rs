@@ -1918,6 +1918,32 @@ fn test_vm_jit_jslt_reg() {
     );
 }
 
+// CALL_IMM & CALL_REG : Procedure Calls
+
+#[test]
+fn test_vm_jit_relative_call() {
+    test_vm_and_jit_elf!(
+        "tests/elfs/relative_call.so",
+        [1],
+        (
+            (hash_symbol_name(b"log")) => Syscall::Function(bpf_syscall_string),
+        ),
+        { |res: ExecResult| { res.unwrap() == 2 } }
+    );
+}
+
+#[test]
+fn test_vm_jit_bpf_to_bpf_scratch_registers() {
+    test_vm_and_jit_elf!(
+        "tests/elfs/scratch_registers.so",
+        [1],
+        (
+            (hash_symbol_name(b"log_64")) => Syscall::Function(bpf_syscall_u64),
+        ),
+        { |res: ExecResult| { res.unwrap() == 112 } }
+    );
+}
+
 // CALL_IMM : Syscalls
 
 fn bpf_syscall_string(
