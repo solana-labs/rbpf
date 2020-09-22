@@ -434,8 +434,8 @@ struct Argument {
 
 #[inline]
 fn emit_bpf_call(jit: &mut JitMemory, dst: Value) {
-    for reg in FIRST_SCRATCH_REG..FIRST_SCRATCH_REG + SCRATCH_REGS {
-        emit_push(jit, REGISTER_MAP[reg]);
+    for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS) {
+        emit_push(jit, *reg);
     }
     emit_push(jit, REGISTER_MAP[STACK_REG]);
 
@@ -452,8 +452,8 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value) {
     }
 
     emit_pop(jit, REGISTER_MAP[STACK_REG]);
-    for reg in (FIRST_SCRATCH_REG..FIRST_SCRATCH_REG + SCRATCH_REGS).rev() {
-        emit_pop(jit, REGISTER_MAP[reg]);
+    for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS).rev() {
+        emit_pop(jit, *reg);
     }
 }
 
