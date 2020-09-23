@@ -15,7 +15,7 @@ use crate::{
     disassembler, ebpf,
     elf::EBpfElf,
     error::{EbpfError, UserDefinedError},
-    jit::{self, JitProgram},
+    jit::{self, JitProgram, JitProgramArgument},
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     user_error::UserError,
 };
@@ -699,13 +699,25 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         ))
     }
 
-    fn check_pc(prog_addr: u64, prog: &[u8], current_pc: usize, new_pc: usize) -> Result<usize, EbpfError<E>> {
-        let offset = new_pc
-            .checked_mul(ebpf::INSN_SIZE)
-            .ok_or(EbpfError::CallOutsideTextSegment(current_pc + ebpf::ELF_INSN_DUMP_OFFSET, prog_addr + (new_pc * ebpf::INSN_SIZE) as u64))?;
-        let _ = prog
-            .get(offset..offset + ebpf::INSN_SIZE)
-            .ok_or(EbpfError::CallOutsideTextSegment(current_pc + ebpf::ELF_INSN_DUMP_OFFSET, prog_addr + (new_pc * ebpf::INSN_SIZE) as u64))?;
+    fn check_pc(
+        prog_addr: u64,
+        prog: &[u8],
+        current_pc: usize,
+        new_pc: usize,
+    ) -> Result<usize, EbpfError<E>> {
+        let offset =
+            new_pc
+                .checked_mul(ebpf::INSN_SIZE)
+                .ok_or(EbpfError::CallOutsideTextSegment(
+                    current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
+                    prog_addr + (new_pc * ebpf::INSN_SIZE) as u64,
+                ))?;
+        let _ =
+            prog.get(offset..offset + ebpf::INSN_SIZE)
+                .ok_or(EbpfError::CallOutsideTextSegment(
+                    current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
+                    prog_addr + (new_pc * ebpf::INSN_SIZE) as u64,
+                ))?;
         Ok(new_pc)
     }
 
@@ -765,7 +777,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                     std::mem::size_of::<MemoryMapping>(),
                 );
                 jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
-                (compiled_prog.main)(reg1, std::mem::transmute::<_, _>(&*jit_arg.as_ptr()))
+                (compiled_prog.main)(reg1, &*(jit_arg.as_ptr() as *const JitProgramArgument))
             }
             None => Err(EbpfError::JITNotCompiled),
         }

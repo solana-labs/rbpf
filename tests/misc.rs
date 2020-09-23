@@ -411,40 +411,6 @@ fn test_call_reg_stack_depth() {
     assert_eq!(42, vm.execute_program().unwrap());
 }
 
-#[test]
-#[should_panic(expected = "CallOutsideTextSegment(30, 0)")]
-fn test_oob_callx_low() {
-    let prog = assemble(
-        "
-        mov64 r0, 0x0
-        callx 0x0
-        exit",
-    )
-    .unwrap();
-
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    assert_eq!(42, vm.execute_program().unwrap());
-}
-
-#[test]
-#[should_panic(expected = "CallOutsideTextSegment(32, 18446744069414584320)")]
-fn test_oob_callx_high() {
-    let prog = assemble(
-        "
-        mov64 r0, -0x1
-        lsh64 r0, 0x20
-        or64 r8, -0x1
-        callx 0x0
-        exit",
-    )
-    .unwrap();
-
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    assert_eq!(42, vm.execute_program().unwrap());
-}
-
 fn write_insn(prog: &mut [u8], insn: usize, asm: &str) {
     prog[insn * ebpf::INSN_SIZE..insn * ebpf::INSN_SIZE + ebpf::INSN_SIZE]
         .copy_from_slice(&assemble(asm).unwrap());
