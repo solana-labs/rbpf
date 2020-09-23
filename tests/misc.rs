@@ -428,7 +428,7 @@ fn test_oob_callx_low() {
 }
 
 #[test]
-#[should_panic(expected = "CallOutsideTextSegment(3, 18446744073709551615)")]
+#[should_panic(expected = "CallOutsideTextSegment(32, 18446744069414584320)")]
 fn test_oob_callx_high() {
     let prog = assemble(
         "

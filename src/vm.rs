@@ -626,7 +626,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                     if target_address < ebpf::MM_PROGRAM_START {
                         return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, reg[insn.imm as usize]));
                     }
-                    next_pc = Self::check_pc(&self.prog, pc, (target_address - self.prog_addr) as usize / ebpf::INSN_SIZE)?;
+                    next_pc = Self::check_pc(self.prog_addr, &self.prog, pc, (target_address - self.prog_addr) as usize / ebpf::INSN_SIZE)?;
                 },
 
                 // Do not delegate the check to the verifier, since registered functions can be
@@ -661,7 +661,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
                             next_pc,
                         )?;
-                        next_pc = Self::check_pc(&self.prog, pc, *new_pc)?;
+                        next_pc = Self::check_pc(self.prog_addr, &self.prog, pc, *new_pc)?;
                     } else {
                         self.executable.report_unresolved_symbol(pc)?;
                     }
@@ -675,7 +675,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                                 .copy_from_slice(&saved_reg);
                             reg[ebpf::STACK_REG] = stack_ptr;
-                            next_pc = Self::check_pc(&self.prog, pc, ptr)?;
+                            next_pc = Self::check_pc(self.prog_addr, &self.prog, pc, ptr)?;
                         }
                         _ => {
                             debug!("BPF instructions executed: {:?}", self.total_insn_count);
@@ -699,13 +699,13 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         ))
     }
 
-    fn check_pc(prog: &[u8], current_pc: usize, new_pc: usize) -> Result<usize, EbpfError<E>> {
+    fn check_pc(prog_addr: u64, prog: &[u8], current_pc: usize, new_pc: usize) -> Result<usize, EbpfError<E>> {
         let offset = new_pc
             .checked_mul(ebpf::INSN_SIZE)
-            .ok_or(EbpfError::CallOutsideTextSegment(current_pc, std::u64::MAX))?;
+            .ok_or(EbpfError::CallOutsideTextSegment(current_pc + ebpf::ELF_INSN_DUMP_OFFSET, prog_addr + (new_pc * ebpf::INSN_SIZE) as u64))?;
         let _ = prog
             .get(offset..offset + ebpf::INSN_SIZE)
-            .ok_or(EbpfError::CallOutsideTextSegment(current_pc, std::u64::MAX))?;
+            .ok_or(EbpfError::CallOutsideTextSegment(current_pc + ebpf::ELF_INSN_DUMP_OFFSET, prog_addr + (new_pc * ebpf::INSN_SIZE) as u64))?;
         Ok(new_pc)
     }
 
