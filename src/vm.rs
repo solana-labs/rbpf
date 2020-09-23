@@ -15,7 +15,7 @@ use crate::{
     disassembler, ebpf,
     elf::EBpfElf,
     error::{EbpfError, UserDefinedError},
-    jit,
+    jit::{self, JitProgram},
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     user_error::UserError,
 };
@@ -54,9 +54,6 @@ macro_rules! translate_memory_access {
 ///   - Bad formed instruction.
 ///   - Unknown eBPF syscall index.
 pub type Verifier<E> = fn(prog: &[u8]) -> Result<(), E>;
-
-/// eBPF Jit-compiled program.
-pub type JitProgram<E> = unsafe fn(u64, &MemoryMapping) -> Result<u64, EbpfError<E>>;
 
 /// Syscall function without context.
 pub type SyscallFunction<E> =
@@ -758,8 +755,18 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         } else {
             0
         };
-        match self.compiled_prog {
-            Some(compiled_prog) => compiled_prog(reg1, &self.memory_mapping),
+        match &self.compiled_prog {
+            Some(compiled_prog) => {
+                let mut jit_arg: Vec<*const u8> =
+                    vec![std::ptr::null(); 2 + compiled_prog.instruction_addresses.len()];
+                libc::memcpy(
+                    jit_arg.as_mut_ptr() as _,
+                    std::mem::transmute::<_, _>(&self.memory_mapping),
+                    std::mem::size_of::<MemoryMapping>(),
+                );
+                jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
+                (compiled_prog.main)(reg1, std::mem::transmute::<_, _>(&*jit_arg.as_ptr()))
+            }
             None => Err(EbpfError::JITNotCompiled),
         }
     }

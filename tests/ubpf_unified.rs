@@ -2081,6 +2081,24 @@ fn test_vm_jit_syscall_parameter_on_stack() {
     );
 }
 
+#[test]
+fn test_vm_jit_call_reg() {
+    test_vm_and_jit_asm!(
+        "
+        mov64 r0, 0x0
+        mov64 r8, 0x1
+        lsh64 r8, 0x20
+        or64 r8, 0x30
+        callx 0x8
+        exit
+        mov64 r0, 0x2A
+        exit",
+        [],
+        (),
+        { |res: ExecResult| { res.unwrap() == 42 } }
+    );
+}
+
 // CALL_IMM : Syscalls
 
 /* TODO: syscalls::trash_registers needs asm!().

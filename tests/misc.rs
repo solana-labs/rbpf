@@ -395,26 +395,6 @@ fn test_bpf_to_bpf_too_deep() {
 }
 
 #[test]
-fn test_call_reg() {
-    let prog = assemble(
-        "
-        mov64 r0, 0x0
-        mov64 r8, 0x1
-        lsh64 r8, 0x20
-        or64 r8, 0x30
-        callx 0x8
-        exit
-        mov64 r0, 0x2A
-        exit",
-    )
-    .unwrap();
-
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    assert_eq!(42, vm.execute_program().unwrap());
-}
-
-#[test]
 #[should_panic(expected = "CallDepthExceeded(20)")]
 fn test_call_reg_stack_depth() {
     let prog = assemble(

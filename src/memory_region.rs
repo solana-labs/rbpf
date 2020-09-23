@@ -75,13 +75,15 @@ pub enum AccessType {
 #[derive(Default)]
 pub struct MemoryMapping {
     /// Mapped (valid) regions
-    regions: Vec<MemoryRegion>,
+    regions: Box<[MemoryRegion]>,
 }
 impl MemoryMapping {
     /// Creates a new MemoryMapping structure from the given regions
     pub fn new_from_regions(mut regions: Vec<MemoryRegion>) -> Self {
         regions.sort();
-        Self { regions }
+        Self {
+            regions: regions.into_boxed_slice(),
+        }
     }
 
     /// Given a list of regions translate from virtual machine to host address
