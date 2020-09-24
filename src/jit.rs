@@ -471,6 +471,8 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
             emit_push(jit, RBX);
             // Store PC in case the bounds check fails
             emit_load_imm(jit, R11, pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
+            // Force alignment of RAX
+            emit_alu64_imm32(jit, 0x81, 4, RAX, !7); // RAX &= !(8 - 1);
             // Upper bound check
             // if(RAX > MM_PROGRAM_START + (number_of_instructions - 1) * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
             emit_load_imm(jit, RBX, MM_PROGRAM_START as i64 + ((number_of_instructions - 1) * INSN_SIZE) as i64);
