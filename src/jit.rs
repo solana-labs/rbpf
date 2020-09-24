@@ -30,7 +30,7 @@ use crate::{
     user_error::UserError,
 };
 
-/// eBPF Jit-compiled program.
+/// Argument for executing a eBPF JIT-compiled program
 pub struct JitProgramArgument {
     /// The MemoryMapping to be used to run the compiled code
     pub memory_mapping: MemoryMapping,
@@ -38,7 +38,7 @@ pub struct JitProgramArgument {
     pub instruction_addresses: [*const u8; 1],
 }
 
-/// eBPF Jit-compiled program.
+/// eBPF JIT-compiled program
 pub struct JitProgram<E: UserDefinedError> {
     /// Call this with JitProgramArgument to execute the compiled code
     pub main: unsafe fn(u64, &JitProgramArgument) -> Result<u64, EbpfError<E>>,
@@ -461,35 +461,45 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
     }
     emit_push(jit, REGISTER_MAP[STACK_REG]);
 
-    emit_alu64_imm32(jit, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1)); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1);
-    emit_alu64_imm32(jit, 0x81, 0, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 3); // stack_ptr += CALL_FRAME_SIZE * 3;
+    // Store PC in case the bounds check fails
+    emit_load_imm(jit, R11, pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
 
     match dst {
         Value::Register(reg) => {
             // Move vm target_address into RAX
-            emit_mov(jit, reg, RAX);
-            emit_push(jit, RBX);
-            // Store PC in case the bounds check fails
-            emit_load_imm(jit, R11, pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
+            emit_mov(jit, reg, REGISTER_MAP[0]);
+            emit_push(jit, REGISTER_MAP[STACK_REG]);
             // Force alignment of RAX
-            emit_alu64_imm32(jit, 0x81, 4, RAX, !7); // RAX &= !(8 - 1);
+            emit_alu64_imm32(jit, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i32 - 1)); // RAX &= !(INSN_SIZE - 1);
             // Upper bound check
             // if(RAX > MM_PROGRAM_START + (number_of_instructions - 1) * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
-            emit_load_imm(jit, RBX, MM_PROGRAM_START as i64 + ((number_of_instructions - 1) * INSN_SIZE) as i64);
-            emit_cmp(jit, RBX, RAX);
+            emit_load_imm(jit, REGISTER_MAP[STACK_REG], MM_PROGRAM_START as i64 + ((number_of_instructions - 1) * INSN_SIZE) as i64);
+            emit_cmp(jit, REGISTER_MAP[STACK_REG], REGISTER_MAP[0]);
             emit_jcc(jit, 0x87, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Lower bound check
             // if(RAX < MM_PROGRAM_START) throw CALL_OUTSIDE_TEXT_SEGMENT;
-            emit_load_imm(jit, RBX, MM_PROGRAM_START as i64);
-            emit_cmp(jit, RBX, RAX);
+            emit_load_imm(jit, REGISTER_MAP[STACK_REG], MM_PROGRAM_START as i64);
+            emit_cmp(jit, REGISTER_MAP[STACK_REG], REGISTER_MAP[0]);
             emit_jcc(jit, 0x82, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Calculate offset relative to instruction_addresses
-            emit_alu64(jit, 0x29, RBX, RAX); // RAX -= MM_PROGRAM_START;
+            emit_alu64(jit, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0]); // RAX -= MM_PROGRAM_START;
             // Load host target_address from JitProgramArgument.instruction_addresses
-            emit_mov(jit, R10, RBX);
-            emit_alu64(jit, 0x01, RBX, RAX); // RAX += &JitProgramArgument as *const _;
-            emit_pop(jit, RBX);
-            emit_load(jit, OperandSize::S64, RAX, RAX, std::mem::size_of::<MemoryMapping>() as i32); // RAX = JitProgramArgument.instruction_addresses[RAX / 8];
+            emit_mov(jit, R10, REGISTER_MAP[STACK_REG]);
+            emit_alu64(jit, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0]); // RAX += &JitProgramArgument as *const _;
+            emit_pop(jit, REGISTER_MAP[STACK_REG]);
+            emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], std::mem::size_of::<MemoryMapping>() as i32); // RAX = JitProgramArgument.instruction_addresses[RAX / 8];
+        },
+        Value::Constant(_target_pc) => {},
+        _ => panic!()
+    }
+
+    emit_load(jit, OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], -8 * CALLEE_SAVED_REGISTERS.len() as i32); // load stack_ptr
+    emit_alu64_imm32(jit, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1)); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1);
+    emit_alu64_imm32(jit, 0x81, 0, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 3); // stack_ptr += CALL_FRAME_SIZE * 3;
+    emit_store(jit, OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, -8 * CALLEE_SAVED_REGISTERS.len() as i32); // store stack_ptr
+
+    match dst {
+        Value::Register(_reg) => {
             // callq *%rax
             emit1(jit, 0xff);
             emit1(jit, 0xd0);
@@ -706,9 +716,14 @@ impl<'a> JitMemory<'a> {
             }
         }
 
-        // Initialize registers
-        emit_mov(self, ARGUMENT_REGISTERS[2], R10); // JitProgramArgument
+        // Save JitProgramArgument
+        emit_mov(self, ARGUMENT_REGISTERS[2], R10);
+
+        // Initialize and save BPF stack pointer
         emit_load_imm(self, REGISTER_MAP[STACK_REG], MM_STACK_START as i64 + CALL_FRAME_SIZE as i64);
+        emit_push(self, REGISTER_MAP[STACK_REG]);
+
+        // Initialize other registers
         for reg in REGISTER_MAP.iter() {
             if *reg != REGISTER_MAP[1] && *reg != REGISTER_MAP[STACK_REG] {
                 emit_load_imm(self, *reg, 0);
@@ -1074,8 +1089,10 @@ impl<'a> JitMemory<'a> {
                     emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]), prog.len() / ebpf::INSN_SIZE, insn_ptr);
                 },
                 ebpf::EXIT      => {
+                    emit_load(self, OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], -8 * CALLEE_SAVED_REGISTERS.len() as i32); // load stack_ptr
                     emit_alu64_imm32(self, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1)); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1);
                     emit_alu64_imm32(self, 0x81, 5, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 2); // stack_ptr -= CALL_FRAME_SIZE * 2;
+                    emit_store(self, OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, -8 * CALLEE_SAVED_REGISTERS.len() as i32); // store stack_ptr
 
                     // if(stack_ptr < MM_STACK_START) goto exit;
                     emit_mov(self, REGISTER_MAP[0], R11);
