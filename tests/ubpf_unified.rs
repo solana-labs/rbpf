@@ -15,6 +15,7 @@ use common::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 use libc::c_char;
 use solana_rbpf::{
     assembler::assemble,
+    call_frames::MAX_CALL_DEPTH,
     ebpf::hash_symbol_name,
     elf::ELFError,
     error::EbpfError,
@@ -2134,6 +2135,62 @@ fn test_vm_jit_err_oob_callx_high() {
                 matches!(res.unwrap_err(),
                     EbpfError::CallOutsideTextSegment(pc, target_pc)
                     if pc == 31 && target_pc == 0xffffffff00000000
+                )
+            }
+        }
+    );
+}
+
+#[test]
+fn test_vm_jit_bpf_to_bpf_depth() {
+    for i in 0..MAX_CALL_DEPTH {
+        test_vm_and_jit_elf!(
+            "tests/elfs/multiple_file.so",
+            [i as u8],
+            (
+                hash_symbol_name(b"log") => Syscall::Function(bpf_syscall_string),
+            ),
+            { |res: ExecResult| { res.unwrap() == 0 } }
+        );
+    }
+}
+
+#[test]
+fn test_vm_jit_err_bpf_to_bpf_too_deep() {
+    test_vm_and_jit_elf!(
+        "tests/elfs/multiple_file.so",
+        [MAX_CALL_DEPTH as u8],
+        (
+            hash_symbol_name(b"log") => Syscall::Function(bpf_syscall_string),
+        ),
+        {
+            |res: ExecResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::CallDepthExceeded(depth)
+                    if depth == MAX_CALL_DEPTH
+                )
+            }
+        }
+    );
+}
+
+#[test]
+fn test_vm_jit_err_reg_stack_depth() {
+    test_vm_and_jit_asm!(
+        "
+        mov64 r0, 0x1
+        lsh64 r0, 0x20
+        callx 0x0
+        exit",
+        [],
+        (
+            hash_symbol_name(b"log") => Syscall::Function(bpf_syscall_string),
+        ),
+        {
+            |res: ExecResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::CallDepthExceeded(depth)
+                    if depth == MAX_CALL_DEPTH
                 )
             }
         }

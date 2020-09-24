@@ -24,7 +24,6 @@ extern crate thiserror;
 use libc::c_char;
 use solana_rbpf::{
     assembler::assemble,
-    call_frames::MAX_CALL_DEPTH,
     ebpf::{self},
     error::{EbpfError, UserDefinedError},
     fuzz::fuzz,
@@ -359,56 +358,6 @@ fn test_custom_entrypoint() {
         .unwrap();
     vm.execute_program().unwrap();
     assert_eq!(2, vm.get_total_instruction_count());
-}
-
-#[test]
-fn test_bpf_to_bpf_depth() {
-    let mut file = File::open("tests/elfs/multiple_file.so").expect("file open failed");
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-
-    let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
-
-    for i in 0..MAX_CALL_DEPTH {
-        let mem = [i as u8];
-        let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
-        vm.register_syscall_ex("log", Syscall::Function(bpf_syscall_string))
-            .unwrap();
-        assert_eq!(vm.execute_program().unwrap(), 0);
-    }
-}
-
-#[test]
-#[should_panic(expected = "CallDepthExceeded(20)")]
-fn test_bpf_to_bpf_too_deep() {
-    let mut file = File::open("tests/elfs/multiple_file.so").expect("file open failed");
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-
-    let mem = [MAX_CALL_DEPTH as u8];
-    let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
-    vm.register_syscall_ex("log", Syscall::Function(bpf_syscall_string))
-        .unwrap();
-
-    vm.execute_program().unwrap();
-}
-
-#[test]
-#[should_panic(expected = "CallDepthExceeded(20)")]
-fn test_call_reg_stack_depth() {
-    let prog = assemble(
-        "
-        mov64 r0, 0x1
-        lsh64 r0, 0x20
-        callx 0x0
-        exit",
-    )
-    .unwrap();
-
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    assert_eq!(42, vm.execute_program().unwrap());
 }
 
 fn write_insn(prog: &mut [u8], insn: usize, asm: &str) {
