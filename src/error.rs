@@ -75,7 +75,4 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Unsupported instruction
     #[error("Unsupported instruction at instruction {0}")]
     UnsupportedInstruction(usize),
-    /// Shift with overflow
-    #[error("Shift with overflow at instruction {0}")]
-    ShiftWithOverflow(usize),
 }

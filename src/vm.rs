@@ -561,19 +561,9 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::AND64_IMM  => reg[dst] &=  insn.imm as u64,
                 ebpf::AND64_REG  => reg[dst] &=  reg[src],
                 ebpf::LSH64_IMM  => reg[dst] <<= insn.imm as u64,
-                ebpf::LSH64_REG  => {
-                    if reg[src] >= 64 {
-                        return Err(EbpfError::ShiftWithOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
-                    }
-                                    reg[dst] <<= reg[src]
-                },
+                ebpf::LSH64_REG  => reg[dst] = reg[dst].wrapping_shl(reg[src] as u32),
                 ebpf::RSH64_IMM  => reg[dst] >>= insn.imm as u64,
-                ebpf::RSH64_REG  => {
-                    if reg[src] >= 64 {
-                        return Err(EbpfError::ShiftWithOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
-                    }
-                                    reg[dst] >>= reg[src]
-                },
+                ebpf::RSH64_REG  => reg[dst] = (reg[dst] as u64).wrapping_shr(reg[src] as u32),
                 ebpf::NEG64      => reg[dst] = -(reg[dst] as i64) as u64,
                 ebpf::MOD64_IMM  => reg[dst] %= insn.imm  as u64,
                 ebpf::MOD64_REG  => {
@@ -587,12 +577,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::MOV64_IMM  => reg[dst] =  insn.imm  as u64,
                 ebpf::MOV64_REG  => reg[dst] =  reg[src],
                 ebpf::ARSH64_IMM => reg[dst] = (reg[dst]  as i64 >> insn.imm) as u64,
-                ebpf::ARSH64_REG => {
-                    if reg[src] >= 64 {
-                        return Err(EbpfError::ShiftWithOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
-                    }
-                    reg[dst] = (reg[dst] as i64 >> reg[src]) as u64
-                },
+                ebpf::ARSH64_REG => reg[dst] = (reg[dst] as i64).wrapping_shr(reg[src] as u32) as u64,
 
                 // BPF_JMP class
                 ebpf::JA         =>                                            next_pc = (next_pc as isize + insn.off as isize) as usize,

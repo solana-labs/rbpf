@@ -864,6 +864,7 @@ impl<'a> JitMemory<'a> {
                 ebpf::LSH32_REG  => {
                     emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
+                    emit_alu64_imm32(self, 0x81, 4, RCX, 31); // Mask shift amount
                     emit_alu32(self, 0xd3, 4, dst);
                     emit_mov(self, R11, RCX);
                 },
@@ -871,6 +872,7 @@ impl<'a> JitMemory<'a> {
                 ebpf::RSH32_REG  => {
                     emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
+                    emit_alu64_imm32(self, 0x81, 4, RCX, 31); // Mask shift amount
                     emit_alu32(self, 0xd3, 5, dst);
                     emit_mov(self, R11, RCX);
                 },
@@ -883,6 +885,7 @@ impl<'a> JitMemory<'a> {
                 ebpf::ARSH32_REG => {
                     emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
+                    emit_alu64_imm32(self, 0x81, 4, RCX, 31); // Mask shift amount
                     emit_alu32(self, 0xd3, 7, dst);
                     emit_mov(self, R11, RCX);
                 },
@@ -924,6 +927,7 @@ impl<'a> JitMemory<'a> {
                 ebpf::LSH64_REG  => {
                     emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
+                    emit_alu64_imm32(self, 0x81, 4, RCX, 63); // Mask shift amount
                     emit_alu64(self, 0xd3, 4, dst);
                     emit_mov(self, R11, RCX);
                 },
@@ -931,6 +935,7 @@ impl<'a> JitMemory<'a> {
                 ebpf::RSH64_REG  => {
                     emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
+                    emit_alu64_imm32(self, 0x81, 4, RCX, 63); // Mask shift amount
                     emit_alu64(self, 0xd3, 5, dst);
                     emit_mov(self, R11, RCX);
                 },
@@ -943,6 +948,7 @@ impl<'a> JitMemory<'a> {
                 ebpf::ARSH64_REG => {
                     emit_mov(self, RCX, R11);
                     emit_mov(self, src, RCX);
+                    emit_alu64_imm32(self, 0x81, 4, RCX, 63); // Mask shift amount
                     emit_alu64(self, 0xd3, 7, dst);
                     emit_mov(self, R11, RCX);
                 },
@@ -1141,7 +1147,7 @@ impl<'a> JitMemory<'a> {
         let err = Result::<u64, EbpfError<E>>::Err(EbpfError::CallDepthExceeded(0, 0));
         let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
         emit_load_imm(self, REGISTER_MAP[0], err_kind as i64);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8); // err_kind = EbpfError::CallOutsideTextSegment
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8); // err_kind = EbpfError::CallDepthExceeded
         emit_load_imm(self, REGISTER_MAP[0], MAX_CALL_DEPTH as i64);
         emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // depth = MAX_CALL_DEPTH
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
