@@ -468,7 +468,6 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
         Value::Register(reg) => {
             // Move vm target_address into RAX
             emit_mov(jit, reg, REGISTER_MAP[0]);
-            emit_push(jit, REGISTER_MAP[STACK_REG]);
             // Force alignment of RAX
             emit_alu64_imm32(jit, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i32 - 1)); // RAX &= !(INSN_SIZE - 1);
             // Upper bound check
@@ -486,7 +485,6 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
             // Load host target_address from JitProgramArgument.instruction_addresses
             emit_mov(jit, R10, REGISTER_MAP[STACK_REG]);
             emit_alu64(jit, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0]); // RAX += &JitProgramArgument as *const _;
-            emit_pop(jit, REGISTER_MAP[STACK_REG]);
             emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], std::mem::size_of::<MemoryMapping>() as i32); // RAX = JitProgramArgument.instruction_addresses[RAX / 8];
         },
         Value::Constant(_target_pc) => {},
