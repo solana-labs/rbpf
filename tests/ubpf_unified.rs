@@ -644,7 +644,7 @@ fn test_vm_jit_err_div64_by_zero_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 2) }
+        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) }
     );
 }
 
@@ -658,7 +658,7 @@ fn test_vm_jit_err_div_by_zero_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 2) }
+        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) }
     );
 }
 
@@ -719,7 +719,7 @@ fn test_vm_jit_err_mod64_by_zero_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 2) }
+        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) }
     );
 }
 
@@ -733,7 +733,7 @@ fn test_vm_jit_err_mod_by_zero_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 2) }
+        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) }
     );
 }
 

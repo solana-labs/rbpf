@@ -499,7 +499,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::DIV32_IMM  => reg[dst] = (reg[dst] as u32 / insn.imm as u32)               as u64,
                 ebpf::DIV32_REG  => {
                     if reg[src] as u32 == 0 {
-                        return Err(EbpfError::DivideByZero(pc));
+                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                                     reg[dst] = (reg[dst] as u32 / reg[src] as u32)               as u64;
                 },
@@ -515,7 +515,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::MOD32_IMM  =>   reg[dst] = (reg[dst] as u32             % insn.imm as u32) as u64,
                 ebpf::MOD32_REG  => {
                     if reg[src] as u32 == 0 {
-                        return Err(EbpfError::DivideByZero(pc));
+                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                                       reg[dst] = (reg[dst] as u32            % reg[src]  as u32) as u64;
                 },
@@ -530,7 +530,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                         16 => (reg[dst] as u16).to_le() as u64,
                         32 => (reg[dst] as u32).to_le() as u64,
                         64 =>  reg[dst].to_le(),
-                        _  => return Err(EbpfError::UnsupportedInstruction(pc)),
+                        _  => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
                     };
                 },
                 ebpf::BE         => {
@@ -538,7 +538,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                         16 => (reg[dst] as u16).to_be() as u64,
                         32 => (reg[dst] as u32).to_be() as u64,
                         64 =>  reg[dst].to_be(),
-                        _  => return Err(EbpfError::UnsupportedInstruction(pc)),
+                        _  => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
                     };
                 },
 
@@ -552,7 +552,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::DIV64_IMM  => reg[dst] /= insn.imm as u64,
                 ebpf::DIV64_REG  => {
                     if reg[src] == 0 {
-                        return Err(EbpfError::DivideByZero(pc));
+                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                     reg[dst] /= reg[src];
                 },
@@ -563,14 +563,14 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::LSH64_IMM  => reg[dst] <<= insn.imm as u64,
                 ebpf::LSH64_REG  => {
                     if reg[src] >= 64 {
-                        return Err(EbpfError::ShiftWithOverflow(pc));
+                        return Err(EbpfError::ShiftWithOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                                     reg[dst] <<= reg[src]
                 },
                 ebpf::RSH64_IMM  => reg[dst] >>= insn.imm as u64,
                 ebpf::RSH64_REG  => {
                     if reg[src] >= 64 {
-                        return Err(EbpfError::ShiftWithOverflow(pc));
+                        return Err(EbpfError::ShiftWithOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                                     reg[dst] >>= reg[src]
                 },
@@ -578,7 +578,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::MOD64_IMM  => reg[dst] %= insn.imm  as u64,
                 ebpf::MOD64_REG  => {
                     if reg[src] == 0 {
-                        return Err(EbpfError::DivideByZero(pc));
+                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                                     reg[dst] %= reg[src];
                 },
@@ -589,7 +589,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 ebpf::ARSH64_IMM => reg[dst] = (reg[dst]  as i64 >> insn.imm) as u64,
                 ebpf::ARSH64_REG => {
                     if reg[src] >= 64 {
-                        return Err(EbpfError::ShiftWithOverflow(pc));
+                        return Err(EbpfError::ShiftWithOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                     reg[dst] = (reg[dst] as i64 >> reg[src]) as u64
                 },
@@ -687,7 +687,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                         }
                     }
                 }
-                _ => return Err(EbpfError::UnsupportedInstruction(pc)),
+                _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
             }
             if self.last_insn_count >= remaining_insn_count {
                 return Err(EbpfError::ExceededMaxInstructions(self.total_insn_count));

@@ -613,7 +613,7 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
 
     if div || modrm {
         // Save pc
-        emit_load_imm(jit, R11, pc as i64);
+        emit_load_imm(jit, R11, pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
 
         // test src,src
         if is64 {
