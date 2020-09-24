@@ -23,7 +23,7 @@ use std::ops::{Index, IndexMut};
 
 use crate::{
     vm::{Executable, Syscall},
-    call_frames::CALL_FRAME_SIZE,
+    call_frames::{CALL_FRAME_SIZE, MAX_CALL_DEPTH},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, STACK_REG, MM_STACK_START, MM_PROGRAM_START},
     error::{UserDefinedError, EbpfError},
     memory_region::{AccessType, MemoryMapping},
@@ -81,9 +81,10 @@ pub enum JITError {
 const TARGET_OFFSET: isize = ebpf::PROG_MAX_INSNS as isize;
 const TARGET_PC_EXIT: isize = TARGET_OFFSET + 1;
 const TARGET_PC_EPILOGUE: isize = TARGET_OFFSET + 2;
-const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: isize = TARGET_OFFSET + 3;
-const TARGET_PC_DIV_BY_ZERO: isize = TARGET_OFFSET + 4;
-const TARGET_PC_EXCEPTION_AT: isize = TARGET_OFFSET + 5;
+const TARGET_PC_CALL_DEPTH_EXCEEDED: isize = TARGET_OFFSET + 3;
+const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: isize = TARGET_OFFSET + 4;
+const TARGET_PC_DIV_BY_ZERO: isize = TARGET_OFFSET + 5;
+const TARGET_PC_EXCEPTION_AT: isize = TARGET_OFFSET + 6;
 
 #[derive(Copy, Clone)]
 enum OperandSize {
@@ -471,10 +472,10 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
             // Force alignment of RAX
             emit_alu64_imm32(jit, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i32 - 1)); // RAX &= !(INSN_SIZE - 1);
             // Upper bound check
-            // if(RAX > MM_PROGRAM_START + (number_of_instructions - 1) * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
-            emit_load_imm(jit, REGISTER_MAP[STACK_REG], MM_PROGRAM_START as i64 + ((number_of_instructions - 1) * INSN_SIZE) as i64);
+            // if(RAX >= MM_PROGRAM_START + number_of_instructions * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
+            emit_load_imm(jit, REGISTER_MAP[STACK_REG], MM_PROGRAM_START as i64 + (number_of_instructions * INSN_SIZE) as i64);
             emit_cmp(jit, REGISTER_MAP[STACK_REG], REGISTER_MAP[0]);
-            emit_jcc(jit, 0x87, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
+            emit_jcc(jit, 0x83, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Lower bound check
             // if(RAX < MM_PROGRAM_START) throw CALL_OUTSIDE_TEXT_SEGMENT;
             emit_load_imm(jit, REGISTER_MAP[STACK_REG], MM_PROGRAM_START as i64);
@@ -495,6 +496,13 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
     emit_alu64_imm32(jit, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1)); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1);
     emit_alu64_imm32(jit, 0x81, 0, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 3); // stack_ptr += CALL_FRAME_SIZE * 3;
     emit_store(jit, OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, -8 * CALLEE_SAVED_REGISTERS.len() as i32); // store stack_ptr
+
+    // if(stack_ptr >= MM_STACK_START + MAX_CALL_DEPTH * CALL_FRAME_SIZE * 2) throw EbpfError::CallDepthExeeded;
+    emit_mov(jit, REGISTER_MAP[0], R11);
+    emit_load_imm(jit, REGISTER_MAP[0], MM_STACK_START as i64 + (MAX_CALL_DEPTH * CALL_FRAME_SIZE * 2) as i64);
+    emit_cmp(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
+    emit_mov(jit, R11, REGISTER_MAP[0]);
+    emit_jcc(jit, 0x83, TARGET_PC_CALL_DEPTH_EXCEEDED);
 
     match dst {
         Value::Register(_reg) => {
@@ -720,6 +728,10 @@ impl<'a> JitMemory<'a> {
         // Initialize and save BPF stack pointer
         emit_load_imm(self, REGISTER_MAP[STACK_REG], MM_STACK_START as i64 + CALL_FRAME_SIZE as i64);
         emit_push(self, REGISTER_MAP[STACK_REG]);
+
+        // Padding on the stack to reach 16 byte alignment
+        emit_load_imm(self, R11, 0);
+        emit_push(self, R11);
 
         // Initialize other registers
         for reg in REGISTER_MAP.iter() {
@@ -1132,6 +1144,18 @@ impl<'a> JitMemory<'a> {
         }
 
         emit1(self, 0xc3); // ret
+
+        // Handler for EbpfError::CallDepthExceeded
+        set_anchor(self, TARGET_PC_CALL_DEPTH_EXCEEDED);
+        let err = Result::<u64, EbpfError<E>>::Err(EbpfError::CallDepthExceeded(0));
+        let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
+        emit_load_imm(self, REGISTER_MAP[0], err_kind as i64);
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8); // err_kind = EbpfError::CallOutsideTextSegment
+        emit_load_imm(self, REGISTER_MAP[0], MAX_CALL_DEPTH as i64);
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 16); // depth = MAX_CALL_DEPTH
+        emit_load_imm(self, REGISTER_MAP[0], 1);
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 0); // is_err = true
+        emit_jmp(self, TARGET_PC_EPILOGUE);
 
         // Handler for EbpfError::CallOutsideTextSegment
         set_anchor(self, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
