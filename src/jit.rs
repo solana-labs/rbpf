@@ -67,16 +67,6 @@ struct SyscallTraitObject {
     pub vtable: *const SyscallObjectVtable,
 }
 
-/// Error definitions
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum JITError {
-    /// Failed to parse ELF file
-    #[error("Unknown eBPF opcode {0:#2x} (insn #{1:?})")]
-    UnknownOpCode(u8, usize),
-    #[error("Unsupported (insn #{0:?})")]
-    Unsupported(usize),
-}
-
 // Special values for target_pc in struct Jump
 const TARGET_OFFSET: isize = ebpf::PROG_MAX_INSNS as isize;
 const TARGET_PC_EXIT: isize = TARGET_OFFSET + 1;
@@ -1116,7 +1106,7 @@ impl<'a> JitMemory<'a> {
                     emit1(self, 0xc3); // ret near
                 },
 
-                _               => return Err(EbpfError::JITError(JITError::UnknownOpCode(insn.opc, insn_ptr))),
+                _               => return Err(EbpfError::UnsupportedInstruction(insn_ptr)),
             }
 
             insn_ptr += 1;
@@ -1184,7 +1174,7 @@ impl<'a> JitMemory<'a> {
         Ok(())
     }
 
-    fn resolve_jumps(&mut self) -> Result<(), JITError> {
+    fn resolve_jumps(&mut self) {
         for jump in &self.jumps {
             let target_loc = match self.special_targets.get(&jump.target_pc) {
                 Some(target) => *target,
@@ -1202,7 +1192,6 @@ impl<'a> JitMemory<'a> {
                              std::mem::size_of::<i32>());
             }
         }
-        Ok(())
     }
 } // struct JitMemory
 
@@ -1246,7 +1235,7 @@ pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8],
     // possible length
     let mut jit = JitMemory::new(1);
     jit.jit_compile(prog, executable, syscalls)?;
-    jit.resolve_jumps()?;
+    jit.resolve_jumps();
 
     Ok(JitProgram {
         main: unsafe { mem::transmute(jit.contents.as_ptr()) },

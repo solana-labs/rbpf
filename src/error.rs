@@ -17,7 +17,7 @@
 //! <https://www.kernel.org/doc/Documentation/networking/filter.txt>, or for a shorter version of
 //! the list of the operation codes: <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md>
 
-use crate::{elf::ELFError, jit::JITError, memory_region::AccessType};
+use crate::{elf::ELFError, memory_region::AccessType};
 
 /// User defined errors must implement this trait
 pub trait UserDefinedError: 'static + std::error::Error {}
@@ -31,9 +31,6 @@ pub enum EbpfError<E: UserDefinedError> {
     /// ELF error
     #[error("ELF error: {0}")]
     ELFError(#[from] ELFError),
-    /// JIT error
-    #[error("JIT error: {0}")]
-    JITError(#[from] JITError),
     /// No program or ELF set
     #[error("no program or ELF set")]
     NothingToExecute,
