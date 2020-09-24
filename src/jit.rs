@@ -12,6 +12,8 @@
 #![cfg_attr(rustfmt, rustfmt_skip)]
 #![allow(unreachable_code)]
 
+extern crate libc;
+
 use std;
 use std::mem;
 use std::collections::HashMap;
@@ -27,8 +29,6 @@ use crate::{
     memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
 };
-
-extern crate libc;
 
 /// eBPF Jit-compiled program.
 pub struct JitProgramArgument {
