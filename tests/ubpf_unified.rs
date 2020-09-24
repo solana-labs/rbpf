@@ -2166,8 +2166,8 @@ fn test_vm_jit_err_bpf_to_bpf_too_deep() {
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
-                    EbpfError::CallDepthExceeded(depth)
-                    if depth == MAX_CALL_DEPTH
+                    EbpfError::CallDepthExceeded(pc, depth)
+                    if pc == 55 && depth == MAX_CALL_DEPTH
                 )
             }
         }
@@ -2189,8 +2189,8 @@ fn test_vm_jit_err_reg_stack_depth() {
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
-                    EbpfError::CallDepthExceeded(depth)
-                    if depth == MAX_CALL_DEPTH
+                    EbpfError::CallDepthExceeded(pc, depth)
+                    if pc == 31 && depth == MAX_CALL_DEPTH
                 )
             }
         }

@@ -1,7 +1,7 @@
 //! Call frame handler
 
 use crate::{
-    ebpf::{MM_STACK_START, SCRATCH_REGS},
+    ebpf::{ELF_INSN_DUMP_OFFSET, MM_STACK_START, SCRATCH_REGS},
     error::{EbpfError, UserDefinedError},
     memory_region::MemoryRegion,
 };
@@ -93,7 +93,10 @@ impl CallFrames {
         return_ptr: usize,
     ) -> Result<u64, EbpfError<E>> {
         if self.frame + 1 >= self.frames.len() {
-            return Err(EbpfError::CallDepthExceeded(self.frames.len()));
+            return Err(EbpfError::CallDepthExceeded(
+                return_ptr + ELF_INSN_DUMP_OFFSET - 1,
+                self.frames.len(),
+            ));
         }
         self.frames[self.frame].saved_reg[..].copy_from_slice(saved_reg);
         self.frames[self.frame].return_ptr = return_ptr;

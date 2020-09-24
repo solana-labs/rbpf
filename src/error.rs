@@ -38,8 +38,8 @@ pub enum EbpfError<E: UserDefinedError> {
     #[error("no program or ELF set")]
     NothingToExecute,
     /// Exceeded max BPF to BPF call depth
-    #[error("exceeded max BPF to BPF call depth of {0}")]
-    CallDepthExceeded(usize),
+    #[error("exceeded max BPF to BPF call depth of {1} at instruction #{0}")]
+    CallDepthExceeded(usize, usize),
     /// Attempt to exit from root call frame
     #[error("attempted to exit root call frame")]
     ExitRootCallFrame,
