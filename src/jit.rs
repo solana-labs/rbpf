@@ -273,7 +273,6 @@ fn emit_mov(jit: &mut JitMemory, src: u8, dst: u8) {
 }
 
 // Register to register exchange / swap
-#[allow(dead_code)]
 #[inline]
 fn emit_xchg(jit: &mut JitMemory, src: u8, dst: u8) {
     emit_alu(jit, 1, 0x87, src, dst, 0, None);
@@ -833,19 +832,17 @@ impl<'a> JitMemory<'a> {
                 ebpf::AND32_REG  => emit_alu(self, 0, 0x21, src, dst, 0, None),
                 ebpf::LSH32_IMM  => emit_alu(self, 0, 0xc1, 4, dst, insn.imm, None),
                 ebpf::LSH32_REG  => {
-                    emit_mov(self, RCX, R11);
-                    emit_mov(self, src, RCX);
+                    emit_xchg(self, src, RCX);
                     emit_alu(self, 1, 0x81, 4, RCX, 31, None); // Mask shift amount
                     emit_alu(self, 0, 0xd3, 4, dst, 0, None);
-                    emit_mov(self, R11, RCX);
+                    emit_xchg(self, RCX, src);
                 },
                 ebpf::RSH32_IMM  => emit_alu(self, 0, 0xc1, 5, dst, insn.imm, None),
                 ebpf::RSH32_REG  => {
-                    emit_mov(self, RCX, R11);
-                    emit_mov(self, src, RCX);
+                    emit_xchg(self, src, RCX);
                     emit_alu(self, 1, 0x81, 4, RCX, 31, None); // Mask shift amount
                     emit_alu(self, 0, 0xd3, 5, dst, 0, None);
-                    emit_mov(self, R11, RCX);
+                    emit_xchg(self, RCX, src);
                 },
                 ebpf::NEG32      => emit_alu(self, 0, 0xf7, 3, dst, 0, None),
                 ebpf::XOR32_IMM  => emit_alu(self, 0, 0x81, 6, dst, insn.imm, None),
@@ -854,11 +851,10 @@ impl<'a> JitMemory<'a> {
                 ebpf::MOV32_REG  => emit_mov(self, src, dst),
                 ebpf::ARSH32_IMM => emit_alu(self, 0, 0xc1, 7, dst, insn.imm, None),
                 ebpf::ARSH32_REG => {
-                    emit_mov(self, RCX, R11);
-                    emit_mov(self, src, RCX);
+                    emit_xchg(self, src, RCX);
                     emit_alu(self, 1, 0x81, 4, RCX, 31, None); // Mask shift amount
                     emit_alu(self, 0, 0xd3, 7, dst, 0, None);
-                    emit_mov(self, R11, RCX);
+                    emit_xchg(self, RCX, src);
                 },
                 ebpf::LE         => {}, // No-op
                 ebpf::BE         => {
@@ -896,19 +892,17 @@ impl<'a> JitMemory<'a> {
                 ebpf::AND64_REG  => emit_alu(self, 1, 0x21, src, dst, 0, None),
                 ebpf::LSH64_IMM  => emit_alu(self, 1, 0xc1, 4, dst, insn.imm, None),
                 ebpf::LSH64_REG  => {
-                    emit_mov(self, RCX, R11);
-                    emit_mov(self, src, RCX);
+                    emit_xchg(self, src, RCX);
                     emit_alu(self, 1, 0x81, 4, RCX, 63, None); // Mask shift amount
                     emit_alu(self, 1, 0xd3, 4, dst, 0, None);
-                    emit_mov(self, R11, RCX);
+                    emit_xchg(self, RCX, src);
                 },
                 ebpf::RSH64_IMM  => emit_alu(self, 1, 0xc1, 5, dst, insn.imm, None),
                 ebpf::RSH64_REG  => {
-                    emit_mov(self, RCX, R11);
-                    emit_mov(self, src, RCX);
+                    emit_xchg(self, src, RCX);
                     emit_alu(self, 1, 0x81, 4, RCX, 63, None); // Mask shift amount
                     emit_alu(self, 1, 0xd3, 5, dst, 0, None);
-                    emit_mov(self, R11, RCX);
+                    emit_xchg(self, RCX, src);
                 },
                 ebpf::NEG64      => emit_alu(self, 1, 0xf7, 3, dst, 0, None),
                 ebpf::XOR64_IMM  => emit_alu(self, 1, 0x81, 6, dst, insn.imm, None),
@@ -917,11 +911,10 @@ impl<'a> JitMemory<'a> {
                 ebpf::MOV64_REG  => emit_mov(self, src, dst),
                 ebpf::ARSH64_IMM => emit_alu(self, 1, 0xc1, 7, dst, insn.imm, None),
                 ebpf::ARSH64_REG => {
-                    emit_mov(self, RCX, R11);
-                    emit_mov(self, src, RCX);
+                    emit_xchg(self, src, RCX);
                     emit_alu(self, 1, 0x81, 4, RCX, 63, None); // Mask shift amount
                     emit_alu(self, 1, 0xd3, 7, dst, 0, None);
-                    emit_mov(self, R11, RCX);
+                    emit_xchg(self, RCX, src);
                 },
 
                 // BPF_JMP class
