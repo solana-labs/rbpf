@@ -256,13 +256,13 @@ fn emit_alu(jit: &mut JitMemory, w: u8, op: u8, src: u8, dst: u8, imm: i32, disp
         },
         None => {
             emit_modrm_reg2reg(jit, src, dst);
-            match op {
-                0xc1 => emit1(jit, imm as u8),
-                0x81 | 0xc7 => emit4(jit, imm as u32),
-                0xf7 if src == 0 => emit4(jit, imm as u32),
-                _ => {}
-            }
         }
+    }
+    match op {
+        0xc1 => emit1(jit, imm as u8),
+        0x81 | 0xc7 => emit4(jit, imm as u32),
+        0xf7 if src == 0 => emit4(jit, imm as u32),
+        _ => {}
     }
 }
 
@@ -280,13 +280,13 @@ fn emit_xchg(jit: &mut JitMemory, src: u8, dst: u8) {
 }
 
 #[inline]
-fn emit_cmp_imm32(jit: &mut JitMemory, dst: u8, imm: i32) {
-    emit_alu(jit, 1, 0x81, 7, dst, imm, None);
+fn emit_cmp_imm32(jit: &mut JitMemory, dst: u8, imm: i32, displacement: Option<i32>) {
+    emit_alu(jit, 1, 0x81, 7, dst, imm, displacement);
 }
 
 #[inline]
-fn emit_cmp(jit: &mut JitMemory, src: u8, dst: u8) {
-    emit_alu(jit, 1, 0x39, src, dst, 0, None);
+fn emit_cmp(jit: &mut JitMemory, src: u8, dst: u8, displacement: Option<i32>) {
+    emit_alu(jit, 1, 0x39, src, dst, 0, displacement);
 }
 
 #[inline]
@@ -437,12 +437,12 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
             // Upper bound check
             // if(RAX >= MM_PROGRAM_START + number_of_instructions * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
             emit_load_imm(jit, REGISTER_MAP[STACK_REG], MM_PROGRAM_START as i64 + (number_of_instructions * INSN_SIZE) as i64);
-            emit_cmp(jit, REGISTER_MAP[STACK_REG], REGISTER_MAP[0]);
+            emit_cmp(jit, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], None);
             emit_jcc(jit, 0x83, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Lower bound check
             // if(RAX < MM_PROGRAM_START) throw CALL_OUTSIDE_TEXT_SEGMENT;
             emit_load_imm(jit, REGISTER_MAP[STACK_REG], MM_PROGRAM_START as i64);
-            emit_cmp(jit, REGISTER_MAP[STACK_REG], REGISTER_MAP[0]);
+            emit_cmp(jit, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], None);
             emit_jcc(jit, 0x82, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Calculate offset relative to instruction_addresses
             emit_alu(jit, 1, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX -= MM_PROGRAM_START;
@@ -461,10 +461,8 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
     emit_store(jit, OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, -8 * CALLEE_SAVED_REGISTERS.len() as i32); // store stack_ptr
 
     // if(stack_ptr >= MM_STACK_START + MAX_CALL_DEPTH * CALL_FRAME_SIZE * 2) throw EbpfError::CallDepthExeeded;
-    emit_mov(jit, REGISTER_MAP[0], R11);
-    emit_load_imm(jit, REGISTER_MAP[0], MM_STACK_START as i64 + (MAX_CALL_DEPTH * CALL_FRAME_SIZE * 2) as i64);
-    emit_cmp(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
-    emit_mov(jit, R11, REGISTER_MAP[0]);
+    emit_load_imm(jit, R11, MM_STACK_START as i64 + (MAX_CALL_DEPTH * CALL_FRAME_SIZE * 2) as i64);
+    emit_cmp(jit, R11, REGISTER_MAP[STACK_REG], None);
     // Store PC in case the bounds check fails
     emit_load_imm(jit, R11, pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
     emit_jcc(jit, 0x83, TARGET_PC_CALL_DEPTH_EXCEEDED);
@@ -548,8 +546,7 @@ fn emit_rust_call(jit: &mut JitMemory, function: *const u8, arguments: &[Argumen
     }
 
     // Test if result indicates that an error occured
-    emit_load(jit, OperandSize::S64, RDI, R11, 0);
-    emit_alu(jit, 1, 0x85, R11, R11, 0, None);
+    emit_cmp_imm32(jit, RDI, 0, Some(0));
 }
 
 #[inline]
@@ -930,43 +927,43 @@ impl<'a> JitMemory<'a> {
                 // BPF_JMP class
                 ebpf::JA         => emit_jmp(self, target_pc),
                 ebpf::JEQ_IMM    => {
-                    emit_cmp_imm32(self, dst, insn.imm);
+                    emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x84, target_pc);
                 },
                 ebpf::JEQ_REG    => {
-                    emit_cmp(self, src, dst);
+                    emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x84, target_pc);
                 },
                 ebpf::JGT_IMM    => {
-                    emit_cmp_imm32(self, dst, insn.imm);
+                    emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x87, target_pc);
                 },
                 ebpf::JGT_REG    => {
-                    emit_cmp(self, src, dst);
+                    emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x87, target_pc);
                 },
                 ebpf::JGE_IMM    => {
-                    emit_cmp_imm32(self, dst, insn.imm);
+                    emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x83, target_pc);
                 },
                 ebpf::JGE_REG    => {
-                    emit_cmp(self, src, dst);
+                    emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x83, target_pc);
                 },
                 ebpf::JLT_IMM    => {
-                    emit_cmp_imm32(self, dst, insn.imm);
+                    emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x82, target_pc);
                 },
                 ebpf::JLT_REG    => {
-                    emit_cmp(self, src, dst);
+                    emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x82, target_pc);
                 },
                 ebpf::JLE_IMM    => {
-                    emit_cmp_imm32(self, dst, insn.imm);
+                    emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x86, target_pc);
                 },
                 ebpf::JLE_REG    => {
-                    emit_cmp(self, src, dst);
+                    emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x86, target_pc);
                 },
                 ebpf::JSET_IMM   => {
@@ -978,43 +975,43 @@ impl<'a> JitMemory<'a> {
                     emit_jcc(self, 0x85, target_pc);
                 },
                 ebpf::JNE_IMM    => {
-                    emit_cmp_imm32(self, dst, insn.imm);
+                    emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x85, target_pc);
                 },
                 ebpf::JNE_REG    => {
-                    emit_cmp(self, src, dst);
+                    emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x85, target_pc);
                 },
                 ebpf::JSGT_IMM   => {
-                    emit_cmp_imm32(self, dst, insn.imm);
+                    emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x8f, target_pc);
                 },
                 ebpf::JSGT_REG   => {
-                    emit_cmp(self, src, dst);
+                    emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x8f, target_pc);
                 },
                 ebpf::JSGE_IMM   => {
-                    emit_cmp_imm32(self, dst, insn.imm);
+                    emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x8d, target_pc);
                 },
                 ebpf::JSGE_REG   => {
-                    emit_cmp(self, src, dst);
+                    emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x8d, target_pc);
                 },
                 ebpf::JSLT_IMM   => {
-                    emit_cmp_imm32(self, dst, insn.imm);
+                    emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x8c, target_pc);
                 },
                 ebpf::JSLT_REG   => {
-                    emit_cmp(self, src, dst);
+                    emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x8c, target_pc);
                 },
                 ebpf::JSLE_IMM   => {
-                    emit_cmp_imm32(self, dst, insn.imm);
+                    emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x8e, target_pc);
                 },
                 ebpf::JSLE_REG   => {
-                    emit_cmp(self, src, dst);
+                    emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x8e, target_pc);
                 },
                 ebpf::CALL_IMM   => {
@@ -1078,7 +1075,7 @@ impl<'a> JitMemory<'a> {
                     // if(stack_ptr < MM_STACK_START) goto exit;
                     emit_mov(self, REGISTER_MAP[0], R11);
                     emit_load_imm(self, REGISTER_MAP[0], MM_STACK_START as i64);
-                    emit_cmp(self, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
+                    emit_cmp(self, REGISTER_MAP[0], REGISTER_MAP[STACK_REG], None);
                     emit_mov(self, R11, REGISTER_MAP[0]);
                     emit_jcc(self, 0x82, TARGET_PC_EXIT);
 
