@@ -675,7 +675,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
             }
             if self.last_insn_count >= remaining_insn_count {
-                return Err(EbpfError::ExceededMaxInstructions(self.total_insn_count));
+                return Err(EbpfError::ExceededMaxInstructions(pc + ebpf::ELF_INSN_DUMP_OFFSET, self.total_insn_count));
             }
         }
 

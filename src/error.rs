@@ -55,8 +55,8 @@ pub enum EbpfError<E: UserDefinedError> {
     #[error("unresolved symbol at instruction #{0}")]
     UnresolvedSymbol(usize),
     /// Exceeded max instructions allowed
-    #[error("exceeded maximum number of instructions allowed ({0})")]
-    ExceededMaxInstructions(u64),
+    #[error("exceeded maximum number of instructions allowed ({1}) at instruction #{0}")]
+    ExceededMaxInstructions(usize, u64),
     /// JIT does not support read only data
     #[error("JIT does not support read only data")]
     ReadOnlyDataUnsupported,

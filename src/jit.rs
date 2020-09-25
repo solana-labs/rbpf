@@ -71,10 +71,11 @@ struct SyscallTraitObject {
 const TARGET_OFFSET: isize = ebpf::PROG_MAX_INSNS as isize;
 const TARGET_PC_EXIT: isize = TARGET_OFFSET + 1;
 const TARGET_PC_EPILOGUE: isize = TARGET_OFFSET + 2;
-const TARGET_PC_CALL_DEPTH_EXCEEDED: isize = TARGET_OFFSET + 3;
-const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: isize = TARGET_OFFSET + 4;
-const TARGET_PC_DIV_BY_ZERO: isize = TARGET_OFFSET + 5;
-const TARGET_PC_EXCEPTION_AT: isize = TARGET_OFFSET + 6;
+const TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS: isize = TARGET_OFFSET + 3;
+const TARGET_PC_CALL_DEPTH_EXCEEDED: isize = TARGET_OFFSET + 4;
+const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: isize = TARGET_OFFSET + 5;
+const TARGET_PC_DIV_BY_ZERO: isize = TARGET_OFFSET + 6;
+const TARGET_PC_EXCEPTION_AT: isize = TARGET_OFFSET + 7;
 
 #[derive(Copy, Clone)]
 enum OperandSize {
@@ -651,9 +652,19 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
     }
 }
 
-fn profile_instruction_count(jit: &mut JitMemory, instruction_count: usize) {
+#[inline]
+fn profile_instruction_count(jit: &mut JitMemory, _pc: usize, instruction_count: usize) {
     emit_alu(jit, 1, 0x81, 0, RBP, instruction_count as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += instruction_count;
-    // TODO: Throw if depleted
+    // emit_cmp_imm32(jit, RBP, , Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32));
+    // emit_load_imm(jit, R11, pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
+    // emit_jcc(jit, 0x85, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
+}
+
+#[inline]
+fn set_exception_kind<E: UserDefinedError>(jit: &mut JitMemory, err: EbpfError<E>) {
+    let err = Result::<u64, EbpfError<E>>::Err(err);
+    let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
+    emit_store_imm32(jit, OperandSize::S64, RDI, 8, err_kind as i32);
 }
 
 #[derive(Debug)]
@@ -739,7 +750,7 @@ impl<'a> JitMemory<'a> {
 
             self.pc_locs[insn_ptr] = self.offset;
 
-            profile_instruction_count(self, 1);
+            profile_instruction_count(self, insn_ptr, 1);
 
             let dst = map_register(insn.dst);
             let src = map_register(insn.src);
@@ -1133,27 +1144,28 @@ impl<'a> JitMemory<'a> {
 
         emit1(self, 0xc3); // ret
 
+        // Handler for EbpfError::ExceededMaxInstructions
+        set_anchor(self, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
+        set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0));
+        emit_load(self, OperandSize::S64, RBP, REGISTER_MAP[0], -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32); // load instruction_meter
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // total_insn_count = instruction_meter
+        emit_jmp(self, TARGET_PC_EXCEPTION_AT);
+
         // Handler for EbpfError::CallDepthExceeded
         set_anchor(self, TARGET_PC_CALL_DEPTH_EXCEEDED);
-        let err = Result::<u64, EbpfError<E>>::Err(EbpfError::CallDepthExceeded(0, 0));
-        let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
-        emit_store_imm32(self, OperandSize::S64, RDI, 8, err_kind as i32); // err_kind = EbpfError::CallDepthExceeded
+        set_exception_kind::<E>(self, EbpfError::CallDepthExceeded(0, 0));
         emit_store_imm32(self, OperandSize::S64, RDI, 24, MAX_CALL_DEPTH as i32); // depth = MAX_CALL_DEPTH
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::CallOutsideTextSegment
         set_anchor(self, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
+        set_exception_kind::<E>(self, EbpfError::CallOutsideTextSegment(0, 0));
         emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // target_address = RAX
-        let err = Result::<u64, EbpfError<E>>::Err(EbpfError::CallOutsideTextSegment(0, 0));
-        let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
-        emit_store_imm32(self, OperandSize::S64, RDI, 8, err_kind as i32); // err_kind = EbpfError::CallOutsideTextSegment
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::DivideByZero
         set_anchor(self, TARGET_PC_DIV_BY_ZERO);
-        let err = Result::<u64, EbpfError<E>>::Err(EbpfError::DivideByZero(0));
-        let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
-        emit_store_imm32(self, OperandSize::S64, RDI, 8, err_kind as i32); // err_kind = EbpfError::DivideByZero
+        set_exception_kind::<E>(self, EbpfError::DivideByZero(0));
         // Fall-through to TARGET_PC_EXCEPTION_AT
 
         // Handler for exceptions which report their PC

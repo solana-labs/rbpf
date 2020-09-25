@@ -215,7 +215,7 @@ impl InstructionMeter for TestInstructionMeter {
 }
 
 #[test]
-#[should_panic(expected = "ExceededMaxInstructions(1000)")]
+#[should_panic(expected = "ExceededMaxInstructions(36, 1000)")]
 fn test_non_terminating() {
     let prog = assemble(
         "
@@ -323,7 +323,7 @@ fn test_get_total_instruction_count_with_syscall() {
 }
 
 #[test]
-#[should_panic(expected = "ExceededMaxInstructions(3)")]
+#[should_panic(expected = "ExceededMaxInstructions(31, 3)")]
 fn test_get_total_instruction_count_with_syscall_capped() {
     let prog = assemble(
         "
