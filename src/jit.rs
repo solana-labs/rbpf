@@ -652,11 +652,7 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
 }
 
 fn profile_instruction_count(jit: &mut JitMemory, instruction_count: usize) {
-    emit_mov(jit, REGISTER_MAP[0], R11);
-    emit_load(jit, OperandSize::S64, RBP, REGISTER_MAP[0], -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32); // load instruction_meter
-    emit_alu64_imm32(jit, 0x81, 0, REGISTER_MAP[0], instruction_count as i32); // instruction_meter += instruction_count;
-    emit_store(jit, OperandSize::S64, REGISTER_MAP[0], RBP, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32); // store instruction_meter
-    emit_mov(jit, R11, REGISTER_MAP[0]);
+    emit_alu(jit, 1, 0x81, 0, RBP, instruction_count as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += instruction_count;
     // TODO: Throw if depleted
 }
 
