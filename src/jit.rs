@@ -651,6 +651,15 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
     }
 }
 
+fn profile_instruction_count(jit: &mut JitMemory, instruction_count: usize) {
+    emit_mov(jit, REGISTER_MAP[0], R11);
+    emit_load(jit, OperandSize::S64, RBP, REGISTER_MAP[0], -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32); // load instruction_meter
+    emit_alu64_imm32(jit, 0x81, 0, REGISTER_MAP[0], instruction_count as i32); // instruction_meter += instruction_count;
+    emit_store(jit, OperandSize::S64, REGISTER_MAP[0], RBP, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32); // store instruction_meter
+    emit_mov(jit, R11, REGISTER_MAP[0]);
+    // TODO: Throw if depleted
+}
+
 #[derive(Debug)]
 struct Jump {
     offset_loc: usize,
@@ -710,7 +719,7 @@ impl<'a> JitMemory<'a> {
         emit_load_imm(self, REGISTER_MAP[STACK_REG], MM_STACK_START as i64 + CALL_FRAME_SIZE as i64);
         emit_push(self, REGISTER_MAP[STACK_REG]);
 
-        // Padding on the stack to reach 16 byte alignment
+        // Initialize instruction meter
         emit_load_imm(self, R11, 0);
         emit_push(self, R11);
 
@@ -728,11 +737,13 @@ impl<'a> JitMemory<'a> {
 
         self.pc_locs = vec![0; prog.len() / ebpf::INSN_SIZE + 1];
 
-        let mut insn_ptr:usize = 0;
+        let mut insn_ptr: usize = 0;
         while insn_ptr * ebpf::INSN_SIZE < prog.len() {
             let insn = ebpf::get_insn(prog, insn_ptr);
 
             self.pc_locs[insn_ptr] = self.offset;
+
+            profile_instruction_count(self, 1);
 
             let dst = map_register(insn.dst);
             let src = map_register(insn.src);
