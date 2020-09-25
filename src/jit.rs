@@ -1110,10 +1110,8 @@ impl<'a> JitMemory<'a> {
         set_anchor(self, TARGET_PC_CALL_DEPTH_EXCEEDED);
         let err = Result::<u64, EbpfError<E>>::Err(EbpfError::CallDepthExceeded(0, 0));
         let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
-        emit_load_imm(self, REGISTER_MAP[0], err_kind as i64);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8); // err_kind = EbpfError::CallDepthExceeded
-        emit_load_imm(self, REGISTER_MAP[0], MAX_CALL_DEPTH as i64);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // depth = MAX_CALL_DEPTH
+        emit_store_imm32(self, OperandSize::S64, RDI, 8, err_kind as i32); // err_kind = EbpfError::CallDepthExceeded
+        emit_store_imm32(self, OperandSize::S64, RDI, 24, MAX_CALL_DEPTH as i32); // depth = MAX_CALL_DEPTH
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::CallOutsideTextSegment
@@ -1121,22 +1119,19 @@ impl<'a> JitMemory<'a> {
         emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // target_address = RAX
         let err = Result::<u64, EbpfError<E>>::Err(EbpfError::CallOutsideTextSegment(0, 0));
         let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
-        emit_load_imm(self, REGISTER_MAP[0], err_kind as i64);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8); // err_kind = EbpfError::CallOutsideTextSegment
+        emit_store_imm32(self, OperandSize::S64, RDI, 8, err_kind as i32); // err_kind = EbpfError::CallOutsideTextSegment
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::DivideByZero
         set_anchor(self, TARGET_PC_DIV_BY_ZERO);
         let err = Result::<u64, EbpfError<E>>::Err(EbpfError::DivideByZero(0));
         let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
-        emit_load_imm(self, REGISTER_MAP[0], err_kind as i64);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8); // err_kind = EbpfError::DivideByZero
+        emit_store_imm32(self, OperandSize::S64, RDI, 8, err_kind as i32); // err_kind = EbpfError::DivideByZero
         // Fall-through to TARGET_PC_EXCEPTION_AT
 
         // Handler for exceptions which report their PC
         set_anchor(self, TARGET_PC_EXCEPTION_AT);
-        emit_load_imm(self, REGISTER_MAP[0], 1);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 0); // is_err = true
+        emit_store_imm32(self, OperandSize::S64, RDI, 0, 1); // is_err = true
         emit_store(self, OperandSize::S64, R11, RDI, 16); // pc = insn_ptr
         // goto exit
         emit_jmp(self, TARGET_PC_EPILOGUE);
