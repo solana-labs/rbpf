@@ -465,6 +465,7 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
 
     match dst {
         Value::Register(reg) => {
+            profile_instruction_count(jit, Value::Register(reg));
             // Move vm target_address into RAX
             emit_mov(jit, reg, REGISTER_MAP[0]);
             // Force alignment of RAX
@@ -488,7 +489,9 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
             emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX += &JitProgramArgument as *const _;
             emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], std::mem::size_of::<MemoryMapping>() as i32); // RAX = JitProgramArgument.instruction_addresses[RAX / 8];
         },
-        Value::Constant(_target_pc) => {},
+        Value::Constant(target_pc) => {
+            profile_instruction_count(jit, Value::Constant(target_pc as i64));
+        },
         _ => panic!()
     }
 
@@ -506,13 +509,11 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
 
     match dst {
         Value::Register(_reg) => {
-            profile_instruction_count(jit, Value::Register(RAX));
             // callq *%rax
             emit1(jit, 0xff);
             emit1(jit, 0xd0);
         },
         Value::Constant(target_pc) => {
-            profile_instruction_count(jit, Value::Constant(target_pc as i64));
             emit1(jit, 0xe8);
             emit_jump_offset(jit, target_pc as usize);
         },
@@ -523,6 +524,8 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
     for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS).rev() {
         emit_pop(jit, *reg);
     }
+
+    emit_alu(jit, 1, 0x81, 0, RBP, (jit.pc + 1) as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += jit.pc + 1;
 }
 
 #[inline]
@@ -1133,13 +1136,14 @@ impl<'a> JitMemory<'a> {
                     emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]), prog.len() / ebpf::INSN_SIZE);
                 },
                 ebpf::EXIT      => {
+                    profile_instruction_count(self, Value::Constant(0));
+
                     emit_load(self, OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], -8 * CALLEE_SAVED_REGISTERS.len() as i32); // load stack_ptr
                     emit_alu(self, OperationWidth::Bit64, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1), None); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1, None);
                     emit_alu(self, OperationWidth::Bit64, 0x81, 5, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 2, None); // stack_ptr -= CALL_FRAME_SIZE * 2;
                     emit_store(self, OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, -8 * CALLEE_SAVED_REGISTERS.len() as i32); // store stack_ptr
 
                     // if(stack_ptr < MM_STACK_START) goto exit;
-                    profile_instruction_count(self, Value::Constant(0));
                     emit_mov(self, REGISTER_MAP[0], R11);
                     emit_load_imm(self, REGISTER_MAP[0], MM_STACK_START as i64);
                     emit_cmp(self, REGISTER_MAP[0], REGISTER_MAP[STACK_REG], None);
