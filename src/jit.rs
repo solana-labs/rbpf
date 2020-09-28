@@ -198,14 +198,29 @@ fn emit_modrm_reg2reg(jit: &mut JitMemory, r: u8, m: u8) {
 }
 
 #[inline]
+fn emit_sib(jit: &mut JitMemory, scale: u8, index: u8, base: u8) {
+    assert_eq!((scale | 0xc0), 0xc0);
+    emit1(jit, (scale & 0xc0) | ((index & 0b111) << 3) | (base & 0b111));
+}
+
+#[inline]
 fn emit_modrm_and_displacement(jit: &mut JitMemory, r: u8, m: u8, d: i32) {
     if d == 0 && (m & 0b111) != RBP {
         emit_modrm(jit, 0x00, r, m);
+        if (m & 0b111) == RSP {
+            emit_sib(jit, 0, m, m);
+        }
     } else if d >= -128 && d <= 127 {
         emit_modrm(jit, 0x40, r, m);
+        if (m & 0b111) == RSP {
+            emit_sib(jit, 0, m, m);
+        }
         emit1(jit, d as u8);
     } else {
         emit_modrm(jit, 0x80, r, m);
+        if (m & 0b111) == RSP {
+            emit_sib(jit, 0, m, m);
+        }
         emit4(jit, d as u32);
     }
 }
