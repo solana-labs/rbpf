@@ -442,7 +442,7 @@ struct Argument {
 #[inline]
 fn profile_instruction_count(jit: &mut JitMemory, dst: Value) {
     emit_cmp_imm32(jit, RBP, jit.pc as i32 + 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32));
-    emit_load_imm(jit, R11, jit.pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
+    emit_load_imm(jit, R11, jit.pc as i64);
     emit_jcc(jit, 0x82, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
     match dst {
         Value::Register(reg) => {
@@ -462,7 +462,7 @@ fn undo_profile_instruction_count(jit: &mut JitMemory, target_pc: usize) {
 }
 
 #[inline]
-fn conditional_branch_reg(jit: &mut JitMemory, op: u8, src: u8, dst: u8, target_pc: usize) {
+fn emit_conditional_branch_reg(jit: &mut JitMemory, op: u8, src: u8, dst: u8, target_pc: usize) {
     profile_instruction_count(jit, Value::Constant(target_pc as i64));
     emit_cmp(jit, src, dst, None);
     emit_jcc(jit, op, target_pc);
@@ -470,7 +470,7 @@ fn conditional_branch_reg(jit: &mut JitMemory, op: u8, src: u8, dst: u8, target_
 }
 
 #[inline]
-fn conditional_branch_imm(jit: &mut JitMemory, op: u8, imm: i32, dst: u8, target_pc: usize) {
+fn emit_conditional_branch_imm(jit: &mut JitMemory, op: u8, imm: i32, dst: u8, target_pc: usize) {
     profile_instruction_count(jit, Value::Constant(target_pc as i64));
     emit_cmp_imm32(jit, dst, imm, None);
     emit_jcc(jit, op, target_pc);
@@ -491,7 +491,7 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
             // Force alignment of RAX
             emit_alu(jit, OperationWidth::Bit64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i32 - 1), None); // RAX &= !(INSN_SIZE - 1, None);
             // Store PC in case the bounds check fails
-            emit_load_imm(jit, R11, jit.pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
+            emit_load_imm(jit, R11, jit.pc as i64);
             // Upper bound check
             // if(RAX >= MM_PROGRAM_START + number_of_instructions * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
             emit_load_imm(jit, REGISTER_MAP[STACK_REG], MM_PROGRAM_START as i64 + (number_of_instructions * INSN_SIZE) as i64);
@@ -529,7 +529,7 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
     emit_load_imm(jit, R11, MM_STACK_START as i64 + (MAX_CALL_DEPTH * CALL_FRAME_SIZE * 2) as i64);
     emit_cmp(jit, R11, REGISTER_MAP[STACK_REG], None);
     // Store PC in case the bounds check fails
-    emit_load_imm(jit, R11, jit.pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
+    emit_load_imm(jit, R11, jit.pc as i64);
     emit_jcc(jit, 0x83, TARGET_PC_CALL_DEPTH_EXCEEDED);
 
     match dst {
@@ -626,7 +626,7 @@ fn emit_address_translation(jit: &mut JitMemory, host_addr: u8, vm_addr: Value, 
     ]);
 
     // Throw error if the result indicates one
-    emit_load_imm(jit, R11, jit.pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
+    emit_load_imm(jit, R11, jit.pc as i64);
     emit_jcc(jit, 0x85, TARGET_PC_EXCEPTION_AT);
 
     // Store Ok value in result register
@@ -641,7 +641,7 @@ fn muldivmod(jit: &mut JitMemory, opc: u8, src: u8, dst: u8, imm: i32) {
 
     if div || modrm {
         // Save pc
-        emit_load_imm(jit, R11, jit.pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
+        emit_load_imm(jit, R11, jit.pc as i64);
 
         // test src,src
         if is64 {
@@ -722,7 +722,8 @@ struct JitMemory<'a> {
 }
 
 impl<'a> JitMemory<'a> {
-    fn new(num_pages: usize) -> JitMemory<'a> {
+    // num_pages is unused on windows
+    fn new(_num_pages: usize) -> JitMemory<'a> {
         #[cfg(windows)]
         {
             panic!("JIT not supported on windows");
@@ -731,12 +732,12 @@ impl<'a> JitMemory<'a> {
         #[cfg(not(windows))] // Without this block windows will fail ungracefully, hence the panic above
         unsafe {
             const PAGE_SIZE: usize = 4096;
-            let size = num_pages * PAGE_SIZE;
+            let size = _num_pages * PAGE_SIZE;
             let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
             libc::posix_memalign(&mut raw, PAGE_SIZE, size);
             libc::mprotect(raw, size, libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE);
             std::ptr::write_bytes(raw, 0xc3, size);  // for now, prepopulate with 'RET' calls
-            contents = std::slice::from_raw_parts_mut(raw as *mut u8, num_pages * PAGE_SIZE);
+            contents = std::slice::from_raw_parts_mut(raw as *mut u8, _num_pages * PAGE_SIZE);
         }
 
         JitMemory {
@@ -890,8 +891,6 @@ impl<'a> JitMemory<'a> {
                     emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 8, AccessType::Store);
                     emit_store(self, OperandSize::S64, src, R11, 0);
                 },
-                ebpf::ST_W_XADD  => unimplemented!(),
-                ebpf::ST_DW_XADD => unimplemented!(),
 
                 // BPF_ALU class
                 ebpf::ADD32_IMM  => emit_alu(self, OperationWidth::Bit32, 0x81, 0, dst, insn.imm, None),
@@ -998,36 +997,16 @@ impl<'a> JitMemory<'a> {
                     profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_jmp(self, target_pc);
                 },
-                ebpf::JEQ_IMM    => {
-                    conditional_branch_imm(self, 0x84, insn.imm, dst, target_pc);
-                },
-                ebpf::JEQ_REG    => {
-                    conditional_branch_reg(self, 0x84, src, dst, target_pc);
-                },
-                ebpf::JGT_IMM    => {
-                    conditional_branch_imm(self, 0x87, insn.imm, dst, target_pc);
-                },
-                ebpf::JGT_REG    => {
-                    conditional_branch_reg(self, 0x87, src, dst, target_pc);
-                },
-                ebpf::JGE_IMM    => {
-                    conditional_branch_imm(self, 0x83, insn.imm, dst, target_pc);
-                },
-                ebpf::JGE_REG    => {
-                    conditional_branch_reg(self, 0x83, src, dst, target_pc);
-                },
-                ebpf::JLT_IMM    => {
-                    conditional_branch_imm(self, 0x82, insn.imm, dst, target_pc);
-                },
-                ebpf::JLT_REG    => {
-                    conditional_branch_reg(self, 0x82, src, dst, target_pc);
-                },
-                ebpf::JLE_IMM    => {
-                    conditional_branch_imm(self, 0x86, insn.imm, dst, target_pc);
-                },
-                ebpf::JLE_REG    => {
-                    conditional_branch_reg(self, 0x86, src, dst, target_pc);
-                },
+                ebpf::JEQ_IMM    => emit_conditional_branch_imm(self, 0x84, insn.imm, dst, target_pc),
+                ebpf::JEQ_REG    => emit_conditional_branch_reg(self, 0x84, src, dst, target_pc),
+                ebpf::JGT_IMM    => emit_conditional_branch_imm(self, 0x87, insn.imm, dst, target_pc),
+                ebpf::JGT_REG    => emit_conditional_branch_reg(self, 0x87, src, dst, target_pc),
+                ebpf::JGE_IMM    => emit_conditional_branch_imm(self, 0x83, insn.imm, dst, target_pc),
+                ebpf::JGE_REG    => emit_conditional_branch_reg(self, 0x83, src, dst, target_pc),
+                ebpf::JLT_IMM    => emit_conditional_branch_imm(self, 0x82, insn.imm, dst, target_pc),
+                ebpf::JLT_REG    => emit_conditional_branch_reg(self, 0x82, src, dst, target_pc),
+                ebpf::JLE_IMM    => emit_conditional_branch_imm(self, 0x86, insn.imm, dst, target_pc),
+                ebpf::JLE_REG    => emit_conditional_branch_reg(self, 0x86, src, dst, target_pc),
                 ebpf::JSET_IMM   => {
                     profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_alu(self, OperationWidth::Bit64, 0xf7, 0, dst, insn.imm, None);
@@ -1040,36 +1019,16 @@ impl<'a> JitMemory<'a> {
                     emit_jcc(self, 0x85, target_pc);
                     undo_profile_instruction_count(self, target_pc);
                 },
-                ebpf::JNE_IMM    => {
-                    conditional_branch_imm(self, 0x85, insn.imm, dst, target_pc);
-                },
-                ebpf::JNE_REG    => {
-                    conditional_branch_reg(self, 0x85, src, dst, target_pc);
-                },
-                ebpf::JSGT_IMM   => {
-                    conditional_branch_imm(self, 0x8f, insn.imm, dst, target_pc);
-                },
-                ebpf::JSGT_REG   => {
-                    conditional_branch_reg(self, 0x8f, src, dst, target_pc);
-                },
-                ebpf::JSGE_IMM   => {
-                    conditional_branch_imm(self, 0x8d, insn.imm, dst, target_pc);
-                },
-                ebpf::JSGE_REG   => {
-                    conditional_branch_reg(self, 0x8d, src, dst, target_pc);
-                },
-                ebpf::JSLT_IMM   => {
-                    conditional_branch_imm(self, 0x8c, insn.imm, dst, target_pc);
-                },
-                ebpf::JSLT_REG   => {
-                    conditional_branch_reg(self, 0x8c, src, dst, target_pc);
-                },
-                ebpf::JSLE_IMM   => {
-                    conditional_branch_imm(self, 0x8e, insn.imm, dst, target_pc);
-                },
-                ebpf::JSLE_REG   => {
-                    conditional_branch_reg(self, 0x8e, src, dst, target_pc);
-                },
+                ebpf::JNE_IMM    => emit_conditional_branch_imm(self, 0x85, insn.imm, dst, target_pc),
+                ebpf::JNE_REG    => emit_conditional_branch_reg(self, 0x85, src, dst, target_pc),
+                ebpf::JSGT_IMM   => emit_conditional_branch_imm(self, 0x8f, insn.imm, dst, target_pc),
+                ebpf::JSGT_REG   => emit_conditional_branch_reg(self, 0x8f, src, dst, target_pc),
+                ebpf::JSGE_IMM   => emit_conditional_branch_imm(self, 0x8d, insn.imm, dst, target_pc),
+                ebpf::JSGE_REG   => emit_conditional_branch_reg(self, 0x8d, src, dst, target_pc),
+                ebpf::JSLT_IMM   => emit_conditional_branch_imm(self, 0x8c, insn.imm, dst, target_pc),
+                ebpf::JSLT_REG   => emit_conditional_branch_reg(self, 0x8c, src, dst, target_pc),
+                ebpf::JSLE_IMM   => emit_conditional_branch_imm(self, 0x8e, insn.imm, dst, target_pc),
+                ebpf::JSLE_REG   => emit_conditional_branch_reg(self, 0x8e, src, dst, target_pc),
                 ebpf::CALL_IMM   => {
                     // For JIT, syscalls MUST be registered at compile time. They can be
                     // updated later, but not created after compiling (we need the address of the
@@ -1151,19 +1110,19 @@ impl<'a> JitMemory<'a> {
         set_anchor(self, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0));
         emit_load(self, OperandSize::S64, RBP, REGISTER_MAP[0], -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32); // load instruction_meter
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // total_insn_count = instruction_meter
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // total_insn_count = instruction_meter;
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::CallDepthExceeded
         set_anchor(self, TARGET_PC_CALL_DEPTH_EXCEEDED);
         set_exception_kind::<E>(self, EbpfError::CallDepthExceeded(0, 0));
-        emit_store_imm32(self, OperandSize::S64, RDI, 24, MAX_CALL_DEPTH as i32); // depth = MAX_CALL_DEPTH
+        emit_store_imm32(self, OperandSize::S64, RDI, 24, MAX_CALL_DEPTH as i32); // depth = MAX_CALL_DEPTH;
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::CallOutsideTextSegment
         set_anchor(self, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
         set_exception_kind::<E>(self, EbpfError::CallOutsideTextSegment(0, 0));
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // target_address = RAX
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // target_address = RAX;
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::DivideByZero
@@ -1173,15 +1132,18 @@ impl<'a> JitMemory<'a> {
 
         // Handler for exceptions which report their PC
         set_anchor(self, TARGET_PC_EXCEPTION_AT);
-        emit_store_imm32(self, OperandSize::S64, RDI, 0, 1); // is_err = true
-        emit_store(self, OperandSize::S64, R11, RDI, 16); // pc = self.pc
+        emit_alu(self, OperationWidth::Bit64, 0x81, 0, R11, 1, None);
+        emit_alu(self, OperationWidth::Bit64, 0x29, R11, RBP, 0, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter -= pc + 1;
+        emit_store_imm32(self, OperandSize::S64, RDI, 0, 1); // is_err = true;
+        emit_alu(self, OperationWidth::Bit64, 0x81, 0, R11, ebpf::ELF_INSN_DUMP_OFFSET as i32 - 1, None);
+        emit_store(self, OperandSize::S64, R11, RDI, 16); // pc = self.pc + ebpf::ELF_INSN_DUMP_OFFSET;
         emit_jmp(self, TARGET_PC_EPILOGUE);
 
         // Quit gracefully
         set_anchor(self, TARGET_PC_EXIT);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8); // result.return_value = R0
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 8); // result.return_value = R0;
         emit_load_imm(self, REGISTER_MAP[0], 0);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 0);  // result.is_error = false
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 0);  // result.is_error = false;
 
         // Epilogue
         set_anchor(self, TARGET_PC_EPILOGUE);
@@ -1247,6 +1209,7 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
         };
         fmt.write_str(" ] | ")?;
         fmt.debug_struct("JIT state")
+            .field("pc", &self.pc)
             .field("offset", &self.offset)
             .field("pc_locs", &self.pc_locs)
             .field("special_targets", &self.special_targets)
