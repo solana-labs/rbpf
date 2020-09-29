@@ -258,12 +258,17 @@ fn emit_pop(jit: &mut JitMemory, r: u8) {
     emit1(jit, 0x58 | (r & 0b111));
 }
 
+enum OperationWidth {
+    Bit32 = 0,
+    Bit64 = 1,
+}
+
 // REX prefix and ModRM byte
 // We use the MR encoding when there is a choice
 // 'src' is often used as an opcode extension
 #[inline]
-fn emit_alu(jit: &mut JitMemory, w: u8, op: u8, src: u8, dst: u8, imm: i32, displacement: Option<i32>) {
-    emit_basic_rex(jit, w, src, dst);
+fn emit_alu(jit: &mut JitMemory, width: OperationWidth, op: u8, src: u8, dst: u8, imm: i32, displacement: Option<i32>) {
+    emit_basic_rex(jit, width as u8, src, dst);
     emit1(jit, op);
     match displacement {
         Some(d) => {
@@ -284,23 +289,23 @@ fn emit_alu(jit: &mut JitMemory, w: u8, op: u8, src: u8, dst: u8, imm: i32, disp
 // Register to register mov
 #[inline]
 fn emit_mov(jit: &mut JitMemory, src: u8, dst: u8) {
-    emit_alu(jit, 1, 0x89, src, dst, 0, None);
+    emit_alu(jit, OperationWidth::Bit64, 0x89, src, dst, 0, None);
 }
 
 // Register to register exchange / swap
 #[inline]
 fn emit_xchg(jit: &mut JitMemory, src: u8, dst: u8) {
-    emit_alu(jit, 1, 0x87, src, dst, 0, None);
+    emit_alu(jit, OperationWidth::Bit64, 0x87, src, dst, 0, None);
 }
 
 #[inline]
 fn emit_cmp_imm32(jit: &mut JitMemory, dst: u8, imm: i32, displacement: Option<i32>) {
-    emit_alu(jit, 1, 0x81, 7, dst, imm, displacement);
+    emit_alu(jit, OperationWidth::Bit64, 0x81, 7, dst, imm, displacement);
 }
 
 #[inline]
 fn emit_cmp(jit: &mut JitMemory, src: u8, dst: u8, displacement: Option<i32>) {
-    emit_alu(jit, 1, 0x39, src, dst, 0, displacement);
+    emit_alu(jit, OperationWidth::Bit64, 0x39, src, dst, 0, displacement);
 }
 
 #[inline]
@@ -354,7 +359,7 @@ fn emit_load(jit: &mut JitMemory, size: OperandSize, src: u8, dst: u8, offset: i
 #[inline]
 fn emit_load_imm(jit: &mut JitMemory, dst: u8, imm: i64) {
     if imm >= std::i32::MIN as i64 && imm <= std::i32::MAX as i64 {
-        emit_alu(jit, 1, 0xc7, 0, dst, imm as i32, None);
+        emit_alu(jit, OperationWidth::Bit64, 0xc7, 0, dst, imm as i32, None);
     } else {
         // movabs $imm,dst
         emit_basic_rex(jit, 1, 0, dst);
@@ -445,7 +450,7 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
             // Move vm target_address into RAX
             emit_mov(jit, reg, REGISTER_MAP[0]);
             // Force alignment of RAX
-            emit_alu(jit, 1, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i32 - 1), None); // RAX &= !(INSN_SIZE - 1, None);
+            emit_alu(jit, OperationWidth::Bit64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i32 - 1), None); // RAX &= !(INSN_SIZE - 1, None);
             // Store PC in case the bounds check fails
             emit_load_imm(jit, R11, pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
             // Upper bound check
@@ -459,10 +464,10 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
             emit_cmp(jit, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], None);
             emit_jcc(jit, 0x82, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Calculate offset relative to instruction_addresses
-            emit_alu(jit, 1, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX -= MM_PROGRAM_START;
+            emit_alu(jit, OperationWidth::Bit64, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX -= MM_PROGRAM_START;
             // Load host target_address from JitProgramArgument.instruction_addresses
             emit_mov(jit, R10, REGISTER_MAP[STACK_REG]);
-            emit_alu(jit, 1, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX += &JitProgramArgument as *const _;
+            emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX += &JitProgramArgument as *const _;
             emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], std::mem::size_of::<MemoryMapping>() as i32); // RAX = JitProgramArgument.instruction_addresses[RAX / 8];
         },
         Value::Constant(_target_pc) => {},
@@ -470,8 +475,8 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize,
     }
 
     emit_load(jit, OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], -8 * CALLEE_SAVED_REGISTERS.len() as i32); // load stack_ptr
-    emit_alu(jit, 1, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1), None); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1, None);
-    emit_alu(jit, 1, 0x81, 0, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 3, None); // stack_ptr += CALL_FRAME_SIZE * 3;
+    emit_alu(jit, OperationWidth::Bit64, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1), None); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1, None);
+    emit_alu(jit, OperationWidth::Bit64, 0x81, 0, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 3, None); // stack_ptr += CALL_FRAME_SIZE * 3;
     emit_store(jit, OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, -8 * CALLEE_SAVED_REGISTERS.len() as i32); // store stack_ptr
 
     // if(stack_ptr >= MM_STACK_START + MAX_CALL_DEPTH * CALL_FRAME_SIZE * 2) throw EbpfError::CallDepthExeeded;
@@ -539,7 +544,7 @@ fn emit_rust_call(jit: &mut JitMemory, function: *const u8, arguments: &[Argumen
             },
             Value::RegisterPlusConstant(reg, offset) => {
                 emit_load_imm(jit, R11, offset);
-                emit_alu(jit, 1, 0x01, reg, R11, 0, None);
+                emit_alu(jit, OperationWidth::Bit64, 0x01, reg, R11, 0, None);
                 emit_mov(jit, R11, dst);
             },
             Value::Constant(value) => {
@@ -592,9 +597,9 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
 
         // test src,src
         if is64 {
-            emit_alu(jit, 1, 0x85, src, src, 0, None);
+            emit_alu(jit, OperationWidth::Bit64, 0x85, src, src, 0, None);
         } else {
-            emit_alu(jit, 0, 0x85, src, src, 0, None);
+            emit_alu(jit, OperationWidth::Bit32, 0x85, src, src, 0, None);
         }
 
         // Jump if src is zero
@@ -621,7 +626,7 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
 
     if div || modrm {
         // xor %edx,%edx
-        emit_alu(jit, 0, 0x31, RDX, RDX, 0, None);
+        emit_alu(jit, OperationWidth::Bit32, 0x31, RDX, RDX, 0, None);
     }
 
     if is64 {
@@ -629,7 +634,7 @@ fn muldivmod(jit: &mut JitMemory, pc: u16, opc: u8, src: u8, dst: u8, imm: i32) 
     }
 
     // mul %ecx or div %ecx
-    emit_alu(jit, 0, 0xf7, if mul { 4 } else { 6 }, RCX, 0, None);
+    emit_alu(jit, OperationWidth::Bit32, 0xf7, if mul { 4 } else { 6 }, RCX, 0, None);
 
     emit_mov(jit, R11, RCX);
     if dst != RDX {
@@ -833,42 +838,42 @@ impl<'a> JitMemory<'a> {
                 ebpf::ST_DW_XADD => unimplemented!(),
 
                 // BPF_ALU class
-                ebpf::ADD32_IMM  => emit_alu(self, 0, 0x81, 0, dst, insn.imm, None),
-                ebpf::ADD32_REG  => emit_alu(self, 0, 0x01, src, dst, 0, None),
-                ebpf::SUB32_IMM  => emit_alu(self, 0, 0x81, 5, dst, insn.imm, None),
-                ebpf::SUB32_REG  => emit_alu(self, 0, 0x29, src, dst, 0, None),
+                ebpf::ADD32_IMM  => emit_alu(self, OperationWidth::Bit32, 0x81, 0, dst, insn.imm, None),
+                ebpf::ADD32_REG  => emit_alu(self, OperationWidth::Bit32, 0x01, src, dst, 0, None),
+                ebpf::SUB32_IMM  => emit_alu(self, OperationWidth::Bit32, 0x81, 5, dst, insn.imm, None),
+                ebpf::SUB32_REG  => emit_alu(self, OperationWidth::Bit32, 0x29, src, dst, 0, None),
                 ebpf::MUL32_IMM | ebpf::MUL32_REG |
                     ebpf::DIV32_IMM | ebpf::DIV32_REG |
                     ebpf::MOD32_IMM | ebpf::MOD32_REG =>
                     muldivmod(self, insn_ptr as u16, insn.opc, src, dst, insn.imm),
-                ebpf::OR32_IMM   => emit_alu(self, 0, 0x81, 1, dst, insn.imm, None),
-                ebpf::OR32_REG   => emit_alu(self, 0, 0x09, src, dst, 0, None),
-                ebpf::AND32_IMM  => emit_alu(self, 0, 0x81, 4, dst, insn.imm, None),
-                ebpf::AND32_REG  => emit_alu(self, 0, 0x21, src, dst, 0, None),
-                ebpf::LSH32_IMM  => emit_alu(self, 0, 0xc1, 4, dst, insn.imm, None),
+                ebpf::OR32_IMM   => emit_alu(self, OperationWidth::Bit32, 0x81, 1, dst, insn.imm, None),
+                ebpf::OR32_REG   => emit_alu(self, OperationWidth::Bit32, 0x09, src, dst, 0, None),
+                ebpf::AND32_IMM  => emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, insn.imm, None),
+                ebpf::AND32_REG  => emit_alu(self, OperationWidth::Bit32, 0x21, src, dst, 0, None),
+                ebpf::LSH32_IMM  => emit_alu(self, OperationWidth::Bit32, 0xc1, 4, dst, insn.imm, None),
                 ebpf::LSH32_REG  => {
                     emit_xchg(self, src, RCX);
-                    emit_alu(self, 1, 0x81, 4, RCX, 31, None); // Mask shift amount
-                    emit_alu(self, 0, 0xd3, 4, dst, 0, None);
+                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 31, None); // Mask shift amount
+                    emit_alu(self, OperationWidth::Bit32, 0xd3, 4, dst, 0, None);
                     emit_xchg(self, RCX, src);
                 },
-                ebpf::RSH32_IMM  => emit_alu(self, 0, 0xc1, 5, dst, insn.imm, None),
+                ebpf::RSH32_IMM  => emit_alu(self, OperationWidth::Bit32, 0xc1, 5, dst, insn.imm, None),
                 ebpf::RSH32_REG  => {
                     emit_xchg(self, src, RCX);
-                    emit_alu(self, 1, 0x81, 4, RCX, 31, None); // Mask shift amount
-                    emit_alu(self, 0, 0xd3, 5, dst, 0, None);
+                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 31, None); // Mask shift amount
+                    emit_alu(self, OperationWidth::Bit32, 0xd3, 5, dst, 0, None);
                     emit_xchg(self, RCX, src);
                 },
-                ebpf::NEG32      => emit_alu(self, 0, 0xf7, 3, dst, 0, None),
-                ebpf::XOR32_IMM  => emit_alu(self, 0, 0x81, 6, dst, insn.imm, None),
-                ebpf::XOR32_REG  => emit_alu(self, 0, 0x31, src, dst, 0, None),
-                ebpf::MOV32_IMM  => emit_alu(self, 0, 0xc7, 0, dst, insn.imm, None),
+                ebpf::NEG32      => emit_alu(self, OperationWidth::Bit32, 0xf7, 3, dst, 0, None),
+                ebpf::XOR32_IMM  => emit_alu(self, OperationWidth::Bit32, 0x81, 6, dst, insn.imm, None),
+                ebpf::XOR32_REG  => emit_alu(self, OperationWidth::Bit32, 0x31, src, dst, 0, None),
+                ebpf::MOV32_IMM  => emit_alu(self, OperationWidth::Bit32, 0xc7, 0, dst, insn.imm, None),
                 ebpf::MOV32_REG  => emit_mov(self, src, dst),
-                ebpf::ARSH32_IMM => emit_alu(self, 0, 0xc1, 7, dst, insn.imm, None),
+                ebpf::ARSH32_IMM => emit_alu(self, OperationWidth::Bit32, 0xc1, 7, dst, insn.imm, None),
                 ebpf::ARSH32_REG => {
                     emit_xchg(self, src, RCX);
-                    emit_alu(self, 1, 0x81, 4, RCX, 31, None); // Mask shift amount
-                    emit_alu(self, 0, 0xd3, 7, dst, 0, None);
+                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 31, None); // Mask shift amount
+                    emit_alu(self, OperationWidth::Bit32, 0xd3, 7, dst, 0, None);
                     emit_xchg(self, RCX, src);
                 },
                 ebpf::LE         => {}, // No-op
@@ -877,9 +882,9 @@ impl<'a> JitMemory<'a> {
                         16 => {
                             // rol
                             emit1(self, 0x66); // 16-bit override
-                            emit_alu(self, 0, 0xc1, 0, dst, 8, None);
+                            emit_alu(self, OperationWidth::Bit32, 0xc1, 0, dst, 8, None);
                             // and
-                            emit_alu(self, 0, 0x81, 4, dst, 0xffff, None);
+                            emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, 0xffff, None);
                         }
                         32 | 64 => {
                             // bswap
@@ -893,42 +898,42 @@ impl<'a> JitMemory<'a> {
                 },
 
                 // BPF_ALU64 class
-                ebpf::ADD64_IMM  => emit_alu(self, 1, 0x81, 0, dst, insn.imm, None),
-                ebpf::ADD64_REG  => emit_alu(self, 1, 0x01, src, dst, 0, None),
-                ebpf::SUB64_IMM  => emit_alu(self, 1, 0x81, 5, dst, insn.imm, None),
-                ebpf::SUB64_REG  => emit_alu(self, 1, 0x29, src, dst, 0, None),
+                ebpf::ADD64_IMM  => emit_alu(self, OperationWidth::Bit64, 0x81, 0, dst, insn.imm, None),
+                ebpf::ADD64_REG  => emit_alu(self, OperationWidth::Bit64, 0x01, src, dst, 0, None),
+                ebpf::SUB64_IMM  => emit_alu(self, OperationWidth::Bit64, 0x81, 5, dst, insn.imm, None),
+                ebpf::SUB64_REG  => emit_alu(self, OperationWidth::Bit64, 0x29, src, dst, 0, None),
                 ebpf::MUL64_IMM | ebpf::MUL64_REG |
                     ebpf::DIV64_IMM | ebpf::DIV64_REG |
                     ebpf::MOD64_IMM | ebpf::MOD64_REG  =>
                     muldivmod(self, insn_ptr as u16, insn.opc, src, dst, insn.imm),
-                ebpf::OR64_IMM   => emit_alu(self, 1, 0x81, 1, dst, insn.imm, None),
-                ebpf::OR64_REG   => emit_alu(self, 1, 0x09, src, dst, 0, None),
-                ebpf::AND64_IMM  => emit_alu(self, 1, 0x81, 4, dst, insn.imm, None),
-                ebpf::AND64_REG  => emit_alu(self, 1, 0x21, src, dst, 0, None),
-                ebpf::LSH64_IMM  => emit_alu(self, 1, 0xc1, 4, dst, insn.imm, None),
+                ebpf::OR64_IMM   => emit_alu(self, OperationWidth::Bit64, 0x81, 1, dst, insn.imm, None),
+                ebpf::OR64_REG   => emit_alu(self, OperationWidth::Bit64, 0x09, src, dst, 0, None),
+                ebpf::AND64_IMM  => emit_alu(self, OperationWidth::Bit64, 0x81, 4, dst, insn.imm, None),
+                ebpf::AND64_REG  => emit_alu(self, OperationWidth::Bit64, 0x21, src, dst, 0, None),
+                ebpf::LSH64_IMM  => emit_alu(self, OperationWidth::Bit64, 0xc1, 4, dst, insn.imm, None),
                 ebpf::LSH64_REG  => {
                     emit_xchg(self, src, RCX);
-                    emit_alu(self, 1, 0x81, 4, RCX, 63, None); // Mask shift amount
-                    emit_alu(self, 1, 0xd3, 4, dst, 0, None);
+                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 63, None); // Mask shift amount
+                    emit_alu(self, OperationWidth::Bit64, 0xd3, 4, dst, 0, None);
                     emit_xchg(self, RCX, src);
                 },
-                ebpf::RSH64_IMM  => emit_alu(self, 1, 0xc1, 5, dst, insn.imm, None),
+                ebpf::RSH64_IMM  => emit_alu(self, OperationWidth::Bit64, 0xc1, 5, dst, insn.imm, None),
                 ebpf::RSH64_REG  => {
                     emit_xchg(self, src, RCX);
-                    emit_alu(self, 1, 0x81, 4, RCX, 63, None); // Mask shift amount
-                    emit_alu(self, 1, 0xd3, 5, dst, 0, None);
+                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 63, None); // Mask shift amount
+                    emit_alu(self, OperationWidth::Bit64, 0xd3, 5, dst, 0, None);
                     emit_xchg(self, RCX, src);
                 },
-                ebpf::NEG64      => emit_alu(self, 1, 0xf7, 3, dst, 0, None),
-                ebpf::XOR64_IMM  => emit_alu(self, 1, 0x81, 6, dst, insn.imm, None),
-                ebpf::XOR64_REG  => emit_alu(self, 1, 0x31, src, dst, 0, None),
+                ebpf::NEG64      => emit_alu(self, OperationWidth::Bit64, 0xf7, 3, dst, 0, None),
+                ebpf::XOR64_IMM  => emit_alu(self, OperationWidth::Bit64, 0x81, 6, dst, insn.imm, None),
+                ebpf::XOR64_REG  => emit_alu(self, OperationWidth::Bit64, 0x31, src, dst, 0, None),
                 ebpf::MOV64_IMM  => emit_load_imm(self, dst, insn.imm as i64),
                 ebpf::MOV64_REG  => emit_mov(self, src, dst),
-                ebpf::ARSH64_IMM => emit_alu(self, 1, 0xc1, 7, dst, insn.imm, None),
+                ebpf::ARSH64_IMM => emit_alu(self, OperationWidth::Bit64, 0xc1, 7, dst, insn.imm, None),
                 ebpf::ARSH64_REG => {
                     emit_xchg(self, src, RCX);
-                    emit_alu(self, 1, 0x81, 4, RCX, 63, None); // Mask shift amount
-                    emit_alu(self, 1, 0xd3, 7, dst, 0, None);
+                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 63, None); // Mask shift amount
+                    emit_alu(self, OperationWidth::Bit64, 0xd3, 7, dst, 0, None);
                     emit_xchg(self, RCX, src);
                 },
 
@@ -975,11 +980,11 @@ impl<'a> JitMemory<'a> {
                     emit_jcc(self, 0x86, target_pc);
                 },
                 ebpf::JSET_IMM   => {
-                    emit_alu(self, 1, 0xf7, 0, dst, insn.imm, None);
+                    emit_alu(self, OperationWidth::Bit64, 0xf7, 0, dst, insn.imm, None);
                     emit_jcc(self, 0x85, target_pc);
                 },
                 ebpf::JSET_REG   => {
-                    emit_alu(self, 1, 0x85, src, dst, 0, None);
+                    emit_alu(self, OperationWidth::Bit64, 0x85, src, dst, 0, None);
                     emit_jcc(self, 0x85, target_pc);
                 },
                 ebpf::JNE_IMM    => {
@@ -1076,8 +1081,8 @@ impl<'a> JitMemory<'a> {
                 },
                 ebpf::EXIT      => {
                     emit_load(self, OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], -8 * CALLEE_SAVED_REGISTERS.len() as i32); // load stack_ptr
-                    emit_alu(self, 1, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1), None); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1, None);
-                    emit_alu(self, 1, 0x81, 5, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 2, None); // stack_ptr -= CALL_FRAME_SIZE * 2;
+                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1), None); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1, None);
+                    emit_alu(self, OperationWidth::Bit64, 0x81, 5, REGISTER_MAP[STACK_REG], CALL_FRAME_SIZE as i32 * 2, None); // stack_ptr -= CALL_FRAME_SIZE * 2;
                     emit_store(self, OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, -8 * CALLEE_SAVED_REGISTERS.len() as i32); // store stack_ptr
 
                     // if(stack_ptr < MM_STACK_START) goto exit;
@@ -1111,7 +1116,7 @@ impl<'a> JitMemory<'a> {
 
         // Restore stack pointer in case the BPF stack was used
         emit_mov(self, RBP, REGISTER_MAP[0]);
-        emit_alu(self, 1, 0x81, 5, REGISTER_MAP[0], (CALLEE_SAVED_REGISTERS.len()-1) as i32 * 8, None);
+        emit_alu(self, OperationWidth::Bit64, 0x81, 5, REGISTER_MAP[0], (CALLEE_SAVED_REGISTERS.len()-1) as i32 * 8, None);
         emit_mov(self, REGISTER_MAP[0], RSP); // RSP = RBP - (CALLEE_SAVED_REGISTERS.len() - 1) * 8;
 
         // Restore registers
