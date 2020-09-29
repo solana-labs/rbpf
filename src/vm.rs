@@ -762,7 +762,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                     std::mem::size_of::<MemoryMapping>(),
                 );
                 jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
-                (compiled_prog.main)(reg1, &*(jit_arg.as_ptr() as *const JitProgramArgument))
+                (compiled_prog.main)(reg1, &*(jit_arg.as_ptr() as *const JitProgramArgument), 0x1000)
             }
             None => Err(EbpfError::JITNotCompiled),
         }
