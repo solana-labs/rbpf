@@ -76,6 +76,7 @@ const TARGET_PC_CALL_DEPTH_EXCEEDED: usize = TARGET_OFFSET + 4;
 const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: usize = TARGET_OFFSET + 5;
 const TARGET_PC_DIV_BY_ZERO: usize = TARGET_OFFSET + 6;
 const TARGET_PC_EXCEPTION_AT: usize = TARGET_OFFSET + 7;
+const TARGET_PC_SYSCALL_EXCEPTION: usize = TARGET_OFFSET + 8;
 
 #[derive(Copy, Clone)]
 enum OperandSize {
@@ -459,6 +460,12 @@ fn profile_instruction_count(jit: &mut JitMemory, target_pc: Option<usize>) {
 #[inline]
 fn undo_profile_instruction_count(jit: &mut JitMemory, target_pc: usize) {
     emit_alu(jit, OperationWidth::Bit64, 0x81, 0, RBP, jit.pc as i32 + 1 - target_pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += (jit.pc + 1) - target_pc;
+}
+
+#[inline]
+fn profile_instruction_count_of_exception(jit: &mut JitMemory) {
+    emit_alu(jit, OperationWidth::Bit64, 0x81, 0, R11, 1, None);
+    emit_alu(jit, OperationWidth::Bit64, 0x29, R11, RBP, 0, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter -= pc + 1;
 }
 
 #[inline]
@@ -1068,7 +1075,8 @@ impl<'a> JitMemory<'a> {
                         }
 
                         // Throw error if the result indicates one
-                        emit_jcc(self, 0x85, TARGET_PC_EPILOGUE);
+                        emit_load_imm(self, R11, self.pc as i64);
+                        emit_jcc(self, 0x85, TARGET_PC_SYSCALL_EXCEPTION);
 
                         // Store Ok value in result register
                         emit_load(self, OperandSize::S64, RDI, REGISTER_MAP[0], 8);
@@ -1135,11 +1143,15 @@ impl<'a> JitMemory<'a> {
 
         // Handler for exceptions which report their PC
         set_anchor(self, TARGET_PC_EXCEPTION_AT);
-        emit_alu(self, OperationWidth::Bit64, 0x81, 0, R11, 1, None);
-        emit_alu(self, OperationWidth::Bit64, 0x29, R11, RBP, 0, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter -= pc + 1;
+        profile_instruction_count_of_exception(self);
         emit_store_imm32(self, OperandSize::S64, RDI, 0, 1); // is_err = true;
         emit_alu(self, OperationWidth::Bit64, 0x81, 0, R11, ebpf::ELF_INSN_DUMP_OFFSET as i32 - 1, None);
         emit_store(self, OperandSize::S64, R11, RDI, 16); // pc = self.pc + ebpf::ELF_INSN_DUMP_OFFSET;
+        emit_jmp(self, TARGET_PC_EPILOGUE);
+
+        // Handler for syscall exceptions
+        set_anchor(self, TARGET_PC_SYSCALL_EXCEPTION);
+        profile_instruction_count_of_exception(self);
         emit_jmp(self, TARGET_PC_EPILOGUE);
 
         // Quit gracefully
