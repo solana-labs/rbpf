@@ -832,6 +832,7 @@ impl<'a> JitMemory<'a> {
                 },
 
                 ebpf::LD_DW_IMM  => {
+                    profile_instruction_count(self, Value::Constant(self.pc as i64 + 2));
                     self.pc += 1;
                     let second_part = ebpf::get_insn(prog, self.pc).imm as u64;
                     let imm = (insn.imm as u32) as u64 | second_part.wrapping_shl(32);

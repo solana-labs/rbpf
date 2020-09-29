@@ -757,7 +757,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         let compiled_prog = self
             .compiled_prog
             .as_ref()
-            .ok_or_else(|| EbpfError::JITNotCompiled)?;
+            .ok_or(EbpfError::JITNotCompiled)?;
         let mut jit_arg: Vec<*const u8> =
             vec![std::ptr::null(); 2 + compiled_prog.instruction_addresses.len()];
         libc::memcpy(
