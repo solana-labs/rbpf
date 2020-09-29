@@ -30,7 +30,7 @@ use solana_rbpf::{
     memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
     verifier::check,
-    vm::{EbpfVm, InstructionMeter, Syscall},
+    vm::{DefaultInstructionMeter, EbpfVm, InstructionMeter, Syscall},
 };
 use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
 use thiserror::Error;
@@ -170,7 +170,11 @@ fn test_verifier_success() {
     )
     .unwrap();
     let mut vm = EbpfVm::<VerifierTestError>::new(executable.as_ref(), &[], &[]).unwrap();
-    assert_eq!(vm.execute_program().unwrap(), 0xBEE);
+    assert_eq!(
+        vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
+            .unwrap(),
+        0xBEE
+    );
 }
 
 #[test]
@@ -235,8 +239,10 @@ fn test_non_terminating() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
     vm.register_syscall(BPF_TRACE_PRINTK_IDX, Syscall::Function(bpf_trace_printf))
         .unwrap();
-    let instruction_meter = TestInstructionMeter { remaining: 1000 };
-    let _ = vm.execute_program_metered(instruction_meter).unwrap();
+    let mut instruction_meter = TestInstructionMeter { remaining: 1000 };
+    let _ = vm
+        .execute_program_interpreted(&mut instruction_meter)
+        .unwrap();
 }
 
 #[test]
@@ -259,8 +265,8 @@ fn test_non_terminate_capped() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
     vm.register_syscall(BPF_TRACE_PRINTK_IDX, Syscall::Function(bpf_trace_printf))
         .unwrap();
-    let instruction_meter = TestInstructionMeter { remaining: 6 };
-    let _ = vm.execute_program_metered(instruction_meter);
+    let mut instruction_meter = TestInstructionMeter { remaining: 6 };
+    let _ = vm.execute_program_interpreted(&mut instruction_meter);
     assert_eq!(vm.get_total_instruction_count(), 6);
 }
 
@@ -282,8 +288,8 @@ fn test_non_terminate_early() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    let instruction_meter = TestInstructionMeter { remaining: 100 };
-    let _ = vm.execute_program_metered(instruction_meter);
+    let mut instruction_meter = TestInstructionMeter { remaining: 100 };
+    let _ = vm.execute_program_interpreted(&mut instruction_meter);
     assert_eq!(vm.get_total_instruction_count(), 7);
 }
 
@@ -296,7 +302,7 @@ fn test_get_total_instruction_count() {
     .unwrap();
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    let _ = vm.execute_program();
+    let _ = vm.execute_program_interpreted(&mut DefaultInstructionMeter {});
     assert_eq!(vm.get_total_instruction_count(), 1);
 }
 
@@ -317,8 +323,8 @@ fn test_get_total_instruction_count_with_syscall() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
     vm.register_syscall(0, Syscall::Function(bpf_syscall_string))
         .unwrap();
-    let instruction_meter = TestInstructionMeter { remaining: 4 };
-    let _ = vm.execute_program_metered(instruction_meter);
+    let mut instruction_meter = TestInstructionMeter { remaining: 4 };
+    let _ = vm.execute_program_interpreted(&mut instruction_meter);
     assert_eq!(vm.get_total_instruction_count(), 4);
 }
 
@@ -340,8 +346,9 @@ fn test_get_total_instruction_count_with_syscall_capped() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
     vm.register_syscall(0, Syscall::Function(bpf_syscall_string))
         .unwrap();
-    let instruction_meter = TestInstructionMeter { remaining: 3 };
-    vm.execute_program_metered(instruction_meter).unwrap();
+    let mut instruction_meter = TestInstructionMeter { remaining: 3 };
+    vm.execute_program_interpreted(&mut instruction_meter)
+        .unwrap();
 }
 
 #[test]
@@ -356,7 +363,8 @@ fn test_custom_entrypoint() {
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
     vm.register_syscall_ex("log", Syscall::Function(bpf_syscall_string))
         .unwrap();
-    vm.execute_program().unwrap();
+    vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
+        .unwrap();
     assert_eq!(2, vm.get_total_instruction_count());
 }
 
@@ -382,7 +390,11 @@ fn test_large_program() {
         let executable =
             EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
         let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-        assert_eq!(0, vm.execute_program().unwrap());
+        assert_eq!(
+            0,
+            vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
+                .unwrap()
+        );
     }
     // reset program
     write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "mov64 r0, 0");
@@ -403,7 +415,11 @@ fn test_large_program() {
         let executable =
             EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
         let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-        assert_eq!(0, vm.execute_program().unwrap());
+        assert_eq!(
+            0,
+            vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
+                .unwrap()
+        );
     }
 }
 
@@ -434,7 +450,7 @@ fn test_fuzz_execute() {
                     .unwrap();
                 vm.register_syscall_ex("log_64", Syscall::Function(bpf_syscall_u64))
                     .unwrap();
-                let _ = vm.execute_program();
+                let _ = vm.execute_program_interpreted(&mut DefaultInstructionMeter {});
             }
         },
     );

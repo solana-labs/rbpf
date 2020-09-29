@@ -8,7 +8,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     syscalls,
     user_error::UserError,
-    vm::{EbpfVm, Syscall},
+    vm::{DefaultInstructionMeter, EbpfVm, Syscall},
 };
 
 // The main objectives of this example is to show:
@@ -45,7 +45,11 @@ fn main() {
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog1, None).unwrap();
     let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
     // Execute prog1.
-    assert_eq!(vm.execute_program().unwrap(), 0x3);
+    assert_eq!(
+        vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
+            .unwrap(),
+        0x3
+    );
 
     // We know prog1 will always return 3. There is an exception: when it uses
     // syscalls, the latter may have non-deterministic values, and all calls may not return the same
@@ -68,7 +72,10 @@ fn main() {
     {
         vm.jit_compile().unwrap();
 
-        time = unsafe { vm.execute_program_jit().unwrap() };
+        time = unsafe {
+            vm.execute_program_jit(&mut DefaultInstructionMeter {})
+                .unwrap()
+        };
     }
 
     #[cfg(windows)]

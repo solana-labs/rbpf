@@ -22,7 +22,7 @@ use solana_rbpf::{
     memory_region::{AccessType, MemoryMapping},
     syscalls,
     user_error::UserError,
-    vm::{EbpfVm, Syscall, SyscallObject},
+    vm::{DefaultInstructionMeter, EbpfVm, Syscall, SyscallObject},
 };
 use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
 
@@ -34,22 +34,24 @@ macro_rules! test_vm_and_jit {
     };
     ( $executable:expr, $mem:tt, ($($location:expr => $syscall:expr),*), $check:tt ) => {
         let check_closure = $check;
-        {
+        let _instruction_count_interpreter = {
             let mem = $mem;
             let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
             test_vm_and_jit!(vm, $($location => $syscall),*);
-            assert!(check_closure(vm.execute_program()));
-        }
+            assert!(check_closure(vm.execute_program_interpreted(&mut DefaultInstructionMeter {})));
+            vm.get_total_instruction_count()
+        };
         #[cfg(not(windows))]
-        {
+        let _instruction_count_jit = {
             let mem = $mem;
             let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
             test_vm_and_jit!(vm, $($location => $syscall),*);
             match vm.jit_compile() {
                 Err(err) => assert!(check_closure(Err(err))),
-                Ok(()) => assert!(check_closure(unsafe { vm.execute_program_jit() })),
+                Ok(()) => assert!(check_closure(unsafe { vm.execute_program_jit(&mut DefaultInstructionMeter {}) })),
             }
-        }
+            vm.get_total_instruction_count()
+        };
     };
 }
 

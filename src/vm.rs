@@ -97,11 +97,13 @@ pub trait InstructionMeter {
     /// Get the number of remaining instructions allowed
     fn get_remaining(&self) -> u64;
 }
-struct DefaultInstructionMeter {}
+
+/// Instruction meter without a limit
+pub struct DefaultInstructionMeter {}
 impl InstructionMeter for DefaultInstructionMeter {
     fn consume(&mut self, _amount: u64) {}
     fn get_remaining(&self) -> u64 {
-        std::u64::MAX
+        std::i64::MAX as u64
     }
 }
 
@@ -110,7 +112,7 @@ impl InstructionMeter for DefaultInstructionMeter {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{vm::EbpfVm, user_error::UserError};
+/// use solana_rbpf::{vm::{EbpfVm, DefaultInstructionMeter}, user_error::UserError};
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -124,7 +126,7 @@ impl InstructionMeter for DefaultInstructionMeter {
 /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), mem, &[]).unwrap();
 ///
 /// // Provide a reference to the packet data.
-/// let res = vm.execute_program().unwrap();
+/// let res = vm.execute_program_interpreted(&mut DefaultInstructionMeter {}).unwrap();
 /// assert_eq!(res, 0);
 /// ```
 pub struct EbpfVm<'a, E: UserDefinedError> {
@@ -299,7 +301,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::EbpfVm, user_error::UserError};
+    /// use solana_rbpf::{vm::{EbpfVm, DefaultInstructionMeter}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -313,25 +315,20 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), mem, &[]).unwrap();
     ///
     /// // Provide a reference to the packet data.
-    /// let res = vm.execute_program().unwrap();
+    /// let res = vm.execute_program_interpreted(&mut DefaultInstructionMeter {}).unwrap();
     /// assert_eq!(res, 0);
     /// ```
-    pub fn execute_program(&mut self) -> ProgramResult<E> {
-        self.execute_program_metered(DefaultInstructionMeter {})
-    }
-
-    /// Execute the program loaded, with the given instruction meter.
-    pub fn execute_program_metered<I: InstructionMeter>(
+    pub fn execute_program_interpreted<I: InstructionMeter>(
         &mut self,
-        mut instruction_meter: I,
+        instruction_meter: &mut I,
     ) -> ProgramResult<E> {
-        let result = self.execute_program_inner(&mut instruction_meter);
+        let result = self.execute_program_interpreted_inner(instruction_meter);
         instruction_meter.consume(self.last_insn_count);
         result
     }
 
     #[rustfmt::skip]
-    fn execute_program_inner<I: InstructionMeter>(
+    fn execute_program_interpreted_inner<I: InstructionMeter>(
         &mut self,
         instruction_meter: &mut I,
     ) -> ProgramResult<E> {
@@ -744,10 +741,9 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// For this reason the function should be called from within an `unsafe` bloc.
     ///
-    pub unsafe fn execute_program_jit(
-        // <I: InstructionMeter>(
+    pub unsafe fn execute_program_jit<I: InstructionMeter>(
         &mut self,
-        // instruction_meter: &mut I,
+        instruction_meter: &mut I,
     ) -> ProgramResult<E> {
         let reg1 = if self
             .memory_mapping
@@ -771,15 +767,15 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         );
         jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
         let result: ProgramResult<E> = Ok(0);
-        let remaining_insn_count = 1000; // instruction_meter.get_remaining();
-        let _total_insn_count = remaining_insn_count as isize
+        let remaining_insn_count = instruction_meter.get_remaining();
+        self.total_insn_count = remaining_insn_count
             - (compiled_prog.main)(
                 &result,
                 reg1,
                 &*(jit_arg.as_ptr() as *const JitProgramArgument),
                 remaining_insn_count,
-            ) as isize;
-        // instruction_meter.consume(self.last_insn_count);
+            );
+        instruction_meter.consume(self.total_insn_count);
         result
     }
 }
