@@ -55,15 +55,17 @@ macro_rules! translate_memory_access {
 ///   - Unknown eBPF syscall index.
 pub type Verifier<E> = fn(prog: &[u8]) -> Result<(), E>;
 
+/// Return value of programs and syscalls
+pub type ProgramResult<E> = Result<u64, EbpfError<E>>;
+
 /// Syscall function without context.
-pub type SyscallFunction<E> =
-    fn(u64, u64, u64, u64, u64, &MemoryMapping) -> Result<u64, EbpfError<E>>;
+pub type SyscallFunction<E> = fn(u64, u64, u64, u64, u64, &MemoryMapping) -> ProgramResult<E>;
 
 /// Syscall with context
 pub trait SyscallObject<E: UserDefinedError> {
     /// Call the syscall function
     #[allow(clippy::too_many_arguments)]
-    fn call(&mut self, u64, u64, u64, u64, u64, &MemoryMapping) -> Result<u64, EbpfError<E>>;
+    fn call(&mut self, u64, u64, u64, u64, u64, &MemoryMapping) -> ProgramResult<E>;
 }
 
 /// Contains the syscall
@@ -314,7 +316,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// let res = vm.execute_program().unwrap();
     /// assert_eq!(res, 0);
     /// ```
-    pub fn execute_program(&mut self) -> Result<u64, EbpfError<E>> {
+    pub fn execute_program(&mut self) -> ProgramResult<E> {
         self.execute_program_metered(DefaultInstructionMeter {})
     }
 
@@ -322,7 +324,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     pub fn execute_program_metered<I: InstructionMeter>(
         &mut self,
         mut instruction_meter: I,
-    ) -> Result<u64, EbpfError<E>> {
+    ) -> ProgramResult<E> {
         let result = self.execute_program_inner(&mut instruction_meter);
         instruction_meter.consume(self.last_insn_count);
         result
@@ -332,7 +334,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     fn execute_program_inner<I: InstructionMeter>(
         &mut self,
         instruction_meter: &mut I,
-    ) -> Result<u64, EbpfError<E>> {
+    ) -> ProgramResult<E> {
         const U32MAX: u64 = u32::MAX as u64;
 
         // R1 points to beginning of input memory, R10 to the stack of the first frame
@@ -742,7 +744,11 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// For this reason the function should be called from within an `unsafe` bloc.
     ///
-    pub unsafe fn execute_program_jit(&self) -> Result<u64, EbpfError<E>> {
+    pub unsafe fn execute_program_jit(
+        // <I: InstructionMeter>(
+        &mut self,
+        // instruction_meter: &mut I,
+    ) -> ProgramResult<E> {
         let reg1 = if self
             .memory_mapping
             .map::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1)
@@ -752,23 +758,28 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         } else {
             0
         };
-        match &self.compiled_prog {
-            Some(compiled_prog) => {
-                let mut jit_arg: Vec<*const u8> =
-                    vec![std::ptr::null(); 2 + compiled_prog.instruction_addresses.len()];
-                libc::memcpy(
-                    jit_arg.as_mut_ptr() as _,
-                    std::mem::transmute::<_, _>(&self.memory_mapping),
-                    std::mem::size_of::<MemoryMapping>(),
-                );
-                jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
-                (compiled_prog.main)(
-                    reg1,
-                    &*(jit_arg.as_ptr() as *const JitProgramArgument),
-                    0x1000,
-                )
-            }
-            None => Err(EbpfError::JITNotCompiled),
-        }
+        let compiled_prog = self
+            .compiled_prog
+            .as_ref()
+            .ok_or_else(|| EbpfError::JITNotCompiled)?;
+        let mut jit_arg: Vec<*const u8> =
+            vec![std::ptr::null(); 2 + compiled_prog.instruction_addresses.len()];
+        libc::memcpy(
+            jit_arg.as_mut_ptr() as _,
+            std::mem::transmute::<_, _>(&self.memory_mapping),
+            std::mem::size_of::<MemoryMapping>(),
+        );
+        jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
+        let result: ProgramResult<E> = Ok(0);
+        let remaining_insn_count = 1000; // instruction_meter.get_remaining();
+        let _total_insn_count = remaining_insn_count as isize
+            - (compiled_prog.main)(
+                &result,
+                reg1,
+                &*(jit_arg.as_ptr() as *const JitProgramArgument),
+                remaining_insn_count,
+            ) as isize;
+        // instruction_meter.consume(self.last_insn_count);
+        result
     }
 }
