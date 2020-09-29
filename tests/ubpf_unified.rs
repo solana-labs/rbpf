@@ -42,16 +42,19 @@ macro_rules! test_vm_and_jit {
             vm.get_total_instruction_count()
         };
         #[cfg(not(windows))]
-        let _instruction_count_jit = {
+        {
             let mem = $mem;
             let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
             test_vm_and_jit!(vm, $($location => $syscall),*);
             match vm.jit_compile() {
                 Err(err) => assert!(check_closure(Err(err))),
-                Ok(()) => assert!(check_closure(unsafe { vm.execute_program_jit(&mut DefaultInstructionMeter {}) })),
+                Ok(()) => {
+                    assert!(check_closure(unsafe { vm.execute_program_jit(&mut DefaultInstructionMeter {}) }));
+                    let instruction_count_jit = vm.get_total_instruction_count();
+                    assert_eq!(_instruction_count_interpreter, instruction_count_jit);
+                },
             }
-            vm.get_total_instruction_count()
-        };
+        }
     };
 }
 
