@@ -440,19 +440,19 @@ struct Argument {
 }
 
 #[inline]
-fn profile_instruction_count(jit: &mut JitMemory, dst: Value) {
+fn profile_instruction_count(jit: &mut JitMemory, target_pc: Option<usize>) {
     emit_cmp_imm32(jit, RBP, jit.pc as i32 + 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32));
     emit_load_imm(jit, R11, jit.pc as i64);
     emit_jcc(jit, 0x82, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
-    match dst {
-        Value::Register(reg) => {
-            emit_alu(jit, OperationWidth::Bit64, 0x81, 5, RBP, jit.pc as i32 + 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter -= jit.pc + 1;
-            emit_alu(jit, OperationWidth::Bit64, 0x01, reg, RBP, jit.pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += target_pc;
-        },
-        Value::Constant(target_pc) => {
+    match target_pc {
+        Some(target_pc) => {
             emit_alu(jit, OperationWidth::Bit64, 0x81, 0, RBP, target_pc as i32 - jit.pc as i32 - 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += target_pc - (jit.pc + 1);
         },
-        _ => panic!()
+        None => { // If no constant target_pc is given, it is expected to be on the stack instead
+            emit_pop(jit, R11);
+            emit_alu(jit, OperationWidth::Bit64, 0x81, 5, RBP, jit.pc as i32 + 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter -= jit.pc + 1;
+            emit_alu(jit, OperationWidth::Bit64, 0x01, R11, RBP, jit.pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += target_pc;
+        },
     }
 }
 
@@ -463,7 +463,7 @@ fn undo_profile_instruction_count(jit: &mut JitMemory, target_pc: usize) {
 
 #[inline]
 fn emit_conditional_branch_reg(jit: &mut JitMemory, op: u8, src: u8, dst: u8, target_pc: usize) {
-    profile_instruction_count(jit, Value::Constant(target_pc as i64));
+    profile_instruction_count(jit, Some(target_pc));
     emit_cmp(jit, src, dst, None);
     emit_jcc(jit, op, target_pc);
     undo_profile_instruction_count(jit, target_pc);
@@ -471,7 +471,7 @@ fn emit_conditional_branch_reg(jit: &mut JitMemory, op: u8, src: u8, dst: u8, ta
 
 #[inline]
 fn emit_conditional_branch_imm(jit: &mut JitMemory, op: u8, imm: i32, dst: u8, target_pc: usize) {
-    profile_instruction_count(jit, Value::Constant(target_pc as i64));
+    profile_instruction_count(jit, Some(target_pc));
     emit_cmp_imm32(jit, dst, imm, None);
     emit_jcc(jit, op, target_pc);
     undo_profile_instruction_count(jit, target_pc);
@@ -504,19 +504,20 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
             emit_jcc(jit, 0x82, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Calculate offset relative to instruction_addresses
             emit_alu(jit, OperationWidth::Bit64, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX -= MM_PROGRAM_START;
-            emit_mov(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
+            // Calculate the target_pc to update the instruction_meter
             let shift_amount = INSN_SIZE.trailing_zeros();
             assert!(INSN_SIZE == 1<<shift_amount);
+            emit_mov(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
             emit_alu(jit, OperationWidth::Bit64, 0xc1, 5, REGISTER_MAP[STACK_REG], shift_amount as i32, None);
-            profile_instruction_count(jit, Value::Register(REGISTER_MAP[STACK_REG]));
+            emit_push(jit, REGISTER_MAP[STACK_REG]);
             // Load host target_address from JitProgramArgument.instruction_addresses
+            assert!(INSN_SIZE == 8); // Because the instruction size is also the slot size we do not need to shift the offset
+            emit_mov(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
             emit_mov(jit, R10, REGISTER_MAP[STACK_REG]);
             emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX += &JitProgramArgument as *const _;
             emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], std::mem::size_of::<MemoryMapping>() as i32); // RAX = JitProgramArgument.instruction_addresses[RAX / 8];
         },
-        Value::Constant(target_pc) => {
-            profile_instruction_count(jit, Value::Constant(target_pc as i64));
-        },
+        Value::Constant(_target_pc) => {},
         _ => panic!()
     }
 
@@ -534,23 +535,24 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
 
     match dst {
         Value::Register(_reg) => {
+            profile_instruction_count(jit, None);
             // callq *%rax
             emit1(jit, 0xff);
             emit1(jit, 0xd0);
         },
         Value::Constant(target_pc) => {
+            profile_instruction_count(jit, Some(target_pc as usize));
             emit1(jit, 0xe8);
             emit_jump_offset(jit, target_pc as usize);
         },
         _ => panic!()
     }
+    undo_profile_instruction_count(jit, 0);
 
     emit_pop(jit, REGISTER_MAP[STACK_REG]);
     for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS).rev() {
         emit_pop(jit, *reg);
     }
-
-    undo_profile_instruction_count(jit, 0);
 }
 
 #[inline]
@@ -832,7 +834,7 @@ impl<'a> JitMemory<'a> {
                 },
 
                 ebpf::LD_DW_IMM  => {
-                    profile_instruction_count(self, Value::Constant(self.pc as i64 + 2));
+                    profile_instruction_count(self, Some(self.pc + 2));
                     self.pc += 1;
                     let second_part = ebpf::get_insn(prog, self.pc).imm as u64;
                     let imm = (insn.imm as u32) as u64 | second_part.wrapping_shl(32);
@@ -995,7 +997,7 @@ impl<'a> JitMemory<'a> {
 
                 // BPF_JMP class
                 ebpf::JA         => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
+                    profile_instruction_count(self, Some(target_pc));
                     emit_jmp(self, target_pc);
                 },
                 ebpf::JEQ_IMM    => emit_conditional_branch_imm(self, 0x84, insn.imm, dst, target_pc),
@@ -1009,13 +1011,13 @@ impl<'a> JitMemory<'a> {
                 ebpf::JLE_IMM    => emit_conditional_branch_imm(self, 0x86, insn.imm, dst, target_pc),
                 ebpf::JLE_REG    => emit_conditional_branch_reg(self, 0x86, src, dst, target_pc),
                 ebpf::JSET_IMM   => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
+                    profile_instruction_count(self, Some(target_pc));
                     emit_alu(self, OperationWidth::Bit64, 0xf7, 0, dst, insn.imm, None);
                     emit_jcc(self, 0x85, target_pc);
                     undo_profile_instruction_count(self, target_pc);
                 },
                 ebpf::JSET_REG   => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
+                    profile_instruction_count(self, Some(target_pc));
                     emit_alu(self, OperationWidth::Bit64, 0x85, src, dst, 0, None);
                     emit_jcc(self, 0x85, target_pc);
                     undo_profile_instruction_count(self, target_pc);
@@ -1083,7 +1085,7 @@ impl<'a> JitMemory<'a> {
                     emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]), prog.len() / ebpf::INSN_SIZE);
                 },
                 ebpf::EXIT      => {
-                    profile_instruction_count(self, Value::Constant(0));
+                    profile_instruction_count(self, Some(0));
 
                     emit_load(self, OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], -8 * CALLEE_SAVED_REGISTERS.len() as i32); // load stack_ptr
                     emit_alu(self, OperationWidth::Bit64, 0x81, 4, REGISTER_MAP[STACK_REG], !(CALL_FRAME_SIZE as i32 * 2 - 1), None); // stack_ptr &= !(CALL_FRAME_SIZE * 2 - 1, None);
