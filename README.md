@@ -153,7 +153,9 @@ therefore must use specific syscall numbers.
 
 ```rust,ignore
 // for struct EbpfVm
-pub fn execute_program(&mut self) -> Result<(u64), Error>
+pub fn execute_program_interpreted<I: InstructionMeter>(
+    &mut self,
+    instruction_meter: &mut I) -> Result<(u64), Error>
 ```
 
 Interprets the loaded program. The function takes a reference to the packet
@@ -170,14 +172,16 @@ is called. The generated assembly function is internally stored in the VM.
 
 ```rust,ignore
 // for struct EbpfVm
-pub unsafe fn execute_program_jit(&self) -> Result<(u64), Error>
+pub unsafe fn execute_program_jit<I: InstructionMeter>(
+    &self,
+    instruction_meter: &mut I) -> Result<(u64), Error>
 ```
 
 Calls the JIT-compiled program. The arguments to provide are the same as for
-`execute_program()`, again depending on the kind of VM that is used. The result of
-the JIT-compiled program should be the same as with the interpreter, but it
-should run faster. Note that if errors occur during the program execution, the
-JIT-compiled version does not handle it as well as the interpreter, and the
+`execute_program_interpreted()`, again depending on the kind of VM that is used.
+The result of the JIT-compiled program should be the same as with the interpreter,
+but it should run faster. Note that if errors occur during the program execution,
+the JIT-compiled version does not handle it as well as the interpreter, and the
 program may crash. For this reason, the functions are marked as `unsafe`.
 
 ## Example uses
@@ -206,7 +210,9 @@ fn main() {
     let vm = rbpf::EbpfVm::new(prog, &[]. &[]).unwrap();
 
     // Execute (interpret) the program.
-    assert_eq!(vm.execute_program().unwrap(), 0x3);
+    assert_eq!(vm.execute_program_interpreted(
+        &mut rbpf::EbpfVm::DefaultInstructionMeter {}
+    ).unwrap(), 0x3);
 }
 ```
 

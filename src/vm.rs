@@ -732,7 +732,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     }
 
     /// Execute the previously JIT-compiled program, with the given packet data in a manner
-    /// very similar to `execute_program()`.
+    /// very similar to `execute_program_interpreted()`.
     ///
     /// # Safety
     ///

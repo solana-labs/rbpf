@@ -71,7 +71,6 @@ fn main() {
     #[cfg(not(windows))]
     {
         vm.jit_compile().unwrap();
-
         time = unsafe {
             vm.execute_program_jit(&mut DefaultInstructionMeter {})
                 .unwrap()
@@ -80,7 +79,9 @@ fn main() {
 
     #[cfg(windows)]
     {
-        time = vm.execute_program().unwrap();
+        time = vm
+            .execute_program_interpreted(&mut DefaultInstructionMeter {})
+            .unwrap();
     }
 
     let days = time / 10u64.pow(9) / 60 / 60 / 24;
