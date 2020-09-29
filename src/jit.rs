@@ -513,12 +513,12 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
             emit_alu(jit, OperationWidth::Bit64, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX -= MM_PROGRAM_START;
             // Calculate the target_pc to update the instruction_meter
             let shift_amount = INSN_SIZE.trailing_zeros();
-            assert!(INSN_SIZE == 1<<shift_amount);
+            assert_eq!(INSN_SIZE, 1<<shift_amount);
             emit_mov(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
             emit_alu(jit, OperationWidth::Bit64, 0xc1, 5, REGISTER_MAP[STACK_REG], shift_amount as i32, None);
             emit_push(jit, REGISTER_MAP[STACK_REG]);
             // Load host target_address from JitProgramArgument.instruction_addresses
-            assert!(INSN_SIZE == 8); // Because the instruction size is also the slot size we do not need to shift the offset
+            assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
             emit_mov(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
             emit_mov(jit, R10, REGISTER_MAP[STACK_REG]);
             emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX += &JitProgramArgument as *const _;
