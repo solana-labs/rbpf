@@ -180,22 +180,6 @@ fn emit_debugger_trap(jit: &mut JitMemory) {
     emit1(jit, 0xcc);
 }
 
-#[allow(dead_code)]
-#[inline]
-fn profile_instruction_count(jit: &mut JitMemory, target_pc: usize) {
-    emit_load_imm(jit, R11, jit.pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
-    emit_cmp(jit, RBP, R11, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32));
-    emit_jcc(jit, 0x85, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
-    emit_alu(jit, OperationWidth::Bit64, 0x81, 0, RBP, target_pc as i32 - jit.pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32));
-}
-
-#[inline]
-fn emit_jump_offset(jit: &mut JitMemory, target_pc: usize) {
-    let jump = Jump { offset_loc: jit.offset, target_pc };
-    jit.jumps.push(jump);
-    emit4(jit, 0);
-}
-
 #[inline]
 fn emit_modrm(jit: &mut JitMemory, modrm: u8, r: u8, m: u8) {
     assert_eq!((modrm | 0xc0), 0xc0);
@@ -316,6 +300,13 @@ fn emit_cmp_imm32(jit: &mut JitMemory, dst: u8, imm: i32, displacement: Option<i
 #[inline]
 fn emit_cmp(jit: &mut JitMemory, src: u8, dst: u8, displacement: Option<i32>) {
     emit_alu(jit, OperationWidth::Bit64, 0x39, src, dst, 0, displacement);
+}
+
+#[inline]
+fn emit_jump_offset(jit: &mut JitMemory, target_pc: usize) {
+    let jump = Jump { offset_loc: jit.offset, target_pc };
+    jit.jumps.push(jump);
+    emit4(jit, 0);
 }
 
 #[inline]
@@ -449,6 +440,23 @@ struct Argument {
 }
 
 #[inline]
+fn profile_instruction_count(jit: &mut JitMemory, dst: Value) {
+    emit_load_imm(jit, R11, jit.pc as i64 + ebpf::ELF_INSN_DUMP_OFFSET as i64);
+    emit_cmp(jit, R11, RBP, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32));
+    emit_jcc(jit, 0x82, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
+    match dst {
+        Value::Register(reg) => {
+            emit_alu(jit, OperationWidth::Bit64, 0x81, 5, RBP, jit.pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter -= jit.pc;
+            emit_alu(jit, OperationWidth::Bit64, 0x01, reg, RBP, jit.pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += target_pc;
+        },
+        Value::Constant(target_pc) => {
+            emit_alu(jit, OperationWidth::Bit64, 0x81, 0, RBP, target_pc as i32 - jit.pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += target_pc - jit.pc;
+        },
+        _ => panic!()
+    }
+}
+
+#[inline]
 fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize) {
     for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS) {
         emit_push(jit, *reg);
@@ -498,11 +506,13 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
 
     match dst {
         Value::Register(_reg) => {
+            profile_instruction_count(jit, Value::Register(RAX));
             // callq *%rax
             emit1(jit, 0xff);
             emit1(jit, 0xd0);
         },
         Value::Constant(target_pc) => {
+            profile_instruction_count(jit, Value::Constant(target_pc as i64));
             emit1(jit, 0xe8);
             emit_jump_offset(jit, target_pc as usize);
         },
@@ -741,6 +751,7 @@ impl<'a> JitMemory<'a> {
 
         let entry = executable.get_entrypoint_instruction_offset().unwrap();
         if entry != 0 {
+            emit_alu(self, OperationWidth::Bit64, 0x81, 0, RBP, entry as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += entry;
             emit_jmp(self, entry);
         }
 
@@ -955,92 +966,117 @@ impl<'a> JitMemory<'a> {
                 },
 
                 // BPF_JMP class
-                ebpf::JA         => emit_jmp(self, target_pc),
+                ebpf::JA         => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
+                    emit_jmp(self, target_pc);
+                },
                 ebpf::JEQ_IMM    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x84, target_pc);
                 },
                 ebpf::JEQ_REG    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x84, target_pc);
                 },
                 ebpf::JGT_IMM    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x87, target_pc);
                 },
                 ebpf::JGT_REG    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x87, target_pc);
                 },
                 ebpf::JGE_IMM    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x83, target_pc);
                 },
                 ebpf::JGE_REG    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x83, target_pc);
                 },
                 ebpf::JLT_IMM    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x82, target_pc);
                 },
                 ebpf::JLT_REG    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x82, target_pc);
                 },
                 ebpf::JLE_IMM    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x86, target_pc);
                 },
                 ebpf::JLE_REG    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x86, target_pc);
                 },
                 ebpf::JSET_IMM   => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_alu(self, OperationWidth::Bit64, 0xf7, 0, dst, insn.imm, None);
                     emit_jcc(self, 0x85, target_pc);
                 },
                 ebpf::JSET_REG   => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_alu(self, OperationWidth::Bit64, 0x85, src, dst, 0, None);
                     emit_jcc(self, 0x85, target_pc);
                 },
                 ebpf::JNE_IMM    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x85, target_pc);
                 },
                 ebpf::JNE_REG    => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x85, target_pc);
                 },
                 ebpf::JSGT_IMM   => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x8f, target_pc);
                 },
                 ebpf::JSGT_REG   => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x8f, target_pc);
                 },
                 ebpf::JSGE_IMM   => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x8d, target_pc);
                 },
                 ebpf::JSGE_REG   => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x8d, target_pc);
                 },
                 ebpf::JSLT_IMM   => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x8c, target_pc);
                 },
                 ebpf::JSLT_REG   => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x8c, target_pc);
                 },
                 ebpf::JSLE_IMM   => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp_imm32(self, dst, insn.imm, None);
                     emit_jcc(self, 0x8e, target_pc);
                 },
                 ebpf::JSLE_REG   => {
+                    profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_cmp(self, src, dst, None);
                     emit_jcc(self, 0x8e, target_pc);
                 },
@@ -1103,6 +1139,7 @@ impl<'a> JitMemory<'a> {
                     emit_store(self, OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, -8 * CALLEE_SAVED_REGISTERS.len() as i32); // store stack_ptr
 
                     // if(stack_ptr < MM_STACK_START) goto exit;
+                    profile_instruction_count(self, Value::Constant(0));
                     emit_mov(self, REGISTER_MAP[0], R11);
                     emit_load_imm(self, REGISTER_MAP[0], MM_STACK_START as i64);
                     emit_cmp(self, REGISTER_MAP[0], REGISTER_MAP[STACK_REG], None);
