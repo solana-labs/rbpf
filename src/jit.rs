@@ -457,6 +457,27 @@ fn profile_instruction_count(jit: &mut JitMemory, dst: Value) {
 }
 
 #[inline]
+fn undo_profile_instruction_count(jit: &mut JitMemory, target_pc: usize) {
+    emit_alu(jit, OperationWidth::Bit64, 0x81, 0, RBP, jit.pc as i32 + 1 - target_pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += (jit.pc + 1) - target_pc;
+}
+
+#[inline]
+fn conditional_branch_reg(jit: &mut JitMemory, op: u8, src: u8, dst: u8, target_pc: usize) {
+    profile_instruction_count(jit, Value::Constant(target_pc as i64));
+    emit_cmp(jit, src, dst, None);
+    emit_jcc(jit, op, target_pc);
+    undo_profile_instruction_count(jit, target_pc);
+}
+
+#[inline]
+fn conditional_branch_imm(jit: &mut JitMemory, op: u8, imm: i32, dst: u8, target_pc: usize) {
+    profile_instruction_count(jit, Value::Constant(target_pc as i64));
+    emit_cmp_imm32(jit, dst, imm, None);
+    emit_jcc(jit, op, target_pc);
+    undo_profile_instruction_count(jit, target_pc);
+}
+
+#[inline]
 fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize) {
     for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS) {
         emit_push(jit, *reg);
@@ -529,7 +550,7 @@ fn emit_bpf_call(jit: &mut JitMemory, dst: Value, number_of_instructions: usize)
         emit_pop(jit, *reg);
     }
 
-    emit_alu(jit, OperationWidth::Bit64, 0x81, 0, RBP, jit.pc as i32 + 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += jit.pc + 1;
+    undo_profile_instruction_count(jit, 0);
 }
 
 #[inline]
@@ -701,21 +722,21 @@ struct JitMemory<'a> {
 }
 
 impl<'a> JitMemory<'a> {
-    fn new(_num_pages: usize) -> JitMemory<'a> {
+    fn new(num_pages: usize) -> JitMemory<'a> {
         #[cfg(windows)]
-            {
-                panic!("JIT not supported on windows");
-            }
+        {
+            panic!("JIT not supported on windows");
+        }
         let contents: &mut[u8];
         #[cfg(not(windows))] // Without this block windows will fail ungracefully, hence the panic above
         unsafe {
             const PAGE_SIZE: usize = 4096;
-            let size = _num_pages * PAGE_SIZE;
+            let size = num_pages * PAGE_SIZE;
             let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
             libc::posix_memalign(&mut raw, PAGE_SIZE, size);
             libc::mprotect(raw, size, libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE);
             std::ptr::write_bytes(raw, 0xc3, size);  // for now, prepopulate with 'RET' calls
-            contents = std::slice::from_raw_parts_mut(raw as *mut u8, _num_pages * PAGE_SIZE);
+            contents = std::slice::from_raw_parts_mut(raw as *mut u8, num_pages * PAGE_SIZE);
         }
 
         JitMemory {
@@ -978,114 +999,76 @@ impl<'a> JitMemory<'a> {
                     emit_jmp(self, target_pc);
                 },
                 ebpf::JEQ_IMM    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp_imm32(self, dst, insn.imm, None);
-                    emit_jcc(self, 0x84, target_pc);
+                    conditional_branch_imm(self, 0x84, insn.imm, dst, target_pc);
                 },
                 ebpf::JEQ_REG    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp(self, src, dst, None);
-                    emit_jcc(self, 0x84, target_pc);
+                    conditional_branch_reg(self, 0x84, src, dst, target_pc);
                 },
                 ebpf::JGT_IMM    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp_imm32(self, dst, insn.imm, None);
-                    emit_jcc(self, 0x87, target_pc);
+                    conditional_branch_imm(self, 0x87, insn.imm, dst, target_pc);
                 },
                 ebpf::JGT_REG    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp(self, src, dst, None);
-                    emit_jcc(self, 0x87, target_pc);
+                    conditional_branch_reg(self, 0x87, src, dst, target_pc);
                 },
                 ebpf::JGE_IMM    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp_imm32(self, dst, insn.imm, None);
-                    emit_jcc(self, 0x83, target_pc);
+                    conditional_branch_imm(self, 0x83, insn.imm, dst, target_pc);
                 },
                 ebpf::JGE_REG    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp(self, src, dst, None);
-                    emit_jcc(self, 0x83, target_pc);
+                    conditional_branch_reg(self, 0x83, src, dst, target_pc);
                 },
                 ebpf::JLT_IMM    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp_imm32(self, dst, insn.imm, None);
-                    emit_jcc(self, 0x82, target_pc);
+                    conditional_branch_imm(self, 0x82, insn.imm, dst, target_pc);
                 },
                 ebpf::JLT_REG    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp(self, src, dst, None);
-                    emit_jcc(self, 0x82, target_pc);
+                    conditional_branch_reg(self, 0x82, src, dst, target_pc);
                 },
                 ebpf::JLE_IMM    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp_imm32(self, dst, insn.imm, None);
-                    emit_jcc(self, 0x86, target_pc);
+                    conditional_branch_imm(self, 0x86, insn.imm, dst, target_pc);
                 },
                 ebpf::JLE_REG    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp(self, src, dst, None);
-                    emit_jcc(self, 0x86, target_pc);
+                    conditional_branch_reg(self, 0x86, src, dst, target_pc);
                 },
                 ebpf::JSET_IMM   => {
                     profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_alu(self, OperationWidth::Bit64, 0xf7, 0, dst, insn.imm, None);
                     emit_jcc(self, 0x85, target_pc);
+                    undo_profile_instruction_count(self, target_pc);
                 },
                 ebpf::JSET_REG   => {
                     profile_instruction_count(self, Value::Constant(target_pc as i64));
                     emit_alu(self, OperationWidth::Bit64, 0x85, src, dst, 0, None);
                     emit_jcc(self, 0x85, target_pc);
+                    undo_profile_instruction_count(self, target_pc);
                 },
                 ebpf::JNE_IMM    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp_imm32(self, dst, insn.imm, None);
-                    emit_jcc(self, 0x85, target_pc);
+                    conditional_branch_imm(self, 0x85, insn.imm, dst, target_pc);
                 },
                 ebpf::JNE_REG    => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp(self, src, dst, None);
-                    emit_jcc(self, 0x85, target_pc);
+                    conditional_branch_reg(self, 0x85, src, dst, target_pc);
                 },
                 ebpf::JSGT_IMM   => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp_imm32(self, dst, insn.imm, None);
-                    emit_jcc(self, 0x8f, target_pc);
+                    conditional_branch_imm(self, 0x8f, insn.imm, dst, target_pc);
                 },
                 ebpf::JSGT_REG   => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp(self, src, dst, None);
-                    emit_jcc(self, 0x8f, target_pc);
+                    conditional_branch_reg(self, 0x8f, src, dst, target_pc);
                 },
                 ebpf::JSGE_IMM   => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp_imm32(self, dst, insn.imm, None);
-                    emit_jcc(self, 0x8d, target_pc);
+                    conditional_branch_imm(self, 0x8d, insn.imm, dst, target_pc);
                 },
                 ebpf::JSGE_REG   => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp(self, src, dst, None);
-                    emit_jcc(self, 0x8d, target_pc);
+                    conditional_branch_reg(self, 0x8d, src, dst, target_pc);
                 },
                 ebpf::JSLT_IMM   => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp_imm32(self, dst, insn.imm, None);
-                    emit_jcc(self, 0x8c, target_pc);
+                    conditional_branch_imm(self, 0x8c, insn.imm, dst, target_pc);
                 },
                 ebpf::JSLT_REG   => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp(self, src, dst, None);
-                    emit_jcc(self, 0x8c, target_pc);
+                    conditional_branch_reg(self, 0x8c, src, dst, target_pc);
                 },
                 ebpf::JSLE_IMM   => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp_imm32(self, dst, insn.imm, None);
-                    emit_jcc(self, 0x8e, target_pc);
+                    conditional_branch_imm(self, 0x8e, insn.imm, dst, target_pc);
                 },
                 ebpf::JSLE_REG   => {
-                    profile_instruction_count(self, Value::Constant(target_pc as i64));
-                    emit_cmp(self, src, dst, None);
-                    emit_jcc(self, 0x8e, target_pc);
+                    conditional_branch_reg(self, 0x8e, src, dst, target_pc);
                 },
                 ebpf::CALL_IMM   => {
                     // For JIT, syscalls MUST be registered at compile time. They can be
