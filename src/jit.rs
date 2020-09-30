@@ -430,31 +430,44 @@ fn emit_store_imm32(jit: &mut JitCompiler, size: OperandSize, dst: u8, offset: i
 }
 
 #[inline]
+fn emit_profile_instruction_count(jit: &mut JitCompiler, target_pc: Option<usize>) {
+    if jit.enable_instruction_meter {
+        match target_pc {
+            Some(target_pc) => {
+                emit_alu(jit, OperationWidth::Bit64, 0x81, 0, RBP, target_pc as i32 - jit.pc as i32 - 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += target_pc - (jit.pc + 1);
+            },
+            None => { // If no constant target_pc is given, it is expected to be on the stack instead
+                emit_pop(jit, R11);
+                emit_alu(jit, OperationWidth::Bit64, 0x81, 5, RBP, jit.pc as i32 + 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter -= jit.pc + 1;
+                emit_alu(jit, OperationWidth::Bit64, 0x01, R11, RBP, jit.pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += target_pc;
+            },
+        }
+    }
+}
+
+#[inline]
 fn emit_validate_and_profile_instruction_count(jit: &mut JitCompiler, target_pc: Option<usize>) {
-    emit_cmp_imm32(jit, RBP, jit.pc as i32 + 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32));
-    emit_load_imm(jit, R11, jit.pc as i64);
-    emit_jcc(jit, 0x82, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
-    match target_pc {
-        Some(target_pc) => {
-            emit_alu(jit, OperationWidth::Bit64, 0x81, 0, RBP, target_pc as i32 - jit.pc as i32 - 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += target_pc - (jit.pc + 1);
-        },
-        None => { // If no constant target_pc is given, it is expected to be on the stack instead
-            emit_pop(jit, R11);
-            emit_alu(jit, OperationWidth::Bit64, 0x81, 5, RBP, jit.pc as i32 + 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter -= jit.pc + 1;
-            emit_alu(jit, OperationWidth::Bit64, 0x01, R11, RBP, jit.pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += target_pc;
-        },
+    if jit.enable_instruction_meter {
+        emit_cmp_imm32(jit, RBP, jit.pc as i32 + 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32));
+        emit_load_imm(jit, R11, jit.pc as i64);
+        emit_jcc(jit, 0x82, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
+        emit_profile_instruction_count(jit, target_pc);
     }
 }
 
 #[inline]
 fn emit_undo_profile_instruction_count(jit: &mut JitCompiler, target_pc: usize) {
-    emit_alu(jit, OperationWidth::Bit64, 0x81, 0, RBP, jit.pc as i32 + 1 - target_pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += (jit.pc + 1) - target_pc;
+    if jit.enable_instruction_meter {
+        emit_alu(jit, OperationWidth::Bit64, 0x81, 0, RBP, jit.pc as i32 + 1 - target_pc as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += (jit.pc + 1) - target_pc;
+    }
 }
 
 #[inline]
 fn emit_profile_instruction_count_of_exception(jit: &mut JitCompiler) {
     emit_alu(jit, OperationWidth::Bit64, 0x81, 0, R11, 1, None);
-    emit_alu(jit, OperationWidth::Bit64, 0x29, R11, RBP, 0, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter -= pc + 1;
+    if jit.enable_instruction_meter {
+        emit_alu(jit, OperationWidth::Bit64, 0x29, R11, RBP, 0, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter -= pc + 1;
+    }
 }
 
 #[inline]
@@ -506,12 +519,14 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             emit_jcc(jit, 0x82, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Calculate offset relative to instruction_addresses
             emit_alu(jit, OperationWidth::Bit64, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX -= MM_PROGRAM_START;
-            // Calculate the target_pc to update the instruction_meter
-            let shift_amount = INSN_SIZE.trailing_zeros();
-            assert_eq!(INSN_SIZE, 1<<shift_amount);
-            emit_mov(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
-            emit_alu(jit, OperationWidth::Bit64, 0xc1, 5, REGISTER_MAP[STACK_REG], shift_amount as i32, None);
-            emit_push(jit, REGISTER_MAP[STACK_REG]);
+            if jit.enable_instruction_meter {
+                // Calculate the target_pc to update the instruction_meter
+                let shift_amount = INSN_SIZE.trailing_zeros();
+                assert_eq!(INSN_SIZE, 1<<shift_amount);
+                emit_mov(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
+                emit_alu(jit, OperationWidth::Bit64, 0xc1, 5, REGISTER_MAP[STACK_REG], shift_amount as i32, None);
+                emit_push(jit, REGISTER_MAP[STACK_REG]);
+            }
             // Load host target_address from JitProgramArgument.instruction_addresses
             assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
             emit_mov(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
@@ -728,11 +743,12 @@ struct JitCompiler<'a> {
     pc_locs: Vec<usize>,
     special_targets: HashMap<usize, usize>,
     jumps: Vec<Jump>,
+    enable_instruction_meter: bool,
 }
 
 impl<'a> JitCompiler<'a> {
     // num_pages is unused on windows
-    fn new(_num_pages: usize) -> JitCompiler<'a> {
+    fn new(_num_pages: usize, enable_instruction_meter: bool) -> JitCompiler<'a> {
         #[cfg(windows)]
         {
             panic!("JIT not supported on windows");
@@ -756,6 +772,7 @@ impl<'a> JitCompiler<'a> {
             pc_locs: vec![],
             jumps: vec![],
             special_targets: HashMap::new(),
+            enable_instruction_meter,
         }
     }
 
@@ -789,7 +806,7 @@ impl<'a> JitCompiler<'a> {
 
         let entry = executable.get_entrypoint_instruction_offset().unwrap();
         if entry != 0 {
-            emit_alu(self, OperationWidth::Bit64, 0x81, 0, RBP, entry as i32, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)); // instruction_meter += entry;
+            emit_profile_instruction_count(self, Some(entry + 1));
             emit_jmp(self, entry);
         }
 
@@ -1236,12 +1253,13 @@ impl<'a> std::fmt::Debug for JitCompiler<'a> {
 // In the end, this is the only thing we export
 pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8],
     executable: &'a dyn Executable<E>,
-    syscalls: &HashMap<u32, Syscall<'a, E>>)
+    syscalls: &HashMap<u32, Syscall<'a, E>>,
+    enable_instruction_meter: bool)
     -> Result<JitProgram<E>, EbpfError<E>> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
-    let mut jit = JitCompiler::new(1);
+    let mut jit = JitCompiler::new(1, enable_instruction_meter);
     jit.compile(prog, executable, syscalls)?;
     jit.resolve_jumps();
 
