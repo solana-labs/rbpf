@@ -674,7 +674,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
             }
             if self.last_insn_count >= remaining_insn_count {
-                return Err(EbpfError::ExceededMaxInstructions(pc + ebpf::ELF_INSN_DUMP_OFFSET, self.total_insn_count));
+                return Err(EbpfError::ExceededMaxInstructions(pc + 1 + ebpf::ELF_INSN_DUMP_OFFSET, self.total_insn_count));
             }
         }
 
@@ -773,13 +773,16 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
         let result: ProgramResult<E> = Ok(0);
         let remaining_insn_count = instruction_meter.get_remaining();
-        self.total_insn_count = remaining_insn_count
+        self.total_insn_count = (remaining_insn_count as i64
             - (compiled_prog.main)(
                 &result,
                 reg1,
                 &*(jit_arg.as_ptr() as *const JitProgramArgument),
                 remaining_insn_count,
-            );
+            ) as i64) as u64;
+        if self.total_insn_count > remaining_insn_count {
+            self.total_insn_count = remaining_insn_count;
+        }
         instruction_meter.consume(self.total_insn_count);
         result
     }

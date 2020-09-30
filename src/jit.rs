@@ -448,8 +448,8 @@ fn emit_profile_instruction_count(jit: &mut JitCompiler, target_pc: Option<usize
 #[inline]
 fn emit_validate_and_profile_instruction_count(jit: &mut JitCompiler, target_pc: Option<usize>) {
     if jit.enable_instruction_meter {
-        emit_cmp_imm32(jit, RBP, jit.pc as i32 + 1, Some(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32));
-        emit_load_imm(jit, R11, jit.pc as i64);
+        emit_load(jit, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
+        emit_cmp_imm32(jit, R11, jit.pc as i32 + 1, None);
         emit_jcc(jit, 0x82, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         emit_profile_instruction_count(jit, target_pc);
     }
@@ -748,7 +748,7 @@ struct JitCompiler<'a> {
 
 impl<'a> JitCompiler<'a> {
     // num_pages is unused on windows
-    fn new(_num_pages: usize, enable_instruction_meter: bool) -> JitCompiler<'a> {
+    fn new(_num_pages: usize, _enable_instruction_meter: bool) -> JitCompiler<'a> {
         #[cfg(windows)]
         {
             panic!("JIT not supported on windows");
@@ -772,7 +772,7 @@ impl<'a> JitCompiler<'a> {
             pc_locs: vec![],
             jumps: vec![],
             special_targets: HashMap::new(),
-            enable_instruction_meter,
+            enable_instruction_meter: _enable_instruction_meter,
         }
     }
 

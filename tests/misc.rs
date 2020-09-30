@@ -219,7 +219,7 @@ impl InstructionMeter for TestInstructionMeter {
 }
 
 #[test]
-#[should_panic(expected = "ExceededMaxInstructions(36, 1000)")]
+#[should_panic(expected = "ExceededMaxInstructions(37, 1000)")]
 fn test_non_terminating() {
     let prog = assemble(
         "
@@ -291,64 +291,6 @@ fn test_non_terminate_early() {
     let mut instruction_meter = TestInstructionMeter { remaining: 100 };
     let _ = vm.execute_program_interpreted(&mut instruction_meter);
     assert_eq!(vm.get_total_instruction_count(), 7);
-}
-
-#[test]
-fn test_get_total_instruction_count() {
-    let prog = assemble(
-        "
-        exit",
-    )
-    .unwrap();
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    let _ = vm.execute_program_interpreted(&mut DefaultInstructionMeter {});
-    assert_eq!(vm.get_total_instruction_count(), 1);
-}
-
-#[test]
-fn test_get_total_instruction_count_with_syscall() {
-    let prog = assemble(
-        "
-        mov64 r2, 0x5
-        call 0
-        mov64 r0, 0x0
-        exit",
-    )
-    .unwrap();
-
-    let mem = [72, 101, 108, 108, 111];
-
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
-    vm.register_syscall(0, Syscall::Function(bpf_syscall_string))
-        .unwrap();
-    let mut instruction_meter = TestInstructionMeter { remaining: 4 };
-    let _ = vm.execute_program_interpreted(&mut instruction_meter);
-    assert_eq!(vm.get_total_instruction_count(), 4);
-}
-
-#[test]
-#[should_panic(expected = "ExceededMaxInstructions(31, 3)")]
-fn test_get_total_instruction_count_with_syscall_capped() {
-    let prog = assemble(
-        "
-        mov64 r2, 0x5
-        call 0
-        mov64 r0, 0x0
-        exit",
-    )
-    .unwrap();
-
-    let mem = [72, 101, 108, 108, 111];
-
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &mem, &[]).unwrap();
-    vm.register_syscall(0, Syscall::Function(bpf_syscall_string))
-        .unwrap();
-    let mut instruction_meter = TestInstructionMeter { remaining: 3 };
-    vm.execute_program_interpreted(&mut instruction_meter)
-        .unwrap();
 }
 
 #[test]
