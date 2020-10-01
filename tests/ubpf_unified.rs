@@ -18,7 +18,7 @@ use solana_rbpf::{
     call_frames::MAX_CALL_DEPTH,
     ebpf::hash_symbol_name,
     elf::ELFError,
-    error::EbpfError,
+    error::{EbpfError, UserDefinedError},
     memory_region::{AccessType, MemoryMapping},
     syscalls,
     user_error::UserError,
@@ -2480,6 +2480,18 @@ fn test_vm_jit_call_save() {
     );
 }*/
 
+const BPF_TRACE_PRINTK_IDX: u32 = 6;
+fn bpf_trace_printf<E: UserDefinedError>(
+    _arg1: u64,
+    _arg2: u64,
+    _arg3: u64,
+    _arg4: u64,
+    _arg5: u64,
+    _memory_mapping: &MemoryMapping,
+) -> Result<u64, EbpfError<E>> {
+    Ok(0)
+}
+
 fn bpf_syscall_string(
     vm_addr: u64,
     len: u64,
@@ -2763,7 +2775,7 @@ fn test_vm_jit_instruction_count_syscall() {
 }
 
 #[test]
-fn test_vm_jit_err_instruction_count_syscall() {
+fn test_vm_jit_err_instruction_count_syscall_capped() {
     test_vm_and_jit_asm!(
         "
         mov64 r2, 0x5
@@ -2784,6 +2796,97 @@ fn test_vm_jit_err_instruction_count_syscall() {
         },
         TestInstructionMeter { remaining: 3 },
         3
+    );
+}
+
+#[test]
+fn test_vm_jit_non_terminate_early() {
+    test_vm_and_jit_asm!(
+        "
+        mov64 r6, 0x0
+        mov64 r1, 0x0
+        mov64 r2, 0x0
+        mov64 r3, 0x0
+        mov64 r4, 0x0
+        mov64 r5, r6
+        call 0x6
+        add64 r6, 0x1
+        ja -0x8
+        exit",
+        [],
+        (),
+        {
+            |res: ExecResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ELFError(ELFError::UnresolvedSymbol(a, b, c))
+                    if a == "Unknown" && b == 35 && c == 48
+                )
+            }
+        },
+        TestInstructionMeter { remaining: 100 },
+        7
+    );
+}
+
+#[test]
+fn test_vm_jit_err_non_terminate_capped() {
+    test_vm_and_jit_asm!(
+        "
+        mov64 r6, 0x0
+        mov64 r1, 0x0
+        mov64 r2, 0x0
+        mov64 r3, 0x0
+        mov64 r4, 0x0
+        mov64 r5, r6
+        call 0x6
+        add64 r6, 0x1
+        ja -0x8
+        exit",
+        [],
+        (
+            BPF_TRACE_PRINTK_IDX => Syscall::Function(bpf_trace_printf),
+        ),
+        {
+            |res: ExecResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, instruction_count)
+                    if pc == 35 && instruction_count == 6
+                )
+            }
+        },
+        TestInstructionMeter { remaining: 6 },
+        6
+    );
+}
+
+#[test]
+fn test_vm_jit_err_non_terminating_capped() {
+    test_vm_and_jit_asm!(
+        "
+        mov64 r6, 0x0
+        mov64 r1, 0x0
+        mov64 r2, 0x0
+        mov64 r3, 0x0
+        mov64 r4, 0x0
+        mov64 r5, r6
+        call 0x6
+        add64 r6, 0x1
+        ja -0x8
+        exit",
+        [],
+        (
+            BPF_TRACE_PRINTK_IDX => Syscall::Function(bpf_trace_printf),
+        ),
+        {
+            |res: ExecResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, instruction_count)
+                    if pc == 37 && instruction_count == 1000
+                )
+            }
+        },
+        TestInstructionMeter { remaining: 1000 },
+        1000
     );
 }
 

@@ -763,22 +763,26 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
             .compiled_prog
             .as_ref()
             .ok_or(EbpfError::JITNotCompiled)?;
-        let mut jit_arg: Vec<*const u8> =
-            vec![std::ptr::null(); 2 + compiled_prog.instruction_addresses.len()];
+        let remaining_insn_count = instruction_meter.get_remaining();
+        let mut jit_arg: Vec<*const u8> = vec![
+            std::ptr::null();
+            std::mem::size_of::<JitProgramArgument>()
+                / std::mem::size_of::<*const u8>()
+                + compiled_prog.instruction_addresses.len()
+        ];
         libc::memcpy(
             jit_arg.as_mut_ptr() as _,
             std::mem::transmute::<_, _>(&self.memory_mapping),
             std::mem::size_of::<MemoryMapping>(),
         );
-        jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
+        jit_arg[2] = remaining_insn_count as _;
+        jit_arg[3..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
         let result: ProgramResult<E> = Ok(0);
-        let remaining_insn_count = instruction_meter.get_remaining();
         self.total_insn_count = (remaining_insn_count as i64
             - (compiled_prog.main)(
                 &result,
                 reg1,
                 &*(jit_arg.as_ptr() as *const JitProgramArgument),
-                remaining_insn_count,
             ) as i64) as u64;
         if self.total_insn_count > remaining_insn_count {
             self.total_insn_count = remaining_insn_count;

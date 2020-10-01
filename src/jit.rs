@@ -34,14 +34,16 @@ use crate::{
 pub struct JitProgramArgument {
     /// The MemoryMapping to be used to run the compiled code
     pub memory_mapping: MemoryMapping,
+    /// The initial value of the instruction meter
+    pub remaining_instructions: u64,
     /// Pointers to the instructions of the compiled code
-    pub instruction_addresses: [*const u8; 1],
+    pub instruction_addresses: [*const u8; 0],
 }
 
 /// eBPF JIT-compiled program
 pub struct JitProgram<E: UserDefinedError> {
     /// Call this with JitProgramArgument to execute the compiled code
-    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, u64) -> u64,
+    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument) -> u64,
     /// Pointers to the instructions of the compiled code
     pub instruction_addresses: Vec<*const u8>,
 }
@@ -532,7 +534,7 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             emit_mov(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
             emit_mov(jit, R10, REGISTER_MAP[STACK_REG]);
             emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX += &JitProgramArgument as *const _;
-            emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], std::mem::size_of::<MemoryMapping>() as i32); // RAX = JitProgramArgument.instruction_addresses[RAX / 8];
+            emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], std::mem::size_of::<JitProgramArgument>() as i32); // RAX = JitProgramArgument.instruction_addresses[RAX / 8];
         },
         Value::Constant(_target_pc) => {},
         _ => panic!()
@@ -795,6 +797,7 @@ impl<'a> JitCompiler<'a> {
         emit_push(self, REGISTER_MAP[STACK_REG]);
 
         // Initialize instruction meter
+        emit_load(self, OperandSize::S64, R10, ARGUMENT_REGISTERS[3], std::mem::size_of::<MemoryMapping>() as i32);
         emit_push(self, ARGUMENT_REGISTERS[3]);
 
         // Initialize other registers
@@ -1137,8 +1140,8 @@ impl<'a> JitCompiler<'a> {
         // Handler for EbpfError::ExceededMaxInstructions
         set_anchor(self, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0));
-        emit_load(self, OperandSize::S64, RBP, REGISTER_MAP[0], -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32); // load instruction_meter
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // total_insn_count = instruction_meter;
+        emit_load(self, OperandSize::S64, R10, REGISTER_MAP[0], std::mem::size_of::<MemoryMapping>() as i32);
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], RDI, 24); // total_insn_count = initial_instruction_meter;
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::CallDepthExceeded
