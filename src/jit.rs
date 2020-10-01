@@ -431,6 +431,55 @@ fn emit_store_imm32(jit: &mut JitCompiler, size: OperandSize, dst: u8, offset: i
     };
 }
 
+/* Explaination of the Instruction Meter
+
+    The instruction meter serves two purposes: First, measure how many BPF instructions are
+    executed (profiling) and second, limit this number by stopping the program with an exception
+    once a given threshold is reached (validation). One approach would be to increment and
+    validate the instruction meter before each instruction. However, this would heavily impact
+    performance. Thus, we only profile and validate the instruction meter at branches.
+
+    For this, we implicitly sum up all the instructions between two branches.
+    It is easy to know the end of such a slice of instructions, but how do we know where it
+    started? There could be multiple ways to jump onto a path which all lead to the same final
+    branch. This is, where the integral technique comes in. The program is basically a sequence
+    of instructions with the x-axis being the program counter (short "pc"). The cost function is
+    a constant function which returns one for every point on the x axis. Now, the instruction
+    meter needs to calculate the definite integral of the cost function between the start and the
+    end of the current slice of instructions. For that we need the indefinite integral of the cost
+    function. Fortunately, the derivative of the pc is the cost function (it increases by one for
+    every instruction), thus the pc is an antiderivative of the the cost function and a valid
+    indefinite integral. So, to calculate an definite integral of the cost function, we just need
+    to subtract the start pc from the end pc of the slice. This difference can then be subtracted
+    from the remaining instruction counter until it goes below zero at which point it reaches
+    the instruction meter limit. Ok, but how do we know the start of the slice at the end?
+
+    The trick is: We do not need to know. As subtraction and addition are associative operations,
+    we can reorder them, even beyond the current branch. Thus, we can simply account for the
+    amount the start will subtract at the next branch by already adding that to the remaining
+    instruction counter at the current branch. So, every branch just subtracts its current pc
+    (the end of the slice) and adds the target pc (the start of the next slice) to the remaining
+    instruction counter. This way, no branch needs to know the pc of the last branch explicitly.
+    Another way to think about this trick is as follows: The remaining instruction counter now
+    measures what the maximum pc is, that we can reach with the remaining budget after the last
+    branch.
+
+    One problem are conditional branches. There are basically two ways to handle them: Either,
+    only do the profiling if the branch is taken, which requires two jumps (one for the profiling
+    and one to get to the target pc). Or, always profile it as if the jump to the target pc was
+    taken, but then behind the conditional branch, undo the profiling (as it was not taken). We
+    use the second method and the undo profiling is the same as the normal profiling, just with
+    reversed plus and minus signs.
+
+    Another special case to keep in mind are return instructions. They would require us to know
+    the return address (target pc), but in the JIT we already converted that to be a host address.
+    Of course, one could also save the BPF return address on the stack, but an even simpler
+    solution exists: Just count as if you were jumping to an specific target pc before the exit,
+    and then after returning use the undo profiling. The trick is, that the undo profiling now
+    has the current pc which is the BPF return address. The virtual target pc we count towards
+    and undo again can be anything, so we just set it to zero.
+*/
+
 #[inline]
 fn emit_profile_instruction_count(jit: &mut JitCompiler, target_pc: Option<usize>) {
     if jit.enable_instruction_meter {
