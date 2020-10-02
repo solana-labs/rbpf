@@ -32,7 +32,7 @@ macro_rules! test_vm_and_jit {
     ($vm:expr, $($location:expr => $syscall:expr),*) => {
         $($vm.register_syscall($location, $syscall).unwrap();)*
     };
-    ( $executable:expr, $mem:tt, ($($location:expr => $syscall:expr),*), $check:block, $instruction_meter:expr, $expected_instruction_count:expr ) => {
+    ( $executable:expr, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $instruction_meter:expr, $expected_instruction_count:expr ) => {
         let check_closure = $check;
         let instruction_count_interpreter = {
             let mem = $mem;
@@ -2736,6 +2736,26 @@ fn test_vm_jit_load_elf_empty_rodata() {
         { |res: ExecResult| { res.unwrap() == 0 } },
         DefaultInstructionMeter {},
         8
+    );
+}
+
+#[test]
+fn test_vm_jit_custom_entrypoint() {
+    let mut file = File::open("tests/elfs/unresolved_syscall.so").expect("file open failed");
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+    elf[24] = 80; // Move entrypoint to later in the text section
+    let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
+    test_vm_and_jit!(
+        executable,
+        [],
+        (
+            hash_symbol_name(b"log") => Syscall::Function(bpf_syscall_string),
+            hash_symbol_name(b"log_64") => Syscall::Function(bpf_syscall_u64),
+        ),
+        { |res: ExecResult| { res.unwrap() == 0 } },
+        DefaultInstructionMeter {},
+        2
     );
 }
 

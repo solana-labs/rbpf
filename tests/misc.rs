@@ -191,23 +191,6 @@ fn test_verifier_fail() {
             .unwrap();
 }
 
-#[test]
-fn test_custom_entrypoint() {
-    let mut file = File::open("tests/elfs/unresolved_syscall.so").expect("file open failed");
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-
-    elf[24] = 80; // Move entrypoint to later in the text section
-
-    let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    vm.register_syscall_ex("log", Syscall::Function(bpf_syscall_string))
-        .unwrap();
-    vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
-        .unwrap();
-    assert_eq!(2, vm.get_total_instruction_count());
-}
-
 fn write_insn(prog: &mut [u8], insn: usize, asm: &str) {
     prog[insn * ebpf::INSN_SIZE..insn * ebpf::INSN_SIZE + ebpf::INSN_SIZE]
         .copy_from_slice(&assemble(asm).unwrap());
