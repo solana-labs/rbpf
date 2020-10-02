@@ -19,12 +19,10 @@
 extern crate byteorder;
 extern crate libc;
 extern crate solana_rbpf;
-extern crate thiserror;
 
 use libc::c_char;
 use solana_rbpf::{
-    assembler::assemble,
-    error::{EbpfError, UserDefinedError},
+    error::EbpfError,
     fuzz::fuzz,
     memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
@@ -32,7 +30,6 @@ use solana_rbpf::{
     vm::{DefaultInstructionMeter, EbpfVm, Syscall},
 };
 use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
-use thiserror::Error;
 
 // The following two examples have been compiled from C with the following command:
 //
@@ -138,50 +135,6 @@ fn bpf_syscall_u64(
         arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
     );
     Ok(0)
-}
-
-/// Error definitions
-#[derive(Debug, Error)]
-pub enum VerifierTestError {
-    #[error("{0}")]
-    Rejected(String),
-}
-impl UserDefinedError for VerifierTestError {}
-
-#[test]
-fn test_verifier_success() {
-    fn verifier_success(_prog: &[u8]) -> Result<(), VerifierTestError> {
-        Ok(())
-    }
-    let prog = assemble(
-        "
-        mov32 r0, 0xBEE
-        exit",
-    )
-    .unwrap();
-    let executable = EbpfVm::<VerifierTestError>::create_executable_from_text_bytes(
-        &prog,
-        Some(verifier_success),
-    )
-    .unwrap();
-    let _ = EbpfVm::<VerifierTestError>::new(executable.as_ref(), &[], &[]).unwrap();
-}
-
-#[test]
-#[should_panic(expected = "Gaggablaghblagh!")]
-fn test_verifier_fail() {
-    fn verifier_fail(_prog: &[u8]) -> Result<(), VerifierTestError> {
-        Err(VerifierTestError::Rejected("Gaggablaghblagh!".to_string()))
-    }
-    let prog = assemble(
-        "
-        mov32 r0, 0xBEE
-        exit",
-    )
-    .unwrap();
-    let _ =
-        EbpfVm::<VerifierTestError>::create_executable_from_text_bytes(&prog, Some(verifier_fail))
-            .unwrap();
 }
 
 #[test]
