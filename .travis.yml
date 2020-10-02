@@ -18,8 +18,11 @@ before_script:
 script:
 - cargo fmt --all -- --check
 - cargo clippy --all --tests -- --deny=warnings
-- export RUSTFLAGS="-D warnings"; cargo build --verbose
-- export RUSTFLAGS="-D warnings"; cargo test --verbose
+- export RUSTFLAGS="-D warnings"
+- cargo build --verbose
+- cargo test --verbose
+- if [[ $(rustup default) == *"nightly"* ]]; then cargo bench; fi
+
 before_deploy:
 - cargo doc
 - cargo package
