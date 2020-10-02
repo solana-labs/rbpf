@@ -812,7 +812,7 @@ impl<'a> JitCompiler<'a> {
             let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
             libc::posix_memalign(&mut raw, PAGE_SIZE, size);
             libc::mprotect(raw, size, libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE);
-            std::ptr::write_bytes(raw, 0xc3, size);  // for now, prepopulate with 'RET' calls
+            std::ptr::write_bytes(raw, 0xcc, size); // Populate with debugger traps
             contents = std::slice::from_raw_parts_mut(raw as *mut u8, _num_pages * PAGE_SIZE);
         }
 
@@ -1311,7 +1311,7 @@ pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8],
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
-    let mut jit = JitCompiler::new(1, enable_instruction_meter);
+    let mut jit = JitCompiler::new(128, enable_instruction_meter);
     jit.compile(prog, executable, syscalls)?;
     jit.resolve_jumps();
 

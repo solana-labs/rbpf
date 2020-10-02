@@ -16,12 +16,13 @@ use libc::c_char;
 use solana_rbpf::{
     assembler::assemble,
     call_frames::MAX_CALL_DEPTH,
-    ebpf::hash_symbol_name,
+    ebpf::{self, hash_symbol_name},
     elf::ELFError,
     error::{EbpfError, UserDefinedError},
     memory_region::{AccessType, MemoryMapping},
     syscalls,
     user_error::UserError,
+    verifier::check,
     vm::{DefaultInstructionMeter, EbpfVm, InstructionMeter, Syscall, SyscallObject},
 };
 use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
@@ -3200,5 +3201,59 @@ fn test_vm_jit_tcp_sack_nomatch() {
         { |res: ExecResult| res.unwrap() == 0x0 },
         DefaultInstructionMeter {},
         55
+    );
+}
+
+#[test]
+fn test_large_program() {
+    fn write_insn(prog: &mut [u8], insn: usize, asm: &str) {
+        prog[insn * ebpf::INSN_SIZE..insn * ebpf::INSN_SIZE + ebpf::INSN_SIZE]
+            .copy_from_slice(&assemble(asm).unwrap());
+    }
+
+    let mut prog = vec![0; ebpf::PROG_MAX_INSNS * ebpf::INSN_SIZE];
+    let mut add_insn = vec![0; ebpf::INSN_SIZE];
+    write_insn(&mut add_insn, 0, "mov64 r0, 0");
+    for insn in (0..(ebpf::PROG_MAX_INSNS - 1) * ebpf::INSN_SIZE).step_by(ebpf::INSN_SIZE) {
+        prog[insn..insn + ebpf::INSN_SIZE].copy_from_slice(&add_insn);
+    }
+    write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 1, "exit");
+
+    {
+        // Test jumping to pc larger then i16
+        write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "ja 0x0");
+
+        let executable =
+            EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
+        let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
+        assert_eq!(
+            0,
+            vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
+                .unwrap()
+        );
+    }
+    // reset program
+    write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "mov64 r0, 0");
+
+    {
+        // test program that is too large
+        prog.extend_from_slice(&assemble("exit").unwrap());
+
+        assert!(
+            EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).is_err()
+        );
+    }
+    // reset program
+    prog.truncate(ebpf::PROG_MAX_INSNS * ebpf::INSN_SIZE);
+
+    // verify program still works
+    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
+    test_vm_and_jit!(
+        executable,
+        [],
+        (),
+        { |res: ExecResult| res.unwrap() == 0x0 },
+        DefaultInstructionMeter {},
+        ebpf::PROG_MAX_INSNS as u64
     );
 }
