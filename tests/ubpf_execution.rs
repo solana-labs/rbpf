@@ -29,7 +29,7 @@ use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
 
 type ExecResult = Result<u64, EbpfError<UserError>>;
 
-macro_rules! test_vm_and_jit {
+macro_rules! test_interpreter_and_jit {
     ($vm:expr, $($location:expr => $syscall:expr),*) => {
         $($vm.register_syscall($location, $syscall).unwrap();)*
     };
@@ -38,7 +38,7 @@ macro_rules! test_vm_and_jit {
         let instruction_count_interpreter = {
             let mem = $mem;
             let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
-            test_vm_and_jit!(vm, $($location => $syscall),*);
+            test_interpreter_and_jit!(vm, $($location => $syscall),*);
             assert!(check_closure(vm.execute_program_interpreted(&mut $instruction_meter)));
             vm.get_total_instruction_count()
         };
@@ -46,7 +46,7 @@ macro_rules! test_vm_and_jit {
         {
             let mem = $mem;
             let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
-            test_vm_and_jit!(vm, $($location => $syscall),*);
+            test_interpreter_and_jit!(vm, $($location => $syscall),*);
             match vm.jit_compile() {
                 Err(err) => assert!(check_closure(Err(err))),
                 Ok(()) => {
@@ -60,29 +60,29 @@ macro_rules! test_vm_and_jit {
     };
 }
 
-macro_rules! test_vm_and_jit_asm {
+macro_rules! test_interpreter_and_jit_asm {
     ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $instruction_meter:expr, $expected_instruction_count:expr ) => {
         let program = assemble($source).unwrap();
         let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&program, None).unwrap();
-        test_vm_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $instruction_meter, $expected_instruction_count);
+        test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $instruction_meter, $expected_instruction_count);
     };
 }
 
-macro_rules! test_vm_and_jit_elf {
+macro_rules! test_interpreter_and_jit_elf {
     ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $instruction_meter:expr, $expected_instruction_count:expr ) => {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
         let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
-        test_vm_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $instruction_meter, $expected_instruction_count);
+        test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $instruction_meter, $expected_instruction_count);
     };
 }
 
 // BPF_ALU : Arithmetic and Logic
 
 #[test]
-fn test_vm_jit_mov() {
-    test_vm_and_jit_asm!(
+fn test_mov() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r1, 1
         mov32 r0, r1
@@ -96,8 +96,8 @@ fn test_vm_jit_mov() {
 }
 
 #[test]
-fn test_vm_jit_mov32_imm_large() {
-    test_vm_and_jit_asm!(
+fn test_mov32_imm_large() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, -1
         exit",
@@ -110,8 +110,8 @@ fn test_vm_jit_mov32_imm_large() {
 }
 
 #[test]
-fn test_vm_jit_mov_large() {
-    test_vm_and_jit_asm!(
+fn test_mov_large() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r1, -1
         mov32 r0, r1
@@ -125,8 +125,8 @@ fn test_vm_jit_mov_large() {
 }
 
 #[test]
-fn test_vm_jit_bounce() {
-    test_vm_and_jit_asm!(
+fn test_bounce() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 1
         mov r6, r0
@@ -144,8 +144,8 @@ fn test_vm_jit_bounce() {
 }
 
 #[test]
-fn test_vm_jit_add32() {
-    test_vm_and_jit_asm!(
+fn test_add32() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 2
@@ -161,8 +161,8 @@ fn test_vm_jit_add32() {
 }
 
 #[test]
-fn test_vm_jit_neg32() {
-    test_vm_and_jit_asm!(
+fn test_neg32() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 2
         neg32 r0
@@ -176,8 +176,8 @@ fn test_vm_jit_neg32() {
 }
 
 #[test]
-fn test_vm_jit_neg64() {
-    test_vm_and_jit_asm!(
+fn test_neg64() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 2
         neg r0
@@ -191,8 +191,8 @@ fn test_vm_jit_neg64() {
 }
 
 #[test]
-fn test_vm_jit_alu32_arithmetic() {
-    test_vm_and_jit_asm!(
+fn test_alu32_arithmetic() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 1
@@ -222,8 +222,8 @@ fn test_vm_jit_alu32_arithmetic() {
 }
 
 #[test]
-fn test_vm_jit_alu64_arithmetic() {
-    test_vm_and_jit_asm!(
+fn test_alu64_arithmetic() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0
         mov r1, 1
@@ -253,8 +253,8 @@ fn test_vm_jit_alu64_arithmetic() {
 }
 
 #[test]
-fn test_vm_jit_alu32_logic() {
-    test_vm_and_jit_asm!(
+fn test_alu32_logic() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 1
@@ -286,8 +286,8 @@ fn test_vm_jit_alu32_logic() {
 }
 
 #[test]
-fn test_vm_jit_alu64_logic() {
-    test_vm_and_jit_asm!(
+fn test_alu64_logic() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0
         mov r1, 1
@@ -321,8 +321,8 @@ fn test_vm_jit_alu64_logic() {
 }
 
 #[test]
-fn test_vm_jit_arsh32_high_shift() {
-    test_vm_and_jit_asm!(
+fn test_arsh32_high_shift() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 8
         lddw r1, 0x100000001
@@ -337,8 +337,8 @@ fn test_vm_jit_arsh32_high_shift() {
 }
 
 #[test]
-fn test_vm_jit_arsh32_imm() {
-    test_vm_and_jit_asm!(
+fn test_arsh32_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0xf8
         lsh32 r0, 28
@@ -353,8 +353,8 @@ fn test_vm_jit_arsh32_imm() {
 }
 
 #[test]
-fn test_vm_jit_arsh32_reg() {
-    test_vm_and_jit_asm!(
+fn test_arsh32_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0xf8
         mov32 r1, 16
@@ -370,8 +370,8 @@ fn test_vm_jit_arsh32_reg() {
 }
 
 #[test]
-fn test_vm_jit_arsh64() {
-    test_vm_and_jit_asm!(
+fn test_arsh64() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
         lsh r0, 63
@@ -388,8 +388,8 @@ fn test_vm_jit_arsh64() {
 }
 
 #[test]
-fn test_vm_jit_lsh64_reg() {
-    test_vm_and_jit_asm!(
+fn test_lsh64_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0x1
         mov r7, 4
@@ -404,8 +404,8 @@ fn test_vm_jit_lsh64_reg() {
 }
 
 #[test]
-fn test_vm_jit_rhs32_imm() {
-    test_vm_and_jit_asm!(
+fn test_rhs32_imm() {
+    test_interpreter_and_jit_asm!(
         "
         xor r0, r0
         sub r0, 1
@@ -420,8 +420,8 @@ fn test_vm_jit_rhs32_imm() {
 }
 
 #[test]
-fn test_vm_jit_rsh64_reg() {
-    test_vm_and_jit_asm!(
+fn test_rsh64_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0x10
         mov r7, 4
@@ -436,8 +436,8 @@ fn test_vm_jit_rsh64_reg() {
 }
 
 #[test]
-fn test_vm_jit_be16() {
-    test_vm_and_jit_asm!(
+fn test_be16() {
+    test_interpreter_and_jit_asm!(
         "
         ldxh r0, [r1]
         be16 r0
@@ -451,8 +451,8 @@ fn test_vm_jit_be16() {
 }
 
 #[test]
-fn test_vm_jit_be16_high() {
-    test_vm_and_jit_asm!(
+fn test_be16_high() {
+    test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1]
         be16 r0
@@ -466,8 +466,8 @@ fn test_vm_jit_be16_high() {
 }
 
 #[test]
-fn test_vm_jit_be32() {
-    test_vm_and_jit_asm!(
+fn test_be32() {
+    test_interpreter_and_jit_asm!(
         "
         ldxw r0, [r1]
         be32 r0
@@ -481,8 +481,8 @@ fn test_vm_jit_be32() {
 }
 
 #[test]
-fn test_vm_jit_be32_high() {
-    test_vm_and_jit_asm!(
+fn test_be32_high() {
+    test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1]
         be32 r0
@@ -496,8 +496,8 @@ fn test_vm_jit_be32_high() {
 }
 
 #[test]
-fn test_vm_jit_be64() {
-    test_vm_and_jit_asm!(
+fn test_be64() {
+    test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1]
         be64 r0
@@ -511,8 +511,8 @@ fn test_vm_jit_be64() {
 }
 
 #[test]
-fn test_vm_jit_le16() {
-    test_vm_and_jit_asm!(
+fn test_le16() {
+    test_interpreter_and_jit_asm!(
         "
         ldxh r0, [r1]
         le16 r0
@@ -526,8 +526,8 @@ fn test_vm_jit_le16() {
 }
 
 #[test]
-fn test_vm_jit_le32() {
-    test_vm_and_jit_asm!(
+fn test_le32() {
+    test_interpreter_and_jit_asm!(
         "
         ldxw r0, [r1]
         le32 r0
@@ -541,8 +541,8 @@ fn test_vm_jit_le32() {
 }
 
 #[test]
-fn test_vm_jit_le64() {
-    test_vm_and_jit_asm!(
+fn test_le64() {
+    test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1]
         le64 r0
@@ -556,8 +556,8 @@ fn test_vm_jit_le64() {
 }
 
 #[test]
-fn test_vm_jit_mul32_imm() {
-    test_vm_and_jit_asm!(
+fn test_mul32_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 3
         mul32 r0, 4
@@ -571,8 +571,8 @@ fn test_vm_jit_mul32_imm() {
 }
 
 #[test]
-fn test_vm_jit_mul32_reg() {
-    test_vm_and_jit_asm!(
+fn test_mul32_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 3
         mov r1, 4
@@ -587,8 +587,8 @@ fn test_vm_jit_mul32_reg() {
 }
 
 #[test]
-fn test_vm_jit_mul32_reg_overflow() {
-    test_vm_and_jit_asm!(
+fn test_mul32_reg_overflow() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0x40000001
         mov r1, 4
@@ -603,8 +603,8 @@ fn test_vm_jit_mul32_reg_overflow() {
 }
 
 #[test]
-fn test_vm_jit_mul64_imm() {
-    test_vm_and_jit_asm!(
+fn test_mul64_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0x40000001
         mul r0, 4
@@ -618,8 +618,8 @@ fn test_vm_jit_mul64_imm() {
 }
 
 #[test]
-fn test_vm_jit_mul64_reg() {
-    test_vm_and_jit_asm!(
+fn test_mul64_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0x40000001
         mov r1, 4
@@ -634,8 +634,8 @@ fn test_vm_jit_mul64_reg() {
 }
 
 #[test]
-fn test_vm_jit_div32_high_divisor() {
-    test_vm_and_jit_asm!(
+fn test_div32_high_divisor() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 12
         lddw r1, 0x100000004
@@ -650,8 +650,8 @@ fn test_vm_jit_div32_high_divisor() {
 }
 
 #[test]
-fn test_vm_jit_div32_imm() {
-    test_vm_and_jit_asm!(
+fn test_div32_imm() {
+    test_interpreter_and_jit_asm!(
         "
         lddw r0, 0x10000000c
         div32 r0, 4
@@ -665,8 +665,8 @@ fn test_vm_jit_div32_imm() {
 }
 
 #[test]
-fn test_vm_jit_div32_reg() {
-    test_vm_and_jit_asm!(
+fn test_div32_reg() {
+    test_interpreter_and_jit_asm!(
         "
         lddw r0, 0x10000000c
         mov r1, 4
@@ -681,8 +681,8 @@ fn test_vm_jit_div32_reg() {
 }
 
 #[test]
-fn test_vm_jit_div64_imm() {
-    test_vm_and_jit_asm!(
+fn test_div64_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0xc
         lsh r0, 32
@@ -697,8 +697,8 @@ fn test_vm_jit_div64_imm() {
 }
 
 #[test]
-fn test_vm_jit_div64_reg() {
-    test_vm_and_jit_asm!(
+fn test_div64_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0xc
         lsh r0, 32
@@ -714,8 +714,8 @@ fn test_vm_jit_div64_reg() {
 }
 
 #[test]
-fn test_vm_jit_err_div64_by_zero_reg() {
-    test_vm_and_jit_asm!(
+fn test_err_div64_by_zero_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
@@ -730,8 +730,8 @@ fn test_vm_jit_err_div64_by_zero_reg() {
 }
 
 #[test]
-fn test_vm_jit_err_div_by_zero_reg() {
-    test_vm_and_jit_asm!(
+fn test_err_div_by_zero_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
@@ -746,8 +746,8 @@ fn test_vm_jit_err_div_by_zero_reg() {
 }
 
 #[test]
-fn test_vm_jit_mod32() {
-    test_vm_and_jit_asm!(
+fn test_mod32() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 5748
         mod32 r0, 92
@@ -763,8 +763,8 @@ fn test_vm_jit_mod32() {
 }
 
 #[test]
-fn test_vm_jit_mod32_imm() {
-    test_vm_and_jit_asm!(
+fn test_mod32_imm() {
+    test_interpreter_and_jit_asm!(
         "
         lddw r0, 0x100000003
         mod32 r0, 3
@@ -778,8 +778,8 @@ fn test_vm_jit_mod32_imm() {
 }
 
 #[test]
-fn test_vm_jit_mod64() {
-    test_vm_and_jit_asm!(
+fn test_mod64() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, -1316649930
         lsh r0, 32
@@ -799,8 +799,8 @@ fn test_vm_jit_mod64() {
 }
 
 #[test]
-fn test_vm_jit_err_mod64_by_zero_reg() {
-    test_vm_and_jit_asm!(
+fn test_err_mod64_by_zero_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
@@ -815,8 +815,8 @@ fn test_vm_jit_err_mod64_by_zero_reg() {
 }
 
 #[test]
-fn test_vm_jit_err_mod_by_zero_reg() {
-    test_vm_and_jit_asm!(
+fn test_err_mod_by_zero_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
@@ -833,8 +833,8 @@ fn test_vm_jit_err_mod_by_zero_reg() {
 // BPF_LD : Loads
 
 #[test]
-fn test_vm_jit_ldabsb() {
-    test_vm_and_jit_asm!(
+fn test_ldabsb() {
+    test_interpreter_and_jit_asm!(
         "
         ldabsb 0x3
         exit",
@@ -850,8 +850,8 @@ fn test_vm_jit_ldabsb() {
 }
 
 #[test]
-fn test_vm_jit_ldabsh() {
-    test_vm_and_jit_asm!(
+fn test_ldabsh() {
+    test_interpreter_and_jit_asm!(
         "
         ldabsh 0x3
         exit",
@@ -867,8 +867,8 @@ fn test_vm_jit_ldabsh() {
 }
 
 #[test]
-fn test_vm_jit_ldabsw() {
-    test_vm_and_jit_asm!(
+fn test_ldabsw() {
+    test_interpreter_and_jit_asm!(
         "
         ldabsw 0x3
         exit",
@@ -884,8 +884,8 @@ fn test_vm_jit_ldabsw() {
 }
 
 #[test]
-fn test_vm_jit_ldabsdw() {
-    test_vm_and_jit_asm!(
+fn test_ldabsdw() {
+    test_interpreter_and_jit_asm!(
         "
         ldabsdw 0x3
         exit",
@@ -901,8 +901,8 @@ fn test_vm_jit_ldabsdw() {
 }
 
 #[test]
-fn test_vm_jit_err_ldabsb_oob() {
-    test_vm_and_jit_asm!(
+fn test_err_ldabsb_oob() {
+    test_interpreter_and_jit_asm!(
         "
         ldabsb 0x33
         exit",
@@ -925,8 +925,8 @@ fn test_vm_jit_err_ldabsb_oob() {
 }
 
 #[test]
-fn test_vm_jit_err_ldabsb_nomem() {
-    test_vm_and_jit_asm!(
+fn test_err_ldabsb_nomem() {
+    test_interpreter_and_jit_asm!(
         "
         ldabsb 0x33
         exit",
@@ -946,8 +946,8 @@ fn test_vm_jit_err_ldabsb_nomem() {
 }
 
 #[test]
-fn test_vm_jit_ldindb() {
-    test_vm_and_jit_asm!(
+fn test_ldindb() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x5
         ldindb r1, 0x3
@@ -964,8 +964,8 @@ fn test_vm_jit_ldindb() {
 }
 
 #[test]
-fn test_vm_jit_ldindh() {
-    test_vm_and_jit_asm!(
+fn test_ldindh() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x5
         ldindh r1, 0x3
@@ -982,8 +982,8 @@ fn test_vm_jit_ldindh() {
 }
 
 #[test]
-fn test_vm_jit_ldindw() {
-    test_vm_and_jit_asm!(
+fn test_ldindw() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x4
         ldindw r1, 0x1
@@ -1000,8 +1000,8 @@ fn test_vm_jit_ldindw() {
 }
 
 #[test]
-fn test_vm_jit_ldinddw() {
-    test_vm_and_jit_asm!(
+fn test_ldinddw() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x2
         ldinddw r1, 0x3
@@ -1018,8 +1018,8 @@ fn test_vm_jit_ldinddw() {
 }
 
 #[test]
-fn test_vm_jit_err_ldindb_oob() {
-    test_vm_and_jit_asm!(
+fn test_err_ldindb_oob() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x5
         ldindb r1, 0x33
@@ -1043,8 +1043,8 @@ fn test_vm_jit_err_ldindb_oob() {
 }
 
 #[test]
-fn test_vm_jit_err_ldindb_nomem() {
-    test_vm_and_jit_asm!(
+fn test_err_ldindb_nomem() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x5
         ldindb r1, 0x33
@@ -1065,8 +1065,8 @@ fn test_vm_jit_err_ldindb_nomem() {
 }
 
 #[test]
-fn test_vm_jit_ldxb() {
-    test_vm_and_jit_asm!(
+fn test_ldxb() {
+    test_interpreter_and_jit_asm!(
         "
         ldxb r0, [r1+2]
         exit",
@@ -1079,8 +1079,8 @@ fn test_vm_jit_ldxb() {
 }
 
 #[test]
-fn test_vm_jit_ldxh() {
-    test_vm_and_jit_asm!(
+fn test_ldxh() {
+    test_interpreter_and_jit_asm!(
         "
         ldxh r0, [r1+2]
         exit",
@@ -1093,8 +1093,8 @@ fn test_vm_jit_ldxh() {
 }
 
 #[test]
-fn test_vm_jit_ldxw() {
-    test_vm_and_jit_asm!(
+fn test_ldxw() {
+    test_interpreter_and_jit_asm!(
         "
         ldxw r0, [r1+2]
         exit",
@@ -1109,8 +1109,8 @@ fn test_vm_jit_ldxw() {
 }
 
 #[test]
-fn test_vm_jit_ldxh_same_reg() {
-    test_vm_and_jit_asm!(
+fn test_ldxh_same_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, r1
         sth [r0], 0x1234
@@ -1125,8 +1125,8 @@ fn test_vm_jit_ldxh_same_reg() {
 }
 
 #[test]
-fn test_vm_jit_lldxdw() {
-    test_vm_and_jit_asm!(
+fn test_lldxdw() {
+    test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1+2]
         exit",
@@ -1142,8 +1142,8 @@ fn test_vm_jit_lldxdw() {
 }
 
 #[test]
-fn test_vm_jit_err_ldxdw_oob() {
-    test_vm_and_jit_asm!(
+fn test_err_ldxdw_oob() {
+    test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1+6]
         exit",
@@ -1166,8 +1166,8 @@ fn test_vm_jit_err_ldxdw_oob() {
 }
 
 #[test]
-fn test_vm_jit_ldxb_all() {
-    test_vm_and_jit_asm!(
+fn test_ldxb_all() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, r1
         ldxb r9, [r0+0]
@@ -1212,8 +1212,8 @@ fn test_vm_jit_ldxb_all() {
 }
 
 #[test]
-fn test_vm_jit_ldxh_all() {
-    test_vm_and_jit_asm!(
+fn test_ldxh_all() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, r1
         ldxh r9, [r0+0]
@@ -1269,8 +1269,8 @@ fn test_vm_jit_ldxh_all() {
 }
 
 #[test]
-fn test_vm_jit_ldxh_all2() {
-    test_vm_and_jit_asm!(
+fn test_ldxh_all2() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, r1
         ldxh r9, [r0+0]
@@ -1316,8 +1316,8 @@ fn test_vm_jit_ldxh_all2() {
 }
 
 #[test]
-fn test_vm_jit_ldxw_all() {
-    test_vm_and_jit_asm!(
+fn test_ldxw_all() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, r1
         ldxw r9, [r0+0]
@@ -1365,8 +1365,8 @@ fn test_vm_jit_ldxw_all() {
 }
 
 #[test]
-fn test_vm_jit_lddw() {
-    test_vm_and_jit_asm!(
+fn test_lddw() {
+    test_interpreter_and_jit_asm!(
         "
         lddw r0, 0x1122334455667788
         exit",
@@ -1379,8 +1379,8 @@ fn test_vm_jit_lddw() {
 }
 
 #[test]
-fn test_vm_jit_lddw2() {
-    test_vm_and_jit_asm!(
+fn test_lddw2() {
+    test_interpreter_and_jit_asm!(
         "
         lddw r0, 0x0000000080000000
         exit",
@@ -1393,8 +1393,8 @@ fn test_vm_jit_lddw2() {
 }
 
 #[test]
-fn test_vm_jit_stb() {
-    test_vm_and_jit_asm!(
+fn test_stb() {
+    test_interpreter_and_jit_asm!(
         "
         stb [r1+2], 0x11
         ldxb r0, [r1+2]
@@ -1408,8 +1408,8 @@ fn test_vm_jit_stb() {
 }
 
 #[test]
-fn test_vm_jit_sth() {
-    test_vm_and_jit_asm!(
+fn test_sth() {
+    test_interpreter_and_jit_asm!(
         "
         sth [r1+2], 0x2211
         ldxh r0, [r1+2]
@@ -1425,8 +1425,8 @@ fn test_vm_jit_sth() {
 }
 
 #[test]
-fn test_vm_jit_stw() {
-    test_vm_and_jit_asm!(
+fn test_stw() {
+    test_interpreter_and_jit_asm!(
         "
         stw [r1+2], 0x44332211
         ldxw r0, [r1+2]
@@ -1442,8 +1442,8 @@ fn test_vm_jit_stw() {
 }
 
 #[test]
-fn test_vm_jit_stdw() {
-    test_vm_and_jit_asm!(
+fn test_stdw() {
+    test_interpreter_and_jit_asm!(
         "
         stdw [r1+2], 0x44332211
         ldxdw r0, [r1+2]
@@ -1460,8 +1460,8 @@ fn test_vm_jit_stdw() {
 }
 
 #[test]
-fn test_vm_jit_stxb() {
-    test_vm_and_jit_asm!(
+fn test_stxb() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r2, 0x11
         stxb [r1+2], r2
@@ -1478,8 +1478,8 @@ fn test_vm_jit_stxb() {
 }
 
 #[test]
-fn test_vm_jit_stxh() {
-    test_vm_and_jit_asm!(
+fn test_stxh() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r2, 0x2211
         stxh [r1+2], r2
@@ -1496,8 +1496,8 @@ fn test_vm_jit_stxh() {
 }
 
 #[test]
-fn test_vm_jit_stxw() {
-    test_vm_and_jit_asm!(
+fn test_stxw() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r2, 0x44332211
         stxw [r1+2], r2
@@ -1514,8 +1514,8 @@ fn test_vm_jit_stxw() {
 }
 
 #[test]
-fn test_vm_jit_stxdw() {
-    test_vm_and_jit_asm!(
+fn test_stxdw() {
+    test_interpreter_and_jit_asm!(
         "
         mov r2, -2005440939
         lsh r2, 32
@@ -1535,8 +1535,8 @@ fn test_vm_jit_stxdw() {
 }
 
 #[test]
-fn test_vm_jit_stxb_all() {
-    test_vm_and_jit_asm!(
+fn test_stxb_all() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0xf0
         mov r2, 0xf2
@@ -1568,8 +1568,8 @@ fn test_vm_jit_stxb_all() {
 }
 
 #[test]
-fn test_vm_jit_stxb_all2() {
-    test_vm_and_jit_asm!(
+fn test_stxb_all2() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, r1
         mov r1, 0xf1
@@ -1588,8 +1588,8 @@ fn test_vm_jit_stxb_all2() {
 }
 
 #[test]
-fn test_vm_jit_stxb_chain() {
-    test_vm_and_jit_asm!(
+fn test_stxb_chain() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, r1
         ldxb r9, [r0+0]
@@ -1626,8 +1626,8 @@ fn test_vm_jit_stxb_chain() {
 // BPF_JMP : Branches
 
 #[test]
-fn test_vm_jit_exit_without_value() {
-    test_vm_and_jit_asm!(
+fn test_exit_without_value() {
+    test_interpreter_and_jit_asm!(
         "
         exit",
         [],
@@ -1639,8 +1639,8 @@ fn test_vm_jit_exit_without_value() {
 }
 
 #[test]
-fn test_vm_jit_exit() {
-    test_vm_and_jit_asm!(
+fn test_exit() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0
         exit",
@@ -1653,8 +1653,8 @@ fn test_vm_jit_exit() {
 }
 
 #[test]
-fn test_vm_jit_early_exit() {
-    test_vm_and_jit_asm!(
+fn test_early_exit() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 3
         exit
@@ -1669,8 +1669,8 @@ fn test_vm_jit_early_exit() {
 }
 
 #[test]
-fn test_vm_jit_ja() {
-    test_vm_and_jit_asm!(
+fn test_ja() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 1
         ja +1
@@ -1685,8 +1685,8 @@ fn test_vm_jit_ja() {
 }
 
 #[test]
-fn test_vm_jit_jeq_imm() {
-    test_vm_and_jit_asm!(
+fn test_jeq_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xa
@@ -1705,8 +1705,8 @@ fn test_vm_jit_jeq_imm() {
 }
 
 #[test]
-fn test_vm_jit_jeq_reg() {
-    test_vm_and_jit_asm!(
+fn test_jeq_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xa
@@ -1726,8 +1726,8 @@ fn test_vm_jit_jeq_reg() {
 }
 
 #[test]
-fn test_vm_jit_jge_imm() {
-    test_vm_and_jit_asm!(
+fn test_jge_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xa
@@ -1746,8 +1746,8 @@ fn test_vm_jit_jge_imm() {
 }
 
 #[test]
-fn test_vm_jit_jge_reg() {
-    test_vm_and_jit_asm!(
+fn test_jge_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xa
@@ -1767,8 +1767,8 @@ fn test_vm_jit_jge_reg() {
 }
 
 #[test]
-fn test_vm_jit_jle_imm() {
-    test_vm_and_jit_asm!(
+fn test_jle_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 5
@@ -1788,8 +1788,8 @@ fn test_vm_jit_jle_imm() {
 }
 
 #[test]
-fn test_vm_jit_jle_reg() {
-    test_vm_and_jit_asm!(
+fn test_jle_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0
         mov r1, 5
@@ -1811,8 +1811,8 @@ fn test_vm_jit_jle_reg() {
 }
 
 #[test]
-fn test_vm_jit_jgt_imm() {
-    test_vm_and_jit_asm!(
+fn test_jgt_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 5
@@ -1831,8 +1831,8 @@ fn test_vm_jit_jgt_imm() {
 }
 
 #[test]
-fn test_vm_jit_jgt_reg() {
-    test_vm_and_jit_asm!(
+fn test_jgt_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0
         mov r1, 5
@@ -1853,8 +1853,8 @@ fn test_vm_jit_jgt_reg() {
 }
 
 #[test]
-fn test_vm_jit_jlt_imm() {
-    test_vm_and_jit_asm!(
+fn test_jlt_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 5
@@ -1873,8 +1873,8 @@ fn test_vm_jit_jlt_imm() {
 }
 
 #[test]
-fn test_vm_jit_jlt_reg() {
-    test_vm_and_jit_asm!(
+fn test_jlt_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0
         mov r1, 5
@@ -1895,8 +1895,8 @@ fn test_vm_jit_jlt_reg() {
 }
 
 #[test]
-fn test_vm_jit_jne_imm() {
-    test_vm_and_jit_asm!(
+fn test_jne_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xb
@@ -1915,8 +1915,8 @@ fn test_vm_jit_jne_imm() {
 }
 
 #[test]
-fn test_vm_jit_jne_reg() {
-    test_vm_and_jit_asm!(
+fn test_jne_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0xb
@@ -1936,8 +1936,8 @@ fn test_vm_jit_jne_reg() {
 }
 
 #[test]
-fn test_vm_jit_jset_imm() {
-    test_vm_and_jit_asm!(
+fn test_jset_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0x7
@@ -1956,8 +1956,8 @@ fn test_vm_jit_jset_imm() {
 }
 
 #[test]
-fn test_vm_jit_jset_reg() {
-    test_vm_and_jit_asm!(
+fn test_jset_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov32 r1, 0x7
@@ -1977,8 +1977,8 @@ fn test_vm_jit_jset_reg() {
 }
 
 #[test]
-fn test_vm_jit_jsge_imm() {
-    test_vm_and_jit_asm!(
+fn test_jsge_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -1998,8 +1998,8 @@ fn test_vm_jit_jsge_imm() {
 }
 
 #[test]
-fn test_vm_jit_jsge_reg() {
-    test_vm_and_jit_asm!(
+fn test_jsge_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -2021,8 +2021,8 @@ fn test_vm_jit_jsge_reg() {
 }
 
 #[test]
-fn test_vm_jit_jsle_imm() {
-    test_vm_and_jit_asm!(
+fn test_jsle_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -2042,8 +2042,8 @@ fn test_vm_jit_jsle_imm() {
 }
 
 #[test]
-fn test_vm_jit_jsle_reg() {
-    test_vm_and_jit_asm!(
+fn test_jsle_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -1
@@ -2066,8 +2066,8 @@ fn test_vm_jit_jsle_reg() {
 }
 
 #[test]
-fn test_vm_jit_jsgt_imm() {
-    test_vm_and_jit_asm!(
+fn test_jsgt_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -2086,8 +2086,8 @@ fn test_vm_jit_jsgt_imm() {
 }
 
 #[test]
-fn test_vm_jit_jsgt_reg() {
-    test_vm_and_jit_asm!(
+fn test_jsgt_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -2107,8 +2107,8 @@ fn test_vm_jit_jsgt_reg() {
 }
 
 #[test]
-fn test_vm_jit_jslt_imm() {
-    test_vm_and_jit_asm!(
+fn test_jslt_imm() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -2127,8 +2127,8 @@ fn test_vm_jit_jslt_imm() {
 }
 
 #[test]
-fn test_vm_jit_jslt_reg() {
-    test_vm_and_jit_asm!(
+fn test_jslt_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0
         mov r1, -2
@@ -2151,8 +2151,8 @@ fn test_vm_jit_jslt_reg() {
 // Call Stack
 
 #[test]
-fn test_vm_jit_stack1() {
-    test_vm_and_jit_asm!(
+fn test_stack1() {
+    test_interpreter_and_jit_asm!(
         "
         mov r1, 51
         stdw [r10-16], 0xab
@@ -2172,8 +2172,8 @@ fn test_vm_jit_stack1() {
 }
 
 #[test]
-fn test_vm_jit_stack2() {
-    test_vm_and_jit_asm!(
+fn test_stack2() {
+    test_interpreter_and_jit_asm!(
         "
         stb [r10-4], 0x01
         stb [r10-3], 0x02
@@ -2203,8 +2203,8 @@ fn test_vm_jit_stack2() {
 }
 
 #[test]
-fn test_vm_jit_string_stack() {
-    test_vm_and_jit_asm!(
+fn test_string_stack() {
+    test_interpreter_and_jit_asm!(
         "
         mov r1, 0x78636261
         stxw [r10-8], r1
@@ -2245,8 +2245,8 @@ fn test_vm_jit_string_stack() {
 }
 
 #[test]
-fn test_vm_jit_err_stack_out_of_bound() {
-    test_vm_and_jit_asm!(
+fn test_err_stack_out_of_bound() {
+    test_interpreter_and_jit_asm!(
         "
         stb [r10-0x4000], 0
         exit",
@@ -2268,8 +2268,8 @@ fn test_vm_jit_err_stack_out_of_bound() {
 // CALL_IMM & CALL_REG : Procedure Calls
 
 #[test]
-fn test_vm_jit_relative_call() {
-    test_vm_and_jit_elf!(
+fn test_relative_call() {
+    test_interpreter_and_jit_elf!(
         "tests/elfs/relative_call.so",
         [1],
         (
@@ -2282,8 +2282,8 @@ fn test_vm_jit_relative_call() {
 }
 
 #[test]
-fn test_vm_jit_bpf_to_bpf_scratch_registers() {
-    test_vm_and_jit_elf!(
+fn test_bpf_to_bpf_scratch_registers() {
+    test_interpreter_and_jit_elf!(
         "tests/elfs/scratch_registers.so",
         [1],
         (
@@ -2296,8 +2296,8 @@ fn test_vm_jit_bpf_to_bpf_scratch_registers() {
 }
 
 #[test]
-fn test_vm_jit_bpf_to_bpf_pass_stack_reference() {
-    test_vm_and_jit_elf!(
+fn test_bpf_to_bpf_pass_stack_reference() {
+    test_interpreter_and_jit_elf!(
         "tests/elfs/pass_stack_reference.so",
         [],
         (),
@@ -2308,8 +2308,8 @@ fn test_vm_jit_bpf_to_bpf_pass_stack_reference() {
 }
 
 #[test]
-fn test_vm_jit_syscall_parameter_on_stack() {
-    test_vm_and_jit_asm!(
+fn test_syscall_parameter_on_stack() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, r10
         add64 r1, -0x100
@@ -2328,8 +2328,8 @@ fn test_vm_jit_syscall_parameter_on_stack() {
 }
 
 #[test]
-fn test_vm_jit_call_reg() {
-    test_vm_and_jit_asm!(
+fn test_call_reg() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r0, 0x0
         mov64 r8, 0x1
@@ -2348,8 +2348,8 @@ fn test_vm_jit_call_reg() {
 }
 
 #[test]
-fn test_vm_jit_err_oob_callx_low() {
-    test_vm_and_jit_asm!(
+fn test_err_oob_callx_low() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r0, 0x0
         callx 0x0
@@ -2370,8 +2370,8 @@ fn test_vm_jit_err_oob_callx_low() {
 }
 
 #[test]
-fn test_vm_jit_err_oob_callx_high() {
-    test_vm_and_jit_asm!(
+fn test_err_oob_callx_high() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r0, -0x1
         lsh64 r0, 0x20
@@ -2393,9 +2393,9 @@ fn test_vm_jit_err_oob_callx_high() {
 }
 
 #[test]
-fn test_vm_jit_bpf_to_bpf_depth() {
+fn test_bpf_to_bpf_depth() {
     for i in 0..MAX_CALL_DEPTH {
-        test_vm_and_jit_elf!(
+        test_interpreter_and_jit_elf!(
             "tests/elfs/multiple_file.so",
             [i as u8],
             (
@@ -2409,8 +2409,8 @@ fn test_vm_jit_bpf_to_bpf_depth() {
 }
 
 #[test]
-fn test_vm_jit_err_bpf_to_bpf_too_deep() {
-    test_vm_and_jit_elf!(
+fn test_err_bpf_to_bpf_too_deep() {
+    test_interpreter_and_jit_elf!(
         "tests/elfs/multiple_file.so",
         [MAX_CALL_DEPTH as u8],
         (
@@ -2430,8 +2430,8 @@ fn test_vm_jit_err_bpf_to_bpf_too_deep() {
 }
 
 #[test]
-fn test_vm_jit_err_reg_stack_depth() {
-    test_vm_and_jit_asm!(
+fn test_err_reg_stack_depth() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r0, 0x1
         lsh64 r0, 0x20
@@ -2459,8 +2459,8 @@ fn test_vm_jit_err_reg_stack_depth() {
 /* TODO: syscalls::trash_registers needs asm!().
 // https://github.com/rust-lang/rust/issues/72016
 #[test]
-fn test_vm_jit_call_save() {
-    test_vm_and_jit_asm!(
+fn test_call_save() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r6, 0x1
         mov64 r7, 0x20
@@ -2555,8 +2555,8 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
 }
 
 #[test]
-fn test_vm_jit_err_syscall_string() {
-    test_vm_and_jit_asm!(
+fn test_err_syscall_string() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x0
         call 0
@@ -2580,8 +2580,8 @@ fn test_vm_jit_err_syscall_string() {
 }
 
 #[test]
-fn test_vm_jit_syscall_string() {
-    test_vm_and_jit_asm!(
+fn test_syscall_string() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
         call 0
@@ -2598,8 +2598,8 @@ fn test_vm_jit_syscall_string() {
 }
 
 #[test]
-fn test_vm_jit_syscall() {
-    test_vm_and_jit_asm!(
+fn test_syscall() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0xAA
         mov64 r2, 0xBB
@@ -2620,8 +2620,8 @@ fn test_vm_jit_syscall() {
 }
 
 #[test]
-fn test_vm_jit_call_gather_bytes() {
-    test_vm_and_jit_asm!(
+fn test_call_gather_bytes() {
+    test_interpreter_and_jit_asm!(
         "
         mov r1, 1
         mov r2, 2
@@ -2641,8 +2641,8 @@ fn test_vm_jit_call_gather_bytes() {
 }
 
 #[test]
-fn test_vm_jit_call_memfrob() {
-    test_vm_and_jit_asm!(
+fn test_call_memfrob() {
+    test_interpreter_and_jit_asm!(
         "
         mov r6, r1
         add r1, 2
@@ -2664,10 +2664,10 @@ fn test_vm_jit_call_memfrob() {
 }
 
 #[test]
-fn test_vm_jit_syscall_with_context() {
+fn test_syscall_with_context() {
     let mut number = 42;
     let number_ptr = &mut number as *mut u64;
-    test_vm_and_jit_asm!(
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0xAA
         mov64 r2, 0xBB
@@ -2698,8 +2698,8 @@ fn test_vm_jit_syscall_with_context() {
 // Elf
 
 #[test]
-fn test_vm_jit_load_elf() {
-    test_vm_and_jit_elf!(
+fn test_load_elf() {
+    test_interpreter_and_jit_elf!(
         "tests/elfs/noop.so",
         [],
         (
@@ -2713,8 +2713,8 @@ fn test_vm_jit_load_elf() {
 }
 
 #[test]
-fn test_vm_jit_load_elf_empty_noro() {
-    test_vm_and_jit_elf!(
+fn test_load_elf_empty_noro() {
+    test_interpreter_and_jit_elf!(
         "tests/elfs/noro.so",
         [],
         (
@@ -2727,8 +2727,8 @@ fn test_vm_jit_load_elf_empty_noro() {
 }
 
 #[test]
-fn test_vm_jit_load_elf_empty_rodata() {
-    test_vm_and_jit_elf!(
+fn test_load_elf_empty_rodata() {
+    test_interpreter_and_jit_elf!(
         "tests/elfs/empty_rodata.so",
         [],
         (
@@ -2741,13 +2741,13 @@ fn test_vm_jit_load_elf_empty_rodata() {
 }
 
 #[test]
-fn test_vm_jit_custom_entrypoint() {
+fn test_custom_entrypoint() {
     let mut file = File::open("tests/elfs/unresolved_syscall.so").expect("file open failed");
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     elf[24] = 80; // Move entrypoint to later in the text section
     let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
-    test_vm_and_jit!(
+    test_interpreter_and_jit!(
         executable,
         [],
         (
@@ -2778,8 +2778,8 @@ impl InstructionMeter for TestInstructionMeter {
 }
 
 #[test]
-fn test_vm_jit_instruction_count_syscall() {
-    test_vm_and_jit_asm!(
+fn test_instruction_count_syscall() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
         call 0
@@ -2796,8 +2796,8 @@ fn test_vm_jit_instruction_count_syscall() {
 }
 
 #[test]
-fn test_vm_jit_err_instruction_count_syscall_capped() {
-    test_vm_and_jit_asm!(
+fn test_err_instruction_count_syscall_capped() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
         call 0
@@ -2821,8 +2821,8 @@ fn test_vm_jit_err_instruction_count_syscall_capped() {
 }
 
 #[test]
-fn test_vm_jit_non_terminate_early() {
-    test_vm_and_jit_asm!(
+fn test_non_terminate_early() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r6, 0x0
         mov64 r1, 0x0
@@ -2850,8 +2850,8 @@ fn test_vm_jit_non_terminate_early() {
 }
 
 #[test]
-fn test_vm_jit_err_non_terminate_capped() {
-    test_vm_and_jit_asm!(
+fn test_err_non_terminate_capped() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r6, 0x0
         mov64 r1, 0x0
@@ -2881,8 +2881,8 @@ fn test_vm_jit_err_non_terminate_capped() {
 }
 
 #[test]
-fn test_vm_jit_err_non_terminating_capped() {
-    test_vm_and_jit_asm!(
+fn test_err_non_terminating_capped() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r6, 0x0
         mov64 r1, 0x0
@@ -2914,8 +2914,8 @@ fn test_vm_jit_err_non_terminating_capped() {
 // Symbols and Relocation
 
 #[test]
-fn test_vm_jit_symbol_relocation() {
-    test_vm_and_jit_asm!(
+fn test_symbol_relocation() {
+    test_interpreter_and_jit_asm!(
         "
         mov64 r1, r10
         sub64 r1, 0x1
@@ -2934,8 +2934,8 @@ fn test_vm_jit_symbol_relocation() {
 }
 
 #[test]
-fn test_vm_jit_err_symbol_unresolved() {
-    test_vm_and_jit_asm!(
+fn test_err_symbol_unresolved() {
+    test_interpreter_and_jit_asm!(
         "
         call 0
         mov64 r0, 0x0
@@ -2951,8 +2951,8 @@ fn test_vm_jit_err_symbol_unresolved() {
 }
 
 #[test]
-fn test_vm_jit_err_call_unresolved() {
-    test_vm_and_jit_asm!(
+fn test_err_call_unresolved() {
+    test_interpreter_and_jit_asm!(
         "
         mov r1, 1
         mov r2, 2
@@ -2972,8 +2972,8 @@ fn test_vm_jit_err_call_unresolved() {
 }
 
 #[test]
-fn test_vm_jit_err_unresolved_elf() {
-    test_vm_and_jit_elf!(
+fn test_err_unresolved_elf() {
+    test_interpreter_and_jit_elf!(
         "tests/elfs/unresolved_syscall.so",
         [],
         (
@@ -2990,8 +2990,8 @@ fn test_vm_jit_err_unresolved_elf() {
 // Programs
 
 #[test]
-fn test_vm_jit_mul_loop() {
-    test_vm_and_jit_asm!(
+fn test_mul_loop() {
+    test_interpreter_and_jit_asm!(
         "
         mov r0, 0x7
         add r1, 0xa
@@ -3012,8 +3012,8 @@ fn test_vm_jit_mul_loop() {
 }
 
 #[test]
-fn test_vm_jit_prime() {
-    test_vm_and_jit_asm!(
+fn test_prime() {
+    test_interpreter_and_jit_asm!(
         "
         mov r1, 67
         mov r0, 0x1
@@ -3040,8 +3040,8 @@ fn test_vm_jit_prime() {
 }
 
 #[test]
-fn test_vm_jit_subnet() {
-    test_vm_and_jit_asm!(
+fn test_subnet() {
+    test_interpreter_and_jit_asm!(
         "
         mov r2, 0xe
         ldxh r3, [r1+12]
@@ -3077,8 +3077,8 @@ fn test_vm_jit_subnet() {
 }
 
 #[test]
-fn test_vm_jit_tcp_port80_match() {
-    test_vm_and_jit_asm!(
+fn test_tcp_port80_match() {
+    test_interpreter_and_jit_asm!(
         PROG_TCP_PORT_80,
         [
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
@@ -3103,8 +3103,8 @@ fn test_vm_jit_tcp_port80_match() {
 }
 
 #[test]
-fn test_vm_jit_tcp_port80_nomatch() {
-    test_vm_and_jit_asm!(
+fn test_tcp_port80_nomatch() {
+    test_interpreter_and_jit_asm!(
         PROG_TCP_PORT_80,
         [
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
@@ -3129,8 +3129,8 @@ fn test_vm_jit_tcp_port80_nomatch() {
 }
 
 #[test]
-fn test_vm_jit_tcp_port80_nomatch_ethertype() {
-    test_vm_and_jit_asm!(
+fn test_tcp_port80_nomatch_ethertype() {
+    test_interpreter_and_jit_asm!(
         PROG_TCP_PORT_80,
         [
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
@@ -3155,8 +3155,8 @@ fn test_vm_jit_tcp_port80_nomatch_ethertype() {
 }
 
 #[test]
-fn test_vm_jit_tcp_port80_nomatch_proto() {
-    test_vm_and_jit_asm!(
+fn test_tcp_port80_nomatch_proto() {
+    test_interpreter_and_jit_asm!(
         PROG_TCP_PORT_80,
         [
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x06, //
@@ -3181,8 +3181,8 @@ fn test_vm_jit_tcp_port80_nomatch_proto() {
 }
 
 #[test]
-fn test_vm_jit_tcp_sack_match() {
-    test_vm_and_jit_asm!(
+fn test_tcp_sack_match() {
+    test_interpreter_and_jit_asm!(
         TCP_SACK_ASM,
         TCP_SACK_MATCH,
         (),
@@ -3193,8 +3193,8 @@ fn test_vm_jit_tcp_sack_match() {
 }
 
 #[test]
-fn test_vm_jit_tcp_sack_nomatch() {
-    test_vm_and_jit_asm!(
+fn test_tcp_sack_nomatch() {
+    test_interpreter_and_jit_asm!(
         TCP_SACK_ASM,
         TCP_SACK_NOMATCH,
         (),
@@ -3248,7 +3248,7 @@ fn test_large_program() {
 
     // verify program still works
     let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-    test_vm_and_jit!(
+    test_interpreter_and_jit!(
         executable,
         [],
         (),
