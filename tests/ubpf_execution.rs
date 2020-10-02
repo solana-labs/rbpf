@@ -29,17 +29,32 @@ use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
 
 type ExecResult = Result<u64, EbpfError<UserError>>;
 
+struct TestInstructionMeter {
+    remaining: u64,
+}
+
+impl InstructionMeter for TestInstructionMeter {
+    fn consume(&mut self, amount: u64) {
+        assert!(amount <= self.remaining);
+        self.remaining = self.remaining.saturating_sub(amount);
+    }
+
+    fn get_remaining(&self) -> u64 {
+        self.remaining
+    }
+}
+
 macro_rules! test_interpreter_and_jit {
     ($vm:expr, $($location:expr => $syscall:expr),*) => {
         $($vm.register_syscall($location, $syscall).unwrap();)*
     };
-    ( $executable:expr, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $instruction_meter:expr, $expected_instruction_count:expr ) => {
+    ( $executable:expr, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
         let check_closure = $check;
         let instruction_count_interpreter = {
             let mem = $mem;
             let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
             test_interpreter_and_jit!(vm, $($location => $syscall),*);
-            assert!(check_closure(vm.execute_program_interpreted(&mut $instruction_meter)));
+            assert!(check_closure(vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count })));
             vm.get_total_instruction_count()
         };
         #[cfg(not(windows))]
@@ -50,7 +65,7 @@ macro_rules! test_interpreter_and_jit {
             match vm.jit_compile() {
                 Err(err) => assert!(check_closure(Err(err))),
                 Ok(()) => {
-                    assert!(check_closure(unsafe { vm.execute_program_jit(&mut $instruction_meter) }));
+                    assert!(check_closure(unsafe { vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count }) }));
                     let instruction_count_jit = vm.get_total_instruction_count();
                     assert_eq!(instruction_count_interpreter, instruction_count_jit);
                 },
@@ -61,20 +76,20 @@ macro_rules! test_interpreter_and_jit {
 }
 
 macro_rules! test_interpreter_and_jit_asm {
-    ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $instruction_meter:expr, $expected_instruction_count:expr ) => {
+    ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
         let program = assemble($source).unwrap();
         let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&program, None).unwrap();
-        test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $instruction_meter, $expected_instruction_count);
+        test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $expected_instruction_count);
     };
 }
 
 macro_rules! test_interpreter_and_jit_elf {
-    ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $instruction_meter:expr, $expected_instruction_count:expr ) => {
+    ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
         let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
-        test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $instruction_meter, $expected_instruction_count);
+        test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $expected_instruction_count);
     };
 }
 
@@ -90,7 +105,6 @@ fn test_mov() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -104,7 +118,6 @@ fn test_mov32_imm_large() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0xffffffff } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -119,7 +132,6 @@ fn test_mov_large() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0xffffffff } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -138,7 +150,6 @@ fn test_bounce() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -155,7 +166,6 @@ fn test_add32() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x3 } },
-        DefaultInstructionMeter {},
         5
     );
 }
@@ -170,7 +180,6 @@ fn test_neg32() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0xfffffffe } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -185,7 +194,6 @@ fn test_neg64() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0xfffffffffffffffe } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -216,7 +224,6 @@ fn test_alu32_arithmetic() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x2a } },
-        DefaultInstructionMeter {},
         19
     );
 }
@@ -247,7 +254,6 @@ fn test_alu64_arithmetic() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x2a } },
-        DefaultInstructionMeter {},
         19
     );
 }
@@ -280,7 +286,6 @@ fn test_alu32_logic() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x11 } },
-        DefaultInstructionMeter {},
         21
     );
 }
@@ -315,7 +320,6 @@ fn test_alu64_logic() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x11 } },
-        DefaultInstructionMeter {},
         23
     );
 }
@@ -331,7 +335,6 @@ fn test_arsh32_high_shift() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x4 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -347,7 +350,6 @@ fn test_arsh32_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0xffff8000 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -364,7 +366,6 @@ fn test_arsh32_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0xffff8000 } },
-        DefaultInstructionMeter {},
         5
     );
 }
@@ -382,7 +383,6 @@ fn test_arsh64() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0xfffffffffffffff8 } },
-        DefaultInstructionMeter {},
         6
     );
 }
@@ -398,7 +398,6 @@ fn test_lsh64_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x10 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -414,7 +413,6 @@ fn test_rhs32_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x00ffffff } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -430,7 +428,6 @@ fn test_rsh64_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -445,7 +442,6 @@ fn test_be16() {
         [0x11, 0x22],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1122 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -460,7 +456,6 @@ fn test_be16_high() {
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1122 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -475,7 +470,6 @@ fn test_be32() {
         [0x11, 0x22, 0x33, 0x44],
         (),
         { |res: ExecResult| { res.unwrap() == 0x11223344 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -490,7 +484,6 @@ fn test_be32_high() {
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
         { |res: ExecResult| { res.unwrap() == 0x11223344 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -505,7 +498,6 @@ fn test_be64() {
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -520,7 +512,6 @@ fn test_le16() {
         [0x22, 0x11],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1122 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -535,7 +526,6 @@ fn test_le32() {
         [0x44, 0x33, 0x22, 0x11],
         (),
         { |res: ExecResult| { res.unwrap() == 0x11223344 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -550,7 +540,6 @@ fn test_le64() {
         [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -565,7 +554,6 @@ fn test_mul32_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0xc } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -581,7 +569,6 @@ fn test_mul32_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0xc } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -597,7 +584,6 @@ fn test_mul32_reg_overflow() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x4 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -612,7 +598,6 @@ fn test_mul64_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x100000004 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -628,7 +613,6 @@ fn test_mul64_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x100000004 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -644,7 +628,6 @@ fn test_div32_high_divisor() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x3 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -659,7 +642,6 @@ fn test_div32_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x3 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -675,7 +657,6 @@ fn test_div32_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x3 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -691,7 +672,6 @@ fn test_div64_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x300000000 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -708,7 +688,6 @@ fn test_div64_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x300000000 } },
-        DefaultInstructionMeter {},
         5
     );
 }
@@ -724,7 +703,6 @@ fn test_err_div64_by_zero_reg() {
         [],
         (),
         { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -740,7 +718,6 @@ fn test_err_div_by_zero_reg() {
         [],
         (),
         { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -757,7 +734,6 @@ fn test_mod32() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x5 } },
-        DefaultInstructionMeter {},
         5
     );
 }
@@ -772,7 +748,6 @@ fn test_mod32_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x0 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -793,7 +768,6 @@ fn test_mod64() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x30ba5a04 } },
-        DefaultInstructionMeter {},
         9
     );
 }
@@ -809,7 +783,6 @@ fn test_err_mod64_by_zero_reg() {
         [],
         (),
         { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -825,7 +798,6 @@ fn test_err_mod_by_zero_reg() {
         [],
         (),
         { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -844,7 +816,6 @@ fn test_ldabsb() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x33 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -861,7 +832,6 @@ fn test_ldabsh() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x4433 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -878,7 +848,6 @@ fn test_ldabsw() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x66554433 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -895,7 +864,6 @@ fn test_ldabsdw() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0xaa99887766554433 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -919,7 +887,6 @@ fn test_err_ldabsb_oob() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         1
     );
 }
@@ -940,7 +907,6 @@ fn test_err_ldabsb_nomem() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         1
     );
 }
@@ -958,7 +924,6 @@ fn test_ldindb() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x88 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -976,7 +941,6 @@ fn test_ldindh() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x9988 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -994,7 +958,6 @@ fn test_ldindw() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x88776655 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -1012,7 +975,6 @@ fn test_ldinddw() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0xccbbaa9988776655 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -1037,7 +999,6 @@ fn test_err_ldindb_oob() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -1059,7 +1020,6 @@ fn test_err_ldindb_nomem() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -1073,7 +1033,6 @@ fn test_ldxb() {
         [0xaa, 0xbb, 0x11, 0xcc, 0xdd],
         (),
         { |res: ExecResult| { res.unwrap() == 0x11 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -1087,7 +1046,6 @@ fn test_ldxh() {
         [0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd],
         (),
         { |res: ExecResult| { res.unwrap() == 0x2211 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -1103,7 +1061,6 @@ fn test_ldxw() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x44332211 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -1119,7 +1076,6 @@ fn test_ldxh_same_reg() {
         [0xff, 0xff],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1234 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -1136,7 +1092,6 @@ fn test_lldxdw() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x8877665544332211 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -1160,7 +1115,6 @@ fn test_err_ldxdw_oob() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         1
     );
 }
@@ -1206,7 +1160,6 @@ fn test_ldxb_all() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x9876543210 } },
-        DefaultInstructionMeter {},
         31
     );
 }
@@ -1263,7 +1216,6 @@ fn test_ldxh_all() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x9876543210 } },
-        DefaultInstructionMeter {},
         41
     );
 }
@@ -1310,7 +1262,6 @@ fn test_ldxh_all2() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x3ff } },
-        DefaultInstructionMeter {},
         31
     );
 }
@@ -1359,7 +1310,6 @@ fn test_ldxw_all() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x030f0f } },
-        DefaultInstructionMeter {},
         31
     );
 }
@@ -1373,7 +1323,6 @@ fn test_lddw() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -1387,7 +1336,6 @@ fn test_lddw2() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x80000000 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -1402,7 +1350,6 @@ fn test_stb() {
         [0xaa, 0xbb, 0xff, 0xcc, 0xdd],
         (),
         { |res: ExecResult| { res.unwrap() == 0x11 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -1419,7 +1366,6 @@ fn test_sth() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x2211 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -1436,7 +1382,6 @@ fn test_stw() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x44332211 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -1454,7 +1399,6 @@ fn test_stdw() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x44332211 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -1472,7 +1416,6 @@ fn test_stxb() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x11 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -1490,7 +1433,6 @@ fn test_stxh() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x2211 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -1508,7 +1450,6 @@ fn test_stxw() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x44332211 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -1529,7 +1470,6 @@ fn test_stxdw() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x8877665544332211 } },
-        DefaultInstructionMeter {},
         6
     );
 }
@@ -1562,7 +1502,6 @@ fn test_stxb_all() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0xf0f2f3f4f5f6f7f8 } },
-        DefaultInstructionMeter {},
         19
     );
 }
@@ -1582,7 +1521,6 @@ fn test_stxb_all2() {
         [0xff, 0xff],
         (),
         { |res: ExecResult| { res.unwrap() == 0xf1f9 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -1618,7 +1556,6 @@ fn test_stxb_chain() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x2a } },
-        DefaultInstructionMeter {},
         21
     );
 }
@@ -1633,7 +1570,6 @@ fn test_exit_without_value() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x0 } },
-        DefaultInstructionMeter {},
         1
     );
 }
@@ -1647,7 +1583,6 @@ fn test_exit() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x0 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -1663,7 +1598,6 @@ fn test_early_exit() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x3 } },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -1679,7 +1613,6 @@ fn test_ja() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -1699,7 +1632,6 @@ fn test_jeq_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -1720,7 +1652,6 @@ fn test_jeq_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -1740,7 +1671,6 @@ fn test_jge_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -1761,7 +1691,6 @@ fn test_jge_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -1782,7 +1711,6 @@ fn test_jle_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -1805,7 +1733,6 @@ fn test_jle_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         9
     );
 }
@@ -1825,7 +1752,6 @@ fn test_jgt_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -1847,7 +1773,6 @@ fn test_jgt_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         9
     );
 }
@@ -1867,7 +1792,6 @@ fn test_jlt_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -1889,7 +1813,6 @@ fn test_jlt_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         9
     );
 }
@@ -1909,7 +1832,6 @@ fn test_jne_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -1930,7 +1852,6 @@ fn test_jne_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -1950,7 +1871,6 @@ fn test_jset_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -1971,7 +1891,6 @@ fn test_jset_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -1992,7 +1911,6 @@ fn test_jsge_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -2015,7 +1933,6 @@ fn test_jsge_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         10
     );
 }
@@ -2036,7 +1953,6 @@ fn test_jsle_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -2060,7 +1976,6 @@ fn test_jsle_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         10
     );
 }
@@ -2080,7 +1995,6 @@ fn test_jsgt_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -2101,7 +2015,6 @@ fn test_jsgt_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -2121,7 +2034,6 @@ fn test_jslt_imm() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -2143,7 +2055,6 @@ fn test_jslt_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         9
     );
 }
@@ -2166,7 +2077,6 @@ fn test_stack1() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0xcd } },
-        DefaultInstructionMeter {},
         9
     );
 }
@@ -2197,7 +2107,6 @@ fn test_stack2() {
             1 => Syscall::Function(syscalls::memfrob),
         ),
         { |res: ExecResult| { res.unwrap() == 0x01020304 } },
-        DefaultInstructionMeter {},
         16
     );
 }
@@ -2239,7 +2148,6 @@ fn test_string_stack() {
             0 => Syscall::Function(syscalls::strcmp),
         ),
         { |res: ExecResult| { res.unwrap() == 0x0 } },
-        DefaultInstructionMeter {},
         28
     );
 }
@@ -2260,7 +2168,6 @@ fn test_err_stack_out_of_bound() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         1
     );
 }
@@ -2276,7 +2183,6 @@ fn test_relative_call() {
             hash_symbol_name(b"log") => Syscall::Function(bpf_syscall_string),
         ),
         { |res: ExecResult| { res.unwrap() == 2 } },
-        DefaultInstructionMeter {},
         14
     );
 }
@@ -2290,7 +2196,6 @@ fn test_bpf_to_bpf_scratch_registers() {
             hash_symbol_name(b"log_64") => Syscall::Function(bpf_syscall_u64),
         ),
         { |res: ExecResult| { res.unwrap() == 112 } },
-        DefaultInstructionMeter {},
         41
     );
 }
@@ -2302,7 +2207,6 @@ fn test_bpf_to_bpf_pass_stack_reference() {
         [],
         (),
         { |res: ExecResult| res.unwrap() == 42 },
-        DefaultInstructionMeter {},
         29
     );
 }
@@ -2322,7 +2226,6 @@ fn test_syscall_parameter_on_stack() {
             0 => Syscall::Function(bpf_syscall_string),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
-        DefaultInstructionMeter {},
         6
     );
 }
@@ -2342,7 +2245,6 @@ fn test_call_reg() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 42 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -2364,7 +2266,6 @@ fn test_err_oob_callx_low() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -2387,7 +2288,6 @@ fn test_err_oob_callx_high() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         3
     );
 }
@@ -2402,7 +2302,6 @@ fn test_bpf_to_bpf_depth() {
                 hash_symbol_name(b"log") => Syscall::Function(bpf_syscall_string),
             ),
             { |res: ExecResult| { res.unwrap() == 0 } },
-            DefaultInstructionMeter {},
             if i == 0 { 4 } else { 3 + 10 * i as u64 }
         );
     }
@@ -2424,7 +2323,6 @@ fn test_err_bpf_to_bpf_too_deep() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         176
     );
 }
@@ -2449,7 +2347,6 @@ fn test_err_reg_stack_depth() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         60
     );
 }
@@ -2574,7 +2471,6 @@ fn test_err_syscall_string() {
                 )
             }
         },
-        DefaultInstructionMeter {},
         2
     );
 }
@@ -2592,7 +2488,6 @@ fn test_syscall_string() {
             0 => Syscall::Function(bpf_syscall_string),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
-        DefaultInstructionMeter {},
         4
     );
 }
@@ -2614,7 +2509,6 @@ fn test_syscall() {
             0 => Syscall::Function(bpf_syscall_u64),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -2635,7 +2529,6 @@ fn test_call_gather_bytes() {
             0 => Syscall::Function(syscalls::gather_bytes),
         ),
         { |res: ExecResult| { res.unwrap() == 0x0102030405 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -2658,7 +2551,6 @@ fn test_call_memfrob() {
             0 => Syscall::Function(syscalls::memfrob),
         ),
         { |res: ExecResult| { res.unwrap() == 0x102292e2f2c0708 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -2690,7 +2582,6 @@ fn test_syscall_with_context() {
             }
             res.unwrap() == 0
         }},
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -2707,7 +2598,6 @@ fn test_load_elf() {
             hash_symbol_name(b"log_64") => Syscall::Function(bpf_syscall_u64),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
-        DefaultInstructionMeter {},
         11
     );
 }
@@ -2721,7 +2611,6 @@ fn test_load_elf_empty_noro() {
             hash_symbol_name(b"log_64") => Syscall::Function(bpf_syscall_u64),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -2735,7 +2624,6 @@ fn test_load_elf_empty_rodata() {
             hash_symbol_name(b"log_64") => Syscall::Function(bpf_syscall_u64),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
-        DefaultInstructionMeter {},
         8
     );
 }
@@ -2755,27 +2643,11 @@ fn test_custom_entrypoint() {
             hash_symbol_name(b"log_64") => Syscall::Function(bpf_syscall_u64),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
-        DefaultInstructionMeter {},
         2
     );
 }
 
 // Instruction Meter Limit
-
-struct TestInstructionMeter {
-    remaining: u64,
-}
-impl InstructionMeter for TestInstructionMeter {
-    fn consume(&mut self, amount: u64) {
-        if amount > self.remaining {
-            panic!("Execution count exceeded");
-        }
-        self.remaining = self.remaining.saturating_sub(amount);
-    }
-    fn get_remaining(&self) -> u64 {
-        self.remaining
-    }
-}
 
 #[test]
 fn test_instruction_count_syscall() {
@@ -2790,7 +2662,6 @@ fn test_instruction_count_syscall() {
             0 => Syscall::Function(bpf_syscall_string),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
-        TestInstructionMeter { remaining: 4 },
         4
     );
 }
@@ -2815,7 +2686,6 @@ fn test_err_instruction_count_syscall_capped() {
                 )
             }
         },
-        TestInstructionMeter { remaining: 3 },
         3
     );
 }
@@ -2844,7 +2714,6 @@ fn test_non_terminate_early() {
                 )
             }
         },
-        TestInstructionMeter { remaining: 100 },
         7
     );
 }
@@ -2875,7 +2744,6 @@ fn test_err_non_terminate_capped() {
                 )
             }
         },
-        TestInstructionMeter { remaining: 6 },
         6
     );
 }
@@ -2906,7 +2774,6 @@ fn test_err_non_terminating_capped() {
                 )
             }
         },
-        TestInstructionMeter { remaining: 1000 },
         1000
     );
 }
@@ -2928,7 +2795,6 @@ fn test_symbol_relocation() {
             0 => Syscall::Function(bpf_syscall_string),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
-        DefaultInstructionMeter {},
         6
     );
 }
@@ -2945,7 +2811,6 @@ fn test_err_symbol_unresolved() {
         {
             |res: ExecResult| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 29 && offset == 0)
         },
-        DefaultInstructionMeter {},
         1
     );
 }
@@ -2966,7 +2831,6 @@ fn test_err_call_unresolved() {
         {
             |res: ExecResult| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 34 && offset == 40)
         },
-        DefaultInstructionMeter {},
         6
     );
 }
@@ -2982,7 +2846,6 @@ fn test_err_unresolved_elf() {
         {
             |res: ExecResult| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "log_64" && pc == 550 && offset == 4168)
         },
-        DefaultInstructionMeter {},
         9
     );
 }
@@ -3006,7 +2869,6 @@ fn test_mul_loop() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x75db9c97 } },
-        DefaultInstructionMeter {},
         37
     );
 }
@@ -3034,7 +2896,6 @@ fn test_prime() {
         [],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         655
     );
 }
@@ -3071,7 +2932,6 @@ fn test_subnet() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         11
     );
 }
@@ -3097,7 +2957,6 @@ fn test_tcp_port80_match() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x1 } },
-        DefaultInstructionMeter {},
         17
     );
 }
@@ -3123,7 +2982,6 @@ fn test_tcp_port80_nomatch() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x0 } },
-        DefaultInstructionMeter {},
         18
     );
 }
@@ -3149,7 +3007,6 @@ fn test_tcp_port80_nomatch_ethertype() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x0 } },
-        DefaultInstructionMeter {},
         7
     );
 }
@@ -3175,7 +3032,6 @@ fn test_tcp_port80_nomatch_proto() {
         ],
         (),
         { |res: ExecResult| { res.unwrap() == 0x0 } },
-        DefaultInstructionMeter {},
         9
     );
 }
@@ -3187,7 +3043,6 @@ fn test_tcp_sack_match() {
         TCP_SACK_MATCH,
         (),
         { |res: ExecResult| res.unwrap() == 0x1 },
-        DefaultInstructionMeter {},
         79
     );
 }
@@ -3199,7 +3054,6 @@ fn test_tcp_sack_nomatch() {
         TCP_SACK_NOMATCH,
         (),
         { |res: ExecResult| res.unwrap() == 0x0 },
-        DefaultInstructionMeter {},
         55
     );
 }
@@ -3253,7 +3107,6 @@ fn test_large_program() {
         [],
         (),
         { |res: ExecResult| res.unwrap() == 0x0 },
-        DefaultInstructionMeter {},
         ebpf::PROG_MAX_INSNS as u64
     );
 }
