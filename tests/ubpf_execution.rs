@@ -11,38 +11,23 @@ extern crate thiserror;
 
 mod common;
 
-use common::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
-use libc::c_char;
+use common::{
+    bpf_syscall_string, bpf_syscall_u64, bpf_trace_printf, ExecResult, SyscallWithContext,
+    TestInstructionMeter, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH,
+};
 use solana_rbpf::{
     assembler::assemble,
     call_frames::MAX_CALL_DEPTH,
     ebpf::{self, hash_symbol_name},
     elf::ELFError,
-    error::{EbpfError, UserDefinedError},
-    memory_region::{AccessType, MemoryMapping},
+    error::EbpfError,
+    memory_region::AccessType,
     syscalls,
     user_error::UserError,
     verifier::check,
-    vm::{DefaultInstructionMeter, EbpfVm, InstructionMeter, Syscall, SyscallObject},
+    vm::{DefaultInstructionMeter, EbpfVm, Syscall},
 };
-use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
-
-type ExecResult = Result<u64, EbpfError<UserError>>;
-
-struct TestInstructionMeter {
-    remaining: u64,
-}
-
-impl InstructionMeter for TestInstructionMeter {
-    fn consume(&mut self, amount: u64) {
-        assert!(amount <= self.remaining);
-        self.remaining = self.remaining.saturating_sub(amount);
-    }
-
-    fn get_remaining(&self) -> u64 {
-        self.remaining
-    }
-}
+use std::{fs::File, io::Read};
 
 macro_rules! test_interpreter_and_jit {
     ($vm:expr, $($location:expr => $syscall:expr),*) => {
@@ -2378,79 +2363,6 @@ fn test_call_save() {
     );
 }*/
 
-const BPF_TRACE_PRINTK_IDX: u32 = 6;
-fn bpf_trace_printf<E: UserDefinedError>(
-    _arg1: u64,
-    _arg2: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    _memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<E>> {
-    Ok(0)
-}
-
-fn bpf_syscall_string(
-    vm_addr: u64,
-    len: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    memory_mapping: &MemoryMapping,
-) -> ExecResult {
-    let host_addr = memory_mapping.map(AccessType::Load, vm_addr, len)?;
-    let c_buf: *const c_char = host_addr as *const c_char;
-    unsafe {
-        for i in 0..len {
-            let c = std::ptr::read(c_buf.offset(i as isize));
-            if c == 0 {
-                break;
-            }
-        }
-        let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize)).unwrap();
-        println!("log: {}", message);
-    }
-    Ok(0)
-}
-
-fn bpf_syscall_u64(
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    memory_mapping: &MemoryMapping,
-) -> ExecResult {
-    println!(
-        "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
-        arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
-    );
-    Ok(0)
-}
-
-struct SyscallWithContext<'a> {
-    context: &'a mut u64,
-}
-impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
-    fn call(
-        &mut self,
-        arg1: u64,
-        arg2: u64,
-        arg3: u64,
-        arg4: u64,
-        arg5: u64,
-        memory_mapping: &MemoryMapping,
-    ) -> ExecResult {
-        println!(
-            "SyscallWithContext: {:?}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
-            self as *const _, arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
-        );
-        assert_eq!(*self.context, 42);
-        *self.context = 84;
-        Ok(0)
-    }
-}
-
 #[test]
 fn test_err_syscall_string() {
     test_interpreter_and_jit_asm!(
@@ -2728,13 +2640,13 @@ fn test_err_non_terminate_capped() {
         mov64 r3, 0x0
         mov64 r4, 0x0
         mov64 r5, r6
-        call 0x6
+        call 0x0
         add64 r6, 0x1
         ja -0x8
         exit",
         [],
         (
-            BPF_TRACE_PRINTK_IDX => Syscall::Function(bpf_trace_printf),
+            0 => Syscall::Function(bpf_trace_printf),
         ),
         {
             |res: ExecResult| {
@@ -2758,13 +2670,13 @@ fn test_err_non_terminating_capped() {
         mov64 r3, 0x0
         mov64 r4, 0x0
         mov64 r5, r6
-        call 0x6
+        call 0x0
         add64 r6, 0x1
         ja -0x8
         exit",
         [],
         (
-            BPF_TRACE_PRINTK_IDX => Syscall::Function(bpf_trace_printf),
+            0 => Syscall::Function(bpf_trace_printf),
         ),
         {
             |res: ExecResult| {

@@ -6,9 +6,111 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+#![allow(dead_code)]
+
+extern crate libc;
+extern crate solana_rbpf;
+
+use self::libc::c_char;
+use solana_rbpf::{
+    error::{EbpfError, UserDefinedError},
+    memory_region::{AccessType, MemoryMapping},
+    user_error::UserError,
+    vm::{InstructionMeter, SyscallObject},
+};
+use std::{slice::from_raw_parts, str::from_utf8};
+
+pub struct TestInstructionMeter {
+    pub remaining: u64,
+}
+impl InstructionMeter for TestInstructionMeter {
+    fn consume(&mut self, amount: u64) {
+        if amount > self.remaining {
+            panic!("Execution count exceeded");
+        }
+        self.remaining = self.remaining.saturating_sub(amount);
+    }
+    fn get_remaining(&self) -> u64 {
+        self.remaining
+    }
+}
+
+pub type ExecResult = Result<u64, EbpfError<UserError>>;
+
+pub fn bpf_trace_printf<E: UserDefinedError>(
+    _arg1: u64,
+    _arg2: u64,
+    _arg3: u64,
+    _arg4: u64,
+    _arg5: u64,
+    _memory_mapping: &MemoryMapping,
+) -> Result<u64, EbpfError<E>> {
+    Ok(0)
+}
+
+pub fn bpf_syscall_string(
+    vm_addr: u64,
+    len: u64,
+    _arg3: u64,
+    _arg4: u64,
+    _arg5: u64,
+    memory_mapping: &MemoryMapping,
+) -> ExecResult {
+    let host_addr = memory_mapping.map(AccessType::Load, vm_addr, len)?;
+    let c_buf: *const c_char = host_addr as *const c_char;
+    unsafe {
+        for i in 0..len {
+            let c = std::ptr::read(c_buf.offset(i as isize));
+            if c == 0 {
+                break;
+            }
+        }
+        let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize)).unwrap();
+        println!("log: {}", message);
+    }
+    Ok(0)
+}
+
+pub fn bpf_syscall_u64(
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    memory_mapping: &MemoryMapping,
+) -> ExecResult {
+    println!(
+        "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
+        arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
+    );
+    Ok(0)
+}
+
+pub struct SyscallWithContext<'a> {
+    pub context: &'a mut u64,
+}
+impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
+    fn call(
+        &mut self,
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        memory_mapping: &MemoryMapping,
+    ) -> ExecResult {
+        println!(
+            "SyscallWithContext: {:?}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
+            self as *const _, arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
+        );
+        assert_eq!(*self.context, 42);
+        *self.context = 84;
+        Ok(0)
+    }
+}
+
 // Assembly code and data for tcp_sack testcases.
 
-#[allow(dead_code)]
 pub const PROG_TCP_PORT_80: &str = "
     ldxb r2, [r1+0xc]
     ldxb r3, [r1+0xd]
@@ -30,7 +132,6 @@ pub const PROG_TCP_PORT_80: &str = "
     mov64 r0, 0x1
     exit";
 
-#[allow(dead_code)]
 pub const TCP_SACK_ASM: &str = "
     ldxb r2, [r1+12]
     ldxb r3, [r1+13]
@@ -77,7 +178,6 @@ pub const TCP_SACK_ASM: &str = "
     mov r0, 0x1
     exit";
 
-#[allow(dead_code)]
 pub const TCP_SACK_BIN: [u8; 352] = [
     0x71, 0x12, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, //
     0x71, 0x13, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, //
@@ -125,7 +225,6 @@ pub const TCP_SACK_BIN: [u8; 352] = [
     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
 ];
 
-#[allow(dead_code)]
 pub const TCP_SACK_MATCH: [u8; 78] = [
     0x00, 0x26, 0x62, 0x2f, 0x47, 0x87, 0x00, 0x1d, //
     0x60, 0xb3, 0x01, 0x84, 0x08, 0x00, 0x45, 0x00, //
@@ -139,7 +238,6 @@ pub const TCP_SACK_MATCH: [u8; 78] = [
     0xca, 0x28, 0xa3, 0xc4, 0xcf, 0xd0, //
 ];
 
-#[allow(dead_code)]
 pub const TCP_SACK_NOMATCH: [u8; 66] = [
     0x00, 0x26, 0x62, 0x2f, 0x47, 0x87, 0x00, 0x1d, //
     0x60, 0xb3, 0x01, 0x84, 0x08, 0x00, 0x45, 0x00, //
