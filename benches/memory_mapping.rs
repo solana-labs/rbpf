@@ -1,3 +1,9 @@
+// Copyright 2020 Solana <alexander@solana.com>
+//
+// Licensed under the Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0> or
+// the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
+// copied, modified, or distributed except according to those terms.
+
 #![feature(test)]
 
 extern crate rand;
@@ -43,9 +49,7 @@ macro_rules! new_prng {
 #[bench]
 fn bench_prng(bencher: &mut Bencher) {
     let mut prng = new_prng!();
-    bencher.iter(|| {
-        prng.gen::<u64>();
-    });
+    bencher.iter(|| prng.gen::<u64>());
 }
 
 #[bench]
