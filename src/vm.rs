@@ -741,7 +741,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                 std::mem::size_of::<MemoryMapping>(),
             );
         }
-        jit_arg[3..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
+        jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
         self.compiled_prog_and_arg = Some((compiled_prog, jit_arg));
         Ok(())
     }
@@ -771,16 +771,16 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         };
         let compiled_prog_and_arg = self
             .compiled_prog_and_arg
-            .as_mut()
+            .as_ref()
             .ok_or(EbpfError::JITNotCompiled)?;
         let remaining_insn_count = instruction_meter.get_remaining();
-        compiled_prog_and_arg.1[2] = remaining_insn_count as _;
         let result: ProgramResult<E> = Ok(0);
         self.total_insn_count = (remaining_insn_count as i64
             - (compiled_prog_and_arg.0.main)(
                 &result,
                 reg1,
                 &*(compiled_prog_and_arg.1.as_ptr() as *const JitProgramArgument),
+                remaining_insn_count,
             ) as i64) as u64;
         if self.total_insn_count > remaining_insn_count {
             self.total_insn_count = remaining_insn_count;

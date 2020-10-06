@@ -34,8 +34,6 @@ use crate::{
 pub struct JitProgramArgument {
     /// The MemoryMapping to be used to run the compiled code
     pub memory_mapping: MemoryMapping,
-    /// The initial value of the instruction meter
-    pub remaining_instructions: u64,
     /// Pointers to the instructions of the compiled code
     pub instruction_addresses: [*const u8; 0],
 }
@@ -43,7 +41,7 @@ pub struct JitProgramArgument {
 /// eBPF JIT-compiled program
 pub struct JitProgram<E: UserDefinedError> {
     /// Call this with JitProgramArgument to execute the compiled code
-    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument) -> u64,
+    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, u64) -> u64,
     /// Pointers to the instructions of the compiled code
     pub instruction_addresses: Vec<*const u8>,
 }
@@ -852,8 +850,10 @@ impl<'a> JitCompiler<'a> {
         // Save pointer to optional typed return value
         emit_push(self, ARGUMENT_REGISTERS[0]);
 
-        // Initialize instruction meter
-        emit_load(self, OperandSize::S64, R10, ARGUMENT_REGISTERS[0], std::mem::size_of::<MemoryMapping>() as i32);
+        // Save initial instruction meter
+        emit_mov(self, ARGUMENT_REGISTERS[3], ARGUMENT_REGISTERS[0]);
+        emit_push(self, ARGUMENT_REGISTERS[0]);
+        emit_push(self, R11); // Padding for 16 byte alignment of RSP
 
         // Initialize other registers
         for reg in REGISTER_MAP.iter() {
@@ -1196,7 +1196,7 @@ impl<'a> JitCompiler<'a> {
         // Handler for EbpfError::ExceededMaxInstructions
         set_anchor(self, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         emit_mov(self, ARGUMENT_REGISTERS[0], R11);
-        emit_load(self, OperandSize::S64, R10, REGISTER_MAP[0], std::mem::size_of::<MemoryMapping>() as i32);
+        emit_load(self, OperandSize::S64, RBP, REGISTER_MAP[0], -8 * (CALLEE_SAVED_REGISTERS.len() + 2) as i32);
         emit_load(self, OperandSize::S64, RBP, R10, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
         emit_store(self, OperandSize::S64, REGISTER_MAP[0], R10, 24); // total_insn_count = initial_instruction_meter;
         set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0));
