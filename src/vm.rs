@@ -131,7 +131,7 @@ impl InstructionMeter for DefaultInstructionMeter {
 /// ```
 pub struct EbpfVm<'a, E: UserDefinedError> {
     executable: &'a dyn Executable<E>,
-    compiled_prog: Option<JitProgram<E>>,
+    compiled_prog_and_arg: Option<(JitProgram<E>, Vec<*const u8>)>,
     syscalls: HashMap<u32, Syscall<'a, E>>,
     prog: &'a [u8],
     prog_addr: u64,
@@ -189,7 +189,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         regions.push(MemoryRegion::new_from_slice(prog, prog_addr, false));
         Ok(EbpfVm {
             executable,
-            compiled_prog: None,
+            compiled_prog_and_arg: None,
             syscalls: HashMap::new(),
             prog,
             prog_addr,
@@ -727,12 +727,22 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// vm.jit_compile();
     /// ```
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        self.compiled_prog = Some(jit::compile(
-            self.prog,
-            self.executable,
-            &self.syscalls,
-            true,
-        )?);
+        let compiled_prog = jit::compile(self.prog, self.executable, &self.syscalls, true)?;
+        let mut jit_arg: Vec<*const u8> = vec![
+            std::ptr::null();
+            std::mem::size_of::<JitProgramArgument>()
+                / std::mem::size_of::<*const u8>()
+                + compiled_prog.instruction_addresses.len()
+        ];
+        unsafe {
+            libc::memcpy(
+                jit_arg.as_mut_ptr() as _,
+                std::mem::transmute::<_, _>(&self.memory_mapping),
+                std::mem::size_of::<MemoryMapping>(),
+            );
+        }
+        jit_arg[3..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
+        self.compiled_prog_and_arg = Some((compiled_prog, jit_arg));
         Ok(())
     }
 
@@ -759,30 +769,18 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         } else {
             0
         };
-        let compiled_prog = self
-            .compiled_prog
-            .as_ref()
+        let compiled_prog_and_arg = self
+            .compiled_prog_and_arg
+            .as_mut()
             .ok_or(EbpfError::JITNotCompiled)?;
         let remaining_insn_count = instruction_meter.get_remaining();
-        let mut jit_arg: Vec<*const u8> = vec![
-            std::ptr::null();
-            std::mem::size_of::<JitProgramArgument>()
-                / std::mem::size_of::<*const u8>()
-                + compiled_prog.instruction_addresses.len()
-        ];
-        libc::memcpy(
-            jit_arg.as_mut_ptr() as _,
-            std::mem::transmute::<_, _>(&self.memory_mapping),
-            std::mem::size_of::<MemoryMapping>(),
-        );
-        jit_arg[2] = remaining_insn_count as _;
-        jit_arg[3..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
+        compiled_prog_and_arg.1[2] = remaining_insn_count as _;
         let result: ProgramResult<E> = Ok(0);
         self.total_insn_count = (remaining_insn_count as i64
-            - (compiled_prog.main)(
+            - (compiled_prog_and_arg.0.main)(
                 &result,
                 reg1,
-                &*(jit_arg.as_ptr() as *const JitProgramArgument),
+                &*(compiled_prog_and_arg.1.as_ptr() as *const JitProgramArgument),
             ) as i64) as u64;
         if self.total_insn_count > remaining_insn_count {
             self.total_insn_count = remaining_insn_count;
