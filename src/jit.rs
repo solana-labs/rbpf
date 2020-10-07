@@ -1142,7 +1142,14 @@ impl<'a> JitCompiler<'a> {
                     if let Some(syscall) = syscalls.get(&(insn.imm as u32)) {
                         if self.enable_instruction_meter {
                             emit_validate_and_profile_instruction_count(self, Some(0));
-                            // TODO
+                            emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 2) as i32);
+                            emit_alu(self, OperationWidth::Bit64, 0x29, ARGUMENT_REGISTERS[0], R11, 0, None);
+                            emit_mov(self, R11, ARGUMENT_REGISTERS[0]);
+                            emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 3) as i32);
+                            emit_rust_call(self, I::consume as *const u8, &[
+                                Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[0]) },
+                                Argument { index: 0, value: Value::Register(R11) },
+                            ], None);
                         }
 
                         match syscall {
@@ -1186,7 +1193,11 @@ impl<'a> JitCompiler<'a> {
                         emit_load(self, OperandSize::S64, R11, REGISTER_MAP[0], 8);
 
                         if self.enable_instruction_meter {
-                            // TODO
+                            emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 3) as i32);
+                            emit_rust_call(self, I::get_remaining as *const u8, &[
+                                Argument { index: 0, value: Value::Register(R11) },
+                            ], Some(ARGUMENT_REGISTERS[0]));
+                            emit_store(self, OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, -8 * (CALLEE_SAVED_REGISTERS.len() + 2) as i32);
                             emit_undo_profile_instruction_count(self, 0);
                         }
                     } else {
