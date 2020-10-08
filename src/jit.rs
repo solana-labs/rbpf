@@ -442,7 +442,7 @@ struct JitMemory<'a> {
 }
 
 impl<'a> JitMemory<'a> {
-    fn new(_num_pages: usize, config: Config) -> JitMemory<'a> {
+    fn new(_num_pages: usize, _config: Config) -> JitMemory<'a> {
         #[cfg(windows)]
             {
                 panic!("JIT not supported on windows");
@@ -465,7 +465,7 @@ impl<'a> JitMemory<'a> {
             pc_locs:         vec![],
             jumps:           vec![],
             special_targets: HashMap::new(),
-            config,
+            config: _config,
         }
     }
 
