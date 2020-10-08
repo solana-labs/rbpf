@@ -41,7 +41,7 @@ pub struct JitProgramArgument {
 /// eBPF JIT-compiled program
 pub struct JitProgram<E: UserDefinedError, I: InstructionMeter> {
     /// Call this with JitProgramArgument to execute the compiled code
-    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, &mut I) -> u64,
+    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, &mut I) -> i64,
     /// Pointers to the instructions of the compiled code
     pub instruction_addresses: Vec<*const u8>,
 }
@@ -798,6 +798,7 @@ fn muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: i32) {
 fn set_exception_kind<E: UserDefinedError>(jit: &mut JitCompiler, err: EbpfError<E>) {
     let err = Result::<u64, EbpfError<E>>::Err(err);
     let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
+    emit_load(jit, OperandSize::S64, RBP, R10, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
     emit_store_imm32(jit, OperandSize::S64, R10, 8, err_kind as i32);
 }
 
@@ -1228,29 +1229,23 @@ impl<'a> JitCompiler<'a> {
         // Handler for EbpfError::ExceededMaxInstructions
         set_anchor(self, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         emit_mov(self, ARGUMENT_REGISTERS[0], R11);
-        emit_load(self, OperandSize::S64, RBP, REGISTER_MAP[0], -8 * (CALLEE_SAVED_REGISTERS.len() + 2) as i32);
-        emit_load(self, OperandSize::S64, RBP, R10, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], R10, 24); // total_insn_count = initial_instruction_meter;
-        set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0));
+        set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0));
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::CallDepthExceeded
         set_anchor(self, TARGET_PC_CALL_DEPTH_EXCEEDED);
-        emit_load(self, OperandSize::S64, RBP, R10, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
-        emit_store_imm32(self, OperandSize::S64, R10, 24, MAX_CALL_DEPTH as i32); // depth = MAX_CALL_DEPTH;
         set_exception_kind::<E>(self, EbpfError::CallDepthExceeded(0, 0));
+        emit_store_imm32(self, OperandSize::S64, R10, 24, MAX_CALL_DEPTH as i32); // depth = MAX_CALL_DEPTH;
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::CallOutsideTextSegment
         set_anchor(self, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
-        emit_load(self, OperandSize::S64, RBP, R10, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
-        emit_store(self, OperandSize::S64, REGISTER_MAP[0], R10, 24); // target_address = RAX;
         set_exception_kind::<E>(self, EbpfError::CallOutsideTextSegment(0, 0));
+        emit_store(self, OperandSize::S64, REGISTER_MAP[0], R10, 24); // target_address = RAX;
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::DivideByZero
         set_anchor(self, TARGET_PC_DIV_BY_ZERO);
-        emit_load(self, OperandSize::S64, RBP, R10, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
         set_exception_kind::<E>(self, EbpfError::DivideByZero(0));
         // emit_jmp(self, TARGET_PC_EXCEPTION_AT); // Fall-through
 

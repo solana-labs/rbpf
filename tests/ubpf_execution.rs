@@ -50,7 +50,9 @@ macro_rules! test_interpreter_and_jit {
             match vm.jit_compile() {
                 Err(err) => assert!(check_closure(Err(err))),
                 Ok(()) => {
-                    assert!(check_closure(unsafe { vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count }) }));
+                    let res = unsafe { vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count }) };
+                    println!("res={:?}", res);
+                    assert!(check_closure(res));
                     let instruction_count_jit = vm.get_total_instruction_count();
                     assert_eq!(instruction_count_interpreter, instruction_count_jit);
                 },
@@ -2593,8 +2595,8 @@ fn test_err_instruction_count_syscall_capped() {
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
-                    EbpfError::ExceededMaxInstructions(pc, instruction_count)
-                    if pc == 32 && instruction_count == 3
+                    EbpfError::ExceededMaxInstructions(pc)
+                    if pc == 32
                 )
             }
         },
@@ -2651,8 +2653,8 @@ fn test_err_non_terminate_capped() {
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
-                    EbpfError::ExceededMaxInstructions(pc, instruction_count)
-                    if pc == 35 && instruction_count == 6
+                    EbpfError::ExceededMaxInstructions(pc)
+                    if pc == 35
                 )
             }
         },
@@ -2681,8 +2683,8 @@ fn test_err_non_terminating_capped() {
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
-                    EbpfError::ExceededMaxInstructions(pc, instruction_count)
-                    if pc == 37 && instruction_count == 1000
+                    EbpfError::ExceededMaxInstructions(pc)
+                    if pc == 37
                 )
             }
         },

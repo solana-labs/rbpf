@@ -321,8 +321,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// assert_eq!(res, 0);
     /// ```
     pub fn execute_program_interpreted(&mut self, instruction_meter: &mut I) -> ProgramResult<E> {
+        let initial_insn_count = instruction_meter.get_remaining();
         let result = self.execute_program_interpreted_inner(instruction_meter);
         instruction_meter.consume(self.last_insn_count);
+        self.total_insn_count = initial_insn_count - instruction_meter.get_remaining();
         result
     }
 
@@ -348,7 +350,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         let mut next_pc: usize = entry;
         let mut remaining_insn_count = instruction_meter.get_remaining();
         self.last_insn_count = 0;
-        self.total_insn_count = 0;
         while next_pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= self.prog.len() {
             let pc = next_pc;
             next_pc += 1;
@@ -356,12 +357,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             let dst = insn.dst as usize;
             let src = insn.src as usize;
             self.last_insn_count += 1;
-            self.total_insn_count += 1;
 
             if insn_trace {
                 trace!(
                     "    BPF: {:5?} {:016x?} frame {:?} pc {:4?} {}",
-                    self.total_insn_count,
+                    self.last_insn_count,
                     reg,
                     self.frames.get_frame_index(),
                     pc + ebpf::ELF_INSN_DUMP_OFFSET,
@@ -661,7 +661,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                             next_pc = Self::check_pc(self.prog_addr, &self.prog, pc, ptr)?;
                         }
                         _ => {
-                            debug!("BPF instructions executed: {:?}", self.total_insn_count);
+                            debug!("BPF instructions executed: {:?}", self.last_insn_count);
                             debug!(
                                 "Max frame depth reached: {:?}",
                                 self.frames.get_max_frame_index()
@@ -673,7 +673,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
             }
             if self.last_insn_count >= remaining_insn_count {
-                return Err(EbpfError::ExceededMaxInstructions(pc + 1 + ebpf::ELF_INSN_DUMP_OFFSET, self.total_insn_count));
+                return Err(EbpfError::ExceededMaxInstructions(pc + 1 + ebpf::ELF_INSN_DUMP_OFFSET));
             }
         }
 
@@ -772,19 +772,19 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             .compiled_prog_and_arg
             .as_ref()
             .ok_or(EbpfError::JITNotCompiled)?;
-        let remaining_insn_count = instruction_meter.get_remaining();
+        let initial_insn_count = instruction_meter.get_remaining();
         let result: ProgramResult<E> = Ok(0);
-        self.total_insn_count = (remaining_insn_count as i64
-            - (compiled_prog_and_arg.program.main)(
-                &result,
-                reg1,
-                &*(compiled_prog_and_arg.argument.as_ptr() as *const JitProgramArgument),
-                instruction_meter,
-            ) as i64) as u64;
-        if self.total_insn_count > remaining_insn_count {
-            self.total_insn_count = remaining_insn_count;
-        }
+        self.last_insn_count = (compiled_prog_and_arg.program.main)(
+            &result,
+            reg1,
+            &*(compiled_prog_and_arg.argument.as_ptr() as *const JitProgramArgument),
+            instruction_meter,
+        )
+        .max(0) as u64;
+        let remaining_insn_count = instruction_meter.get_remaining();
+        self.total_insn_count = remaining_insn_count - self.last_insn_count;
         instruction_meter.consume(self.total_insn_count);
+        self.total_insn_count += initial_insn_count - remaining_insn_count;
         result
     }
 }
