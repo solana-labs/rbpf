@@ -19,7 +19,7 @@ use std::fmt::Formatter;
 use std::fmt::Error as FormatterError;
 use std::ops::{Index, IndexMut};
 
-use crate::{vm::JitProgram, error::UserDefinedError, vm::Syscall, call_frames::CALL_FRAME_SIZE, ebpf::{self}};
+use crate::{error::UserDefinedError, vm::{Config, JitProgram, Syscall}, ebpf::{self}};
 use thiserror::Error;
 
 extern crate libc;
@@ -438,10 +438,11 @@ struct JitMemory<'a> {
     pc_locs:         Vec<usize>,
     special_targets: HashMap<isize, usize>,
     jumps:           Vec<Jump>,
+    config:          Config,
 }
 
 impl<'a> JitMemory<'a> {
-    fn new(_num_pages: usize) -> JitMemory<'a> {
+    fn new(_num_pages: usize, config: Config) -> JitMemory<'a> {
         #[cfg(windows)]
             {
                 panic!("JIT not supported on windows");
@@ -464,6 +465,7 @@ impl<'a> JitMemory<'a> {
             pc_locs:         vec![],
             jumps:           vec![],
             special_targets: HashMap::new(),
+            config,
         }
     }
 
@@ -492,7 +494,7 @@ impl<'a> JitMemory<'a> {
         emit_mov(self, RSP, map_register(10));
 
         // Allocate stack space
-        emit_alu64_imm32(self, 0x81, 5, RSP, CALL_FRAME_SIZE as i32);
+        emit_alu64_imm32(self, 0x81, 5, RSP, self.config.stack_frame_size as i32);
 
         self.pc_locs = vec![0; prog.len() / ebpf::INSN_SIZE + 1];
 
@@ -799,7 +801,7 @@ impl<'a> JitMemory<'a> {
         }
 
         // Deallocate stack space
-        emit_alu64_imm32(self, 0x81, 0, RSP, CALL_FRAME_SIZE as i32);
+        emit_alu64_imm32(self, 0x81, 0, RSP, self.config.stack_frame_size as i32);
 
         emit_pop(self, R15);
         emit_pop(self, R14);
@@ -885,12 +887,12 @@ impl<'a> std::fmt::Debug for JitMemory<'a> {
 }
 
 // In the end, this is the only thing we export
-pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8], syscalls: &HashMap<u32, Syscall<'a, E>>)
+pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8], syscalls: &HashMap<u32, Syscall<'a, E>>, config: Config)
     -> Result<JitProgram, JITError> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
-    let mut jit = JitMemory::new(1);
+    let mut jit = JitMemory::new(1, config);
     jit.jit_compile(prog, syscalls)?;
     jit.resolve_jumps()?;
 

@@ -1,4 +1,4 @@
-// Derived from uBPF <https://github.com/iovisor/ubpf>
+// Ddeerived from uBPF <https://github.com/iovisor/ubpf>
 // Copyright 2015 Big Switch Networks, Inc
 //      (uBPF: VM architecture, parts of the interpreter, originally in C)
 // Copyright 2016 6WIND S.A. <quentin.monnet@6wind.com>
@@ -91,12 +91,29 @@ impl InstructionMeter for DefaultInstructionMeter {
     }
 }
 
+/// VM configuration settings
+#[derive(Clone, Copy)]
+pub struct Config {
+    /// Maximum call depth
+    pub max_call_depth: usize,
+    /// Size of a stack frame in bytes, must match the size specified in the LLVM BPF backend
+    pub stack_frame_size: usize,
+}
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            max_call_depth: 20,
+            stack_frame_size: 4_096,
+        }
+    }
+}
+
 /// A virtual machine to run eBPF program.
 ///
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{vm::EbpfVm, user_error::UserError};
+/// use solana_rbpf::{vm::{EbpfVm, Config}, user_error::UserError};
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -107,7 +124,7 @@ impl InstructionMeter for DefaultInstructionMeter {
 ///
 /// // Instantiate a VM.
 /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
-/// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+/// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), Config::default()).unwrap();
 ///
 /// // Provide a reference to the packet data.
 /// let res = vm.execute_program(mem, &[], &[]).unwrap();
@@ -119,6 +136,7 @@ pub struct EbpfVm<'a, E: UserDefinedError> {
     syscalls: HashMap<u32, Syscall<'a, E>>,
     last_insn_count: u64,
     total_insn_count: u64,
+    config: Config,
 }
 
 impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
@@ -128,7 +146,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::EbpfVm, user_error::UserError};
+    /// use solana_rbpf::{vm::{EbpfVm, Config}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -136,15 +154,19 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// // Instantiate a VM.
     /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), Config::default()).unwrap();
     /// ```
-    pub fn new(executable: &'a dyn Executable<E>) -> Result<EbpfVm<'a, E>, EbpfError<E>> {
+    pub fn new(
+        executable: &'a dyn Executable<E>,
+        config: Config,
+    ) -> Result<EbpfVm<'a, E>, EbpfError<E>> {
         Ok(EbpfVm {
             executable,
             jit: None,
             syscalls: HashMap::new(),
             last_insn_count: 0,
             total_insn_count: 0,
+            config,
         })
     }
 
@@ -187,7 +209,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::EbpfVm, syscalls::bpf_trace_printf, user_error::UserError};
+    /// use solana_rbpf::{vm::{EbpfVm, Config}, syscalls::bpf_trace_printf, user_error::UserError};
     ///
     /// // This program was compiled with clang, from a C program containing the following single
     /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
@@ -206,7 +228,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// // Instantiate a VM.
     /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), Config::default()).unwrap();
     ///
     /// // Register a syscall.
     /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
@@ -265,7 +287,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::EbpfVm, user_error::UserError};
+    /// use solana_rbpf::{vm::{EbpfVm, Config}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -276,7 +298,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// // Instantiate a VM.
     /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), Config::default()).unwrap();
     ///
     /// // Provide a reference to the packet data.
     /// let res = vm.execute_program(mem, &[], &[]).unwrap();
@@ -324,7 +346,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ) -> Result<u64, EbpfError<E>> {
         const U32MAX: u64 = u32::MAX as u64;
 
-        let mut frames = CallFrames::default();
+        let mut frames = CallFrames::new(self.config.max_call_depth, self.config.stack_frame_size);
         let mut ro_regions = Vec::new();
         let mut rw_regions = Vec::new();
         ro_regions.extend_from_slice(granted_ro_regions);
@@ -704,7 +726,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
                         _ => {
                             debug!("BPF instructions executed: {:?}", self.total_insn_count);
                             debug!(
-                                "Max frame depth reached: {:?}",
+                                "Max call depth reached: {:?}",
                                 frames.get_max_frame_index()
                             );
                             return Ok(reg[0]);
@@ -741,7 +763,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::EbpfVm, user_error::UserError};
+    /// use solana_rbpf::{vm::{EbpfVm, Config}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -749,7 +771,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
     ///
     /// // Instantiate a VM.
     /// let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref()).unwrap();
+    /// let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), Config::default()).unwrap();
     ///
     /// # #[cfg(not(windows))]
     /// vm.jit_compile();
@@ -763,7 +785,7 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
             bytes
         };
 
-        self.jit = Some(jit::compile(prog, &self.syscalls)?);
+        self.jit = Some(jit::compile(prog, &self.syscalls, self.config)?);
         Ok(())
     }
 
