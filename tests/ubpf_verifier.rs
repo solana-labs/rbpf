@@ -20,8 +20,57 @@
 // These are unit tests for the eBPF “verifier”.
 
 extern crate solana_rbpf;
+extern crate thiserror;
 
-use solana_rbpf::{assembler::assemble, ebpf, user_error::UserError, verifier::check, vm::EbpfVm};
+use solana_rbpf::{
+    assembler::assemble, ebpf, error::UserDefinedError, user_error::UserError, verifier::check,
+    vm::EbpfVm,
+};
+use thiserror::Error;
+
+/// Error definitions
+#[derive(Debug, Error)]
+pub enum VerifierTestError {
+    #[error("{0}")]
+    Rejected(String),
+}
+impl UserDefinedError for VerifierTestError {}
+
+#[test]
+fn test_verifier_success() {
+    fn verifier_success(_prog: &[u8]) -> Result<(), VerifierTestError> {
+        Ok(())
+    }
+    let prog = assemble(
+        "
+        mov32 r0, 0xBEE
+        exit",
+    )
+    .unwrap();
+    let executable = EbpfVm::<VerifierTestError>::create_executable_from_text_bytes(
+        &prog,
+        Some(verifier_success),
+    )
+    .unwrap();
+    let _ = EbpfVm::<VerifierTestError>::new(executable.as_ref(), &[], &[]).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "Gaggablaghblagh!")]
+fn test_verifier_fail() {
+    fn verifier_fail(_prog: &[u8]) -> Result<(), VerifierTestError> {
+        Err(VerifierTestError::Rejected("Gaggablaghblagh!".to_string()))
+    }
+    let prog = assemble(
+        "
+        mov32 r0, 0xBEE
+        exit",
+    )
+    .unwrap();
+    let _ =
+        EbpfVm::<VerifierTestError>::create_executable_from_text_bytes(&prog, Some(verifier_fail))
+            .unwrap();
+}
 
 #[test]
 #[should_panic(expected = "DivisionByZero(1)")]

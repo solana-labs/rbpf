@@ -19,13 +19,10 @@
 extern crate byteorder;
 extern crate libc;
 extern crate solana_rbpf;
-extern crate thiserror;
 
 use libc::c_char;
 use solana_rbpf::{
-    assembler::assemble,
-    ebpf::{self},
-    error::{EbpfError, UserDefinedError},
+    error::EbpfError,
     fuzz::fuzz,
     memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
@@ -33,7 +30,6 @@ use solana_rbpf::{
     vm::{DefaultInstructionMeter, EbpfVm, Syscall},
 };
 use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
-use thiserror::Error;
 
 // The following two examples have been compiled from C with the following command:
 //
@@ -139,128 +135,6 @@ fn bpf_syscall_u64(
         arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
     );
     Ok(0)
-}
-
-/// Error definitions
-#[derive(Debug, Error)]
-pub enum VerifierTestError {
-    #[error("{0}")]
-    Rejected(String),
-}
-impl UserDefinedError for VerifierTestError {}
-
-fn verifier_success(_prog: &[u8]) -> Result<(), VerifierTestError> {
-    Ok(())
-}
-fn verifier_fail(_prog: &[u8]) -> Result<(), VerifierTestError> {
-    Err(VerifierTestError::Rejected("Gaggablaghblagh!".to_string()))
-}
-
-#[test]
-fn test_verifier_success() {
-    let prog = assemble(
-        "
-        mov32 r0, 0xBEE
-        exit",
-    )
-    .unwrap();
-    let executable = EbpfVm::<VerifierTestError>::create_executable_from_text_bytes(
-        &prog,
-        Some(verifier_success),
-    )
-    .unwrap();
-    let mut vm = EbpfVm::<VerifierTestError>::new(executable.as_ref(), &[], &[]).unwrap();
-    assert_eq!(
-        vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
-            .unwrap(),
-        0xBEE
-    );
-}
-
-#[test]
-#[should_panic(expected = "Gaggablaghblagh!")]
-fn test_verifier_fail() {
-    let prog = assemble(
-        "
-        mov32 r0, 0xBEE
-        exit",
-    )
-    .unwrap();
-    let _ =
-        EbpfVm::<VerifierTestError>::create_executable_from_text_bytes(&prog, Some(verifier_fail))
-            .unwrap();
-}
-
-#[test]
-fn test_custom_entrypoint() {
-    let mut file = File::open("tests/elfs/unresolved_syscall.so").expect("file open failed");
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-
-    elf[24] = 80; // Move entrypoint to later in the text section
-
-    let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
-    let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-    vm.register_syscall_ex("log", Syscall::Function(bpf_syscall_string))
-        .unwrap();
-    vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
-        .unwrap();
-    assert_eq!(2, vm.get_total_instruction_count());
-}
-
-fn write_insn(prog: &mut [u8], insn: usize, asm: &str) {
-    prog[insn * ebpf::INSN_SIZE..insn * ebpf::INSN_SIZE + ebpf::INSN_SIZE]
-        .copy_from_slice(&assemble(asm).unwrap());
-}
-
-#[test]
-fn test_large_program() {
-    let mut prog = vec![0; ebpf::PROG_MAX_INSNS * ebpf::INSN_SIZE];
-    let mut add_insn = vec![0; ebpf::INSN_SIZE];
-    write_insn(&mut add_insn, 0, "mov64 r0, 0");
-    for insn in (0..(ebpf::PROG_MAX_INSNS - 1) * ebpf::INSN_SIZE).step_by(ebpf::INSN_SIZE) {
-        prog[insn..insn + ebpf::INSN_SIZE].copy_from_slice(&add_insn);
-    }
-    write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 1, "exit");
-
-    {
-        // Test jumping to pc larger then i16
-        write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "ja 0x0");
-
-        let executable =
-            EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-        let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-        assert_eq!(
-            0,
-            vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
-                .unwrap()
-        );
-    }
-    // reset program
-    write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "mov64 r0, 0");
-
-    {
-        // test program that is too large
-        prog.extend_from_slice(&assemble("exit").unwrap());
-
-        assert!(
-            EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).is_err()
-        );
-    }
-    // reset program
-    prog.truncate(ebpf::PROG_MAX_INSNS * ebpf::INSN_SIZE);
-
-    {
-        // verify program still works
-        let executable =
-            EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-        let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
-        assert_eq!(
-            0,
-            vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
-                .unwrap()
-        );
-    }
 }
 
 #[test]
