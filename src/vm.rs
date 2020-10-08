@@ -779,7 +779,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 &result,
                 reg1,
                 &*(compiled_prog_and_arg.argument.as_ptr() as *const JitProgramArgument),
-                remaining_insn_count,
                 instruction_meter,
             ) as i64) as u64;
         if self.total_insn_count > remaining_insn_count {

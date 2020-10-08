@@ -41,7 +41,7 @@ pub struct JitProgramArgument {
 /// eBPF JIT-compiled program
 pub struct JitProgram<E: UserDefinedError, I: InstructionMeter> {
     /// Call this with JitProgramArgument to execute the compiled code
-    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, u64, &mut I) -> u64,
+    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, &mut I) -> u64,
     /// Pointers to the instructions of the compiled code
     pub instruction_addresses: Vec<*const u8>,
 }
@@ -635,8 +635,12 @@ struct Argument {
 }
 
 #[inline]
-fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argument]) {
+fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argument], return_reg: Option<u8>) {
     let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
+    if let Some(reg) = return_reg {
+        let dst = saved_registers.iter().position(|x| *x == reg).unwrap();
+        saved_registers.remove(dst);
+    }
 
     // Pass arguments via stack
     for argument in arguments {
@@ -691,6 +695,10 @@ fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argum
     emit1(jit, 0xff);
     emit1(jit, 0xd0);
 
+    if let Some(reg) = return_reg {
+        emit_mov(jit, RAX, reg);
+    }
+
     // Restore registers from stack
     for reg in saved_registers.iter().rev() {
         emit_pop(jit, *reg);
@@ -709,7 +717,7 @@ fn emit_address_translation(jit: &mut JitCompiler, host_addr: u8, vm_addr: Value
         Argument { index: 1, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
         Argument { index: 2, value: Value::Constant(access_type as i64) },
         Argument { index: 4, value: Value::Constant(len as i64) },
-    ]);
+    ], None);
 
     // Throw error if the result indicates one
     emit_load_imm(jit, R11, jit.pc as i64);
@@ -861,9 +869,11 @@ impl<'a> JitCompiler<'a> {
         emit_push(self, ARGUMENT_REGISTERS[0]);
 
         // Save initial instruction meter
-        emit_mov(self, ARGUMENT_REGISTERS[3], ARGUMENT_REGISTERS[0]);
+        emit_rust_call(self, I::get_remaining as *const u8, &[
+            Argument { index: 0, value: Value::Register(ARGUMENT_REGISTERS[3]) },
+        ], Some(ARGUMENT_REGISTERS[0]));
         emit_push(self, ARGUMENT_REGISTERS[0]);
-        emit_push(self, R11); // Padding for 16 byte alignment of RSP
+        emit_push(self, ARGUMENT_REGISTERS[3]);
 
         // Initialize other registers
         for reg in REGISTER_MAP.iter() {
@@ -1129,6 +1139,11 @@ impl<'a> JitCompiler<'a> {
                     // updated later, but not created after compiling (we need the address of the
                     // syscall function in the JIT-compiled program).
                     if let Some(syscall) = syscalls.get(&(insn.imm as u32)) {
+                        if self.enable_instruction_meter {
+                            emit_validate_and_profile_instruction_count(self, Some(0));
+                            // TODO
+                        }
+
                         match syscall {
                             Syscall::Function(func) => {
                                 emit_rust_call(self, *func as *const u8, &[
@@ -1139,7 +1154,7 @@ impl<'a> JitCompiler<'a> {
                                     Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
                                     Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
                                     Argument { index: 6, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
-                                ]);
+                                ], None);
                             },
                             Syscall::Object(boxed) => {
                                 let fat_ptr_ptr = unsafe { std::mem::transmute::<_, *const *const SyscallTraitObject>(&boxed) };
@@ -1157,7 +1172,7 @@ impl<'a> JitCompiler<'a> {
                                     Argument { index: 1, value: Value::Constant(unsafe { (*fat_ptr).data } as i64) }, // "&mut self" in the "call" method of the SyscallObject
                                     Argument { index: 6, value: Value::Register(ARGUMENT_REGISTERS[5]) },
                                     Argument { index: 7, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
-                                ]);
+                                ], None);
                             },
                         }
 
@@ -1168,6 +1183,11 @@ impl<'a> JitCompiler<'a> {
                         // Store Ok value in result register
                         emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
                         emit_load(self, OperandSize::S64, R11, REGISTER_MAP[0], 8);
+
+                        if self.enable_instruction_meter {
+                            // TODO
+                            emit_undo_profile_instruction_count(self, 0);
+                        }
                     } else {
                         match executable.lookup_bpf_call(insn.imm as u32) {
                             Some(target_pc) => {
