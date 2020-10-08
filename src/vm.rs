@@ -15,7 +15,7 @@ use crate::{
     disassembler, ebpf,
     elf::EBpfElf,
     error::{EbpfError, UserDefinedError},
-    jit::{self, JitProgram, JitProgramArgument},
+    jit::{self, JitProgramAndArgument, JitProgramArgument},
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     user_error::UserError,
 };
@@ -131,7 +131,7 @@ impl InstructionMeter for DefaultInstructionMeter {
 /// ```
 pub struct EbpfVm<'a, E: UserDefinedError> {
     executable: &'a dyn Executable<E>,
-    compiled_prog_and_arg: Option<(JitProgram<E>, Vec<*const u8>)>,
+    compiled_prog_and_arg: Option<JitProgramAndArgument<E>>,
     syscalls: HashMap<u32, Syscall<'a, E>>,
     prog: &'a [u8],
     prog_addr: u64,
@@ -742,7 +742,10 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
             );
         }
         jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
-        self.compiled_prog_and_arg = Some((compiled_prog, jit_arg));
+        self.compiled_prog_and_arg = Some(JitProgramAndArgument {
+            program: compiled_prog,
+            argument: jit_arg,
+        });
         Ok(())
     }
 
@@ -776,10 +779,10 @@ impl<'a, E: UserDefinedError> EbpfVm<'a, E> {
         let remaining_insn_count = instruction_meter.get_remaining();
         let result: ProgramResult<E> = Ok(0);
         self.total_insn_count = (remaining_insn_count as i64
-            - (compiled_prog_and_arg.0.main)(
+            - (compiled_prog_and_arg.program.main)(
                 &result,
                 reg1,
-                &*(compiled_prog_and_arg.1.as_ptr() as *const JitProgramArgument),
+                &*(compiled_prog_and_arg.argument.as_ptr() as *const JitProgramArgument),
                 remaining_insn_count,
             ) as i64) as u64;
         if self.total_insn_count > remaining_insn_count {

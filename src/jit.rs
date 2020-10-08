@@ -46,6 +46,14 @@ pub struct JitProgram<E: UserDefinedError> {
     pub instruction_addresses: Vec<*const u8>,
 }
 
+/// Combines program and argument for a VM instance
+pub struct JitProgramAndArgument<E: UserDefinedError> {
+    /// JIT-compiled program
+    pub program: JitProgram<E>,
+    /// The argument is actually a JitProgramArgument
+    pub argument: Vec<*const u8>,
+}
+
 /// A virtual method table for SyscallObject
 struct SyscallObjectVtable {
     /// Drops the dyn trait object
