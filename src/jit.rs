@@ -22,7 +22,7 @@ use std::fmt::Error as FormatterError;
 use std::ops::{Index, IndexMut};
 
 use crate::{
-    vm::{Executable, Syscall, ProgramResult},
+    vm::{Executable, Syscall, ProgramResult, InstructionMeter},
     call_frames::{CALL_FRAME_SIZE, MAX_CALL_DEPTH},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, STACK_REG, MM_STACK_START, MM_PROGRAM_START},
     error::{UserDefinedError, EbpfError},
@@ -39,17 +39,17 @@ pub struct JitProgramArgument {
 }
 
 /// eBPF JIT-compiled program
-pub struct JitProgram<E: UserDefinedError> {
+pub struct JitProgram<E: UserDefinedError, I: InstructionMeter> {
     /// Call this with JitProgramArgument to execute the compiled code
-    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, u64) -> u64,
+    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, u64, &mut I) -> u64,
     /// Pointers to the instructions of the compiled code
     pub instruction_addresses: Vec<*const u8>,
 }
 
 /// Combines program and argument for a VM instance
-pub struct JitProgramAndArgument<E: UserDefinedError> {
+pub struct JitProgramAndArgument<E: UserDefinedError, I: InstructionMeter> {
     /// JIT-compiled program
-    pub program: JitProgram<E>,
+    pub program: JitProgram<E, I>,
     /// The argument is actually a JitProgramArgument
     pub argument: Vec<*const u8>,
 }
@@ -545,7 +545,8 @@ fn emit_conditional_branch_imm(jit: &mut JitCompiler, op: u8, imm: i32, dst: u8,
 enum Value {
     Register(u8),
     RegisterPlusConstant(u8, i64),
-    Constant(i64)
+    Constant(i64),
+    Stack(i32)
 }
 
 #[inline]
@@ -678,11 +679,11 @@ fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argum
             Value::Constant(value) => {
                 emit_load_imm(jit, dst, value);
             },
+            Value::Stack(slot) => {
+                emit_load(jit, OperandSize::S64, RBP, dst, -8 * (CALLEE_SAVED_REGISTERS.len() as i32 + slot));
+            },
         }
     }
-
-    // Load pointer to optional typed return value
-    emit_load(jit, OperandSize::S64, RBP, ARGUMENT_REGISTERS[0], -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
 
     // TODO use direct call when possible
     emit_load_imm(jit, RAX, function as i64);
@@ -704,6 +705,7 @@ fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argum
 fn emit_address_translation(jit: &mut JitCompiler, host_addr: u8, vm_addr: Value, len: u64, access_type: AccessType) {
     emit_rust_call(jit, MemoryMapping::map::<UserError> as *const u8, &[
         Argument { index: 3, value: vm_addr }, // Specify first as the src register could be overwritten by other arguments
+        Argument { index: 0, value: Value::Stack(1) }, // Pointer to optional typed return value
         Argument { index: 1, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
         Argument { index: 2, value: Value::Constant(access_type as i64) },
         Argument { index: 4, value: Value::Constant(len as i64) },
@@ -837,7 +839,7 @@ impl<'a> JitCompiler<'a> {
         }
     }
 
-    fn compile<E: UserDefinedError>(&mut self, prog: &[u8],
+    fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self, prog: &[u8],
                    executable: &'a dyn Executable<E>,
                    syscalls: &HashMap<u32,  Syscall<'a, E>>) -> Result<(), EbpfError<E>> {
         // Save registers
@@ -1130,6 +1132,7 @@ impl<'a> JitCompiler<'a> {
                         match syscall {
                             Syscall::Function(func) => {
                                 emit_rust_call(self, *func as *const u8, &[
+                                    Argument { index: 0, value: Value::Stack(1) }, // Pointer to optional typed return value
                                     Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
                                     Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
                                     Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
@@ -1146,6 +1149,7 @@ impl<'a> JitCompiler<'a> {
                                 // Therefore, we Specify register arguments in reverse order, so that the move instructions do not overwrite each other.
                                 // This only affects the order of the move instructions, not the arguments.
                                 emit_rust_call(self, vtable.call, &[
+                                    Argument { index: 0, value: Value::Stack(1) }, // Pointer to optional typed return value
                                     Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[4]) },
                                     Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[3]) },
                                     Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[2]) },
@@ -1325,16 +1329,16 @@ impl<'a> std::fmt::Debug for JitCompiler<'a> {
 }
 
 // In the end, this is the only thing we export
-pub fn compile<'a, E: UserDefinedError>(prog: &'a [u8],
+pub fn compile<'a, E: UserDefinedError, I: InstructionMeter>(prog: &'a [u8],
     executable: &'a dyn Executable<E>,
     syscalls: &HashMap<u32, Syscall<'a, E>>,
     enable_instruction_meter: bool)
-    -> Result<JitProgram<E>, EbpfError<E>> {
+    -> Result<JitProgram<E, I>, EbpfError<E>> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
     let mut jit = JitCompiler::new(128, enable_instruction_meter);
-    jit.compile(prog, executable, syscalls)?;
+    jit.compile::<E, I>(prog, executable, syscalls)?;
     jit.resolve_jumps();
 
     Ok(JitProgram {

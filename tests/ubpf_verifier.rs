@@ -23,8 +23,12 @@ extern crate solana_rbpf;
 extern crate thiserror;
 
 use solana_rbpf::{
-    assembler::assemble, ebpf, error::UserDefinedError, user_error::UserError, verifier::check,
-    vm::EbpfVm,
+    assembler::assemble,
+    ebpf,
+    error::UserDefinedError,
+    user_error::UserError,
+    verifier::check,
+    vm::{DefaultInstructionMeter, EbpfVm, Executable},
 };
 use thiserror::Error;
 
@@ -47,12 +51,11 @@ fn test_verifier_success() {
         exit",
     )
     .unwrap();
-    let executable = EbpfVm::<VerifierTestError>::create_executable_from_text_bytes(
-        &prog,
-        Some(verifier_success),
-    )
-    .unwrap();
-    let _ = EbpfVm::<VerifierTestError>::new(executable.as_ref(), &[], &[]).unwrap();
+    let executable =
+        Executable::<VerifierTestError>::from_text_bytes(&prog, Some(verifier_success)).unwrap();
+    let _ =
+        EbpfVm::<VerifierTestError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
+            .unwrap();
 }
 
 #[test]
@@ -67,9 +70,7 @@ fn test_verifier_fail() {
         exit",
     )
     .unwrap();
-    let _ =
-        EbpfVm::<VerifierTestError>::create_executable_from_text_bytes(&prog, Some(verifier_fail))
-            .unwrap();
+    let _ = Executable::<VerifierTestError>::from_text_bytes(&prog, Some(verifier_fail)).unwrap();
 }
 
 #[test]
@@ -82,7 +83,7 @@ fn test_verifier_err_div_by_zero_imm() {
         exit",
     )
     .unwrap();
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -93,7 +94,7 @@ fn test_verifier_err_endian_size() {
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -104,7 +105,7 @@ fn test_verifier_err_incomplete_lddw() {
         0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -116,7 +117,7 @@ fn test_verifier_err_infinite_loop() {
         exit",
     )
     .unwrap();
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -128,7 +129,7 @@ fn test_verifier_err_invalid_reg_dst() {
         exit",
     )
     .unwrap();
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -140,7 +141,7 @@ fn test_verifier_err_invalid_reg_src() {
         exit",
     )
     .unwrap();
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -153,7 +154,7 @@ fn test_verifier_err_jmp_lddw() {
         exit",
     )
     .unwrap();
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -165,7 +166,7 @@ fn test_verifier_err_jmp_out() {
         exit",
     )
     .unwrap();
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -176,7 +177,7 @@ fn test_verifier_err_no_exit() {
         mov32 r0, 0",
     )
     .unwrap();
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -191,7 +192,7 @@ fn test_verifier_err_too_many_instructions() {
         .collect::<Vec<u8>>();
     prog.append(&mut vec![0x95, 0, 0, 0, 0, 0, 0, 0]);
 
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(&prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -201,7 +202,7 @@ fn test_verifier_err_unknown_opcode() {
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(prog, Some(check)).unwrap();
 }
 
 #[test]
@@ -213,5 +214,5 @@ fn test_verifier_err_write_r10() {
         exit",
     )
     .unwrap();
-    let _ = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).unwrap();
+    let _ = Executable::<UserError>::from_text_bytes(&prog, Some(check)).unwrap();
 }

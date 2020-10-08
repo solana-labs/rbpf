@@ -25,7 +25,7 @@ use solana_rbpf::{
     syscalls,
     user_error::UserError,
     verifier::check,
-    vm::{DefaultInstructionMeter, EbpfVm, Syscall},
+    vm::{DefaultInstructionMeter, EbpfVm, Executable, Syscall},
 };
 use std::{fs::File, io::Read};
 
@@ -37,7 +37,7 @@ macro_rules! test_interpreter_and_jit {
         let check_closure = $check;
         let instruction_count_interpreter = {
             let mem = $mem;
-            let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
+            let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new($executable.as_ref(), &mem, &[]).unwrap();
             test_interpreter_and_jit!(vm, $($location => $syscall),*);
             assert!(check_closure(vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count })));
             vm.get_total_instruction_count()
@@ -45,7 +45,7 @@ macro_rules! test_interpreter_and_jit {
         #[cfg(not(windows))]
         {
             let mem = $mem;
-            let mut vm = EbpfVm::<UserError>::new($executable.as_ref(), &mem, &[]).unwrap();
+            let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new($executable.as_ref(), &mem, &[]).unwrap();
             test_interpreter_and_jit!(vm, $($location => $syscall),*);
             match vm.jit_compile() {
                 Err(err) => assert!(check_closure(Err(err))),
@@ -63,7 +63,7 @@ macro_rules! test_interpreter_and_jit {
 macro_rules! test_interpreter_and_jit_asm {
     ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
         let program = assemble($source).unwrap();
-        let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&program, None).unwrap();
+        let executable = Executable::<UserError>::from_text_bytes(&program, None).unwrap();
         test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $expected_instruction_count);
     };
 }
@@ -73,7 +73,7 @@ macro_rules! test_interpreter_and_jit_elf {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
-        let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
+        let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
         test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $expected_instruction_count);
     };
 }
@@ -2546,7 +2546,7 @@ fn test_custom_entrypoint() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     elf[24] = 80; // Move entrypoint to later in the text section
-    let executable = EbpfVm::<UserError>::create_executable_from_elf(&elf, None).unwrap();
+    let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
     test_interpreter_and_jit!(
         executable,
         [],
@@ -2989,9 +2989,10 @@ fn test_large_program() {
         // Test jumping to pc larger then i16
         write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "ja 0x0");
 
-        let executable =
-            EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
-        let mut vm = EbpfVm::<UserError>::new(executable.as_ref(), &[], &[]).unwrap();
+        let executable = Executable::<UserError>::from_text_bytes(&prog, None).unwrap();
+        let mut vm =
+            EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
+                .unwrap();
         assert_eq!(
             0,
             vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
@@ -3005,15 +3006,13 @@ fn test_large_program() {
         // test program that is too large
         prog.extend_from_slice(&assemble("exit").unwrap());
 
-        assert!(
-            EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, Some(check)).is_err()
-        );
+        assert!(Executable::<UserError>::from_text_bytes(&prog, Some(check)).is_err());
     }
     // reset program
     prog.truncate(ebpf::PROG_MAX_INSNS * ebpf::INSN_SIZE);
 
     // verify program still works
-    let executable = EbpfVm::<UserError>::create_executable_from_text_bytes(&prog, None).unwrap();
+    let executable = Executable::<UserError>::from_text_bytes(&prog, None).unwrap();
     test_interpreter_and_jit!(
         executable,
         [],
