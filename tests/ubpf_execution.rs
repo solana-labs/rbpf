@@ -2595,8 +2595,8 @@ fn test_err_instruction_count_syscall_capped() {
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
-                    EbpfError::ExceededMaxInstructions(pc)
-                    if pc == 32
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                    if pc == 32 && initial_insn_count == 3
                 )
             }
         },
@@ -2653,8 +2653,8 @@ fn test_err_non_terminate_capped() {
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
-                    EbpfError::ExceededMaxInstructions(pc)
-                    if pc == 35
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                    if pc == 35 && initial_insn_count == 6
                 )
             }
         },
@@ -2683,8 +2683,8 @@ fn test_err_non_terminating_capped() {
         {
             |res: ExecResult| {
                 matches!(res.unwrap_err(),
-                    EbpfError::ExceededMaxInstructions(pc)
-                    if pc == 37
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                    if pc == 37 && initial_insn_count == 1000
                 )
             }
         },

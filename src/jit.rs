@@ -1240,7 +1240,7 @@ impl<'a> JitCompiler<'a> {
         // Handler for EbpfError::ExceededMaxInstructions
         set_anchor(self, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         emit_mov(self, ARGUMENT_REGISTERS[0], R11);
-        set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0));
+        set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0));
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::CallDepthExceeded

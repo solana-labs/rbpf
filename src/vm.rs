@@ -349,6 +349,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         let entry = self.executable.get_entrypoint_instruction_offset()?;
         let mut next_pc: usize = entry;
         let mut remaining_insn_count = instruction_meter.get_remaining();
+        let initial_insn_count = remaining_insn_count;
         self.last_insn_count = 0;
         while next_pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= self.prog.len() {
             let pc = next_pc;
@@ -673,7 +674,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
             }
             if self.last_insn_count >= remaining_insn_count {
-                return Err(EbpfError::ExceededMaxInstructions(pc + 1 + ebpf::ELF_INSN_DUMP_OFFSET));
+                return Err(EbpfError::ExceededMaxInstructions(pc + 1 + ebpf::ELF_INSN_DUMP_OFFSET, initial_insn_count));
             }
         }
 
@@ -785,6 +786,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         self.total_insn_count = remaining_insn_count - self.last_insn_count;
         instruction_meter.consume(self.total_insn_count);
         self.total_insn_count += initial_insn_count - remaining_insn_count;
-        result
+        match result {
+            Err(EbpfError::ExceededMaxInstructions(pc, _)) => {
+                Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count))
+            }
+            x => x,
+        }
     }
 }
