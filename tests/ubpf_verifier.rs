@@ -28,7 +28,7 @@ use solana_rbpf::{
     error::UserDefinedError,
     user_error::UserError,
     verifier::check,
-    vm::{DefaultInstructionMeter, EbpfVm, Executable},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
 };
 use thiserror::Error;
 
@@ -53,9 +53,13 @@ fn test_verifier_success() {
     .unwrap();
     let executable =
         Executable::<VerifierTestError>::from_text_bytes(&prog, Some(verifier_success)).unwrap();
-    let _ =
-        EbpfVm::<VerifierTestError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
-            .unwrap();
+    let _ = EbpfVm::<VerifierTestError, DefaultInstructionMeter>::new(
+        executable.as_ref(),
+        Config::default(),
+        &[],
+        &[],
+    )
+    .unwrap();
 }
 
 #[test]

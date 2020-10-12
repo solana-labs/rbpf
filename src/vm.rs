@@ -133,12 +133,29 @@ impl InstructionMeter for DefaultInstructionMeter {
     }
 }
 
+/// VM configuration settings
+#[derive(Clone, Copy)]
+pub struct Config {
+    /// Maximum call depth
+    pub max_call_depth: usize,
+    /// Size of a stack frame in bytes, must match the size specified in the LLVM BPF backend
+    pub stack_frame_size: usize,
+}
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            max_call_depth: 20,
+            stack_frame_size: 4_096,
+        }
+    }
+}
+
 /// A virtual machine to run eBPF program.
 ///
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{vm::{Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
+/// use solana_rbpf::{vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -149,7 +166,7 @@ impl InstructionMeter for DefaultInstructionMeter {
 ///
 /// // Instantiate a VM.
 /// let executable = Executable::<UserError>::from_text_bytes(prog, None).unwrap();
-/// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
+/// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), Config::default(), mem, &[]).unwrap();
 ///
 /// // Provide a reference to the packet data.
 /// let res = vm.execute_program_interpreted(&mut DefaultInstructionMeter {}).unwrap();
@@ -165,6 +182,7 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     memory_mapping: MemoryMapping,
     last_insn_count: u64,
     total_insn_count: u64,
+    config: Config,
 }
 
 impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
@@ -174,7 +192,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::{Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
+    /// use solana_rbpf::{vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -182,14 +200,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     ///
     /// // Instantiate a VM.
     /// let executable = Executable::<UserError>::from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), Config::default(), &[], &[]).unwrap();
     /// ```
     pub fn new(
         executable: &'a dyn Executable<E>,
+        config: Config,
         mem: &[u8],
         granted_regions: &[MemoryRegion],
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
-        let frames = CallFrames::default();
+        let frames = CallFrames::new(config.max_call_depth, config.stack_frame_size);
         let stack_regions = frames.get_stacks();
         let const_data_regions: Vec<MemoryRegion> =
             if let Ok(sections) = executable.get_ro_sections() {
@@ -223,6 +242,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             memory_mapping: MemoryMapping::new_from_regions(regions),
             last_insn_count: 0,
             total_insn_count: 0,
+            config,
         })
     }
 
@@ -241,7 +261,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::{Executable, EbpfVm, Syscall, DefaultInstructionMeter}, syscalls::bpf_trace_printf, user_error::UserError};
+    /// use solana_rbpf::{vm::{Config, Executable, EbpfVm, Syscall, DefaultInstructionMeter}, syscalls::bpf_trace_printf, user_error::UserError};
     ///
     /// // This program was compiled with clang, from a C program containing the following single
     /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
@@ -260,7 +280,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     ///
     /// // Instantiate a VM.
     /// let executable = Executable::<UserError>::from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), Config::default(), &[], &[]).unwrap();
     ///
     /// // Register a syscall.
     /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
@@ -303,7 +323,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::{Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
+    /// use solana_rbpf::{vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -314,7 +334,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     ///
     /// // Instantiate a VM.
     /// let executable = Executable::<UserError>::from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), Config::default(), mem, &[]).unwrap();
     ///
     /// // Provide a reference to the packet data.
     /// let res = vm.execute_program_interpreted(&mut DefaultInstructionMeter {}).unwrap();
@@ -713,7 +733,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::{Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
+    /// use solana_rbpf::{vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -721,13 +741,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     ///
     /// // Instantiate a VM.
     /// let executable = Executable::<UserError>::from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), Config::default(), &[], &[]).unwrap();
     ///
     /// # #[cfg(not(windows))]
     /// vm.jit_compile();
     /// ```
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        let compiled_prog = jit::compile::<E, I>(self.prog, self.executable, &self.syscalls, true)?;
+        let compiled_prog = jit::compile::<E, I>(self.prog, self.executable, self.config, &self.syscalls, true)?;
         let mut jit_arg: Vec<*const u8> = vec![
             std::ptr::null();
             std::mem::size_of::<JitProgramArgument>()
@@ -794,3 +814,4 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         }
     }
 }
+                                                                       

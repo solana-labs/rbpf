@@ -6,11 +6,6 @@ use crate::{
     memory_region::MemoryRegion,
 };
 
-/// Stack for the eBPF stack, in bytes.
-pub const CALL_FRAME_SIZE: usize = 4_096; // !! Warning: if you change stack size here also change warning in llvm (BPF_RegisterInfo.cpp)
-/// Max BPF to BPF call depth
-pub const MAX_CALL_DEPTH: usize = 20;
-
 /// One call frame
 #[derive(Clone, Debug)]
 struct CallFrame {
@@ -28,11 +23,6 @@ pub struct CallFrames {
     frame: usize,
     max_frame: usize,
     frames: Vec<CallFrame>,
-}
-impl Default for CallFrames {
-    fn default() -> Self {
-        CallFrames::new(MAX_CALL_DEPTH, CALL_FRAME_SIZE)
-    }
 }
 impl CallFrames {
     /// New call frame, depth indicates maximum call depth

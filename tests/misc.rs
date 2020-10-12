@@ -27,7 +27,7 @@ use solana_rbpf::{
     memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
     verifier::check,
-    vm::{DefaultInstructionMeter, EbpfVm, Executable, Syscall},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, Syscall},
 };
 use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
 
@@ -159,6 +159,7 @@ fn test_fuzz_execute() {
             if let Ok(executable) = Executable::<UserError>::from_elf(&bytes, Some(user_check)) {
                 let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
                     executable.as_ref(),
+                    Config::default(),
                     &[],
                     &[],
                 )

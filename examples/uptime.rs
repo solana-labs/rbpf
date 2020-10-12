@@ -8,7 +8,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     syscalls,
     user_error::UserError,
-    vm::{DefaultInstructionMeter, EbpfVm, Executable, Syscall},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, Syscall},
 };
 
 // The main objectives of this example is to show:
@@ -43,8 +43,13 @@ fn main() {
 
     // Create a VM: this one takes no data. Load prog1 in it.
     let executable = Executable::<UserError>::from_text_bytes(prog1, None).unwrap();
-    let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
+    let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
+        executable.as_ref(),
+        Config::default(),
+        &[],
+        &[],
+    )
+    .unwrap();
     // Execute prog1.
     assert_eq!(
         vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
@@ -60,8 +65,13 @@ fn main() {
     // reimplement uptime in eBPF, in Rust. Because why not.
 
     let executable = Executable::<UserError>::from_text_bytes(prog2, None).unwrap();
-    let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
+    let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
+        executable.as_ref(),
+        Config::default(),
+        &[],
+        &[],
+    )
+    .unwrap();
     vm.register_syscall(
         syscalls::BPF_KTIME_GETNS_IDX,
         Syscall::Function(syscalls::bpf_time_getns),
