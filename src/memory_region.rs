@@ -114,6 +114,23 @@ impl MemoryMapping {
         Err(self.generate_access_violation(access_type, vm_addr, len))
     }
 
+    /// Resize the memory_region at the given index
+    pub fn resize_region<E: UserDefinedError>(
+        &mut self,
+        index: usize,
+        new_len: u64,
+    ) -> Result<(), EbpfError<E>> {
+        if index < self.regions.len() - 1
+            && self.regions[index].vm_addr + new_len > self.regions[index + 1].vm_addr
+        {
+            return Err(EbpfError::VirtualAddressOverlap(
+                self.regions[index + 1].vm_addr,
+            ));
+        }
+        self.regions[index].len = new_len;
+        Ok(())
+    }
+
     /// Helper for map to generate errors
     fn generate_access_violation<E: UserDefinedError>(
         &self,

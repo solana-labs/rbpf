@@ -57,22 +57,22 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Exceeded max instructions allowed
     #[error("exceeded maximum number of instructions allowed ({1}) at instruction #{0}")]
     ExceededMaxInstructions(usize, u64),
-    /// JIT does not support read only data
-    #[error("JIT does not support read only data")]
-    ReadOnlyDataUnsupported,
     /// Program has not been JIT-compiled
     #[error("program has not been JIT-compiled")]
     JITNotCompiled,
     /// Invalid virtual address
     #[error("invalid virtual address {0:x?}")]
     InvalidVirtualAddress(u64),
+    /// Virtual address overlap
+    #[error("virtual address overlap {0:x?}")]
+    VirtualAddressOverlap(u64),
     /// Access violation
     #[error("out of bounds memory {1:?} (insn #{0}), addr {2:#x}/{3:?} \n{4}")]
     AccessViolation(usize, AccessType, u64, u64, String),
     /// Invalid instruction
-    #[error("Invalid instruction at {0}")]
+    #[error("invalid instruction at {0}")]
     InvalidInstruction(usize),
     /// Unsupported instruction
-    #[error("Unsupported instruction at instruction {0}")]
+    #[error("unsupported instruction at instruction {0}")]
     UnsupportedInstruction(usize),
 }
