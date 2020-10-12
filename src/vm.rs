@@ -93,8 +93,8 @@ pub trait Executable<E: UserDefinedError>: Send + Sync {
 /// Static constructors for Executable
 impl<E: UserDefinedError> dyn Executable<E> {
     /// Creates a post relocaiton/fixup executable from an ELF file
-    pub fn from_elf<'a>(
-        elf_bytes: &'a [u8],
+    pub fn from_elf(
+        elf_bytes: &[u8],
         verifier: Option<Verifier<E>>,
     ) -> Result<Box<Self>, EbpfError<E>> {
         let ebpf_elf = EBpfElf::load(elf_bytes)?;
@@ -105,8 +105,8 @@ impl<E: UserDefinedError> dyn Executable<E> {
         Ok(Box::new(ebpf_elf))
     }
     /// Creates a post relocaiton/fixup executable from machine code
-    pub fn from_text_bytes<'a>(
-        text_bytes: &'a [u8],
+    pub fn from_text_bytes(
+        text_bytes: &[u8],
         verifier: Option<Verifier<E>>,
     ) -> Result<Box<Self>, EbpfError<E>> {
         if let Some(verifier) = verifier {
@@ -747,7 +747,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// vm.jit_compile();
     /// ```
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        let compiled_prog = jit::compile::<E, I>(self.prog, self.executable, self.config, &self.syscalls, true)?;
+        let compiled_prog = jit::compile::<E, I>(
+            self.prog,
+            self.executable,
+            self.config,
+            &self.syscalls,
+            true,
+        )?;
         let mut jit_arg: Vec<*const u8> = vec![
             std::ptr::null();
             std::mem::size_of::<JitProgramArgument>()
@@ -814,4 +820,3 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         }
     }
 }
-                                                                       
