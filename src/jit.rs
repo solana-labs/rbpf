@@ -260,6 +260,7 @@ fn emit_pop(jit: &mut JitCompiler, r: u8) {
     emit1(jit, 0x58 | (r & 0b111));
 }
 
+#[derive(Copy, Clone)]
 enum OperationWidth {
     Bit32 = 0,
     Bit64 = 1,
@@ -731,18 +732,14 @@ fn muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: i32) {
     let mul = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MUL32_IMM & ebpf::BPF_ALU_OP_MASK);
     let div = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::DIV32_IMM & ebpf::BPF_ALU_OP_MASK);
     let modrm = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MOD32_IMM & ebpf::BPF_ALU_OP_MASK);
-    let is64 = (opc & ebpf::BPF_CLS_MASK) == ebpf::BPF_ALU64;
+    let width = if (opc & ebpf::BPF_CLS_MASK) == ebpf::BPF_ALU64 { OperationWidth::Bit64 } else { OperationWidth::Bit32 };
 
     if div || modrm {
         // Save pc
         emit_load_imm(jit, R11, jit.pc as i64);
 
         // test src,src
-        if is64 {
-            emit_alu(jit, OperationWidth::Bit64, 0x85, src, src, 0, None);
-        } else {
-            emit_alu(jit, OperationWidth::Bit32, 0x85, src, src, 0, None);
-        }
+        emit_alu(jit, width, 0x85, src, src, 0, None);
 
         // Jump if src is zero
         emit_jcc(jit, 0x84, TARGET_PC_DIV_BY_ZERO);
@@ -754,12 +751,11 @@ fn muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: i32) {
     if dst != RDX {
         emit_push(jit, RDX);
     }
-    emit_mov(jit, RCX, R11);
 
     if imm != 0 {
-        emit_load_imm(jit, RCX, imm as i64);
+        emit_load_imm(jit, R11, imm as i64);
     } else {
-        emit_mov(jit, src, RCX);
+        emit_mov(jit, src, R11);
     }
 
     if dst != RAX {
@@ -768,17 +764,11 @@ fn muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: i32) {
 
     if div || modrm {
         // xor %edx,%edx
-        emit_alu(jit, OperationWidth::Bit32, 0x31, RDX, RDX, 0, None);
+        emit_alu(jit, width, 0x31, RDX, RDX, 0, None);
     }
 
-    if is64 {
-        emit_rex(jit, 1, 0, 0, 0);
-    }
+    emit_alu(jit, width, 0xf7, if mul { 4 } else { 6 }, R11, 0, None);
 
-    // mul %ecx or div %ecx
-    emit_alu(jit, OperationWidth::Bit32, 0xf7, if mul { 4 } else { 6 }, RCX, 0, None);
-
-    emit_mov(jit, R11, RCX);
     if dst != RDX {
         if modrm {
             emit_mov(jit, RDX, dst);

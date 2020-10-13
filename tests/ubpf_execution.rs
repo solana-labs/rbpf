@@ -243,6 +243,59 @@ fn test_alu64_arithmetic() {
 }
 
 #[test]
+fn test_mul128() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, r1
+        mov r2, 30
+        mov r3, 0
+        mov r4, 20
+        mov r5, 0
+        mul64 r3, r4
+        mul64 r5, r2
+        add64 r5, r3
+        mov64 r0, r2
+        rsh64 r0, 0x20
+        mov64 r3, r4
+        rsh64 r3, 0x20
+        mov64 r6, r3
+        mul64 r6, r0
+        add64 r5, r6
+        lsh64 r4, 0x20
+        rsh64 r4, 0x20
+        mov64 r6, r4
+        mul64 r6, r0
+        lsh64 r2, 0x20
+        rsh64 r2, 0x20
+        mul64 r4, r2
+        mov64 r0, r4
+        rsh64 r0, 0x20
+        add64 r0, r6
+        mov64 r6, r0
+        rsh64 r6, 0x20
+        add64 r5, r6
+        mul64 r3, r2
+        lsh64 r0, 0x20
+        rsh64 r0, 0x20
+        add64 r0, r3
+        mov64 r2, r0
+        rsh64 r2, 0x20
+        add64 r5, r2
+        stxdw [r1+0x8], r5
+        lsh64 r0, 0x20
+        lsh64 r4, 0x20
+        rsh64 r4, 0x20
+        or64 r0, r4
+        stxdw [r1+0x0], r0
+        exit",
+        [0; 16],
+        (),
+        { |res: ExecResult| { res.unwrap() == 600 } },
+        42
+    );
+}
+
+#[test]
 fn test_alu32_logic() {
     test_interpreter_and_jit_asm!(
         "
