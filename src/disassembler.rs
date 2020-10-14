@@ -83,6 +83,8 @@ fn jmp_reg_str(name: &str, insn: &ebpf::Insn) -> String {
 /// more concise version.
 #[derive(Debug, PartialEq)]
 pub struct HLInsn {
+    /// Instruction pointer.
+    pub ptr: usize,
     /// Operation code.
     pub opc: u8,
     /// Name (mnemonic). This name is not canon.
@@ -132,6 +134,7 @@ pub struct HLInsn {
 /// let v = disassembler::to_insn_vec(prog);
 /// assert_eq!(v, vec![
 ///     disassembler::HLInsn {
+///         ptr: 0,
 ///         opc: 0x18,
 ///         name: "lddw".to_string(),
 ///         desc: "lddw r0, 0x1122334455667788".to_string(),
@@ -141,6 +144,7 @@ pub struct HLInsn {
 ///         imm: 0x1122334455667788
 ///     },
 ///     disassembler::HLInsn {
+///         ptr: 2,
 ///         opc: 0x95,
 ///         name: "exit".to_string(),
 ///         desc: "exit".to_string(),
@@ -162,10 +166,11 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HLInsn> {
     }
 
     let mut res = vec![];
-    let mut insn_ptr:usize = 0;
+    let mut insn_ptr: usize = 0;
 
     while insn_ptr * ebpf::INSN_SIZE < prog.len() {
         let insn = ebpf::get_insn(prog, insn_ptr);
+        let ptr = insn_ptr;
 
         let name;
         let desc;
@@ -299,7 +304,8 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HLInsn> {
             },
         };
 
-        let hl_insn = HLInsn {
+        res.push(HLInsn {
+            ptr,
             opc:  insn.opc,
             name: name.to_string(),
             desc,
@@ -307,9 +313,7 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HLInsn> {
             src:  insn.src,
             off:  insn.off,
             imm,
-        };
-
-        res.push(hl_insn);
+        });
 
         insn_ptr += 1;
     };
@@ -347,7 +351,7 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HLInsn> {
 /// exit
 /// ```
 pub fn disassemble(prog: &[u8]) {
-    for (i, insn) in to_insn_vec(prog).iter().enumerate() {
-        println!("{:5} {}", i, insn.desc);
+    for insn in to_insn_vec(prog).iter() {
+        println!("{:5} {}", insn.ptr, insn.desc);
     }
 }
