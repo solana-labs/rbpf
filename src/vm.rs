@@ -176,8 +176,8 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     executable: &'a dyn Executable<E>,
     compiled_prog_and_arg: Option<JitProgramAndArgument<E, I>>,
     syscalls: HashMap<u32, Syscall<'a, E>>,
-    prog: &'a [u8],
-    prog_addr: u64,
+    program: &'a [u8],
+    program_vm_addr: u64,
     frames: CallFrames,
     memory_mapping: MemoryMapping,
     last_insn_count: u64,
@@ -230,14 +230,14 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             ebpf::MM_INPUT_START,
             true,
         ));
-        let (prog_addr, prog) = executable.get_text_bytes()?;
-        regions.push(MemoryRegion::new_from_slice(prog, prog_addr, false));
+        let (program_vm_addr, program) = executable.get_text_bytes()?;
+        regions.push(MemoryRegion::new_from_slice(program, program_vm_addr, false));
         Ok(EbpfVm {
             executable,
             compiled_prog_and_arg: None,
             syscalls: HashMap::new(),
-            prog,
-            prog_addr,
+            program,
+            program_vm_addr,
             frames,
             memory_mapping: MemoryMapping::new_from_regions(regions),
             last_insn_count: 0,
@@ -371,10 +371,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         let mut remaining_insn_count = instruction_meter.get_remaining();
         let initial_insn_count = remaining_insn_count;
         self.last_insn_count = 0;
-        while next_pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= self.prog.len() {
+        while next_pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= self.program.len() {
             let pc = next_pc;
             next_pc += 1;
-            let insn = ebpf::get_insn_unchecked(self.prog, pc);
+            let insn = ebpf::get_insn_unchecked(self.program, pc);
             let dst = insn.dst as usize;
             let src = insn.src as usize;
             self.last_insn_count += 1;
@@ -386,7 +386,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                     reg,
                     self.frames.get_frame_index(),
                     pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    disassembler::to_insn_vec(&self.prog[pc * ebpf::INSN_SIZE..])[0].desc
+                    disassembler::to_insn_vec(&self.program[pc * ebpf::INSN_SIZE..])[0].desc
                 );
             }
 
@@ -437,7 +437,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 },
 
                 ebpf::LD_DW_IMM  => {
-                    let next_insn = ebpf::get_insn(self.prog, next_pc);
+                    let next_insn = ebpf::get_insn(self.program, next_pc);
                     next_pc += 1;
                     reg[dst] = (insn.imm as u32) as u64 + ((next_insn.imm as u64) << 32);
                 },
@@ -627,10 +627,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                     let target_address = reg[insn.imm as usize];
                     reg[ebpf::STACK_REG] =
                         self.frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
-                    if target_address < ebpf::MM_PROGRAM_START {
+                    if target_address < self.program_vm_addr {
                         return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, reg[insn.imm as usize]));
                     }
-                    next_pc = Self::check_pc(self.prog_addr, &self.prog, pc, (target_address - self.prog_addr) as usize / ebpf::INSN_SIZE)?;
+                    next_pc = Self::check_pc(self.program_vm_addr, &self.program, pc, (target_address - self.program_vm_addr) as usize / ebpf::INSN_SIZE)?;
                 },
 
                 // Do not delegate the check to the verifier, since registered functions can be
@@ -665,7 +665,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
                             next_pc,
                         )?;
-                        next_pc = Self::check_pc(self.prog_addr, &self.prog, pc, *new_pc)?;
+                        next_pc = Self::check_pc(self.program_vm_addr, &self.program, pc, *new_pc)?;
                     } else {
                         self.executable.report_unresolved_symbol(pc)?;
                     }
@@ -679,7 +679,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                                 .copy_from_slice(&saved_reg);
                             reg[ebpf::STACK_REG] = stack_ptr;
-                            next_pc = Self::check_pc(self.prog_addr, &self.prog, pc, ptr)?;
+                            next_pc = Self::check_pc(self.program_vm_addr, &self.program, pc, ptr)?;
                         }
                         _ => {
                             debug!("BPF instructions executed: {:?}", self.last_insn_count);
@@ -704,7 +704,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     }
 
     fn check_pc(
-        prog_addr: u64,
+        program_vm_addr: u64,
         prog: &[u8],
         current_pc: usize,
         new_pc: usize,
@@ -714,13 +714,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 .checked_mul(ebpf::INSN_SIZE)
                 .ok_or(EbpfError::CallOutsideTextSegment(
                     current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    prog_addr + (new_pc * ebpf::INSN_SIZE) as u64,
+                    program_vm_addr + (new_pc * ebpf::INSN_SIZE) as u64,
                 ))?;
         let _ =
             prog.get(offset..offset + ebpf::INSN_SIZE)
                 .ok_or(EbpfError::CallOutsideTextSegment(
                     current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    prog_addr + (new_pc * ebpf::INSN_SIZE) as u64,
+                    program_vm_addr + (new_pc * ebpf::INSN_SIZE) as u64,
                 ))?;
         Ok(new_pc)
     }
@@ -748,7 +748,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// ```
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
         let compiled_prog = jit::compile::<E, I>(
-            self.prog,
             self.executable,
             self.config,
             &self.syscalls,

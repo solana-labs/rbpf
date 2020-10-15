@@ -23,7 +23,7 @@ use std::ops::{Index, IndexMut};
 
 use crate::{
     vm::{Config, Executable, Syscall, ProgramResult, InstructionMeter},
-    ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, STACK_REG, MM_STACK_START, MM_PROGRAM_START},
+    ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, STACK_REG, MM_STACK_START},
     error::{UserDefinedError, EbpfError},
     memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
@@ -565,17 +565,17 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             // Store PC in case the bounds check fails
             emit_load_imm(jit, R11, jit.pc as i64);
             // Upper bound check
-            // if(RAX >= MM_PROGRAM_START + number_of_instructions * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
-            emit_load_imm(jit, REGISTER_MAP[STACK_REG], MM_PROGRAM_START as i64 + (number_of_instructions * INSN_SIZE) as i64);
+            // if(RAX >= jit.program_vm_addr + number_of_instructions * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
+            emit_load_imm(jit, REGISTER_MAP[STACK_REG], jit.program_vm_addr as i64 + (number_of_instructions * INSN_SIZE) as i64);
             emit_cmp(jit, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], None);
             emit_jcc(jit, 0x83, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Lower bound check
-            // if(RAX < MM_PROGRAM_START) throw CALL_OUTSIDE_TEXT_SEGMENT;
-            emit_load_imm(jit, REGISTER_MAP[STACK_REG], MM_PROGRAM_START as i64);
+            // if(RAX < jit.program_vm_addr) throw CALL_OUTSIDE_TEXT_SEGMENT;
+            emit_load_imm(jit, REGISTER_MAP[STACK_REG], jit.program_vm_addr as i64);
             emit_cmp(jit, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], None);
             emit_jcc(jit, 0x82, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Calculate offset relative to instruction_addresses
-            emit_alu(jit, OperationWidth::Bit64, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX -= MM_PROGRAM_START;
+            emit_alu(jit, OperationWidth::Bit64, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX -= jit.program_vm_addr;
             if jit.enable_instruction_meter {
                 // Calculate the target_pc to update the instruction_meter
                 let shift_amount = INSN_SIZE.trailing_zeros();
@@ -802,6 +802,7 @@ struct JitCompiler<'a> {
     offset: usize,
     pc: usize,
     pc_locs: Vec<usize>,
+    program_vm_addr: u64,
     special_targets: HashMap<usize, usize>,
     jumps: Vec<Jump>,
     config: Config,
@@ -832,16 +833,20 @@ impl<'a> JitCompiler<'a> {
             offset: 0,
             pc: 0,
             pc_locs: vec![],
-            jumps: vec![],
+            program_vm_addr: 0,
             special_targets: HashMap::new(),
+            jumps: vec![],
             config: _config,
             enable_instruction_meter: _enable_instruction_meter,
         }
     }
 
-    fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self, prog: &[u8],
+    fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self,
                    executable: &'a dyn Executable<E>,
                    syscalls: &HashMap<u32,  Syscall<'a, E>>) -> Result<(), EbpfError<E>> {
+        let (program_vm_addr, program) = executable.get_text_bytes()?;
+        self.program_vm_addr = program_vm_addr;
+
         // Save registers
         for reg in CALLEE_SAVED_REGISTERS.iter() {
             emit_push(self, *reg);
@@ -880,10 +885,10 @@ impl<'a> JitCompiler<'a> {
             emit_jmp(self, entry);
         }
 
-        self.pc_locs = vec![0; prog.len() / ebpf::INSN_SIZE + 1];
+        self.pc_locs = vec![0; program.len() / ebpf::INSN_SIZE + 1];
 
-        while self.pc * ebpf::INSN_SIZE < prog.len() {
-            let insn = ebpf::get_insn(prog, self.pc);
+        while self.pc * ebpf::INSN_SIZE < program.len() {
+            let insn = ebpf::get_insn(program, self.pc);
 
             self.pc_locs[self.pc] = self.offset;
 
@@ -930,7 +935,7 @@ impl<'a> JitCompiler<'a> {
                 ebpf::LD_DW_IMM  => {
                     emit_validate_and_profile_instruction_count(self, Some(self.pc + 2));
                     self.pc += 1;
-                    let second_part = ebpf::get_insn(prog, self.pc).imm as u64;
+                    let second_part = ebpf::get_insn(program, self.pc).imm as u64;
                     let imm = (insn.imm as u32) as u64 | second_part.wrapping_shl(32);
                     emit_load_imm(self, dst, imm as i64);
                 },
@@ -1194,14 +1199,14 @@ impl<'a> JitCompiler<'a> {
                     } else {
                         match executable.lookup_bpf_call(insn.imm as u32) {
                             Some(target_pc) => {
-                                emit_bpf_call(self, Value::Constant(*target_pc as i64), prog.len() / ebpf::INSN_SIZE);
+                                emit_bpf_call(self, Value::Constant(*target_pc as i64), self.pc_locs.len());
                             },
                             None => executable.report_unresolved_symbol(self.pc)?,
                         }
                     }
                 },
                 ebpf::CALL_REG  => {
-                    emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]), prog.len() / ebpf::INSN_SIZE);
+                    emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]), self.pc_locs.len());
                 },
                 ebpf::EXIT      => {
                     emit_validate_and_profile_instruction_count(self, Some(0));
@@ -1346,7 +1351,7 @@ impl<'a> std::fmt::Debug for JitCompiler<'a> {
 }
 
 // In the end, this is the only thing we export
-pub fn compile<'a, E: UserDefinedError, I: InstructionMeter>(prog: &'a [u8],
+pub fn compile<'a, E: UserDefinedError, I: InstructionMeter>(
     executable: &'a dyn Executable<E>,
     config: Config,
     syscalls: &HashMap<u32, Syscall<'a, E>>,
@@ -1355,8 +1360,8 @@ pub fn compile<'a, E: UserDefinedError, I: InstructionMeter>(prog: &'a [u8],
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
-    let mut jit = JitCompiler::new(128, config, enable_instruction_meter);
-    jit.compile::<E, I>(prog, executable, syscalls)?;
+    let mut jit = JitCompiler::new(256, config, enable_instruction_meter);
+    jit.compile::<E, I>(executable, syscalls)?;
     jit.resolve_jumps();
 
     Ok(JitProgram {
