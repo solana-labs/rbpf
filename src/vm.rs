@@ -231,7 +231,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             true,
         ));
         let (program_vm_addr, program) = executable.get_text_bytes()?;
-        regions.push(MemoryRegion::new_from_slice(program, program_vm_addr, false));
+        regions.push(MemoryRegion::new_from_slice(
+            program,
+            program_vm_addr,
+            false,
+        ));
         Ok(EbpfVm {
             executable,
             compiled_prog_and_arg: None,
@@ -747,12 +751,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// vm.jit_compile();
     /// ```
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        let compiled_prog = jit::compile::<E, I>(
-            self.executable,
-            self.config,
-            &self.syscalls,
-            true,
-        )?;
+        let compiled_prog =
+            jit::compile::<E, I>(self.executable, self.config, &self.syscalls, true)?;
         let mut jit_arg: Vec<*const u8> = vec![
             std::ptr::null();
             std::mem::size_of::<JitProgramArgument>()
