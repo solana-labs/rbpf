@@ -879,13 +879,23 @@ impl<'a> JitCompiler<'a> {
             }
         }
 
+        // Jump to custom entry point (if any)
         let entry = executable.get_entrypoint_instruction_offset().unwrap();
         if entry != 0 {
             emit_profile_instruction_count(self, Some(entry + 1));
             emit_jmp(self, entry);
         }
 
-        self.pc_locs = vec![0; program.len() / ebpf::INSN_SIZE + 1];
+        // Scan through program to find actual number of instructions
+        while self.pc * ebpf::INSN_SIZE < program.len() {
+            let insn = ebpf::get_insn(program, self.pc);
+            self.pc += match insn.opc {
+                ebpf::LD_DW_IMM => 2,
+                _ => 1,
+            };
+        }
+        self.pc_locs = vec![0; self.pc];
+        self.pc = 0;
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
             let insn = ebpf::get_insn(program, self.pc);
