@@ -11,7 +11,7 @@ extern crate test;
 
 use solana_rbpf::{
     user_error::UserError,
-    vm::{DefaultInstructionMeter, EbpfVm, Executable},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
@@ -22,8 +22,13 @@ fn bench_interpreter_execution(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
-    let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
+    let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
+        executable.as_ref(),
+        Config::default(),
+        &[],
+        &[],
+    )
+    .unwrap();
     bencher.iter(|| {
         vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
             .unwrap()
@@ -36,8 +41,13 @@ fn bench_jit_execution(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
-    let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
+    let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
+        executable.as_ref(),
+        Config::default(),
+        &[],
+        &[],
+    )
+    .unwrap();
     vm.jit_compile().unwrap();
     bencher.iter(|| unsafe { vm.execute_program_jit(&mut DefaultInstructionMeter {}) }.unwrap());
 }

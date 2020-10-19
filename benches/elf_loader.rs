@@ -8,33 +8,19 @@
 
 extern crate solana_rbpf;
 extern crate test;
+extern crate test_utils;
 
 use solana_rbpf::{
     ebpf::hash_symbol_name,
     error::EbpfError,
-    memory_region::MemoryMapping,
     user_error::UserError,
-    vm::{DefaultInstructionMeter, EbpfVm, Executable, Syscall},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, Syscall},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
+use test_utils::bpf_syscall_u64;
 
 type ExecResult = Result<u64, EbpfError<UserError>>;
-
-fn bpf_syscall_u64(
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    memory_mapping: &MemoryMapping,
-) -> ExecResult {
-    println!(
-        "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
-        arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
-    );
-    Ok(0)
-}
 
 #[bench]
 fn bench_load_elf(bencher: &mut Bencher) {
@@ -51,8 +37,13 @@ fn bench_load_elf_and_init_vm_without_syscall(bencher: &mut Bencher) {
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
         let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
-        let _vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
-            .unwrap();
+        let _vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
+            executable.as_ref(),
+            Config::default(),
+            &[],
+            &[],
+        )
+        .unwrap();
     });
 }
 
@@ -63,9 +54,13 @@ fn bench_load_elf_and_init_vm_with_syscall(bencher: &mut Bencher) {
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
         let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
-        let mut vm =
-            EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
-                .unwrap();
+        let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
+            executable.as_ref(),
+            Config::default(),
+            &[],
+            &[],
+        )
+        .unwrap();
         vm.register_syscall(
             hash_symbol_name(b"log_64"),
             Syscall::Function(bpf_syscall_u64),
