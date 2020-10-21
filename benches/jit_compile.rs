@@ -21,15 +21,11 @@ fn bench_init_vm(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
+    let executable =
+        Executable::<UserError, DefaultInstructionMeter>::from_elf(&elf, None, Config::default())
+            .unwrap();
     bencher.iter(|| {
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(
-            executable.as_ref(),
-            Config::default(),
-            &[],
-            &[],
-        )
-        .unwrap()
+        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap()
     });
 }
 
@@ -39,15 +35,8 @@ fn bench_jit_compile(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
-    bencher.iter(|| {
-        let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
-            executable.as_ref(),
-            Config::default(),
-            &[],
-            &[],
-        )
-        .unwrap();
-        vm.jit_compile().unwrap()
-    });
+    let mut executable =
+        Executable::<UserError, DefaultInstructionMeter>::from_elf(&elf, None, Config::default())
+            .unwrap();
+    bencher.iter(|| executable.jit_compile().unwrap());
 }

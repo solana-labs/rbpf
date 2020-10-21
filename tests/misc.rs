@@ -22,6 +22,7 @@ extern crate solana_rbpf;
 
 use libc::c_char;
 use solana_rbpf::{
+    ebpf::hash_symbol_name,
     error::EbpfError,
     fuzz::fuzz,
     memory_region::{AccessType, MemoryMapping},
@@ -156,18 +157,29 @@ fn test_fuzz_execute() {
         0..elf.len(),
         0..255,
         |bytes: &mut [u8]| {
-            if let Ok(executable) = Executable::<UserError>::from_elf(&bytes, Some(user_check)) {
+            if let Ok(mut executable) = Executable::<UserError, DefaultInstructionMeter>::from_elf(
+                &bytes,
+                Some(user_check),
+                Config::default(),
+            ) {
+                executable
+                    .register_syscall(
+                        hash_symbol_name(b"log"),
+                        Syscall::Function(bpf_syscall_string),
+                    )
+                    .unwrap();
+                executable
+                    .register_syscall(
+                        hash_symbol_name(b"log_64"),
+                        Syscall::Function(bpf_syscall_u64),
+                    )
+                    .unwrap();
                 let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
                     executable.as_ref(),
-                    Config::default(),
                     &[],
                     &[],
                 )
                 .unwrap();
-                vm.register_syscall_ex("log", Syscall::Function(bpf_syscall_string))
-                    .unwrap();
-                vm.register_syscall_ex("log_64", Syscall::Function(bpf_syscall_u64))
-                    .unwrap();
                 let _ = vm.execute_program_interpreted(&mut DefaultInstructionMeter {});
             }
         },

@@ -34,7 +34,9 @@ pub struct JitProgramArgument {
     /// The MemoryMapping to be used to run the compiled code
     pub memory_mapping: MemoryMapping,
     /// Pointers to the instructions of the compiled code
-    pub instruction_addresses: [*const u8; 0],
+    pub instruction_addresses: [*const u64; 0],
+    // Pointers to the instructions of the compiled code
+    // pub syscall_objects: [*const SyscallObject; 0],
 }
 
 /// eBPF JIT-compiled program
@@ -45,12 +47,10 @@ pub struct JitProgram<E: UserDefinedError, I: InstructionMeter> {
     pub instruction_addresses: Vec<*const u8>,
 }
 
-/// Combines program and argument for a VM instance
-pub struct JitProgramAndArgument<E: UserDefinedError, I: InstructionMeter> {
-    /// JIT-compiled program
-    pub program: JitProgram<E, I>,
-    /// The argument is actually a JitProgramArgument
-    pub argument: Vec<*const u8>,
+impl<E: UserDefinedError, I: InstructionMeter>  PartialEq for JitProgram<E, I> {
+    fn eq(&self, other: &JitProgram<E, I>) -> bool {
+        self.main as *const u8 == other.main as *const u8
+    }
 }
 
 /// A virtual method table for SyscallObject
@@ -811,7 +811,7 @@ struct JitCompiler<'a> {
 
 impl<'a> JitCompiler<'a> {
     // num_pages is unused on windows
-    fn new(_num_pages: usize, _config: Config, _enable_instruction_meter: bool) -> JitCompiler<'a> {
+    fn new(_num_pages: usize, _config: &Config, _enable_instruction_meter: bool) -> JitCompiler<'a> {
         #[cfg(windows)]
         {
             panic!("JIT not supported on windows");
@@ -836,14 +836,13 @@ impl<'a> JitCompiler<'a> {
             program_vm_addr: 0,
             special_targets: HashMap::new(),
             jumps: vec![],
-            config: _config,
+            config: *_config,
             enable_instruction_meter: _enable_instruction_meter,
         }
     }
 
     fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self,
-                   executable: &'a dyn Executable<E>,
-                   syscalls: &HashMap<u32,  Syscall<'a, E>>) -> Result<(), EbpfError<E>> {
+                   executable: &'a dyn Executable<E, I>) -> Result<(), EbpfError<E>> {
         let (program_vm_addr, program) = executable.get_text_bytes()?;
         self.program_vm_addr = program_vm_addr;
 
@@ -1145,7 +1144,7 @@ impl<'a> JitCompiler<'a> {
                     // For JIT, syscalls MUST be registered at compile time. They can be
                     // updated later, but not created after compiling (we need the address of the
                     // syscall function in the JIT-compiled program).
-                    if let Some(syscall) = syscalls.get(&(insn.imm as u32)) {
+                    if let Some(syscall) = executable.lookup_syscall(insn.imm as u32) {
                         if self.enable_instruction_meter {
                             emit_validate_and_profile_instruction_count(self, Some(0));
                             emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 2) as i32);
@@ -1361,17 +1360,15 @@ impl<'a> std::fmt::Debug for JitCompiler<'a> {
 }
 
 // In the end, this is the only thing we export
-pub fn compile<'a, E: UserDefinedError, I: InstructionMeter>(
-    executable: &'a dyn Executable<E>,
-    config: Config,
-    syscalls: &HashMap<u32, Syscall<'a, E>>,
+pub fn compile<E: UserDefinedError, I: InstructionMeter>(
+    executable: &dyn Executable<E, I>,
     enable_instruction_meter: bool)
     -> Result<JitProgram<E, I>, EbpfError<E>> {
 
     // TODO: check how long the page must be to be sure to support an eBPF program of maximum
     // possible length
-    let mut jit = JitCompiler::new(256, config, enable_instruction_meter);
-    jit.compile::<E, I>(executable, syscalls)?;
+    let mut jit = JitCompiler::new(256, executable.get_config(), enable_instruction_meter);
+    jit.compile::<E, I>(executable)?;
     jit.resolve_jumps();
 
     Ok(JitProgram {

@@ -15,12 +15,12 @@ use crate::{
     disassembler, ebpf,
     elf::EBpfElf,
     error::{EbpfError, UserDefinedError},
-    jit::{self, JitProgramAndArgument, JitProgramArgument},
+    jit::{JitProgram, JitProgramArgument},
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     user_error::UserError,
 };
 use log::{debug, log_enabled, trace};
-use std::{collections::HashMap, u32};
+use std::u32;
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
 macro_rules! translate_memory_access {
@@ -65,19 +65,39 @@ pub type SyscallFunction<E> = fn(u64, u64, u64, u64, u64, &MemoryMapping) -> Pro
 pub trait SyscallObject<E: UserDefinedError> {
     /// Call the syscall function
     #[allow(clippy::too_many_arguments)]
-    fn call(&mut self, u64, u64, u64, u64, u64, &MemoryMapping) -> ProgramResult<E>;
+    fn call(&self, u64, u64, u64, u64, u64, &MemoryMapping) -> ProgramResult<E>;
 }
 
 /// Contains the syscall
-pub enum Syscall<'a, E: UserDefinedError> {
+pub enum Syscall<E: UserDefinedError> {
     /// Function
     Function(SyscallFunction<E>),
     /// Trait object
-    Object(Box<dyn SyscallObject<E> + 'a>),
+    Object(Box<dyn SyscallObject<E>>),
+}
+
+/// VM configuration settings
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Config {
+    /// Maximum call depth
+    pub max_call_depth: usize,
+    /// Size of a stack frame in bytes, must match the size specified in the LLVM BPF backend
+    pub stack_frame_size: usize,
+}
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            max_call_depth: 20,
+            stack_frame_size: 4_096,
+        }
+    }
 }
 
 /// An relocated and ready to execute binary
-pub trait Executable<E: UserDefinedError>: Send + Sync {
+pub trait Executable<E: UserDefinedError, I: InstructionMeter> {
+    // : Send + Sync
+    /// Get the configuration settings
+    fn get_config(&self) -> &Config;
     /// Get the .text section virtual address and bytes
     fn get_text_bytes(&self) -> Result<(u64, &[u8]), EbpfError<E>>;
     /// Get a vector of virtual addresses for each read-only section
@@ -86,18 +106,29 @@ pub trait Executable<E: UserDefinedError>: Send + Sync {
     fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>>;
     /// Get a symbol's instruction offset
     fn lookup_bpf_call(&self, hash: u32) -> Option<&usize>;
+    /// Get a symbol's function pointer (and context object if any)
+    fn lookup_syscall(&self, hash: u32) -> Option<&Syscall<E>>;
+    /// Get the JIT compiled program
+    fn get_compiled_program(&self) -> Option<&JitProgram<E, I>>;
+    /// Register a syscall (function or an object which provides additional context)
+    fn register_syscall(&mut self, key: u32, syscall: Syscall<E>) -> Result<(), EbpfError<E>>;
+    /// JIT compile the executable
+    fn jit_compile(&mut self) -> Result<(), EbpfError<E>>;
     /// Report information on a symbol that failed to be resolved
     fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<(), EbpfError<E>>;
 }
 
+// compiled_prog_and_arg: Option<JitProgramAndArgument<E, I>>,
+
 /// Static constructors for Executable
-impl<E: UserDefinedError> dyn Executable<E> {
+impl<E: UserDefinedError, I: 'static + InstructionMeter> dyn Executable<E, I> {
     /// Creates a post relocaiton/fixup executable from an ELF file
     pub fn from_elf(
         elf_bytes: &[u8],
         verifier: Option<Verifier<E>>,
+        config: Config,
     ) -> Result<Box<Self>, EbpfError<E>> {
-        let ebpf_elf = EBpfElf::load(elf_bytes)?;
+        let ebpf_elf = EBpfElf::load(config, elf_bytes)?;
         let (_, bytes) = ebpf_elf.get_text_bytes()?;
         if let Some(verifier) = verifier {
             verifier(bytes)?;
@@ -108,11 +139,12 @@ impl<E: UserDefinedError> dyn Executable<E> {
     pub fn from_text_bytes(
         text_bytes: &[u8],
         verifier: Option<Verifier<E>>,
+        config: Config,
     ) -> Result<Box<Self>, EbpfError<E>> {
         if let Some(verifier) = verifier {
             verifier(text_bytes)?;
         }
-        Ok(Box::new(EBpfElf::new_from_text_bytes(text_bytes)))
+        Ok(Box::new(EBpfElf::new_from_text_bytes(config, text_bytes)))
     }
 }
 
@@ -133,23 +165,6 @@ impl InstructionMeter for DefaultInstructionMeter {
     }
 }
 
-/// VM configuration settings
-#[derive(Clone, Copy)]
-pub struct Config {
-    /// Maximum call depth
-    pub max_call_depth: usize,
-    /// Size of a stack frame in bytes, must match the size specified in the LLVM BPF backend
-    pub stack_frame_size: usize,
-}
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            max_call_depth: 20,
-            stack_frame_size: 4_096,
-        }
-    }
-}
-
 /// A virtual machine to run eBPF program.
 ///
 /// # Examples
@@ -165,24 +180,21 @@ impl Default for Config {
 /// ];
 ///
 /// // Instantiate a VM.
-/// let executable = Executable::<UserError>::from_text_bytes(prog, None).unwrap();
-/// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), Config::default(), mem, &[]).unwrap();
+/// let executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+/// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
 ///
 /// // Provide a reference to the packet data.
 /// let res = vm.execute_program_interpreted(&mut DefaultInstructionMeter {}).unwrap();
 /// assert_eq!(res, 0);
 /// ```
 pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
-    executable: &'a dyn Executable<E>,
-    compiled_prog_and_arg: Option<JitProgramAndArgument<E, I>>,
-    syscalls: HashMap<u32, Syscall<'a, E>>,
+    executable: &'a dyn Executable<E, I>,
     program: &'a [u8],
     program_vm_addr: u64,
     frames: CallFrames,
     memory_mapping: MemoryMapping,
     last_insn_count: u64,
     total_insn_count: u64,
-    config: Config,
 }
 
 impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
@@ -199,15 +211,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let executable = Executable::<UserError>::from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), Config::default(), &[], &[]).unwrap();
+    /// let executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
     /// ```
     pub fn new(
-        executable: &'a dyn Executable<E>,
-        config: Config,
+        executable: &'a dyn Executable<E, I>,
         mem: &[u8],
         granted_regions: &[MemoryRegion],
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
+        let config = executable.get_config();
         let frames = CallFrames::new(config.max_call_depth, config.stack_frame_size);
         let stack_regions = frames.get_stacks();
         let const_data_regions: Vec<MemoryRegion> =
@@ -238,15 +250,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         ));
         Ok(EbpfVm {
             executable,
-            compiled_prog_and_arg: None,
-            syscalls: HashMap::new(),
             program,
             program_vm_addr,
             frames,
             memory_mapping: MemoryMapping::new_from_regions(regions),
             last_insn_count: 0,
             total_insn_count: 0,
-            config,
         })
     }
 
@@ -255,7 +264,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         self.total_insn_count
     }
 
-    /// Register a built-in or user-defined syscall function in order to use it later from within
+    /*/ Register a built-in or user-defined syscall function in order to use it later from within
     /// the eBPF program. The syscall is registered into a hashmap, so the `key` can be any `u32`.
     ///
     /// If using JIT-compiled eBPF programs, be sure to register all syscalls before compiling the
@@ -283,8 +292,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let executable = Executable::<UserError>::from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), Config::default(), &[], &[]).unwrap();
+    /// let executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
     ///
     /// // Register a syscall.
     /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
@@ -317,7 +326,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         self.syscalls
             .insert(ebpf::hash_symbol_name(name.as_bytes()), syscall);
         Ok(())
-    }
+    }*/
 
     /// Execute the program loaded, with the given packet data.
     ///
@@ -337,8 +346,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let executable = Executable::<UserError>::from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), Config::default(), mem, &[]).unwrap();
+    /// let executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
     ///
     /// // Provide a reference to the packet data.
     /// let res = vm.execute_program_interpreted(&mut DefaultInstructionMeter {}).unwrap();
@@ -640,7 +649,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 // Do not delegate the check to the verifier, since registered functions can be
                 // changed after the program has been verified.
                 ebpf::CALL_IMM => {
-                    if let Some(syscall) = self.syscalls.get_mut(&(insn.imm as u32)) {
+                    if let Some(syscall) = self.executable.lookup_syscall(insn.imm as u32) {
                         let _ = instruction_meter.consume(self.last_insn_count);
                         self.last_insn_count = 0;
                         reg[0] = match syscall {
@@ -729,51 +738,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         Ok(new_pc)
     }
 
-    /// JIT-compile the loaded program. No argument required for this.
-    ///
-    /// If using syscall functions, be sure to register them into the VM before calling this
-    /// function.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use solana_rbpf::{vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
-    ///
-    /// let prog = &[
-    ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
-    /// ];
-    ///
-    /// // Instantiate a VM.
-    /// let executable = Executable::<UserError>::from_text_bytes(prog, None).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), Config::default(), &[], &[]).unwrap();
-    ///
-    /// # #[cfg(not(windows))]
-    /// vm.jit_compile();
-    /// ```
-    pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        let compiled_prog =
-            jit::compile::<E, I>(self.executable, self.config, &self.syscalls, true)?;
-        let mut jit_arg: Vec<*const u8> = vec![
-            std::ptr::null();
-            std::mem::size_of::<JitProgramArgument>()
-                / std::mem::size_of::<*const u8>()
-                + compiled_prog.instruction_addresses.len()
-        ];
-        unsafe {
-            libc::memcpy(
-                jit_arg.as_mut_ptr() as _,
-                std::mem::transmute::<_, _>(&self.memory_mapping),
-                std::mem::size_of::<MemoryMapping>(),
-            );
-        }
-        jit_arg[2..].copy_from_slice(&compiled_prog.instruction_addresses[..]);
-        self.compiled_prog_and_arg = Some(JitProgramAndArgument {
-            program: compiled_prog,
-            argument: jit_arg,
-        });
-        Ok(())
-    }
-
     /// Execute the previously JIT-compiled program, with the given packet data in a manner
     /// very similar to `execute_program_interpreted()`.
     ///
@@ -794,16 +758,28 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         } else {
             0
         };
-        let compiled_prog_and_arg = self
-            .compiled_prog_and_arg
-            .as_ref()
+        let compiled_program = self
+            .executable
+            .get_compiled_program()
             .ok_or(EbpfError::JITNotCompiled)?;
+        let mut jit_arg: Vec<*const u8> = vec![
+            std::ptr::null();
+            std::mem::size_of::<JitProgramArgument>()
+                / std::mem::size_of::<*const u8>()
+                + compiled_program.instruction_addresses.len()
+        ];
+        libc::memcpy(
+            jit_arg.as_mut_ptr() as _,
+            std::mem::transmute::<_, _>(&self.memory_mapping),
+            std::mem::size_of::<MemoryMapping>(),
+        );
+        jit_arg[2..].copy_from_slice(&compiled_program.instruction_addresses[..]);
         let initial_insn_count = instruction_meter.get_remaining();
         let result: ProgramResult<E> = Ok(0);
-        self.last_insn_count = (compiled_prog_and_arg.program.main)(
+        self.last_insn_count = (compiled_program.main)(
             &result,
             reg1,
-            &*(compiled_prog_and_arg.argument.as_ptr() as *const JitProgramArgument),
+            &*(jit_arg.as_ptr() as *const JitProgramArgument),
             instruction_meter,
         )
         .max(0) as u64;

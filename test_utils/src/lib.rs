@@ -86,12 +86,12 @@ pub fn bpf_syscall_u64(
     Ok(0)
 }
 
-pub struct SyscallWithContext<'a> {
-    pub context: &'a mut u64,
+pub struct SyscallWithContext {
+    pub context: *const u64,
 }
-impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
+impl<'a> SyscallObject<UserError> for SyscallWithContext {
     fn call(
-        &mut self,
+        &self,
         arg1: u64,
         arg2: u64,
         arg3: u64,
@@ -103,8 +103,8 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext<'a> {
             "SyscallWithContext: {:?}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
             self as *const _, arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
         );
-        assert_eq!(*self.context, 42);
-        *self.context = 84;
+        assert_eq!(unsafe { *self.context }, 42);
+        // *self.context = 84;
         Ok(0)
     }
 }

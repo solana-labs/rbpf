@@ -28,26 +28,25 @@ use test_utils::{
 };
 
 macro_rules! test_interpreter_and_jit {
-    ($vm:expr, $($location:expr => $syscall:expr),*) => {
-        $($vm.register_syscall($location, $syscall).unwrap();)*
+    ($executable:expr, $($location:expr => $syscall:expr),*) => {
+        $($executable.register_syscall($location, $syscall).unwrap();)*
     };
     ( $executable:expr, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
         let check_closure = $check;
+        test_interpreter_and_jit!($executable, $($location => $syscall),*);
         let instruction_count_interpreter = {
             let mem = $mem;
-            let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new($executable.as_ref(), Config::default(), &mem, &[]).unwrap();
-            test_interpreter_and_jit!(vm, $($location => $syscall),*);
+            let mut vm = EbpfVm::new($executable.as_ref(), &mem, &[]).unwrap();
             assert!(check_closure(vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count })));
             vm.get_total_instruction_count()
         };
         #[cfg(not(windows))]
         {
-            let mem = $mem;
-            let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new($executable.as_ref(), Config::default(), &mem, &[]).unwrap();
-            test_interpreter_and_jit!(vm, $($location => $syscall),*);
-            match vm.jit_compile() {
+            match $executable.jit_compile() {
                 Err(err) => assert!(check_closure(Err(err))),
                 Ok(()) => {
+                    let mem = $mem;
+                    let mut vm = EbpfVm::new($executable.as_ref(), &mem, &[]).unwrap();
                     assert!(check_closure(unsafe { vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count }) }));
                     let instruction_count_jit = vm.get_total_instruction_count();
                     assert_eq!(instruction_count_interpreter, instruction_count_jit);
@@ -61,7 +60,7 @@ macro_rules! test_interpreter_and_jit {
 macro_rules! test_interpreter_and_jit_asm {
     ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
         let program = assemble($source).unwrap();
-        let executable = Executable::<UserError>::from_text_bytes(&program, None).unwrap();
+        let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, Config::default()).unwrap();
         test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $expected_instruction_count);
     };
 }
@@ -71,7 +70,7 @@ macro_rules! test_interpreter_and_jit_elf {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
-        let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
+        let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, Config::default()).unwrap();
         test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $expected_instruction_count);
     };
 }
@@ -2523,8 +2522,8 @@ fn test_call_memfrob() {
 
 #[test]
 fn test_syscall_with_context() {
-    let mut number = 42;
-    let number_ptr = &mut number as *mut u64;
+    let number: u64 = 42;
+    let number_ptr = &number as *const u64;
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0xAA
@@ -2538,13 +2537,12 @@ fn test_syscall_with_context() {
         [],
         (
             0 => Syscall::Object(Box::new(SyscallWithContext {
-                context: &mut number,
+                context: number_ptr,
             })),
         ),
         { |res: ExecResult| {
             unsafe {
-                assert_eq!(*number_ptr, 84);
-                *number_ptr = 42;
+                assert_eq!(*number_ptr, 42);
             }
             res.unwrap() == 0
         }},
@@ -2600,7 +2598,9 @@ fn test_custom_entrypoint() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     elf[24] = 80; // Move entrypoint to later in the text section
-    let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
+    let mut executable =
+        Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, Config::default())
+            .unwrap();
     test_interpreter_and_jit!(
         executable,
         [],
@@ -3043,14 +3043,15 @@ fn test_large_program() {
         // Test jumping to pc larger then i16
         write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 2, "ja 0x0");
 
-        let executable = Executable::<UserError>::from_text_bytes(&prog, None).unwrap();
-        let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
-            executable.as_ref(),
+        let executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(
+            &prog,
+            None,
             Config::default(),
-            &[],
-            &[],
         )
         .unwrap();
+        let mut vm =
+            EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
+                .unwrap();
         assert_eq!(
             0,
             vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
@@ -3064,13 +3065,25 @@ fn test_large_program() {
         // test program that is too large
         prog.extend_from_slice(&assemble("exit").unwrap());
 
-        assert!(Executable::<UserError>::from_text_bytes(&prog, Some(check)).is_err());
+        assert!(
+            Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(
+                &prog,
+                Some(check),
+                Config::default()
+            )
+            .is_err()
+        );
     }
     // reset program
     prog.truncate(ebpf::PROG_MAX_INSNS * ebpf::INSN_SIZE);
 
     // verify program still works
-    let executable = Executable::<UserError>::from_text_bytes(&prog, None).unwrap();
+    let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+        &prog,
+        None,
+        Config::default(),
+    )
+    .unwrap();
     test_interpreter_and_jit!(
         executable,
         [],

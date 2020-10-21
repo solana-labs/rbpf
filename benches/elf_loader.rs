@@ -24,7 +24,10 @@ fn bench_load_elf(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/noro.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    bencher.iter(|| Executable::<UserError>::from_elf(&elf, None).unwrap());
+    bencher.iter(|| {
+        Executable::<UserError, DefaultInstructionMeter>::from_elf(&elf, None, Config::default())
+            .unwrap()
+    });
 }
 
 #[bench]
@@ -33,14 +36,14 @@ fn bench_load_elf_and_init_vm_without_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
-        let _vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
-            executable.as_ref(),
+        let executable = Executable::<UserError, DefaultInstructionMeter>::from_elf(
+            &elf,
+            None,
             Config::default(),
-            &[],
-            &[],
         )
         .unwrap();
+        let _vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
+            .unwrap();
     });
 }
 
@@ -50,18 +53,20 @@ fn bench_load_elf_and_init_vm_with_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        let executable = Executable::<UserError>::from_elf(&elf, None).unwrap();
-        let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
-            executable.as_ref(),
+        let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_elf(
+            &elf,
+            None,
             Config::default(),
-            &[],
-            &[],
         )
         .unwrap();
-        vm.register_syscall(
-            hash_symbol_name(b"log_64"),
-            Syscall::Function(bpf_syscall_u64),
-        )
-        .unwrap();
+        executable
+            .register_syscall(
+                hash_symbol_name(b"log_64"),
+                Syscall::Function(bpf_syscall_u64),
+            )
+            .unwrap();
+        let mut _vm =
+            EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
+                .unwrap();
     });
 }
