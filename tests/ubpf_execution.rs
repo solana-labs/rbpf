@@ -60,8 +60,11 @@ macro_rules! test_interpreter_and_jit {
 macro_rules! test_interpreter_and_jit_asm {
     ( $source:tt, $mem:tt, ($($location:expr => $syscall:expr),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
         let program = assemble($source).unwrap();
-        let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, Config::default()).unwrap();
-        test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $expected_instruction_count);
+        #[allow(unused_mut)]
+        {
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, Config::default()).unwrap();
+            test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $expected_instruction_count);
+        }
     };
 }
 
@@ -70,8 +73,11 @@ macro_rules! test_interpreter_and_jit_elf {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
-        let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, Config::default()).unwrap();
-        test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $expected_instruction_count);
+        #[allow(unused_mut)]
+        {
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, Config::default()).unwrap();
+            test_interpreter_and_jit!(executable, $mem, ($($location => $syscall),*), $check, $expected_instruction_count);
+        }
     };
 }
 
@@ -3078,17 +3084,20 @@ fn test_large_program() {
     prog.truncate(ebpf::PROG_MAX_INSNS * ebpf::INSN_SIZE);
 
     // verify program still works
-    let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
-        &prog,
-        None,
-        Config::default(),
-    )
-    .unwrap();
-    test_interpreter_and_jit!(
-        executable,
-        [],
-        (),
-        { |res: ExecResult| res.unwrap() == 0x0 },
-        ebpf::PROG_MAX_INSNS as u64
-    );
+    #[allow(unused_mut)]
+    {
+        let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+            &prog,
+            None,
+            Config::default(),
+        )
+        .unwrap();
+        test_interpreter_and_jit!(
+            executable,
+            [],
+            (),
+            { |res: ExecResult| res.unwrap() == 0x0 },
+            ebpf::PROG_MAX_INSNS as u64
+        );
+    }
 }
