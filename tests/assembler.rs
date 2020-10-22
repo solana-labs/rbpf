@@ -5,11 +5,11 @@
 // copied, modified, or distributed except according to those terms.
 
 extern crate solana_rbpf;
-mod common;
+extern crate test_utils;
 
-use common::{TCP_SACK_ASM, TCP_SACK_BIN};
 use solana_rbpf::assembler::assemble;
 use solana_rbpf::ebpf;
+use test_utils::{TCP_SACK_ASM, TCP_SACK_BIN};
 
 fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
     Ok(ebpf::to_insn_vec(&assemble(src)?))

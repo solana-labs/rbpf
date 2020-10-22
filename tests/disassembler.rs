@@ -7,7 +7,6 @@
 // copied, modified, or distributed except according to those terms.
 
 extern crate solana_rbpf;
-mod common;
 
 use solana_rbpf::assembler::assemble;
 use solana_rbpf::disassembler::to_insn_vec;

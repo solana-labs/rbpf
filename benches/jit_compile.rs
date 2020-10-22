@@ -33,6 +33,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
     });
 }
 
+#[cfg(not(windows))]
 #[bench]
 fn bench_jit_compile(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();

@@ -17,7 +17,7 @@ use std::{fs::File, io::Read};
 use test::Bencher;
 
 #[bench]
-fn bench_interpreter_execution(bencher: &mut Bencher) {
+fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
@@ -35,8 +35,9 @@ fn bench_interpreter_execution(bencher: &mut Bencher) {
     });
 }
 
+#[cfg(not(windows))]
 #[bench]
-fn bench_jit_execution(bencher: &mut Bencher) {
+fn bench_init_jit_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();

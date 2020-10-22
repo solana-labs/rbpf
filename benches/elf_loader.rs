@@ -12,15 +12,12 @@ extern crate test_utils;
 
 use solana_rbpf::{
     ebpf::hash_symbol_name,
-    error::EbpfError,
     user_error::UserError,
     vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, Syscall},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
 use test_utils::bpf_syscall_u64;
-
-type ExecResult = Result<u64, EbpfError<UserError>>;
 
 #[bench]
 fn bench_load_elf(bencher: &mut Bencher) {
