@@ -33,8 +33,6 @@ use crate::{
 pub struct JitProgramArgument {
     /// The MemoryMapping to be used to run the compiled code
     pub memory_mapping: MemoryMapping,
-    /// Pointers to the instructions of the compiled code
-    pub instruction_addresses: [*const u64; 0],
     // Pointers to the instructions of the compiled code
     // pub syscall_objects: [*const SyscallObject; 0],
 }
@@ -43,8 +41,6 @@ pub struct JitProgramArgument {
 pub struct JitProgram<E: UserDefinedError, I: InstructionMeter> {
     /// Call this with JitProgramArgument to execute the compiled code
     pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, &mut I) -> i64,
-    /// Pointers to the instructions of the compiled code
-    pub instruction_addresses: Vec<*const u8>,
 }
 
 impl<E: UserDefinedError, I: InstructionMeter>  PartialEq for JitProgram<E, I> {
@@ -587,9 +583,9 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             // Load host target_address from JitProgramArgument.instruction_addresses
             assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
             emit_mov(jit, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]);
-            emit_mov(jit, R10, REGISTER_MAP[STACK_REG]);
-            emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX += &JitProgramArgument as *const _;
-            emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], std::mem::size_of::<JitProgramArgument>() as i32); // RAX = JitProgramArgument.instruction_addresses[RAX / 8];
+            emit_load_imm(jit, REGISTER_MAP[STACK_REG], jit.pc_locs.as_ptr() as i64);
+            emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX += jit.pc_locs;
+            emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], 0); // RAX = jit.pc_locs[RAX / 8];
         },
         Value::Constant(_target_pc) => {},
         _ => panic!()
@@ -798,10 +794,10 @@ struct Jump {
 }
 
 struct JitCompiler<'a> {
+    pc_locs: &'a mut [u64],
     contents: &'a mut [u8],
     offset: usize,
     pc: usize,
-    pc_locs: Vec<usize>,
     program_vm_addr: u64,
     special_targets: HashMap<usize, usize>,
     jumps: Vec<Jump>,
@@ -811,28 +807,48 @@ struct JitCompiler<'a> {
 
 impl<'a> JitCompiler<'a> {
     // num_pages is unused on windows
-    fn new(_num_pages: usize, _config: &Config, _enable_instruction_meter: bool) -> JitCompiler<'a> {
+    fn new(_program: &[u8], _config: &Config, _enable_instruction_meter: bool) -> JitCompiler<'a> {
         #[cfg(windows)]
         {
             panic!("JIT not supported on windows");
         }
+        let pc_locs: &mut[u64];
         let contents: &mut[u8];
+
         #[cfg(not(windows))] // Without this block windows will fail ungracefully, hence the panic above
         unsafe {
+            // Scan through program to find actual number of instructions
+            let mut pc = 0;
+            while pc * ebpf::INSN_SIZE < _program.len() {
+                let insn = ebpf::get_insn(_program, pc);
+                pc += match insn.opc {
+                    ebpf::LD_DW_IMM => 2,
+                    _ => 1,
+                };
+            }
+            
+            // TODO: Ensure that an eBPF program of maximum possible length fits
+            const CONTENT_PAGES: usize = 256;
             const PAGE_SIZE: usize = 4096;
-            let size = _num_pages * PAGE_SIZE;
+            let pc_loc_table_size = (pc * 8 + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+            let code_size = CONTENT_PAGES * PAGE_SIZE;
+
             let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
-            libc::posix_memalign(&mut raw, PAGE_SIZE, size);
-            libc::mprotect(raw, size, libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE);
-            std::ptr::write_bytes(raw, 0xcc, size); // Populate with debugger traps
-            contents = std::slice::from_raw_parts_mut(raw as *mut u8, _num_pages * PAGE_SIZE);
+            libc::posix_memalign(&mut raw, PAGE_SIZE, pc_loc_table_size + code_size);
+
+            std::ptr::write_bytes(raw, 0x00, pc_loc_table_size);
+            pc_locs = std::slice::from_raw_parts_mut(raw as *mut u64, pc);
+
+            libc::mprotect(raw.add(pc_loc_table_size), code_size, libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE);
+            std::ptr::write_bytes(raw.add(pc_loc_table_size), 0xcc, code_size); // Populate with debugger traps
+            contents = std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size) as *mut u8, code_size);
         }
 
         JitCompiler {
+            pc_locs,
             contents,
             offset: 0,
             pc: 0,
-            pc_locs: vec![],
             program_vm_addr: 0,
             special_targets: HashMap::new(),
             jumps: vec![],
@@ -885,21 +901,10 @@ impl<'a> JitCompiler<'a> {
             emit_jmp(self, entry);
         }
 
-        // Scan through program to find actual number of instructions
-        while self.pc * ebpf::INSN_SIZE < program.len() {
-            let insn = ebpf::get_insn(program, self.pc);
-            self.pc += match insn.opc {
-                ebpf::LD_DW_IMM => 2,
-                _ => 1,
-            };
-        }
-        self.pc_locs = vec![0; self.pc];
-        self.pc = 0;
-
         while self.pc * ebpf::INSN_SIZE < program.len() {
             let insn = ebpf::get_insn(program, self.pc);
 
-            self.pc_locs[self.pc] = self.offset;
+            self.pc_locs[self.pc] = self.offset as u64;
 
             let dst = map_register(insn.dst);
             let src = map_register(insn.src);
@@ -1311,7 +1316,7 @@ impl<'a> JitCompiler<'a> {
         for jump in &self.jumps {
             let target_loc = match self.special_targets.get(&jump.target_pc) {
                 Some(target) => *target,
-                None         => self.pc_locs[jump.target_pc as usize]
+                None         => self.pc_locs[jump.target_pc as usize] as usize
             };
 
             // Assumes jump offset is at end of instruction
@@ -1365,14 +1370,15 @@ pub fn compile<E: UserDefinedError, I: InstructionMeter>(
     enable_instruction_meter: bool)
     -> Result<JitProgram<E, I>, EbpfError<E>> {
 
-    // TODO: check how long the page must be to be sure to support an eBPF program of maximum
-    // possible length
-    let mut jit = JitCompiler::new(256, executable.get_config(), enable_instruction_meter);
+    let program = executable.get_text_bytes()?.1;
+    let mut jit = JitCompiler::new(program, executable.get_config(), enable_instruction_meter);
     jit.compile::<E, I>(executable)?;
     jit.resolve_jumps();
+    for offset in jit.pc_locs.iter_mut() {
+        *offset = unsafe { (jit.contents.as_ptr() as *const u8).add(*offset as usize) } as u64;
+    }
 
     Ok(JitProgram {
         main: unsafe { mem::transmute(jit.contents.as_ptr()) },
-        instruction_addresses: jit.pc_locs.iter().map(|offset| unsafe { jit.contents.as_ptr().add(*offset) }).collect(),
     })
 }

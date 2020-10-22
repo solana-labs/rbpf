@@ -762,18 +762,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             .executable
             .get_compiled_program()
             .ok_or(EbpfError::JITNotCompiled)?;
-        let mut jit_arg: Vec<*const u8> = vec![
-            std::ptr::null();
-            std::mem::size_of::<JitProgramArgument>()
-                / std::mem::size_of::<*const u8>()
-                + compiled_program.instruction_addresses.len()
-        ];
+        let mut jit_arg: Vec<u64> =
+            vec![0; std::mem::size_of::<JitProgramArgument>() / std::mem::size_of::<*const u8>()];
         libc::memcpy(
             jit_arg.as_mut_ptr() as _,
             std::mem::transmute::<_, _>(&self.memory_mapping),
             std::mem::size_of::<MemoryMapping>(),
         );
-        jit_arg[2..].copy_from_slice(&compiled_program.instruction_addresses[..]);
         let initial_insn_count = instruction_meter.get_remaining();
         let result: ProgramResult<E> = Ok(0);
         self.last_insn_count = (compiled_program.main)(
