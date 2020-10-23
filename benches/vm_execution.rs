@@ -44,5 +44,8 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     executable.jit_compile().unwrap();
     let mut vm =
         EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
-    bencher.iter(|| unsafe { vm.execute_program_jit(&mut DefaultInstructionMeter {}) }.unwrap());
+    bencher.iter(|| {
+        vm.execute_program_jit(&mut DefaultInstructionMeter {})
+            .unwrap()
+    });
 }

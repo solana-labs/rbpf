@@ -19,18 +19,17 @@
 extern crate byteorder;
 extern crate libc;
 extern crate solana_rbpf;
+extern crate test_utils;
 
-use libc::c_char;
 use solana_rbpf::{
     ebpf::hash_symbol_name,
-    error::EbpfError,
     fuzz::fuzz,
-    memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
     verifier::check,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, Syscall},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
 };
-use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
+use std::{fs::File, io::Read};
+use test_utils::{bpf_syscall_string, bpf_syscall_u64};
 
 // The following two examples have been compiled from C with the following command:
 //
@@ -98,46 +97,6 @@ use std::{fs::File, io::Read, slice::from_raw_parts, str::from_utf8};
 // Cargo.toml file (see comments above), so here we use just the hardcoded bytecode instructions
 // instead.
 
-type ExecResult = Result<u64, EbpfError<UserError>>;
-
-fn bpf_syscall_string(
-    vm_addr: u64,
-    len: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    memory_mapping: &MemoryMapping,
-) -> ExecResult {
-    let host_addr = memory_mapping.map(AccessType::Load, vm_addr, len)?;
-    let c_buf: *const c_char = host_addr as *const c_char;
-    unsafe {
-        for i in 0..len {
-            let c = std::ptr::read(c_buf.offset(i as isize));
-            if c == 0 {
-                break;
-            }
-        }
-        let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize)).unwrap();
-        println!("log: {}", message);
-    }
-    Ok(0)
-}
-
-fn bpf_syscall_u64(
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    memory_mapping: &MemoryMapping,
-) -> ExecResult {
-    println!(
-        "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
-        arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
-    );
-    Ok(0)
-}
-
 #[test]
 #[ignore]
 fn test_fuzz_execute() {
@@ -163,16 +122,10 @@ fn test_fuzz_execute() {
                 Config::default(),
             ) {
                 executable
-                    .register_syscall(
-                        hash_symbol_name(b"log"),
-                        Syscall::Function(bpf_syscall_string),
-                    )
+                    .register_syscall(hash_symbol_name(b"log"), bpf_syscall_string)
                     .unwrap();
                 executable
-                    .register_syscall(
-                        hash_symbol_name(b"log_64"),
-                        Syscall::Function(bpf_syscall_u64),
-                    )
+                    .register_syscall(hash_symbol_name(b"log_64"), bpf_syscall_u64)
                     .unwrap();
                 let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
                     executable.as_ref(),

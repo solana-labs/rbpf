@@ -12,7 +12,7 @@ extern crate scroll;
 use crate::{
     error::{EbpfError, UserDefinedError},
     jit::{compile, JitProgram},
-    vm::{Config, Executable, InstructionMeter, Syscall},
+    vm::{Config, Executable, InstructionMeter, Syscall, SyscallFunction},
 };
 use byteorder::{ByteOrder, LittleEndian};
 use ebpf;
@@ -169,6 +169,7 @@ struct SectionInfo {
 }
 
 /// Elf loader/relocator
+#[derive(Debug, PartialEq)]
 pub struct EBpfElf<E: UserDefinedError, I: InstructionMeter> {
     /// Configuration settings
     config: Config,
@@ -186,29 +187,6 @@ pub struct EBpfElf<E: UserDefinedError, I: InstructionMeter> {
     syscalls: HashMap<u32, Syscall<E>>,
     /// Compiled program and argument
     compiled_program: Option<JitProgram<E, I>>,
-}
-
-impl<E: UserDefinedError, I: InstructionMeter> PartialEq for EBpfElf<E, I> {
-    fn eq(&self, other: &EBpfElf<E, I>) -> bool {
-        self.config == other.config
-            && self.elf_bytes == other.elf_bytes
-            && self.entrypoint == other.entrypoint
-            && self.text_section_info == other.text_section_info
-            && self.ro_section_infos == other.ro_section_infos
-            && self.calls == other.calls
-    }
-}
-
-impl<E: UserDefinedError, I: InstructionMeter> Debug for EBpfElf<E, I> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EBpfElf")
-            .field("config", &self.config)
-            .field("elf_bytes", &self.elf_bytes)
-            .field("text_section_info", &self.text_section_info)
-            .field("ro_section_infos", &self.ro_section_infos)
-            .field("calls", &self.calls)
-            .finish()
-    }
 }
 
 impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I> {
@@ -263,10 +241,26 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
         self.compiled_program.as_ref()
     }
 
+    /// Get the number of registered syscalls which have a context object
+    fn get_number_of_syscalls(&self) -> usize {
+        self.syscalls.len()
+    }
+
     /// Register a syscall (function or an object which provides additional context)
-    fn register_syscall(&mut self, key: u32, syscall: Syscall<E>) -> Result<(), EbpfError<E>> {
-        self.syscalls.insert(key, syscall);
-        Ok(())
+    fn register_syscall(
+        &mut self,
+        key: u32,
+        function: SyscallFunction<E>,
+    ) -> Result<usize, EbpfError<E>> {
+        let context_object_slot = self.syscalls.len();
+        self.syscalls.insert(
+            key,
+            Syscall::<E> {
+                function,
+                context_object_slot,
+            },
+        );
+        Ok(context_object_slot)
     }
 
     /// JIT compile the executable

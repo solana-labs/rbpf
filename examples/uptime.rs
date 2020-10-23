@@ -8,7 +8,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     syscalls,
     user_error::UserError,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, Syscall},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
 };
 
 // The main objectives of this example is to show:
@@ -71,10 +71,7 @@ fn main() {
     )
     .unwrap();
     executable
-        .register_syscall(
-            syscalls::BPF_KTIME_GETNS_IDX,
-            Syscall::Function(syscalls::bpf_time_getns),
-        )
+        .register_syscall(syscalls::BPF_KTIME_GETNS_IDX, syscalls::bpf_time_getns)
         .unwrap();
     #[cfg(not(windows))]
     {
@@ -86,10 +83,9 @@ fn main() {
     let time;
     #[cfg(not(windows))]
     {
-        time = unsafe {
-            vm.execute_program_jit(&mut DefaultInstructionMeter {})
-                .unwrap()
-        };
+        time = vm
+            .execute_program_jit(&mut DefaultInstructionMeter {})
+            .unwrap();
     }
 
     #[cfg(windows)]

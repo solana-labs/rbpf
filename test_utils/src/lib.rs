@@ -43,6 +43,7 @@ pub fn bpf_trace_printf<E: UserDefinedError>(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
+    _self: *mut u8,
     _memory_mapping: &MemoryMapping,
 ) -> Result<u64, EbpfError<E>> {
     Ok(0)
@@ -54,6 +55,7 @@ pub fn bpf_syscall_string(
     _arg3: u64,
     _arg4: u64,
     _arg5: u64,
+    _self: *mut u8,
     memory_mapping: &MemoryMapping,
 ) -> ExecResult {
     let host_addr = memory_mapping.map(AccessType::Load, vm_addr, len)?;
@@ -77,6 +79,7 @@ pub fn bpf_syscall_u64(
     arg3: u64,
     arg4: u64,
     arg5: u64,
+    _self: *mut u8,
     memory_mapping: &MemoryMapping,
 ) -> ExecResult {
     println!(
@@ -87,24 +90,25 @@ pub fn bpf_syscall_u64(
 }
 
 pub struct SyscallWithContext {
-    pub context: *const u64,
+    pub context: u64,
 }
 impl<'a> SyscallObject<UserError> for SyscallWithContext {
     fn call(
-        &self,
         arg1: u64,
         arg2: u64,
         arg3: u64,
         arg4: u64,
         arg5: u64,
+        _self: *mut u8,
         memory_mapping: &MemoryMapping,
     ) -> ExecResult {
         println!(
             "SyscallWithContext: {:?}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
-            self as *const _, arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
+            _self as *const _, arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
         );
-        assert_eq!(unsafe { *self.context }, 42);
-        // *self.context = 84;
+        let context = unsafe { &mut (*(_self as *mut SyscallWithContext)).context };
+        assert_eq!(*context, 42);
+        *context = 84;
         Ok(0)
     }
 }

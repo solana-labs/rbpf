@@ -20,7 +20,7 @@ use crate::{
     user_error::UserError,
 };
 use log::{debug, log_enabled, trace};
-use std::u32;
+use std::{fmt::Debug, u32};
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
 macro_rules! translate_memory_access {
@@ -58,22 +58,36 @@ pub type Verifier<E> = fn(prog: &[u8]) -> Result<(), E>;
 /// Return value of programs and syscalls
 pub type ProgramResult<E> = Result<u64, EbpfError<E>>;
 
-/// Syscall function without context.
-pub type SyscallFunction<E> = fn(u64, u64, u64, u64, u64, &MemoryMapping) -> ProgramResult<E>;
+/// Syscall function without context
+pub type SyscallFunction<E> =
+    fn(u64, u64, u64, u64, u64, *mut u8, &MemoryMapping) -> ProgramResult<E>;
 
 /// Syscall with context
 pub trait SyscallObject<E: UserDefinedError> {
     /// Call the syscall function
     #[allow(clippy::too_many_arguments)]
-    fn call(&self, u64, u64, u64, u64, u64, &MemoryMapping) -> ProgramResult<E>;
+    fn call(u64, u64, u64, u64, u64, *mut u8, &MemoryMapping) -> ProgramResult<E>;
 }
 
-/// Contains the syscall
-pub enum Syscall<E: UserDefinedError> {
-    /// Function
-    Function(SyscallFunction<E>),
-    /// Trait object
-    Object(Box<dyn SyscallObject<E>>),
+/// Syscall function and binding slot for a context object
+pub struct Syscall<E: UserDefinedError> {
+    /// Call the syscall function
+    pub function: SyscallFunction<E>,
+    /// Slot of context object
+    pub context_object_slot: usize,
+}
+
+impl<E: UserDefinedError> Debug for Syscall<E> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.write_fmt(format_args!("Syscall {:?}", &self.function as *const _))
+    }
+}
+
+impl<E: UserDefinedError> PartialEq for Syscall<E> {
+    fn eq(&self, other: &Syscall<E>) -> bool {
+        self.function as *const u8 == other.function as *const u8
+            && self.context_object_slot == other.context_object_slot
+    }
 }
 
 /// VM configuration settings
@@ -94,8 +108,7 @@ impl Default for Config {
 }
 
 /// An relocated and ready to execute binary
-pub trait Executable<E: UserDefinedError, I: InstructionMeter> {
-    // : Send + Sync
+pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Get the configuration settings
     fn get_config(&self) -> &Config;
     /// Get the .text section virtual address and bytes
@@ -110,8 +123,14 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter> {
     fn lookup_syscall(&self, hash: u32) -> Option<&Syscall<E>>;
     /// Get the JIT compiled program
     fn get_compiled_program(&self) -> Option<&JitProgram<E, I>>;
+    /// Get the number of registered syscalls which have a context object
+    fn get_number_of_syscalls(&self) -> usize;
     /// Register a syscall (function or an object which provides additional context)
-    fn register_syscall(&mut self, key: u32, syscall: Syscall<E>) -> Result<(), EbpfError<E>>;
+    fn register_syscall(
+        &mut self,
+        key: u32,
+        function: SyscallFunction<E>,
+    ) -> Result<usize, EbpfError<E>>;
     /// JIT compile the executable
     fn jit_compile(&mut self) -> Result<(), EbpfError<E>>;
     /// Report information on a symbol that failed to be resolved
@@ -157,6 +176,7 @@ pub trait InstructionMeter {
 }
 
 /// Instruction meter without a limit
+#[derive(Debug, PartialEq)]
 pub struct DefaultInstructionMeter {}
 impl InstructionMeter for DefaultInstructionMeter {
     fn consume(&mut self, _amount: u64) {}
@@ -191,8 +211,9 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     executable: &'a dyn Executable<E, I>,
     program: &'a [u8],
     program_vm_addr: u64,
-    frames: CallFrames,
     memory_mapping: MemoryMapping,
+    syscall_context_objects: Vec<*mut u8>,
+    frames: CallFrames,
     last_insn_count: u64,
     total_insn_count: u64,
 }
@@ -248,12 +269,23 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             program_vm_addr,
             false,
         ));
+        let memory_mapping = MemoryMapping::new_from_regions(regions);
+        let mut syscall_context_objects =
+            vec![std::ptr::null_mut(); 2 + executable.get_number_of_syscalls()];
+        unsafe {
+            libc::memcpy(
+                syscall_context_objects.as_mut_ptr() as _,
+                std::mem::transmute::<_, _>(&memory_mapping),
+                std::mem::size_of::<MemoryMapping>(),
+            );
+        }
         Ok(EbpfVm {
             executable,
             program,
             program_vm_addr,
+            memory_mapping,
+            syscall_context_objects,
             frames,
-            memory_mapping: MemoryMapping::new_from_regions(regions),
             last_insn_count: 0,
             total_insn_count: 0,
         })
@@ -264,69 +296,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         self.total_insn_count
     }
 
-    /*/ Register a built-in or user-defined syscall function in order to use it later from within
-    /// the eBPF program. The syscall is registered into a hashmap, so the `key` can be any `u32`.
-    ///
-    /// If using JIT-compiled eBPF programs, be sure to register all syscalls before compiling the
-    /// program. You should be able to change registered syscalls after compiling, but not to add
-    /// new ones (i.e. with new keys).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use solana_rbpf::{vm::{Config, Executable, EbpfVm, Syscall, DefaultInstructionMeter}, syscalls::bpf_trace_printf, user_error::UserError};
-    ///
-    /// // This program was compiled with clang, from a C program containing the following single
-    /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
-    /// let prog = &[
-    ///     0x18, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // load 0 as u64 into r1 (That would be
-    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // replaced by tc by the address of
-    ///                                                     // the format string, in the .map
-    ///                                                     // section of the ELF file).
-    ///     0xb7, 0x02, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, // mov r2, 10
-    ///     0xb7, 0x03, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // mov r3, 1
-    ///     0xb7, 0x04, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov r4, 2
-    ///     0xb7, 0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, // mov r5, 3
-    ///     0x85, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, // call syscall with key 6
-    ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
-    /// ];
-    ///
-    /// // Instantiate a VM.
-    /// let executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
-    ///
-    /// // Register a syscall.
-    /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
-    /// // standard output.
-    /// vm.register_syscall(6, Syscall::Function(bpf_trace_printf::<UserError>)).unwrap();
-    /// ```
-    pub fn register_syscall(
-        &mut self,
-        key: u32,
-        syscall: Syscall<'a, E>,
-    ) -> Result<(), EbpfError<E>> {
-        self.syscalls.insert(key, syscall);
-        Ok(())
+    /// Bind an object instance to a registered syscall at the given slot
+    pub fn bind_syscall_context_object(&mut self, hash: u32, syscall_context_object: *mut u8) {
+        let slot = self
+            .executable
+            .lookup_syscall(hash)
+            .unwrap()
+            .context_object_slot;
+        self.syscall_context_objects[2 + slot] = syscall_context_object;
     }
-
-    /// Register a user-defined syscall function in order to use it later from within
-    /// the eBPF program.  Normally syscall functions are referred to by an index. (See syscalls)
-    /// but this function takes the name of the function.  The name is then hashed into a 32 bit
-    /// number and used in the `call` instructions imm field.  If calling `set_elf` then
-    /// the elf's relocations must reference this symbol using the same name.  This can usually be
-    /// achieved by building the elf with unresolved symbols (think `extern foo(void)`).  If
-    /// providing a program directly via `set_program` then any `call` instructions must already
-    /// have the hash of the symbol name in its imm field.  To generate the correct hash of the
-    /// symbol name use `ebpf::syscalls::hash_symbol_name`.
-    pub fn register_syscall_ex(
-        &mut self,
-        name: &str,
-        syscall: Syscall<'a, E>,
-    ) -> Result<(), EbpfError<E>> {
-        self.syscalls
-            .insert(ebpf::hash_symbol_name(name.as_bytes()), syscall);
-        Ok(())
-    }*/
 
     /// Execute the program loaded, with the given packet data.
     ///
@@ -652,24 +630,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                     if let Some(syscall) = self.executable.lookup_syscall(insn.imm as u32) {
                         let _ = instruction_meter.consume(self.last_insn_count);
                         self.last_insn_count = 0;
-                        reg[0] = match syscall {
-                            Syscall::Function(syscall) => syscall(
-                                reg[1],
-                                reg[2],
-                                reg[3],
-                                reg[4],
-                                reg[5],
-                                &self.memory_mapping,
-                            )?,
-                            Syscall::Object(syscall) => syscall.call(
-                                reg[1],
-                                reg[2],
-                                reg[3],
-                                reg[4],
-                                reg[5],
-                                &self.memory_mapping,
-                            )?,
-                        };
+                        reg[0] = (syscall.function)(
+                            reg[1],
+                            reg[2],
+                            reg[3],
+                            reg[4],
+                            reg[5],
+                            self.syscall_context_objects[2 + syscall.context_object_slot],
+                            &self.memory_mapping,
+                        )?;
                         remaining_insn_count = instruction_meter.get_remaining();
                     } else if let Some(new_pc) = self.executable.lookup_bpf_call(insn.imm as u32) {
                         // make BPF to BPF call
@@ -746,9 +715,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// **WARNING:** JIT-compiled assembly code is not safe. It may be wise to check that
     /// the program works with the interpreter before running the JIT-compiled version of it.
     ///
-    /// For this reason the function should be called from within an `unsafe` bloc.
-    ///
-    pub unsafe fn execute_program_jit(&mut self, instruction_meter: &mut I) -> ProgramResult<E> {
+    pub fn execute_program_jit(&mut self, instruction_meter: &mut I) -> ProgramResult<E> {
         let reg1 = if self
             .memory_mapping
             .map::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1)
@@ -758,26 +725,21 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         } else {
             0
         };
+        let initial_insn_count = instruction_meter.get_remaining();
+        let result: ProgramResult<E> = Ok(0);
         let compiled_program = self
             .executable
             .get_compiled_program()
             .ok_or(EbpfError::JITNotCompiled)?;
-        let mut jit_arg: Vec<u64> =
-            vec![0; std::mem::size_of::<JitProgramArgument>() / std::mem::size_of::<*const u8>()];
-        libc::memcpy(
-            jit_arg.as_mut_ptr() as _,
-            std::mem::transmute::<_, _>(&self.memory_mapping),
-            std::mem::size_of::<MemoryMapping>(),
-        );
-        let initial_insn_count = instruction_meter.get_remaining();
-        let result: ProgramResult<E> = Ok(0);
-        self.last_insn_count = (compiled_program.main)(
-            &result,
-            reg1,
-            &*(jit_arg.as_ptr() as *const JitProgramArgument),
-            instruction_meter,
-        )
-        .max(0) as u64;
+        unsafe {
+            self.last_insn_count = (compiled_program.main)(
+                &result,
+                reg1,
+                &*(self.syscall_context_objects.as_ptr() as *const JitProgramArgument),
+                instruction_meter,
+            )
+            .max(0) as u64;
+        }
         let remaining_insn_count = instruction_meter.get_remaining();
         self.total_insn_count = remaining_insn_count - self.last_insn_count;
         instruction_meter.consume(self.total_insn_count);
