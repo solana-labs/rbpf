@@ -23,7 +23,7 @@ use solana_rbpf::{
 };
 use std::{fs::File, io::Read};
 use test_utils::{
-    bpf_syscall_string, bpf_syscall_u64, bpf_trace_printf, ExecResult, SyscallWithContext,
+    BpfSyscallString, BpfSyscallU64, BpfTracePrintf, ExecResult, SyscallWithContext,
     TestInstructionMeter, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH,
 };
 
@@ -2149,8 +2149,8 @@ fn test_stack2() {
         exit",
         [],
         (
-            0 => syscalls::gather_bytes; std::ptr::null_mut(),
-            1 => syscalls::memfrob; std::ptr::null_mut(),
+            0 => syscalls::BpfGatherBytes::call; std::ptr::null_mut(),
+            1 => syscalls::BpfMemFrob::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0x01020304 } },
         16
@@ -2191,7 +2191,7 @@ fn test_string_stack() {
         exit",
         [],
         (
-            0 => syscalls::strcmp; std::ptr::null_mut(),
+            0 => syscalls::BpfStrCmp::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0x0 } },
         28
@@ -2226,7 +2226,7 @@ fn test_relative_call() {
         "tests/elfs/relative_call.so",
         [1],
         (
-            hash_symbol_name(b"log") => bpf_syscall_string; std::ptr::null_mut(),
+            hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 2 } },
         14
@@ -2239,7 +2239,7 @@ fn test_bpf_to_bpf_scratch_registers() {
         "tests/elfs/scratch_registers.so",
         [1],
         (
-            hash_symbol_name(b"log_64") => bpf_syscall_u64; std::ptr::null_mut(),
+            hash_symbol_name(b"log_64") => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 112 } },
         41
@@ -2269,7 +2269,7 @@ fn test_syscall_parameter_on_stack() {
         exit",
         [],
         (
-            0 => bpf_syscall_string; std::ptr::null_mut(),
+            0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
         6
@@ -2346,7 +2346,7 @@ fn test_bpf_to_bpf_depth() {
             "tests/elfs/multiple_file.so",
             [i as u8],
             (
-                hash_symbol_name(b"log") => bpf_syscall_string; std::ptr::null_mut(),
+                hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
             ),
             { |res: ExecResult| { res.unwrap() == 0 } },
             if i == 0 { 4 } else { 3 + 10 * i as u64 }
@@ -2361,7 +2361,7 @@ fn test_err_bpf_to_bpf_too_deep() {
         "tests/elfs/multiple_file.so",
         [config.max_call_depth as u8],
         (
-            hash_symbol_name(b"log") => bpf_syscall_string; std::ptr::null_mut(),
+            hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         {
             |res: ExecResult| {
@@ -2386,7 +2386,7 @@ fn test_err_reg_stack_depth() {
         exit",
         [],
         (
-            hash_symbol_name(b"log") => bpf_syscall_string; std::ptr::null_mut(),
+            hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         {
             |res: ExecResult| {
@@ -2437,7 +2437,7 @@ fn test_err_syscall_string() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            0 => bpf_syscall_string; std::ptr::null_mut(),
+            0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         {
             |res: ExecResult| {
@@ -2461,7 +2461,7 @@ fn test_syscall_string() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            0 => bpf_syscall_string; std::ptr::null_mut(),
+            0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
         4
@@ -2482,7 +2482,7 @@ fn test_syscall() {
         exit",
         [],
         (
-            0 => bpf_syscall_u64; std::ptr::null_mut(),
+            0 => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
         8
@@ -2502,7 +2502,7 @@ fn test_call_gather_bytes() {
         exit",
         [],
         (
-            0 => syscalls::gather_bytes; std::ptr::null_mut(),
+            0 => syscalls::BpfGatherBytes::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0x0102030405 } },
         7
@@ -2524,7 +2524,7 @@ fn test_call_memfrob() {
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, //
         ],
         (
-            0 => syscalls::memfrob; std::ptr::null_mut(),
+            0 => syscalls::BpfMemFrob::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0x102292e2f2c0708 } },
         7
@@ -2568,8 +2568,8 @@ fn test_load_elf() {
         "tests/elfs/noop.so",
         [],
         (
-            hash_symbol_name(b"log") => bpf_syscall_string; std::ptr::null_mut(),
-            hash_symbol_name(b"log_64") => bpf_syscall_u64; std::ptr::null_mut(),
+            hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
+            hash_symbol_name(b"log_64") => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
         11
@@ -2582,7 +2582,7 @@ fn test_load_elf_empty_noro() {
         "tests/elfs/noro.so",
         [],
         (
-            hash_symbol_name(b"log_64") => bpf_syscall_u64; std::ptr::null_mut(),
+            hash_symbol_name(b"log_64") => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
         8
@@ -2595,7 +2595,7 @@ fn test_load_elf_empty_rodata() {
         "tests/elfs/empty_rodata.so",
         [],
         (
-            hash_symbol_name(b"log_64") => bpf_syscall_u64; std::ptr::null_mut(),
+            hash_symbol_name(b"log_64") => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
         8
@@ -2615,8 +2615,8 @@ fn test_custom_entrypoint() {
         executable,
         [],
         (
-            hash_symbol_name(b"log") => bpf_syscall_string; std::ptr::null_mut(),
-            hash_symbol_name(b"log_64") => bpf_syscall_u64; std::ptr::null_mut(),
+            hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
+            hash_symbol_name(b"log_64") => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
         2
@@ -2635,7 +2635,7 @@ fn test_instruction_count_syscall() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            0 => bpf_syscall_string; std::ptr::null_mut(),
+            0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
         4
@@ -2652,7 +2652,7 @@ fn test_err_instruction_count_syscall_capped() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            0 => bpf_syscall_string; std::ptr::null_mut(),
+            0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         {
             |res: ExecResult| {
@@ -2710,7 +2710,7 @@ fn test_err_non_terminate_capped() {
         exit",
         [],
         (
-            0 => bpf_trace_printf; std::ptr::null_mut(),
+            0 => BpfTracePrintf::call; std::ptr::null_mut(),
         ),
         {
             |res: ExecResult| {
@@ -2740,7 +2740,7 @@ fn test_err_non_terminating_capped() {
         exit",
         [],
         (
-            0 => bpf_trace_printf; std::ptr::null_mut(),
+            0 => BpfTracePrintf::call; std::ptr::null_mut(),
         ),
         {
             |res: ExecResult| {
@@ -2768,7 +2768,7 @@ fn test_symbol_relocation() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            0 => bpf_syscall_string; std::ptr::null_mut(),
+            0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         { |res: ExecResult| { res.unwrap() == 0 } },
         6
@@ -2817,7 +2817,7 @@ fn test_err_unresolved_elf() {
         "tests/elfs/unresolved_syscall.so",
         [],
         (
-            hash_symbol_name(b"log") => bpf_syscall_string; std::ptr::null_mut(),
+            hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         {
             |res: ExecResult| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "log_64" && pc == 550 && offset == 4168)

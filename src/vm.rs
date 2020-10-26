@@ -63,10 +63,18 @@ pub type SyscallFunction<E> =
     fn(u64, u64, u64, u64, u64, *mut u8, &MemoryMapping) -> ProgramResult<E>;
 
 /// Syscall with context
-pub trait SyscallObject<E: UserDefinedError> {
+pub trait SyscallObject {
     /// Call the syscall function
     #[allow(clippy::too_many_arguments)]
-    fn call(u64, u64, u64, u64, u64, *mut u8, &MemoryMapping) -> ProgramResult<E>;
+    fn call<E: UserDefinedError>(
+        u64,
+        u64,
+        u64,
+        u64,
+        u64,
+        *mut u8,
+        &MemoryMapping,
+    ) -> ProgramResult<E>;
 }
 
 /// Syscall function and binding slot for a context object

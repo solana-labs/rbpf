@@ -24,6 +24,7 @@ extern crate libc;
 use crate::{
     error::{EbpfError, UserDefinedError},
     memory_region::{AccessType, MemoryMapping},
+    vm::SyscallObject,
 };
 use std::u64;
 use time;
@@ -42,12 +43,13 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::syscalls::bpf_time_getns;
+/// use solana_rbpf::syscalls::BpfTimeGetNs;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::user_error::UserError;
+/// use solana_rbpf::vm::SyscallObject;
 ///
 /// let memory_mapping = [MemoryRegion::default()];
-/// let t = bpf_time_getns::<UserError>(0, 0, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap();
+/// let t = BpfTimeGetNs::call::<UserError>(0, 0, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap();
 /// let d =  t / 10u64.pow(9)  / 60   / 60  / 24;
 /// let h = (t / 10u64.pow(9)  / 60   / 60) % 24;
 /// let m = (t / 10u64.pow(9)  / 60 ) % 60;
@@ -55,22 +57,24 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 /// let ns = t % 10u64.pow(9);
 /// println!("Uptime: {:#x} == {} days {}:{}:{}, {} ns", t, d, h, m, s, ns);
 /// ```
-#[allow(dead_code)]
-pub fn bpf_time_getns<E: UserDefinedError>(
-    _arg1: u64,
-    _arg2: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    _self: *mut u8,
-    _memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<E>> {
-    Ok(time::precise_time_ns())
+pub struct BpfTimeGetNs {}
+impl<'a> SyscallObject for BpfTimeGetNs {
+    fn call<E: UserDefinedError>(
+        _arg1: u64,
+        _arg2: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        _self: *mut u8,
+        _memory_mapping: &MemoryMapping,
+    ) -> Result<u64, EbpfError<E>> {
+        Ok(time::precise_time_ns())
+    }
 }
 
 // bpf_trace_printk()
 
-/// Index of syscall `bpf_trace_printk()`, equivalent to `bpf_trace_printf()`, in Linux kernel, see
+/// Index of syscall `bpf_trace_printk()`, equivalent to `bpf_trace_printf`, in Linux kernel, see
 /// <https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/bpf.h>.
 pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 
@@ -83,16 +87,17 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::syscalls::bpf_trace_printf;
+/// use solana_rbpf::syscalls::BpfTracePrintf;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::user_error::UserError;
+/// use solana_rbpf::vm::SyscallObject;
 ///
 /// let memory_mapping = [MemoryRegion::default()];
-/// let res = bpf_trace_printf::<UserError>(0, 0, 1, 15, 32, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap();
-/// assert_eq!(res as usize, "bpf_trace_printf: 0x1, 0xf, 0x20\n".len());
+/// let res = BpfTracePrintf::call::<UserError>(0, 0, 1, 15, 32, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap();
+/// assert_eq!(res as usize, "BpfTracePrintf: 0x1, 0xf, 0x20\n".len());
 /// ```
 ///
-/// This will print `bpf_trace_printf: 0x1, 0xf, 0x20`.
+/// This will print `BpfTracePrintf: 0x1, 0xf, 0x20`.
 ///
 /// The eBPF code needed to perform the call in this example would be nearly identical to the code
 /// obtained by compiling the following code from C to eBPF with clang:
@@ -112,28 +117,30 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 ///
 /// This would equally print the three numbers in `/sys/kernel/debug/tracing` file each time the
 /// program is run.
-#[allow(dead_code)]
-pub fn bpf_trace_printf<E: UserDefinedError>(
-    _arg1: u64,
-    _arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    _self: *mut u8,
-    _memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<E>> {
-    println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
-    let size_arg = |x| {
-        if x == 0 {
-            1
-        } else {
-            (x as f64).log(16.0).floor() as u64 + 1
-        }
-    };
-    Ok("bpf_trace_printf: 0x, 0x, 0x\n".len() as u64
-        + size_arg(arg3)
-        + size_arg(arg4)
-        + size_arg(arg5))
+pub struct BpfTracePrintf {}
+impl<'a> SyscallObject for BpfTracePrintf {
+    fn call<E: UserDefinedError>(
+        _arg1: u64,
+        _arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        _self: *mut u8,
+        _memory_mapping: &MemoryMapping,
+    ) -> Result<u64, EbpfError<E>> {
+        println!("BpfTracePrintf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
+        let size_arg = |x| {
+            if x == 0 {
+                1
+            } else {
+                (x as f64).log(16.0).floor() as u64 + 1
+            }
+        };
+        Ok("BpfTracePrintf: 0x, 0x, 0x\n".len() as u64
+            + size_arg(arg3)
+            + size_arg(arg4)
+            + size_arg(arg5))
+    }
 }
 
 // syscalls coming from uBPF <https://github.com/iovisor/ubpf/blob/master/vm/test.c>
@@ -144,28 +151,32 @@ pub fn bpf_trace_printf<E: UserDefinedError>(
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::syscalls::gather_bytes;
+/// use solana_rbpf::syscalls::BpfGatherBytes;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::user_error::UserError;
+/// use solana_rbpf::vm::SyscallObject;
 ///
 /// let memory_mapping = [MemoryRegion::default()];
-/// let gathered = gather_bytes::<UserError>(0x11, 0x22, 0x33, 0x44, 0x55, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap();
+/// let gathered = BpfGatherBytes::call::<UserError>(0x11, 0x22, 0x33, 0x44, 0x55, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap();
 /// assert_eq!(gathered, 0x1122334455);
 /// ```
-pub fn gather_bytes<E: UserDefinedError>(
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    _self: *mut u8,
-    _memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<E>> {
-    Ok(arg1.wrapping_shl(32)
-        | arg2.wrapping_shl(24)
-        | arg3.wrapping_shl(16)
-        | arg4.wrapping_shl(8)
-        | arg5)
+pub struct BpfGatherBytes {}
+impl<'a> SyscallObject for BpfGatherBytes {
+    fn call<E: UserDefinedError>(
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        _self: *mut u8,
+        _memory_mapping: &MemoryMapping,
+    ) -> Result<u64, EbpfError<E>> {
+        Ok(arg1.wrapping_shl(32)
+            | arg2.wrapping_shl(24)
+            | arg3.wrapping_shl(16)
+            | arg4.wrapping_shl(8)
+            | arg5)
+    }
 }
 
 /// Same as `void *memfrob(void *s, size_t n);` in `string.h` in C. See the GNU manual page (in
@@ -175,43 +186,47 @@ pub fn gather_bytes<E: UserDefinedError>(
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::syscalls::memfrob;
+/// use solana_rbpf::syscalls::BpfMemFrob;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::user_error::UserError;
+/// use solana_rbpf::vm::SyscallObject;
 ///
 /// let val = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
 /// let val_va = 0x1000;
 /// let memory_mapping = [MemoryRegion::new_from_slice(&val, val_va, true)];
 ///
-/// memfrob::<UserError>(val_va, 8, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec()));
+/// BpfMemFrob::call::<UserError>(val_va, 8, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec()));
 /// assert_eq!(val, vec![0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
-/// memfrob::<UserError>(val_va, 8, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec()));
+/// BpfMemFrob::call::<UserError>(val_va, 8, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec()));
 /// assert_eq!(val, vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
 /// ```
-pub fn memfrob<E: UserDefinedError>(
-    vm_addr: u64,
-    len: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    _self: *mut u8,
-    memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<E>> {
-    let host_addr = memory_mapping.map(AccessType::Store, vm_addr, len)?;
-    for i in 0..len {
-        unsafe {
-            let p = (host_addr + i) as *mut u8;
-            *p ^= 0b101010;
+pub struct BpfMemFrob {}
+impl<'a> SyscallObject for BpfMemFrob {
+    fn call<E: UserDefinedError>(
+        vm_addr: u64,
+        len: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        _self: *mut u8,
+        memory_mapping: &MemoryMapping,
+    ) -> Result<u64, EbpfError<E>> {
+        let host_addr = memory_mapping.map(AccessType::Store, vm_addr, len)?;
+        for i in 0..len {
+            unsafe {
+                let p = (host_addr + i) as *mut u8;
+                *p ^= 0b101010;
+            }
         }
+        Ok(0)
     }
-    Ok(0)
 }
 
 // TODO: Try again when asm!() is available in stable Rust.
 // #![feature(asm)]
 // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 // #[allow(unused_variables)]
-// pub fn memfrob (ptr: u64, len: u64, arg3: u64, arg4: u64, arg5: u64) -> Result<u64, Error> {
+// pub fn BpfMemFrob (ptr: u64, len: u64, arg3: u64, arg4: u64, arg5: u64) -> Result<u64, Error> {
 //     unsafe {
 //         asm!(
 //                 "mov $0xf0, %rax"
@@ -234,25 +249,28 @@ pub fn memfrob<E: UserDefinedError>(
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::syscalls::sqrti;
+/// use solana_rbpf::syscalls::BpfSqrtI;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::user_error::UserError;
+/// use solana_rbpf::vm::SyscallObject;
 ///
 /// let memory_mapping = [MemoryRegion::default()];
-/// let x = sqrti::<UserError>(9, 0, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap();
+/// let x = BpfSqrtI::call::<UserError>(9, 0, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap();
 /// assert_eq!(x, 3);
 /// ```
-#[allow(dead_code)]
-pub fn sqrti<E: UserDefinedError>(
-    arg1: u64,
-    _arg2: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    _self: *mut u8,
-    _memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<E>> {
-    Ok((arg1 as f64).sqrt() as u64)
+pub struct BpfSqrtI {}
+impl<'a> SyscallObject for BpfSqrtI {
+    fn call<E: UserDefinedError>(
+        arg1: u64,
+        _arg2: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        _self: *mut u8,
+        _memory_mapping: &MemoryMapping,
+    ) -> Result<u64, EbpfError<E>> {
+        Ok((arg1 as f64).sqrt() as u64)
+    }
 }
 
 /// C-like `strcmp`, return 0 if the strings are equal, and a non-null value otherwise.
@@ -260,49 +278,51 @@ pub fn sqrti<E: UserDefinedError>(
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::syscalls::strcmp;
+/// use solana_rbpf::syscalls::BpfStrCmp;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::user_error::UserError;
+/// use solana_rbpf::vm::SyscallObject;
 ///
 /// let foo = "This is a string.";
 /// let bar = "This is another sting.";
 /// let va_foo = 0x1000;
 /// let va_bar = 0x2000;
 /// let memory_mapping = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, false)];
-/// assert!(strcmp::<UserError>(va_foo, va_foo, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap() == 0);
-/// let memory_mapping = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, false),
-///                MemoryRegion::new_from_slice(bar.as_bytes(), va_bar, false)];
-/// assert!(strcmp::<UserError>(va_foo, va_bar, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap() != 0);
+/// assert!(BpfStrCmp::call::<UserError>(va_foo, va_foo, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap() == 0);
+/// let memory_mapping = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, false), MemoryRegion::new_from_slice(bar.as_bytes(), va_bar, false)];
+/// assert!(BpfStrCmp::call::<UserError>(va_foo, va_bar, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap() != 0);
 /// ```
-#[allow(dead_code)]
-pub fn strcmp<E: UserDefinedError>(
-    arg1: u64,
-    arg2: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    _self: *mut u8,
-    memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<E>> {
-    // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
-    if arg1 == 0 || arg2 == 0 {
-        return Ok(u64::MAX);
-    }
-    let mut a = memory_mapping.map(AccessType::Load, arg1, 1)?;
-    let mut b = memory_mapping.map(AccessType::Load, arg2, 1)?;
-    unsafe {
-        let mut a_val = *(a as *const u8);
-        let mut b_val = *(b as *const u8);
-        while a_val == b_val && a_val != 0 && b_val != 0 {
-            a += 1;
-            b += 1;
-            a_val = *(a as *const u8);
-            b_val = *(b as *const u8);
+pub struct BpfStrCmp {}
+impl<'a> SyscallObject for BpfStrCmp {
+    fn call<E: UserDefinedError>(
+        arg1: u64,
+        arg2: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        _self: *mut u8,
+        memory_mapping: &MemoryMapping,
+    ) -> Result<u64, EbpfError<E>> {
+        // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
+        if arg1 == 0 || arg2 == 0 {
+            return Ok(u64::MAX);
         }
-        if a_val >= b_val {
-            Ok((a_val - b_val) as u64)
-        } else {
-            Ok((b_val - a_val) as u64)
+        let mut a = memory_mapping.map(AccessType::Load, arg1, 1)?;
+        let mut b = memory_mapping.map(AccessType::Load, arg2, 1)?;
+        unsafe {
+            let mut a_val = *(a as *const u8);
+            let mut b_val = *(b as *const u8);
+            while a_val == b_val && a_val != 0 && b_val != 0 {
+                a += 1;
+                b += 1;
+                a_val = *(a as *const u8);
+                b_val = *(b as *const u8);
+            }
+            if a_val >= b_val {
+                Ok((a_val - b_val) as u64)
+            } else {
+                Ok((b_val - a_val) as u64)
+            }
         }
     }
 }
@@ -322,31 +342,34 @@ pub fn strcmp<E: UserDefinedError>(
 /// extern crate solana_rbpf;
 /// extern crate time;
 ///
-/// use solana_rbpf::syscalls::rand;
+/// use solana_rbpf::syscalls::BpfRand;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::user_error::UserError;
+/// use solana_rbpf::vm::SyscallObject;
 ///
 /// unsafe {
 ///     libc::srand(time::precise_time_ns() as u32)
 /// }
 ///
 /// let memory_mapping = [MemoryRegion::default()];
-/// let n = rand::<UserError>(3, 6, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap();
+/// let n = BpfRand::call::<UserError>(3, 6, 0, 0, 0, std::ptr::null_mut(), &MemoryMapping::new_from_regions(memory_mapping.to_vec())).unwrap();
 /// assert!(3 <= n && n <= 6);
 /// ```
-#[allow(dead_code)]
-pub fn rand<E: UserDefinedError>(
-    min: u64,
-    max: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    _self: *mut u8,
-    _memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<E>> {
-    let mut n = unsafe { (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64 };
-    if min < max {
-        n = n % (max + 1 - min) + min;
-    };
-    Ok(n)
+pub struct BpfRand {}
+impl<'a> SyscallObject for BpfRand {
+    fn call<E: UserDefinedError>(
+        min: u64,
+        max: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        _self: *mut u8,
+        _memory_mapping: &MemoryMapping,
+    ) -> Result<u64, EbpfError<E>> {
+        let mut n = unsafe { (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64 };
+        if min < max {
+            n = n % (max + 1 - min) + min;
+        };
+        Ok(n)
+    }
 }

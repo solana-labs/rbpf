@@ -13,11 +13,11 @@ extern crate test_utils;
 use solana_rbpf::{
     ebpf::hash_symbol_name,
     user_error::UserError,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
-use test_utils::bpf_syscall_u64;
+use test_utils::BpfSyscallU64;
 
 #[bench]
 fn bench_load_elf(bencher: &mut Bencher) {
@@ -60,7 +60,10 @@ fn bench_load_elf_and_init_vm_with_syscall(bencher: &mut Bencher) {
         )
         .unwrap();
         executable
-            .register_syscall(hash_symbol_name(b"log_64"), bpf_syscall_u64)
+            .register_syscall(
+                hash_symbol_name(b"log_64"),
+                BpfSyscallU64::call::<UserError>,
+            )
             .unwrap();
         let mut _vm =
             EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])

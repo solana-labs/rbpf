@@ -37,63 +37,51 @@ impl InstructionMeter for TestInstructionMeter {
 
 pub type ExecResult = Result<u64, EbpfError<UserError>>;
 
-pub fn bpf_trace_printf<E: UserDefinedError>(
-    _arg1: u64,
-    _arg2: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    _self: *mut u8,
-    _memory_mapping: &MemoryMapping,
-) -> Result<u64, EbpfError<E>> {
-    Ok(0)
-}
-
-pub fn bpf_syscall_string(
-    vm_addr: u64,
-    len: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    _self: *mut u8,
-    memory_mapping: &MemoryMapping,
-) -> ExecResult {
-    let host_addr = memory_mapping.map(AccessType::Load, vm_addr, len)?;
-    let c_buf: *const c_char = host_addr as *const c_char;
-    unsafe {
-        for i in 0..len {
-            let c = std::ptr::read(c_buf.offset(i as isize));
-            if c == 0 {
-                break;
-            }
-        }
-        let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize)).unwrap();
-        println!("log: {}", message);
+pub struct BpfTracePrintf {}
+impl<'a> SyscallObject for BpfTracePrintf {
+    fn call<E: UserDefinedError>(
+        _arg1: u64,
+        _arg2: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        _self: *mut u8,
+        _memory_mapping: &MemoryMapping,
+    ) -> Result<u64, EbpfError<E>> {
+        Ok(0)
     }
-    Ok(0)
 }
 
-pub fn bpf_syscall_u64(
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    _self: *mut u8,
-    memory_mapping: &MemoryMapping,
-) -> ExecResult {
-    println!(
-        "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
-        arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
-    );
-    Ok(0)
+pub struct BpfSyscallString {}
+impl<'a> SyscallObject for BpfSyscallString {
+    fn call<E: UserDefinedError>(
+        vm_addr: u64,
+        len: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        _self: *mut u8,
+        memory_mapping: &MemoryMapping,
+    ) -> Result<u64, EbpfError<E>> {
+        let host_addr = memory_mapping.map(AccessType::Load, vm_addr, len)?;
+        let c_buf: *const c_char = host_addr as *const c_char;
+        unsafe {
+            for i in 0..len {
+                let c = std::ptr::read(c_buf.offset(i as isize));
+                if c == 0 {
+                    break;
+                }
+            }
+            let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize)).unwrap();
+            println!("log: {}", message);
+        }
+        Ok(0)
+    }
 }
 
-pub struct SyscallWithContext {
-    pub context: u64,
-}
-impl<'a> SyscallObject<UserError> for SyscallWithContext {
-    fn call(
+pub struct BpfSyscallU64 {}
+impl<'a> SyscallObject for BpfSyscallU64 {
+    fn call<E: UserDefinedError>(
         arg1: u64,
         arg2: u64,
         arg3: u64,
@@ -101,7 +89,28 @@ impl<'a> SyscallObject<UserError> for SyscallWithContext {
         arg5: u64,
         _self: *mut u8,
         memory_mapping: &MemoryMapping,
-    ) -> ExecResult {
+    ) -> Result<u64, EbpfError<E>> {
+        println!(
+            "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
+            arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
+        );
+        Ok(0)
+    }
+}
+
+pub struct SyscallWithContext {
+    pub context: u64,
+}
+impl<'a> SyscallObject for SyscallWithContext {
+    fn call<E: UserDefinedError>(
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        _self: *mut u8,
+        memory_mapping: &MemoryMapping,
+    ) -> Result<u64, EbpfError<E>> {
         println!(
             "SyscallWithContext: {:?}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
             _self as *const _, arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
