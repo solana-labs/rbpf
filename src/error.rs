@@ -31,6 +31,12 @@ pub enum EbpfError<E: UserDefinedError> {
     /// ELF error
     #[error("ELF error: {0}")]
     ELFError(#[from] ELFError),
+    /// Syscall was already registered before
+    #[error("syscall was already registered before")]
+    SycallAlreadyRegistered,
+    /// Syscall already has a bound context object
+    #[error("syscall already has a bound context object")]
+    SycallAlreadyBound,
     /// No program or ELF set
     #[error("no program or ELF set")]
     NothingToExecute,

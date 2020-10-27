@@ -38,14 +38,14 @@ impl InstructionMeter for TestInstructionMeter {
 pub type ExecResult = Result<u64, EbpfError<UserError>>;
 
 pub struct BpfTracePrintf {}
-impl<'a> SyscallObject for BpfTracePrintf {
+impl SyscallObject for BpfTracePrintf {
     fn call<E: UserDefinedError>(
         _arg1: u64,
         _arg2: u64,
         _arg3: u64,
         _arg4: u64,
         _arg5: u64,
-        _self: *mut u8,
+        _self: &mut Self,
         _memory_mapping: &MemoryMapping,
     ) -> Result<u64, EbpfError<E>> {
         Ok(0)
@@ -53,14 +53,14 @@ impl<'a> SyscallObject for BpfTracePrintf {
 }
 
 pub struct BpfSyscallString {}
-impl<'a> SyscallObject for BpfSyscallString {
+impl SyscallObject for BpfSyscallString {
     fn call<E: UserDefinedError>(
         vm_addr: u64,
         len: u64,
         _arg3: u64,
         _arg4: u64,
         _arg5: u64,
-        _self: *mut u8,
+        _self: &mut Self,
         memory_mapping: &MemoryMapping,
     ) -> Result<u64, EbpfError<E>> {
         let host_addr = memory_mapping.map(AccessType::Load, vm_addr, len)?;
@@ -80,14 +80,14 @@ impl<'a> SyscallObject for BpfSyscallString {
 }
 
 pub struct BpfSyscallU64 {}
-impl<'a> SyscallObject for BpfSyscallU64 {
+impl SyscallObject for BpfSyscallU64 {
     fn call<E: UserDefinedError>(
         arg1: u64,
         arg2: u64,
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        _self: *mut u8,
+        _self: &mut Self,
         memory_mapping: &MemoryMapping,
     ) -> Result<u64, EbpfError<E>> {
         println!(
@@ -101,14 +101,14 @@ impl<'a> SyscallObject for BpfSyscallU64 {
 pub struct SyscallWithContext {
     pub context: u64,
 }
-impl<'a> SyscallObject for SyscallWithContext {
+impl SyscallObject for SyscallWithContext {
     fn call<E: UserDefinedError>(
         arg1: u64,
         arg2: u64,
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        _self: *mut u8,
+        _self: &mut Self,
         memory_mapping: &MemoryMapping,
     ) -> Result<u64, EbpfError<E>> {
         println!(

@@ -1134,7 +1134,7 @@ impl<'a> JitCompiler<'a> {
                     // For JIT, syscalls MUST be registered at compile time. They can be
                     // updated later, but not created after compiling (we need the address of the
                     // syscall function in the JIT-compiled program).
-                    if let Some(syscall) = executable.lookup_syscall(insn.imm as u32) {
+                    if let Some(syscall) = executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
                         if self.enable_instruction_meter {
                             emit_validate_and_profile_instruction_count(self, Some(0));
                             emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 2) as i32);

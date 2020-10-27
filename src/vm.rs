@@ -20,7 +20,7 @@ use crate::{
     user_error::UserError,
 };
 use log::{debug, log_enabled, trace};
-use std::{fmt::Debug, u32};
+use std::{collections::HashMap, fmt::Debug, u32};
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
 macro_rules! translate_memory_access {
@@ -59,42 +59,83 @@ pub type Verifier<E> = fn(prog: &[u8]) -> Result<(), E>;
 pub type ProgramResult<E> = Result<u64, EbpfError<E>>;
 
 /// Syscall function without context
-pub type SyscallFunction<E> =
-    fn(u64, u64, u64, u64, u64, *mut u8, &MemoryMapping) -> ProgramResult<E>;
+pub type SyscallFunction<E, O> = fn(u64, u64, u64, u64, u64, O, &MemoryMapping) -> ProgramResult<E>;
 
 /// Syscall with context
 pub trait SyscallObject {
     /// Call the syscall function
-    #[allow(clippy::too_many_arguments)]
     fn call<E: UserDefinedError>(
         u64,
         u64,
         u64,
         u64,
         u64,
-        *mut u8,
+        &mut Self,
         &MemoryMapping,
     ) -> ProgramResult<E>;
 }
 
 /// Syscall function and binding slot for a context object
-pub struct Syscall<E: UserDefinedError> {
+pub struct Syscall {
     /// Call the syscall function
-    pub function: SyscallFunction<E>,
+    pub function: u64,
     /// Slot of context object
     pub context_object_slot: usize,
 }
 
-impl<E: UserDefinedError> Debug for Syscall<E> {
+impl Debug for Syscall {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.write_fmt(format_args!("Syscall {:?}", &self.function as *const _))
     }
 }
 
-impl<E: UserDefinedError> PartialEq for Syscall<E> {
-    fn eq(&self, other: &Syscall<E>) -> bool {
+impl PartialEq for Syscall {
+    fn eq(&self, other: &Syscall) -> bool {
         self.function as *const u8 == other.function as *const u8
             && self.context_object_slot == other.context_object_slot
+    }
+}
+
+/// Holds the syscall function pointers of an Executable
+#[derive(Debug, PartialEq, Default)]
+pub struct SyscallRegistry {
+    /// Syscall resolution map
+    entries: HashMap<u32, Syscall>,
+}
+
+impl SyscallRegistry {
+    /// Register a syscall function (which can later be bound to a context object)
+    pub fn register_syscall<E: UserDefinedError, O: SyscallObject>(
+        &mut self,
+        key: u32,
+        function: SyscallFunction<E, &mut O>,
+    ) -> Result<usize, EbpfError<E>> {
+        let context_object_slot = self.entries.len();
+        if self
+            .entries
+            .insert(
+                key,
+                Syscall {
+                    function: function as *const u8 as u64,
+                    context_object_slot,
+                },
+            )
+            .is_some()
+        {
+            Err(EbpfError::SycallAlreadyRegistered)
+        } else {
+            Ok(context_object_slot)
+        }
+    }
+
+    /// Get a symbol's function pointer
+    pub fn lookup_syscall(&self, hash: u32) -> Option<&Syscall> {
+        self.entries.get(&hash)
+    }
+
+    /// Get the number of registered syscalls
+    pub fn get_number_of_syscalls(&self) -> usize {
+        self.entries.len()
     }
 }
 
@@ -127,18 +168,12 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>>;
     /// Get a symbol's instruction offset
     fn lookup_bpf_call(&self, hash: u32) -> Option<&usize>;
-    /// Get a symbol's function pointer (and context object if any)
-    fn lookup_syscall(&self, hash: u32) -> Option<&Syscall<E>>;
+    /// Get the syscall registry
+    fn get_syscall_registry(&self) -> &SyscallRegistry;
+    /// Set (overwrite) the syscall registry
+    fn set_syscall_registry(&mut self, SyscallRegistry);
     /// Get the JIT compiled program
     fn get_compiled_program(&self) -> Option<&JitProgram<E, I>>;
-    /// Get the number of registered syscalls which have a context object
-    fn get_number_of_syscalls(&self) -> usize;
-    /// Register a syscall (function or an object which provides additional context)
-    fn register_syscall(
-        &mut self,
-        key: u32,
-        function: SyscallFunction<E>,
-    ) -> Result<usize, EbpfError<E>>;
     /// JIT compile the executable
     fn jit_compile(&mut self) -> Result<(), EbpfError<E>>;
     /// Report information on a symbol that failed to be resolved
@@ -279,7 +314,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         ));
         let memory_mapping = MemoryMapping::new_from_regions(regions);
         let mut syscall_context_objects =
-            vec![std::ptr::null_mut(); 2 + executable.get_number_of_syscalls()];
+            vec![
+                std::ptr::null_mut();
+                2 + executable.get_syscall_registry().get_number_of_syscalls()
+            ];
         unsafe {
             libc::memcpy(
                 syscall_context_objects.as_mut_ptr() as _,
@@ -305,13 +343,23 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     }
 
     /// Bind an object instance to a registered syscall at the given slot
-    pub fn bind_syscall_context_object(&mut self, hash: u32, syscall_context_object: *mut u8) {
+    pub fn bind_syscall_context_object(
+        &mut self,
+        hash: u32,
+        syscall_context_object: *mut u8,
+    ) -> Result<(), EbpfError<E>> {
         let slot = self
             .executable
+            .get_syscall_registry()
             .lookup_syscall(hash)
             .unwrap()
             .context_object_slot;
-        self.syscall_context_objects[2 + slot] = syscall_context_object;
+        if !self.syscall_context_objects[2 + slot].is_null() {
+            Err(EbpfError::SycallAlreadyBound)
+        } else {
+            self.syscall_context_objects[2 + slot] = syscall_context_object;
+            Ok(())
+        }
     }
 
     /// Execute the program loaded, with the given packet data.
@@ -635,10 +683,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 // Do not delegate the check to the verifier, since registered functions can be
                 // changed after the program has been verified.
                 ebpf::CALL_IMM => {
-                    if let Some(syscall) = self.executable.lookup_syscall(insn.imm as u32) {
+                    if let Some(syscall) = self.executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
                         let _ = instruction_meter.consume(self.last_insn_count);
                         self.last_insn_count = 0;
-                        reg[0] = (syscall.function)(
+                        reg[0] = (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
                             reg[1],
                             reg[2],
                             reg[3],

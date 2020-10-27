@@ -19,7 +19,7 @@ use solana_rbpf::{
     syscalls,
     user_error::UserError,
     verifier::check,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
 use std::{fs::File, io::Read};
 use test_utils::{
@@ -28,15 +28,17 @@ use test_utils::{
 };
 
 macro_rules! test_interpreter_and_jit {
-    (1, $executable:expr, $($location:expr => $syscall_function:expr; $syscall_context_object:expr),*) => {
-        $($executable.register_syscall($location, $syscall_function).unwrap();)*
+    (1, $syscall_registry:expr, $($location:expr => $syscall_function:expr; $syscall_context_object:expr),*) => {
+        $($syscall_registry.register_syscall::<UserError, _>($location, $syscall_function).unwrap();)*
     };
     (2, $vm:expr, $($location:expr => $syscall_function:expr; $syscall_context_object:expr),*) => {
-        $($vm.bind_syscall_context_object($location, $syscall_context_object);)*
+        $($vm.bind_syscall_context_object($location, $syscall_context_object).unwrap();)*
     };
     ( $executable:expr, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
         let check_closure = $check;
-        test_interpreter_and_jit!(1, $executable, $($location => $syscall_function; $syscall_context_object),*);
+        let mut syscall_registry = SyscallRegistry::default();
+        test_interpreter_and_jit!(1, syscall_registry, $($location => $syscall_function; $syscall_context_object),*);
+        $executable.set_syscall_registry(syscall_registry);
         let instruction_count_interpreter = {
             let mem = $mem;
             let mut vm = EbpfVm::new($executable.as_ref(), &mem, &[]).unwrap();

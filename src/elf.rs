@@ -12,7 +12,7 @@ extern crate scroll;
 use crate::{
     error::{EbpfError, UserDefinedError},
     jit::{compile, JitProgram},
-    vm::{Config, Executable, InstructionMeter, Syscall, SyscallFunction},
+    vm::{Config, Executable, InstructionMeter, SyscallRegistry},
 };
 use byteorder::{ByteOrder, LittleEndian};
 use ebpf;
@@ -184,7 +184,7 @@ pub struct EBpfElf<E: UserDefinedError, I: InstructionMeter> {
     /// Call resolution map
     calls: HashMap<u32, usize>,
     /// Syscall resolution map
-    syscalls: HashMap<u32, Syscall<E>>,
+    syscall_registry: SyscallRegistry,
     /// Compiled program and argument
     compiled_program: Option<JitProgram<E, I>>,
 }
@@ -231,36 +231,19 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
         self.calls.get(&hash)
     }
 
-    /// Get a symbol's function pointer (and context object if any)
-    fn lookup_syscall(&self, hash: u32) -> Option<&Syscall<E>> {
-        self.syscalls.get(&hash)
+    /// Get the syscall registry
+    fn get_syscall_registry(&self) -> &SyscallRegistry {
+        &self.syscall_registry
+    }
+
+    /// Set (overwrite) the syscall registry
+    fn set_syscall_registry(&mut self, syscall_registry: SyscallRegistry) {
+        self.syscall_registry = syscall_registry;
     }
 
     /// Get the JIT compiled program
     fn get_compiled_program(&self) -> Option<&JitProgram<E, I>> {
         self.compiled_program.as_ref()
-    }
-
-    /// Get the number of registered syscalls which have a context object
-    fn get_number_of_syscalls(&self) -> usize {
-        self.syscalls.len()
-    }
-
-    /// Register a syscall (function or an object which provides additional context)
-    fn register_syscall(
-        &mut self,
-        key: u32,
-        function: SyscallFunction<E>,
-    ) -> Result<usize, EbpfError<E>> {
-        let context_object_slot = self.syscalls.len();
-        self.syscalls.insert(
-            key,
-            Syscall::<E> {
-                function,
-                context_object_slot,
-            },
-        );
-        Ok(context_object_slot)
     }
 
     /// JIT compile the executable
@@ -319,7 +302,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             },
             ro_section_infos: vec![],
             calls: HashMap::default(),
-            syscalls: HashMap::default(),
+            syscall_registry: SyscallRegistry::default(),
             compiled_program: None,
         }
     }
@@ -375,7 +358,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             text_section_info,
             ro_section_infos,
             calls,
-            syscalls: HashMap::default(),
+            syscall_registry: SyscallRegistry::default(),
             compiled_program: None,
         })
     }
