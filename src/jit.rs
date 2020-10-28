@@ -632,8 +632,11 @@ fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argum
             Value::Register(reg) => {
                 let src = saved_registers.iter().position(|x| *x == reg).unwrap();
                 saved_registers.remove(src);
-                let dst = saved_registers.len()-(argument.index-ARGUMENT_REGISTERS.len());
+                let dst = saved_registers.len() - (argument.index - ARGUMENT_REGISTERS.len());
                 saved_registers.insert(dst, reg);
+            },
+            Value::Stack(slot) => {
+                emit_load(jit, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() as i32 + slot));
             },
             _ => panic!()
         }
@@ -1148,7 +1151,6 @@ impl<'a> JitCompiler<'a> {
                         }
 
                         emit_load(self, OperandSize::S64, R10, RAX, (2 + syscall.context_object_slot as i32) * 8);
-                        emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() as i32 + 1));
                         emit_rust_call(self, syscall.function as *const u8, &[
                             Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the SyscallObject
                             Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
@@ -1157,7 +1159,7 @@ impl<'a> JitCompiler<'a> {
                             Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
                             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
                             Argument { index: 6, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
-                            Argument { index: 7, value: Value::Register(R11) }, // Pointer to optional typed return value
+                            Argument { index: 7, value: Value::Stack(1) }, // Pointer to optional typed return value
                         ], None);
 
                         // Throw error if the result indicates one

@@ -31,7 +31,7 @@ fn bench_load_elf(bencher: &mut Bencher) {
 }
 
 #[bench]
-fn bench_load_elf_and_init_vm_without_syscall(bencher: &mut Bencher) {
+fn bench_load_elf_without_syscall(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/noro.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
@@ -42,13 +42,11 @@ fn bench_load_elf_and_init_vm_without_syscall(bencher: &mut Bencher) {
             Config::default(),
         )
         .unwrap();
-        let _vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
-            .unwrap();
     });
 }
 
 #[bench]
-fn bench_load_elf_and_init_vm_with_syscall(bencher: &mut Bencher) {
+fn bench_load_elf_with_syscall(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/noro.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
@@ -64,8 +62,5 @@ fn bench_load_elf_and_init_vm_with_syscall(bencher: &mut Bencher) {
             .register_syscall::<UserError, _>(hash_symbol_name(b"log_64"), BpfSyscallU64::call)
             .unwrap();
         executable.set_syscall_registry(syscall_registry);
-        let mut _vm =
-            EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
-                .unwrap();
     });
 }
