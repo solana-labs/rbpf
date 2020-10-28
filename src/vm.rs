@@ -22,29 +22,6 @@ use crate::{
 use log::{debug, log_enabled, trace};
 use std::{collections::HashMap, fmt::Debug, u32};
 
-/// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
-macro_rules! translate_memory_access {
-    ( $self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty ) => {
-        match $self.memory_mapping.map::<UserError>(
-            $access_type,
-            $vm_addr,
-            std::mem::size_of::<$T>() as u64,
-        ) {
-            Ok(host_addr) => host_addr as *mut $T,
-            Err(EbpfError::AccessViolation(_pc, access_type, vm_addr, len, regions)) => {
-                return Err(EbpfError::AccessViolation(
-                    $pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    access_type,
-                    vm_addr,
-                    len,
-                    regions,
-                ));
-            }
-            _ => unreachable!(),
-        }
-    };
-}
-
 /// eBPF verification function that returns an error if the program does not meet its requirements.
 ///
 /// Some examples of things the verifier may reject the program for:
@@ -58,21 +35,28 @@ pub type Verifier<E> = fn(prog: &[u8]) -> Result<(), E>;
 /// Return value of programs and syscalls
 pub type ProgramResult<E> = Result<u64, EbpfError<E>>;
 
+/// Error handling for SyscallObject::call methods
+#[macro_export]
+macro_rules! question_mark {
+    ( $value:expr, $result:ident ) => {{
+        let value = $value;
+        if value.is_err() {
+            *$result = value;
+            return;
+        }
+        value.unwrap()
+    }};
+}
+
 /// Syscall function without context
-pub type SyscallFunction<E, O> = fn(u64, u64, u64, u64, u64, O, &MemoryMapping) -> ProgramResult<E>;
+pub type SyscallFunction<E, O> =
+    fn(O, u64, u64, u64, u64, u64, &MemoryMapping, &mut ProgramResult<E>);
 
 /// Syscall with context
-pub trait SyscallObject {
+pub trait SyscallObject<E: UserDefinedError> {
     /// Call the syscall function
-    fn call<E: UserDefinedError>(
-        u64,
-        u64,
-        u64,
-        u64,
-        u64,
-        &mut Self,
-        &MemoryMapping,
-    ) -> ProgramResult<E>;
+    #[allow(clippy::too_many_arguments)]
+    fn call(&mut self, u64, u64, u64, u64, u64, &MemoryMapping, &mut ProgramResult<E>);
 }
 
 /// Syscall function and binding slot for a context object
@@ -105,26 +89,25 @@ pub struct SyscallRegistry {
 
 impl SyscallRegistry {
     /// Register a syscall function (which can later be bound to a context object)
-    pub fn register_syscall<E: UserDefinedError, O: SyscallObject>(
+    pub fn register_syscall<E: UserDefinedError, O: SyscallObject<E>>(
         &mut self,
         key: u32,
         function: SyscallFunction<E, &mut O>,
-    ) -> Result<usize, EbpfError<E>> {
-        let context_object_slot = self.entries.len();
+    ) -> Result<(), EbpfError<E>> {
         if self
             .entries
             .insert(
                 key,
                 Syscall {
                     function: function as *const u8 as u64,
-                    context_object_slot,
+                    context_object_slot: self.entries.len(),
                 },
             )
             .is_some()
         {
             Err(EbpfError::SycallAlreadyRegistered)
         } else {
-            Ok(context_object_slot)
+            Ok(())
         }
     }
 
@@ -180,8 +163,6 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<(), EbpfError<E>>;
 }
 
-// compiled_prog_and_arg: Option<JitProgramAndArgument<E, I>>,
-
 /// Static constructors for Executable
 impl<E: UserDefinedError, I: 'static + InstructionMeter> dyn Executable<E, I> {
     /// Creates a post relocaiton/fixup executable from an ELF file
@@ -226,6 +207,29 @@ impl InstructionMeter for DefaultInstructionMeter {
     fn get_remaining(&self) -> u64 {
         std::i64::MAX as u64
     }
+}
+
+/// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
+macro_rules! translate_memory_access {
+    ( $self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty ) => {
+        match $self.memory_mapping.map::<UserError>(
+            $access_type,
+            $vm_addr,
+            std::mem::size_of::<$T>() as u64,
+        ) {
+            Ok(host_addr) => host_addr as *mut $T,
+            Err(EbpfError::AccessViolation(_pc, access_type, vm_addr, len, regions)) => {
+                return Err(EbpfError::AccessViolation(
+                    $pc + ebpf::ELF_INSN_DUMP_OFFSET,
+                    access_type,
+                    vm_addr,
+                    len,
+                    regions,
+                ));
+            }
+            _ => unreachable!(),
+        }
+    };
 }
 
 /// A virtual machine to run eBPF program.
@@ -347,6 +351,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         &mut self,
         hash: u32,
         syscall_context_object: *mut u8,
+        // syscall_context_object: &mut dyn SyscallObject::<E>,
     ) -> Result<(), EbpfError<E>> {
         let slot = self
             .executable
@@ -686,15 +691,18 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                     if let Some(syscall) = self.executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
                         let _ = instruction_meter.consume(self.last_insn_count);
                         self.last_insn_count = 0;
-                        reg[0] = (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
+                        let mut result: ProgramResult<E> = Ok(0);
+                        (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
+                            self.syscall_context_objects[2 + syscall.context_object_slot],
                             reg[1],
                             reg[2],
                             reg[3],
                             reg[4],
                             reg[5],
-                            self.syscall_context_objects[2 + syscall.context_object_slot],
                             &self.memory_mapping,
-                        )?;
+                            &mut result,
+                        );
+                        reg[0] = result?;
                         remaining_insn_count = instruction_meter.get_remaining();
                     } else if let Some(new_pc) = self.executable.lookup_bpf_call(insn.imm as u32) {
                         // make BPF to BPF call

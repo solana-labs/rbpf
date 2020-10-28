@@ -1147,16 +1147,17 @@ impl<'a> JitCompiler<'a> {
                             ], None);
                         }
 
-                        emit_load(self, OperandSize::S64, R10, R11, (2 + syscall.context_object_slot as i32) * 8);
+                        emit_load(self, OperandSize::S64, R10, RAX, (2 + syscall.context_object_slot as i32) * 8);
+                        emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() as i32 + 1));
                         emit_rust_call(self, syscall.function as *const u8, &[
-                            Argument { index: 0, value: Value::Stack(1) }, // Pointer to optional typed return value
+                            Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the SyscallObject
                             Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
                             Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
                             Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
                             Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
                             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
-                            Argument { index: 6, value: Value::Register(R11) }, // "&mut self" in the "call" method of the SyscallObject
-                            Argument { index: 7, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
+                            Argument { index: 6, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
+                            Argument { index: 7, value: Value::Register(R11) }, // Pointer to optional typed return value
                         ], None);
 
                         // Throw error if the result indicates one

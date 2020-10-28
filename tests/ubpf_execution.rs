@@ -23,7 +23,7 @@ use solana_rbpf::{
 };
 use std::{fs::File, io::Read};
 use test_utils::{
-    BpfSyscallString, BpfSyscallU64, BpfTracePrintf, ExecResult, SyscallWithContext,
+    BpfSyscallString, BpfSyscallU64, BpfTracePrintf, Result, SyscallWithContext,
     TestInstructionMeter, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH,
 };
 
@@ -99,7 +99,7 @@ fn test_mov() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         3
     );
 }
@@ -112,7 +112,7 @@ fn test_mov32_imm_large() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xffffffff } },
+        { |res: Result| { res.unwrap() == 0xffffffff } },
         2
     );
 }
@@ -126,7 +126,7 @@ fn test_mov_large() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xffffffff } },
+        { |res: Result| { res.unwrap() == 0xffffffff } },
         3
     );
 }
@@ -144,7 +144,7 @@ fn test_bounce() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -160,7 +160,7 @@ fn test_add32() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x3 } },
+        { |res: Result| { res.unwrap() == 0x3 } },
         5
     );
 }
@@ -174,7 +174,7 @@ fn test_neg32() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xfffffffe } },
+        { |res: Result| { res.unwrap() == 0xfffffffe } },
         3
     );
 }
@@ -188,7 +188,7 @@ fn test_neg64() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xfffffffffffffffe } },
+        { |res: Result| { res.unwrap() == 0xfffffffffffffffe } },
         3
     );
 }
@@ -218,7 +218,7 @@ fn test_alu32_arithmetic() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x2a } },
+        { |res: Result| { res.unwrap() == 0x2a } },
         19
     );
 }
@@ -248,7 +248,7 @@ fn test_alu64_arithmetic() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x2a } },
+        { |res: Result| { res.unwrap() == 0x2a } },
         19
     );
 }
@@ -301,7 +301,7 @@ fn test_mul128() {
         exit",
         [0; 16],
         (),
-        { |res: ExecResult| { res.unwrap() == 600 } },
+        { |res: Result| { res.unwrap() == 600 } },
         42
     );
 }
@@ -333,7 +333,7 @@ fn test_alu32_logic() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x11 } },
+        { |res: Result| { res.unwrap() == 0x11 } },
         21
     );
 }
@@ -367,7 +367,7 @@ fn test_alu64_logic() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x11 } },
+        { |res: Result| { res.unwrap() == 0x11 } },
         23
     );
 }
@@ -382,7 +382,7 @@ fn test_arsh32_high_shift() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x4 } },
+        { |res: Result| { res.unwrap() == 0x4 } },
         4
     );
 }
@@ -397,7 +397,7 @@ fn test_arsh32_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xffff8000 } },
+        { |res: Result| { res.unwrap() == 0xffff8000 } },
         4
     );
 }
@@ -413,7 +413,7 @@ fn test_arsh32_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xffff8000 } },
+        { |res: Result| { res.unwrap() == 0xffff8000 } },
         5
     );
 }
@@ -430,7 +430,7 @@ fn test_arsh64() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xfffffffffffffff8 } },
+        { |res: Result| { res.unwrap() == 0xfffffffffffffff8 } },
         6
     );
 }
@@ -445,7 +445,7 @@ fn test_lsh64_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x10 } },
+        { |res: Result| { res.unwrap() == 0x10 } },
         4
     );
 }
@@ -460,7 +460,7 @@ fn test_rhs32_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x00ffffff } },
+        { |res: Result| { res.unwrap() == 0x00ffffff } },
         4
     );
 }
@@ -475,7 +475,7 @@ fn test_rsh64_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         4
     );
 }
@@ -489,7 +489,7 @@ fn test_be16() {
         exit",
         [0x11, 0x22],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1122 } },
+        { |res: Result| { res.unwrap() == 0x1122 } },
         3
     );
 }
@@ -503,7 +503,7 @@ fn test_be16_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1122 } },
+        { |res: Result| { res.unwrap() == 0x1122 } },
         3
     );
 }
@@ -517,7 +517,7 @@ fn test_be32() {
         exit",
         [0x11, 0x22, 0x33, 0x44],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x11223344 } },
+        { |res: Result| { res.unwrap() == 0x11223344 } },
         3
     );
 }
@@ -531,7 +531,7 @@ fn test_be32_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x11223344 } },
+        { |res: Result| { res.unwrap() == 0x11223344 } },
         3
     );
 }
@@ -545,7 +545,7 @@ fn test_be64() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } },
+        { |res: Result| { res.unwrap() == 0x1122334455667788 } },
         3
     );
 }
@@ -559,7 +559,7 @@ fn test_le16() {
         exit",
         [0x22, 0x11],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1122 } },
+        { |res: Result| { res.unwrap() == 0x1122 } },
         3
     );
 }
@@ -573,7 +573,7 @@ fn test_le32() {
         exit",
         [0x44, 0x33, 0x22, 0x11],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x11223344 } },
+        { |res: Result| { res.unwrap() == 0x11223344 } },
         3
     );
 }
@@ -587,7 +587,7 @@ fn test_le64() {
         exit",
         [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } },
+        { |res: Result| { res.unwrap() == 0x1122334455667788 } },
         3
     );
 }
@@ -601,7 +601,7 @@ fn test_mul32_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xc } },
+        { |res: Result| { res.unwrap() == 0xc } },
         3
     );
 }
@@ -616,7 +616,7 @@ fn test_mul32_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xc } },
+        { |res: Result| { res.unwrap() == 0xc } },
         4
     );
 }
@@ -631,7 +631,7 @@ fn test_mul32_reg_overflow() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x4 } },
+        { |res: Result| { res.unwrap() == 0x4 } },
         4
     );
 }
@@ -645,7 +645,7 @@ fn test_mul64_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x100000004 } },
+        { |res: Result| { res.unwrap() == 0x100000004 } },
         3
     );
 }
@@ -660,7 +660,7 @@ fn test_mul64_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x100000004 } },
+        { |res: Result| { res.unwrap() == 0x100000004 } },
         4
     );
 }
@@ -675,7 +675,7 @@ fn test_div32_high_divisor() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x3 } },
+        { |res: Result| { res.unwrap() == 0x3 } },
         4
     );
 }
@@ -689,7 +689,7 @@ fn test_div32_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x3 } },
+        { |res: Result| { res.unwrap() == 0x3 } },
         3
     );
 }
@@ -704,7 +704,7 @@ fn test_div32_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x3 } },
+        { |res: Result| { res.unwrap() == 0x3 } },
         4
     );
 }
@@ -719,7 +719,7 @@ fn test_div64_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x300000000 } },
+        { |res: Result| { res.unwrap() == 0x300000000 } },
         4
     );
 }
@@ -735,7 +735,7 @@ fn test_div64_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x300000000 } },
+        { |res: Result| { res.unwrap() == 0x300000000 } },
         5
     );
 }
@@ -750,7 +750,7 @@ fn test_err_div64_by_zero_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
+        { |res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
     );
 }
@@ -765,7 +765,7 @@ fn test_err_div_by_zero_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
+        { |res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
     );
 }
@@ -781,7 +781,7 @@ fn test_mod32() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x5 } },
+        { |res: Result| { res.unwrap() == 0x5 } },
         5
     );
 }
@@ -795,7 +795,7 @@ fn test_mod32_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x0 } },
+        { |res: Result| { res.unwrap() == 0x0 } },
         3
     );
 }
@@ -815,7 +815,7 @@ fn test_mod64() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x30ba5a04 } },
+        { |res: Result| { res.unwrap() == 0x30ba5a04 } },
         9
     );
 }
@@ -830,7 +830,7 @@ fn test_err_mod64_by_zero_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
+        { |res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
     );
 }
@@ -845,7 +845,7 @@ fn test_err_mod_by_zero_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
+        { |res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
     );
 }
@@ -863,7 +863,7 @@ fn test_ldabsb() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x33 } },
+        { |res: Result| { res.unwrap() == 0x33 } },
         2
     );
 }
@@ -879,7 +879,7 @@ fn test_ldabsh() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x4433 } },
+        { |res: Result| { res.unwrap() == 0x4433 } },
         2
     );
 }
@@ -895,7 +895,7 @@ fn test_ldabsw() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x66554433 } },
+        { |res: Result| { res.unwrap() == 0x66554433 } },
         2
     );
 }
@@ -911,7 +911,7 @@ fn test_ldabsdw() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xaa99887766554433 } },
+        { |res: Result| { res.unwrap() == 0xaa99887766554433 } },
         2
     );
 }
@@ -928,7 +928,7 @@ fn test_err_ldabsb_oob() {
         ],
         (),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::AccessViolation(pc, access_type, _, _, _)
                     if access_type == AccessType::Load && pc == 29
@@ -948,7 +948,7 @@ fn test_err_ldabsb_nomem() {
         [],
         (),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::AccessViolation(pc, access_type, _, _, _)
                     if access_type == AccessType::Load && pc == 29
@@ -971,7 +971,7 @@ fn test_ldindb() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x88 } },
+        { |res: Result| { res.unwrap() == 0x88 } },
         3
     );
 }
@@ -988,7 +988,7 @@ fn test_ldindh() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x9988 } },
+        { |res: Result| { res.unwrap() == 0x9988 } },
         3
     );
 }
@@ -1005,7 +1005,7 @@ fn test_ldindw() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x88776655 } },
+        { |res: Result| { res.unwrap() == 0x88776655 } },
         3
     );
 }
@@ -1022,7 +1022,7 @@ fn test_ldinddw() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xccbbaa9988776655 } },
+        { |res: Result| { res.unwrap() == 0xccbbaa9988776655 } },
         3
     );
 }
@@ -1040,7 +1040,7 @@ fn test_err_ldindb_oob() {
         ],
         (),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::AccessViolation(pc, access_type, _, _, _)
                     if access_type == AccessType::Load && pc == 30
@@ -1061,7 +1061,7 @@ fn test_err_ldindb_nomem() {
         [],
         (),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::AccessViolation(pc, access_type, _, _, _)
                     if access_type == AccessType::Load && pc == 30
@@ -1080,7 +1080,7 @@ fn test_ldxb() {
         exit",
         [0xaa, 0xbb, 0x11, 0xcc, 0xdd],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x11 } },
+        { |res: Result| { res.unwrap() == 0x11 } },
         2
     );
 }
@@ -1093,7 +1093,7 @@ fn test_ldxh() {
         exit",
         [0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x2211 } },
+        { |res: Result| { res.unwrap() == 0x2211 } },
         2
     );
 }
@@ -1108,7 +1108,7 @@ fn test_ldxw() {
             0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0xcc, 0xdd, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x44332211 } },
+        { |res: Result| { res.unwrap() == 0x44332211 } },
         2
     );
 }
@@ -1123,7 +1123,7 @@ fn test_ldxh_same_reg() {
         exit",
         [0xff, 0xff],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1234 } },
+        { |res: Result| { res.unwrap() == 0x1234 } },
         4
     );
 }
@@ -1139,7 +1139,7 @@ fn test_lldxdw() {
             0x77, 0x88, 0xcc, 0xdd, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x8877665544332211 } },
+        { |res: Result| { res.unwrap() == 0x8877665544332211 } },
         2
     );
 }
@@ -1156,7 +1156,7 @@ fn test_err_ldxdw_oob() {
         ],
         (),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::AccessViolation(pc, access_type, _, _, _)
                     if access_type == AccessType::Load && pc == 29
@@ -1207,7 +1207,7 @@ fn test_ldxb_all() {
             0x08, 0x09, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x9876543210 } },
+        { |res: Result| { res.unwrap() == 0x9876543210 } },
         31
     );
 }
@@ -1263,7 +1263,7 @@ fn test_ldxh_all() {
             0x00, 0x08, 0x00, 0x09, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x9876543210 } },
+        { |res: Result| { res.unwrap() == 0x9876543210 } },
         41
     );
 }
@@ -1309,7 +1309,7 @@ fn test_ldxh_all2() {
             0x01, 0x00, 0x02, 0x00, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x3ff } },
+        { |res: Result| { res.unwrap() == 0x3ff } },
         31
     );
 }
@@ -1357,7 +1357,7 @@ fn test_ldxw_all() {
             0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x030f0f } },
+        { |res: Result| { res.unwrap() == 0x030f0f } },
         31
     );
 }
@@ -1370,7 +1370,7 @@ fn test_lddw() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1122334455667788 } },
+        { |res: Result| { res.unwrap() == 0x1122334455667788 } },
         2
     );
 }
@@ -1383,7 +1383,7 @@ fn test_lddw2() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x80000000 } },
+        { |res: Result| { res.unwrap() == 0x80000000 } },
         2
     );
 }
@@ -1397,7 +1397,7 @@ fn test_stb() {
         exit",
         [0xaa, 0xbb, 0xff, 0xcc, 0xdd],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x11 } },
+        { |res: Result| { res.unwrap() == 0x11 } },
         3
     );
 }
@@ -1413,7 +1413,7 @@ fn test_sth() {
             0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x2211 } },
+        { |res: Result| { res.unwrap() == 0x2211 } },
         3
     );
 }
@@ -1429,7 +1429,7 @@ fn test_stw() {
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x44332211 } },
+        { |res: Result| { res.unwrap() == 0x44332211 } },
         3
     );
 }
@@ -1446,7 +1446,7 @@ fn test_stdw() {
             0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x44332211 } },
+        { |res: Result| { res.unwrap() == 0x44332211 } },
         3
     );
 }
@@ -1463,7 +1463,7 @@ fn test_stxb() {
             0xaa, 0xbb, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x11 } },
+        { |res: Result| { res.unwrap() == 0x11 } },
         4
     );
 }
@@ -1480,7 +1480,7 @@ fn test_stxh() {
             0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x2211 } },
+        { |res: Result| { res.unwrap() == 0x2211 } },
         4
     );
 }
@@ -1497,7 +1497,7 @@ fn test_stxw() {
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x44332211 } },
+        { |res: Result| { res.unwrap() == 0x44332211 } },
         4
     );
 }
@@ -1517,7 +1517,7 @@ fn test_stxdw() {
             0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x8877665544332211 } },
+        { |res: Result| { res.unwrap() == 0x8877665544332211 } },
         6
     );
 }
@@ -1549,7 +1549,7 @@ fn test_stxb_all() {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xf0f2f3f4f5f6f7f8 } },
+        { |res: Result| { res.unwrap() == 0xf0f2f3f4f5f6f7f8 } },
         19
     );
 }
@@ -1568,7 +1568,7 @@ fn test_stxb_all2() {
         exit",
         [0xff, 0xff],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xf1f9 } },
+        { |res: Result| { res.unwrap() == 0xf1f9 } },
         8
     );
 }
@@ -1603,7 +1603,7 @@ fn test_stxb_chain() {
             0x00, 0x00, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x2a } },
+        { |res: Result| { res.unwrap() == 0x2a } },
         21
     );
 }
@@ -1617,7 +1617,7 @@ fn test_exit_without_value() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x0 } },
+        { |res: Result| { res.unwrap() == 0x0 } },
         1
     );
 }
@@ -1630,7 +1630,7 @@ fn test_exit() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x0 } },
+        { |res: Result| { res.unwrap() == 0x0 } },
         2
     );
 }
@@ -1645,7 +1645,7 @@ fn test_early_exit() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x3 } },
+        { |res: Result| { res.unwrap() == 0x3 } },
         2
     );
 }
@@ -1660,7 +1660,7 @@ fn test_ja() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         3
     );
 }
@@ -1679,7 +1679,7 @@ fn test_jeq_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -1699,7 +1699,7 @@ fn test_jeq_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         8
     );
 }
@@ -1718,7 +1718,7 @@ fn test_jge_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -1738,7 +1738,7 @@ fn test_jge_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         8
     );
 }
@@ -1758,7 +1758,7 @@ fn test_jle_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -1780,7 +1780,7 @@ fn test_jle_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         9
     );
 }
@@ -1799,7 +1799,7 @@ fn test_jgt_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -1820,7 +1820,7 @@ fn test_jgt_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         9
     );
 }
@@ -1839,7 +1839,7 @@ fn test_jlt_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -1860,7 +1860,7 @@ fn test_jlt_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         9
     );
 }
@@ -1879,7 +1879,7 @@ fn test_jne_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -1899,7 +1899,7 @@ fn test_jne_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         8
     );
 }
@@ -1918,7 +1918,7 @@ fn test_jset_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -1938,7 +1938,7 @@ fn test_jset_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         8
     );
 }
@@ -1958,7 +1958,7 @@ fn test_jsge_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         8
     );
 }
@@ -1980,7 +1980,7 @@ fn test_jsge_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         10
     );
 }
@@ -2000,7 +2000,7 @@ fn test_jsle_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -2023,7 +2023,7 @@ fn test_jsle_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         10
     );
 }
@@ -2042,7 +2042,7 @@ fn test_jsgt_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -2062,7 +2062,7 @@ fn test_jsgt_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         8
     );
 }
@@ -2081,7 +2081,7 @@ fn test_jslt_imm() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         7
     );
 }
@@ -2102,7 +2102,7 @@ fn test_jslt_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         9
     );
 }
@@ -2124,7 +2124,7 @@ fn test_stack1() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0xcd } },
+        { |res: Result| { res.unwrap() == 0xcd } },
         9
     );
 }
@@ -2154,7 +2154,7 @@ fn test_stack2() {
             0 => syscalls::BpfGatherBytes::call; std::ptr::null_mut(),
             1 => syscalls::BpfMemFrob::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0x01020304 } },
+        { |res: Result| { res.unwrap() == 0x01020304 } },
         16
     );
 }
@@ -2195,7 +2195,7 @@ fn test_string_stack() {
         (
             0 => syscalls::BpfStrCmp::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0x0 } },
+        { |res: Result| { res.unwrap() == 0x0 } },
         28
     );
 }
@@ -2209,7 +2209,7 @@ fn test_err_stack_out_of_bound() {
         [],
         (),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::AccessViolation(pc, access_type, _, _, _)
                     if access_type == AccessType::Store && pc == 29
@@ -2230,7 +2230,7 @@ fn test_relative_call() {
         (
             hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 2 } },
+        { |res: Result| { res.unwrap() == 2 } },
         14
     );
 }
@@ -2243,7 +2243,7 @@ fn test_bpf_to_bpf_scratch_registers() {
         (
             hash_symbol_name(b"log_64") => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 112 } },
+        { |res: Result| { res.unwrap() == 112 } },
         41
     );
 }
@@ -2254,7 +2254,7 @@ fn test_bpf_to_bpf_pass_stack_reference() {
         "tests/elfs/pass_stack_reference.so",
         [],
         (),
-        { |res: ExecResult| res.unwrap() == 42 },
+        { |res: Result| res.unwrap() == 42 },
         29
     );
 }
@@ -2273,7 +2273,7 @@ fn test_syscall_parameter_on_stack() {
         (
             0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0 } },
+        { |res: Result| { res.unwrap() == 0 } },
         6
     );
 }
@@ -2292,7 +2292,7 @@ fn test_call_reg() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 42 } },
+        { |res: Result| { res.unwrap() == 42 } },
         8
     );
 }
@@ -2307,7 +2307,7 @@ fn test_err_oob_callx_low() {
         [],
         (),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::CallOutsideTextSegment(pc, target_pc)
                     if pc == 30 && target_pc == 0
@@ -2329,7 +2329,7 @@ fn test_err_oob_callx_high() {
         [],
         (),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::CallOutsideTextSegment(pc, target_pc)
                     if pc == 31 && target_pc == 0xffffffff00000000
@@ -2350,7 +2350,7 @@ fn test_bpf_to_bpf_depth() {
             (
                 hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
             ),
-            { |res: ExecResult| { res.unwrap() == 0 } },
+            { |res: Result| { res.unwrap() == 0 } },
             if i == 0 { 4 } else { 3 + 10 * i as u64 }
         );
     }
@@ -2366,7 +2366,7 @@ fn test_err_bpf_to_bpf_too_deep() {
             hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::CallDepthExceeded(pc, depth)
                     if pc == 55 && depth == config.max_call_depth
@@ -2391,7 +2391,7 @@ fn test_err_reg_stack_depth() {
             hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::CallDepthExceeded(pc, depth)
                     if pc == 31 && depth == config.max_call_depth
@@ -2425,7 +2425,7 @@ fn test_call_save() {
         (
             0 => syscalls::trash_registers,
         ),
-        { |res: ExecResult| { res.unwrap() == 0 } }
+        { |res: Result| { res.unwrap() == 0 } }
     );
 }*/
 
@@ -2442,7 +2442,7 @@ fn test_err_syscall_string() {
             0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::AccessViolation(pc, access_type, _, _, _)
                     if access_type == AccessType::Load && pc == 0
@@ -2465,7 +2465,7 @@ fn test_syscall_string() {
         (
             0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0 } },
+        { |res: Result| { res.unwrap() == 0 } },
         4
     );
 }
@@ -2486,7 +2486,7 @@ fn test_syscall() {
         (
             0 => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0 } },
+        { |res: Result| { res.unwrap() == 0 } },
         8
     );
 }
@@ -2506,7 +2506,7 @@ fn test_call_gather_bytes() {
         (
             0 => syscalls::BpfGatherBytes::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0x0102030405 } },
+        { |res: Result| { res.unwrap() == 0x0102030405 } },
         7
     );
 }
@@ -2528,7 +2528,7 @@ fn test_call_memfrob() {
         (
             0 => syscalls::BpfMemFrob::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0x102292e2f2c0708 } },
+        { |res: Result| { res.unwrap() == 0x102292e2f2c0708 } },
         7
     );
 }
@@ -2551,7 +2551,7 @@ fn test_syscall_with_context() {
         (
             0 => SyscallWithContext::call; &mut syscall_context_object as *mut _ as *mut u8,
         ),
-        { |res: ExecResult| {
+        { |res: Result| {
             unsafe {
                 assert_eq!(*number_ptr, 84);
                 *number_ptr = 42;
@@ -2573,7 +2573,7 @@ fn test_load_elf() {
             hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
             hash_symbol_name(b"log_64") => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0 } },
+        { |res: Result| { res.unwrap() == 0 } },
         11
     );
 }
@@ -2586,7 +2586,7 @@ fn test_load_elf_empty_noro() {
         (
             hash_symbol_name(b"log_64") => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0 } },
+        { |res: Result| { res.unwrap() == 0 } },
         8
     );
 }
@@ -2599,7 +2599,7 @@ fn test_load_elf_empty_rodata() {
         (
             hash_symbol_name(b"log_64") => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0 } },
+        { |res: Result| { res.unwrap() == 0 } },
         8
     );
 }
@@ -2620,7 +2620,7 @@ fn test_custom_entrypoint() {
             hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
             hash_symbol_name(b"log_64") => BpfSyscallU64::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0 } },
+        { |res: Result| { res.unwrap() == 0 } },
         2
     );
 }
@@ -2639,7 +2639,7 @@ fn test_instruction_count_syscall() {
         (
             0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0 } },
+        { |res: Result| { res.unwrap() == 0 } },
         4
     );
 }
@@ -2657,7 +2657,7 @@ fn test_err_instruction_count_syscall_capped() {
             0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
                     if pc == 32 && initial_insn_count == 3
@@ -2685,7 +2685,7 @@ fn test_non_terminate_early() {
         [],
         (),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::ELFError(ELFError::UnresolvedSymbol(a, b, c))
                     if a == "Unknown" && b == 35 && c == 48
@@ -2715,7 +2715,7 @@ fn test_err_non_terminate_capped() {
             0 => BpfTracePrintf::call; std::ptr::null_mut(),
         ),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
                     if pc == 35 && initial_insn_count == 6
@@ -2745,7 +2745,7 @@ fn test_err_non_terminating_capped() {
             0 => BpfTracePrintf::call; std::ptr::null_mut(),
         ),
         {
-            |res: ExecResult| {
+            |res: Result| {
                 matches!(res.unwrap_err(),
                     EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
                     if pc == 37 && initial_insn_count == 1000
@@ -2772,7 +2772,7 @@ fn test_symbol_relocation() {
         (
             0 => BpfSyscallString::call; std::ptr::null_mut(),
         ),
-        { |res: ExecResult| { res.unwrap() == 0 } },
+        { |res: Result| { res.unwrap() == 0 } },
         6
     );
 }
@@ -2787,7 +2787,7 @@ fn test_err_symbol_unresolved() {
         [],
         (),
         {
-            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 29 && offset == 0)
+            |res: Result| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 29 && offset == 0)
         },
         1
     );
@@ -2807,7 +2807,7 @@ fn test_err_call_unresolved() {
         [],
         (),
         {
-            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 34 && offset == 40)
+            |res: Result| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 34 && offset == 40)
         },
         6
     );
@@ -2822,7 +2822,7 @@ fn test_err_unresolved_elf() {
             hash_symbol_name(b"log") => BpfSyscallString::call; std::ptr::null_mut(),
         ),
         {
-            |res: ExecResult| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "log_64" && pc == 550 && offset == 4168)
+            |res: Result| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "log_64" && pc == 550 && offset == 4168)
         },
         9
     );
@@ -2846,7 +2846,7 @@ fn test_mul_loop() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x75db9c97 } },
+        { |res: Result| { res.unwrap() == 0x75db9c97 } },
         37
     );
 }
@@ -2873,7 +2873,7 @@ fn test_prime() {
         exit",
         [],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         655
     );
 }
@@ -2909,7 +2909,7 @@ fn test_subnet() {
             0x03, 0x00, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         11
     );
 }
@@ -2934,7 +2934,7 @@ fn test_tcp_port80_match() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x1 } },
+        { |res: Result| { res.unwrap() == 0x1 } },
         17
     );
 }
@@ -2959,7 +2959,7 @@ fn test_tcp_port80_nomatch() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x0 } },
+        { |res: Result| { res.unwrap() == 0x0 } },
         18
     );
 }
@@ -2984,7 +2984,7 @@ fn test_tcp_port80_nomatch_ethertype() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x0 } },
+        { |res: Result| { res.unwrap() == 0x0 } },
         7
     );
 }
@@ -3009,7 +3009,7 @@ fn test_tcp_port80_nomatch_proto() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        { |res: ExecResult| { res.unwrap() == 0x0 } },
+        { |res: Result| { res.unwrap() == 0x0 } },
         9
     );
 }
@@ -3020,7 +3020,7 @@ fn test_tcp_sack_match() {
         TCP_SACK_ASM,
         TCP_SACK_MATCH,
         (),
-        { |res: ExecResult| res.unwrap() == 0x1 },
+        { |res: Result| res.unwrap() == 0x1 },
         79
     );
 }
@@ -3031,7 +3031,7 @@ fn test_tcp_sack_nomatch() {
         TCP_SACK_ASM,
         TCP_SACK_NOMATCH,
         (),
-        { |res: ExecResult| res.unwrap() == 0x0 },
+        { |res: Result| res.unwrap() == 0x0 },
         55
     );
 }
@@ -3102,7 +3102,7 @@ fn test_large_program() {
             executable,
             [],
             (),
-            { |res: ExecResult| res.unwrap() == 0x0 },
+            { |res: Result| res.unwrap() == 0x0 },
             ebpf::PROG_MAX_INSNS as u64
         );
     }
