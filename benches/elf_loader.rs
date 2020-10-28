@@ -59,7 +59,7 @@ fn bench_load_elf_with_syscall(bencher: &mut Bencher) {
         .unwrap();
         let mut syscall_registry = SyscallRegistry::default();
         syscall_registry
-            .register_syscall::<UserError, _>(hash_symbol_name(b"log_64"), BpfSyscallU64::call)
+            .register_syscall_by_name::<UserError, _>(b"log_64", BpfSyscallU64::call)
             .unwrap();
         executable.set_syscall_registry(syscall_registry);
     });

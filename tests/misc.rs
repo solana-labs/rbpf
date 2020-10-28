@@ -22,7 +22,6 @@ extern crate solana_rbpf;
 extern crate test_utils;
 
 use solana_rbpf::{
-    ebpf::hash_symbol_name,
     fuzz::fuzz,
     user_error::UserError,
     verifier::check,
@@ -123,16 +122,10 @@ fn test_fuzz_execute() {
             ) {
                 let mut syscall_registry = SyscallRegistry::default();
                 syscall_registry
-                    .register_syscall::<UserError, _>(
-                        hash_symbol_name(b"log"),
-                        BpfSyscallString::call,
-                    )
+                    .register_syscall_by_name::<UserError, _>(b"log", BpfSyscallString::call)
                     .unwrap();
                 syscall_registry
-                    .register_syscall::<UserError, _>(
-                        hash_symbol_name(b"log_64"),
-                        BpfSyscallU64::call,
-                    )
+                    .register_syscall_by_name::<UserError, _>(b"log_64", BpfSyscallU64::call)
                     .unwrap();
                 executable.set_syscall_registry(syscall_registry);
                 let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(

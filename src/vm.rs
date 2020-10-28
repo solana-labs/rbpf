@@ -99,10 +99,10 @@ pub struct SyscallRegistry {
 }
 
 impl SyscallRegistry {
-    /// Register a syscall function (which can later be bound to a context object)
-    pub fn register_syscall<E: UserDefinedError, O: SyscallObject<E>>(
+    /// Register a syscall function by its symbol hash
+    pub fn register_syscall_by_hash<E: UserDefinedError, O: SyscallObject<E>>(
         &mut self,
-        key: u32,
+        hash: u32,
         function: SyscallFunction<E, &mut O>,
     ) -> Result<(), EbpfError<E>> {
         let function = function as *const u8 as u64;
@@ -110,7 +110,7 @@ impl SyscallRegistry {
         if self
             .entries
             .insert(
-                key,
+                hash,
                 Syscall {
                     function,
                     context_object_slot,
@@ -128,6 +128,15 @@ impl SyscallRegistry {
         }
     }
 
+    /// Register a syscall function by its symbol name
+    pub fn register_syscall_by_name<E: UserDefinedError, O: SyscallObject<E>>(
+        &mut self,
+        name: &[u8],
+        function: SyscallFunction<E, &mut O>,
+    ) -> Result<(), EbpfError<E>> {
+        self.register_syscall_by_hash(ebpf::hash_symbol_name(name), function)
+    }
+
     /// Get a symbol's function pointer and context object slot
     pub fn lookup_syscall(&self, hash: u32) -> Option<&Syscall> {
         self.entries.get(&hash)
@@ -135,7 +144,7 @@ impl SyscallRegistry {
 
     /// Get a function pointer's and context object slot
     pub fn lookup_context_object_slot(&self, function_pointer: u64) -> Option<usize> {
-        self.context_object_slots.get(&function_pointer).map(|x| *x)
+        self.context_object_slots.get(&function_pointer).copied()
     }
 
     /// Get the number of registered syscalls

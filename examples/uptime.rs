@@ -72,7 +72,7 @@ fn main() {
     .unwrap();
     let mut syscall_registry = SyscallRegistry::default();
     syscall_registry
-        .register_syscall::<UserError, _>(
+        .register_syscall_by_hash::<UserError, _>(
             syscalls::BPF_KTIME_GETNS_IDX,
             syscalls::BpfTimeGetNs::call,
         )

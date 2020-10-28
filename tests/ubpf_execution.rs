@@ -29,7 +29,7 @@ use test_utils::{
 
 macro_rules! test_interpreter_and_jit {
     (1, $syscall_registry:expr, $($location:expr => $syscall_function:expr; $syscall_context_object:expr),*) => {
-        $($syscall_registry.register_syscall::<UserError, _>($location, $syscall_function).unwrap();)*
+        $($syscall_registry.register_syscall_by_hash::<UserError, _>($location, $syscall_function).unwrap();)*
     };
     (2, $vm:expr, $($location:expr => $syscall_function:expr; $syscall_context_object:expr),*) => {
         $($vm.bind_syscall_context_object($syscall_context_object).unwrap();)*
