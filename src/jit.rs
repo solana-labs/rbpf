@@ -827,7 +827,6 @@ impl<'a> JitCompiler<'a> {
             std::ptr::write_bytes(raw, 0x00, pc_loc_table_size);
             pc_locs = std::slice::from_raw_parts_mut(raw as *mut u64, pc);
 
-            libc::mprotect(raw.add(pc_loc_table_size), code_size, libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE);
             std::ptr::write_bytes(raw.add(pc_loc_table_size), 0xcc, code_size); // Populate with debugger traps
             contents = std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size) as *mut u8, code_size);
         }
@@ -842,6 +841,13 @@ impl<'a> JitCompiler<'a> {
             jumps: vec![],
             config: *_config,
             enable_instruction_meter: _enable_instruction_meter,
+        }
+    }
+
+    fn set_permissions(&mut self) {
+        #[cfg(not(windows))]
+        unsafe {
+            libc::mprotect(self.contents.as_mut_ptr() as *mut _, self.contents.len(), libc::PROT_EXEC | libc::PROT_READ);
         }
     }
 
@@ -1341,6 +1347,7 @@ pub fn compile<E: UserDefinedError, I: InstructionMeter>(
     let mut jit = JitCompiler::new(program, executable.get_config(), enable_instruction_meter);
     jit.compile::<E, I>(executable)?;
     jit.resolve_jumps();
+    jit.set_permissions();
     for offset in jit.pc_locs.iter_mut() {
         *offset = unsafe { (jit.contents.as_ptr() as *const u8).add(*offset as usize) } as u64;
     }
