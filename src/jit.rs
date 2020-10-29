@@ -1304,6 +1304,10 @@ impl<'a> JitCompiler<'a> {
                              std::mem::size_of::<i32>());
             }
         }
+
+        for offset in self.pc_locs.iter_mut() {
+            *offset = unsafe { (self.contents.as_ptr() as *const u8).add(*offset as usize) } as u64;
+        }
     }
 } // struct JitCompiler
 
@@ -1348,9 +1352,6 @@ pub fn compile<E: UserDefinedError, I: InstructionMeter>(
     jit.compile::<E, I>(executable)?;
     jit.resolve_jumps();
     jit.set_permissions();
-    for offset in jit.pc_locs.iter_mut() {
-        *offset = unsafe { (jit.contents.as_ptr() as *const u8).add(*offset as usize) } as u64;
-    }
 
     Ok(JitProgram {
         main: unsafe { mem::transmute(jit.contents.as_ptr()) },

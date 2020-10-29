@@ -377,7 +377,40 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         self.total_insn_count
     }
 
-    /// Bind an object instance to a registered syscall at the given slot
+    /// Bind a context object instance to a previously registered syscall
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use solana_rbpf::{vm::{Config, Executable, EbpfVm, SyscallObject, SyscallRegistry, DefaultInstructionMeter}, syscalls::BpfTracePrintf, user_error::UserError};
+    ///
+    /// // This program was compiled with clang, from a C program containing the following single
+    /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
+    /// let prog = &[
+    ///     0x18, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // load 0 as u64 into r1 (That would be
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // replaced by tc by the address of
+    ///                                                     // the format string, in the .map
+    ///                                                     // section of the ELF file).
+    ///     0xb7, 0x02, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, // mov r2, 10
+    ///     0xb7, 0x03, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // mov r3, 1
+    ///     0xb7, 0x04, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov r4, 2
+    ///     0xb7, 0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, // mov r5, 3
+    ///     0x85, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, // call syscall with key 6
+    ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
+    /// ];
+    ///
+    /// // Register a syscall.
+    /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
+    /// // standard output.
+    /// let mut syscall_registry = SyscallRegistry::default();
+    /// syscall_registry.register_syscall_by_hash(6, BpfTracePrintf::call).unwrap();
+    /// // Instantiate an Executable and VM
+    /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+    /// executable.set_syscall_registry(syscall_registry);
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
+    /// // Bind a context object instance to the previously registered syscall
+    /// vm.bind_syscall_context_object(&mut BpfTracePrintf {});
+    /// ```
     pub fn bind_syscall_context_object(
         &mut self,
         syscall_context_object: &mut dyn SyscallObject<E>,
