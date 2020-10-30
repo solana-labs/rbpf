@@ -205,7 +205,7 @@ impl SyscallObject<UserError> for BpfGatherBytes {
 ///
 /// let val = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
 /// let val_va = 0x1000;
-/// let memory_mapping = [MemoryRegion::new_from_slice(&val, val_va, true)];
+/// let memory_mapping = [MemoryRegion::new_from_slice(&val, val_va, 0, true)];
 ///
 /// let mut result: Result = Ok(0);
 /// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &MemoryMapping::new_from_regions(memory_mapping.to_vec()), &mut result);
@@ -302,11 +302,11 @@ impl SyscallObject<UserError> for BpfSqrtI {
 /// let va_foo = 0x1000;
 /// let va_bar = 0x2000;
 /// let mut result: Result = Ok(0);
-/// let memory_mapping = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, false)];
+/// let memory_mapping = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, 0, false)];
 /// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_foo, 0, 0, 0, &MemoryMapping::new_from_regions(memory_mapping.to_vec()), &mut result);
 /// assert!(result.unwrap() == 0);
 /// let mut result: Result = Ok(0);
-/// let memory_mapping = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, false), MemoryRegion::new_from_slice(bar.as_bytes(), va_bar, false)];
+/// let memory_mapping = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, 0, false), MemoryRegion::new_from_slice(bar.as_bytes(), va_bar, 0, false)];
 /// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_bar, 0, 0, 0, &MemoryMapping::new_from_regions(memory_mapping.to_vec()), &mut result);
 /// assert!(result.unwrap() != 0);
 /// ```

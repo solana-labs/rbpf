@@ -12,16 +12,27 @@ pub struct MemoryRegion {
     pub vm_addr: u64,
     /// Length in bytes
     pub len: u64,
+    /// Size of regular gaps as bit shift (63 means this region is continuous)
+    pub vm_gap_shift: u8,
     /// Is also writable (otherwise it is readonly)
     pub is_writable: bool,
 }
 impl MemoryRegion {
     /// Creates a new MemoryRegion structure from a slice
-    pub fn new_from_slice(v: &[u8], vm_addr: u64, is_writable: bool) -> Self {
+    pub fn new_from_slice(v: &[u8], vm_addr: u64, vm_gap_size: u64, is_writable: bool) -> Self {
+        let vm_gap_shift = if vm_gap_size > 0 {
+            let vm_gap_shift =
+                std::mem::size_of::<u64>() as u8 * 8 - vm_gap_size.leading_zeros() as u8 - 1;
+            assert_eq!(vm_gap_size, 1 << vm_gap_shift);
+            vm_gap_shift
+        } else {
+            std::mem::size_of::<u64>() as u8 * 8 - 1
+        };
         MemoryRegion {
             host_addr: v.as_ptr() as u64,
             vm_addr,
             len: v.len() as u64,
+            vm_gap_shift,
             is_writable,
         }
     }
@@ -33,9 +44,12 @@ impl MemoryRegion {
         vm_addr: u64,
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
-        let begin_offset = vm_addr - self.vm_addr;
+        let mut begin_offset = vm_addr - self.vm_addr;
+        let is_in_gap = ((begin_offset >> self.vm_gap_shift as u32) & 1) == 1;
+        let gap_mask = (1 << self.vm_gap_shift) - 1;
+        begin_offset = (begin_offset & !gap_mask) >> 1 | (begin_offset & gap_mask);
         if let Some(end_offset) = begin_offset.checked_add(len as u64) {
-            if end_offset <= self.len {
+            if end_offset <= self.len && !is_in_gap {
                 return Ok(self.host_addr + begin_offset);
             }
         }

@@ -33,6 +33,7 @@ fn generate_memory_mapping(
         memory_regions.push(MemoryRegion::new_from_slice(
             &content[..],
             offset,
+            0,
             is_writable,
         ));
         offset += length;
@@ -50,6 +51,47 @@ macro_rules! new_prng {
 fn bench_prng(bencher: &mut Bencher) {
     let mut prng = new_prng!();
     bencher.iter(|| prng.gen::<u64>());
+}
+
+#[bench]
+fn bench_gapped_randomized_access_with_1024_entries(bencher: &mut Bencher) {
+    let frame_size: u64 = 2;
+    let frame_count: u64 = 1024;
+    let content = vec![0; (frame_size * frame_count * 2) as usize];
+    let memory_regions = vec![MemoryRegion::new_from_slice(
+        &content[..],
+        0,
+        frame_size,
+        false,
+    )];
+    let memory_mapping = MemoryMapping::new_from_regions(memory_regions);
+    let mut prng = new_prng!();
+    bencher.iter(|| {
+        assert!(memory_mapping
+            .map::<UserError>(
+                AccessType::Load,
+                prng.gen::<u64>() % frame_count * (frame_size * 2),
+                1
+            )
+            .is_ok());
+    });
+}
+
+#[bench]
+fn bench_randomized_access_with_0001_entry(bencher: &mut Bencher) {
+    let content = vec![0; 1024 * 2];
+    let memory_regions = vec![MemoryRegion::new_from_slice(&content[..], 0, 0, false)];
+    let memory_mapping = MemoryMapping::new_from_regions(memory_regions);
+    let mut prng = new_prng!();
+    bencher.iter(|| {
+        assert!(memory_mapping
+            .map::<UserError>(
+                AccessType::Load,
+                prng.gen::<u64>() % content.len() as u64,
+                1
+            )
+            .is_ok());
+    });
 }
 
 #[bench]

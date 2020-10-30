@@ -323,32 +323,32 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         granted_regions: &[MemoryRegion],
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
         let config = executable.get_config();
-        let frames = CallFrames::new(config.max_call_depth, config.stack_frame_size);
-        let stack_regions = frames.get_stacks();
         let const_data_regions: Vec<MemoryRegion> =
             if let Ok(sections) = executable.get_ro_sections() {
                 sections
                     .iter()
-                    .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr, false))
+                    .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr, 0, false))
                     .collect()
             } else {
                 Vec::new()
             };
-        let mut regions: Vec<MemoryRegion> = Vec::with_capacity(
-            granted_regions.len() + stack_regions.len() + const_data_regions.len() + 2,
-        );
+        let mut regions: Vec<MemoryRegion> =
+            Vec::with_capacity(granted_regions.len() + const_data_regions.len() + 3);
         regions.extend(granted_regions.iter().cloned());
-        regions.extend(stack_regions.iter().cloned());
+        let frames = CallFrames::new(config.max_call_depth, config.stack_frame_size);
+        regions.push(frames.get_region().clone());
         regions.extend(const_data_regions);
         regions.push(MemoryRegion::new_from_slice(
             &mem,
             ebpf::MM_INPUT_START,
+            0,
             true,
         ));
         let (program_vm_addr, program) = executable.get_text_bytes()?;
         regions.push(MemoryRegion::new_from_slice(
             program,
             program_vm_addr,
+            0,
             false,
         ));
         let memory_mapping = MemoryMapping::new_from_regions(regions);
