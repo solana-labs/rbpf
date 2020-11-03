@@ -775,6 +775,11 @@ fn set_exception_kind<E: UserDefinedError>(jit: &mut JitCompiler, err: EbpfError
     emit_store_imm32(jit, OperandSize::S64, R10, 8, err_kind as i32);
 }
 
+const PAGE_SIZE: usize = 4096;
+fn round_to_page_size(value: usize) -> usize {
+    (value + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE
+}
+
 #[derive(Debug)]
 struct Jump {
     offset_loc: usize,
@@ -815,11 +820,8 @@ impl<'a> JitCompiler<'a> {
                 };
             }
 
-            // TODO: Ensure that an eBPF program of maximum possible length fits
-            const CONTENT_PAGES: usize = 256;
-            const PAGE_SIZE: usize = 4096;
-            let pc_loc_table_size = (pc * 8 + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
-            let code_size = CONTENT_PAGES * PAGE_SIZE;
+            let pc_loc_table_size = round_to_page_size(pc * 8);
+            let code_size = round_to_page_size(pc * 256 + 512);
 
             let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
             libc::posix_memalign(&mut raw, PAGE_SIZE, pc_loc_table_size + code_size);
@@ -844,9 +846,11 @@ impl<'a> JitCompiler<'a> {
         }
     }
 
-    fn set_permissions(&mut self) {
+    fn truncate_and_set_permissions(&mut self) {
+        let _code_size = round_to_page_size(self.offset);
         #[cfg(not(windows))]
         unsafe {
+            self.contents = std::slice::from_raw_parts_mut(self.contents.as_mut_ptr() as *mut _, _code_size);
             libc::mprotect(self.contents.as_mut_ptr() as *mut _, self.contents.len(), libc::PROT_EXEC | libc::PROT_READ);
         }
     }
@@ -1351,7 +1355,7 @@ pub fn compile<E: UserDefinedError, I: InstructionMeter>(
     let mut jit = JitCompiler::new(program, executable.get_config(), enable_instruction_meter);
     jit.compile::<E, I>(executable)?;
     jit.resolve_jumps();
-    jit.set_permissions();
+    jit.truncate_and_set_permissions();
 
     Ok(JitProgram {
         main: unsafe { mem::transmute(jit.contents.as_ptr()) },
