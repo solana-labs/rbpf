@@ -82,6 +82,7 @@ pub struct SyscallObjectVtable {
 
 // Could be replaced by https://doc.rust-lang.org/std/raw/struct.TraitObject.html
 /// A dyn trait fat pointer for SyscallObject
+#[derive(Clone, Copy)]
 pub struct SyscallTraitObject {
     /// Pointer to the actual object
     pub data: *mut u8,
@@ -291,6 +292,7 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     program_vm_addr: u64,
     memory_mapping: MemoryMapping,
     syscall_context_objects: Vec<*mut u8>,
+    syscall_context_object_pool: Vec<Box<dyn SyscallObject<E>>>,
     frames: CallFrames,
     last_insn_count: u64,
     total_insn_count: u64,
@@ -348,11 +350,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             false,
         ));
         let memory_mapping = MemoryMapping::new_from_regions(regions);
-        let mut syscall_context_objects =
-            vec![
-                std::ptr::null_mut();
-                2 + executable.get_syscall_registry().get_number_of_syscalls()
-            ];
+        let number_of_syscalls = executable.get_syscall_registry().get_number_of_syscalls();
+        let mut syscall_context_objects = vec![std::ptr::null_mut(); 2 + number_of_syscalls];
         unsafe {
             libc::memcpy(
                 syscall_context_objects.as_mut_ptr() as _,
@@ -366,6 +365,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             program_vm_addr,
             memory_mapping,
             syscall_context_objects,
+            syscall_context_object_pool: Vec::with_capacity(number_of_syscalls),
             frames,
             last_insn_count: 0,
             total_insn_count: 0,
@@ -409,15 +409,16 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// executable.set_syscall_registry(syscall_registry);
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
     /// // Bind a context object instance to the previously registered syscall
-    /// vm.bind_syscall_context_object(&mut BpfTracePrintf {});
+    /// vm.bind_syscall_context_object(Box::new(BpfTracePrintf {}));
     /// ```
     pub fn bind_syscall_context_object(
         &mut self,
-        syscall_context_object: &mut dyn SyscallObject<E>,
+        syscall_context_object: Box<dyn SyscallObject<E>>,
     ) -> Result<(), EbpfError<E>> {
-        let fat_ptr =
+        let fat_ptr_ptr =
             unsafe { std::mem::transmute::<_, *const SyscallTraitObject>(&syscall_context_object) };
-        let vtable = unsafe { std::mem::transmute::<_, &SyscallObjectVtable>(&*(*fat_ptr).vtable) };
+        let fat_ptr = unsafe { std::mem::transmute::<_, SyscallTraitObject>(*fat_ptr_ptr) };
+        let vtable = unsafe { std::mem::transmute::<_, &SyscallObjectVtable>(&*fat_ptr.vtable) };
         let slot = self
             .executable
             .get_syscall_registry()
@@ -426,9 +427,20 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         if !self.syscall_context_objects[2 + slot].is_null() {
             Err(EbpfError::SycallAlreadyBound)
         } else {
-            self.syscall_context_objects[2 + slot] = unsafe { (*fat_ptr).data };
+            self.syscall_context_objects[2 + slot] = fat_ptr.data;
+            // Keep the dyn trait objects so that they can be dropped properly later
+            self.syscall_context_object_pool
+                .push(syscall_context_object);
             Ok(())
         }
+    }
+
+    /// Lookup a syscall context object by its function pointer. Used for testing and validation.
+    pub fn get_syscall_context_object(&self, syscall_function: u64) -> Option<*mut u8> {
+        self.executable
+            .get_syscall_registry()
+            .lookup_context_object_slot(syscall_function)
+            .map(|slot| self.syscall_context_objects[2 + slot])
     }
 
     /// Execute the program loaded, with the given packet data.

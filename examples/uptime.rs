@@ -84,7 +84,7 @@ fn main() {
     }
     let mut vm =
         EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
-    vm.bind_syscall_context_object(&mut syscalls::BpfTimeGetNs {})
+    vm.bind_syscall_context_object(Box::new(syscalls::BpfTimeGetNs {}))
         .unwrap();
 
     let time;
