@@ -40,11 +40,13 @@ pub type ProgramResult<E> = Result<u64, EbpfError<E>>;
 macro_rules! question_mark {
     ( $value:expr, $result:ident ) => {{
         let value = $value;
-        if value.is_err() {
-            *$result = value;
-            return;
+        match value {
+            Err(err) => {
+                *$result = Err(err.into());
+                return;
+            }
+            Ok(value) => value,
         }
-        value.unwrap()
     }};
 }
 
