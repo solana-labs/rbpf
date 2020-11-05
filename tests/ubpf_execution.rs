@@ -2554,7 +2554,7 @@ fn test_syscall_with_context() {
             0 => SyscallWithContext::call; SyscallWithContext { context: 42 },
         ),
         { |vm: &EbpfVm<UserError, TestInstructionMeter>, res: Result| {
-            let syscall_context_object = unsafe { &*(vm.get_syscall_context_object(SyscallWithContext::call as u64).unwrap() as *const SyscallWithContext) };
+            let syscall_context_object = unsafe { &*(vm.get_syscall_context_object(SyscallWithContext::call as usize).unwrap() as *const SyscallWithContext) };
             assert_eq!(syscall_context_object.context, 84);
             res.unwrap() == 0
         }},

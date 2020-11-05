@@ -438,10 +438,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     }
 
     /// Lookup a syscall context object by its function pointer. Used for testing and validation.
-    pub fn get_syscall_context_object(&self, syscall_function: u64) -> Option<*mut u8> {
+    pub fn get_syscall_context_object(&self, syscall_function: usize) -> Option<*mut u8> {
         self.executable
             .get_syscall_registry()
-            .lookup_context_object_slot(syscall_function)
+            .lookup_context_object_slot(syscall_function as u64)
             .map(|slot| self.syscall_context_objects[2 + slot])
     }
 
