@@ -294,7 +294,7 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     program_vm_addr: u64,
     memory_mapping: MemoryMapping,
     syscall_context_objects: Vec<*mut u8>,
-    syscall_context_object_pool: Vec<Box<dyn SyscallObject<E>>>,
+    syscall_context_object_pool: Vec<Box<dyn SyscallObject<E> + 'a>>,
     frames: CallFrames,
     last_insn_count: u64,
     total_insn_count: u64,
@@ -415,7 +415,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// ```
     pub fn bind_syscall_context_object(
         &mut self,
-        syscall_context_object: Box<dyn SyscallObject<E>>,
+        syscall_context_object: Box<dyn SyscallObject<E> + 'a>,
     ) -> Result<(), EbpfError<E>> {
         let fat_ptr_ptr =
             unsafe { std::mem::transmute::<_, *const SyscallTraitObject>(&syscall_context_object) };
