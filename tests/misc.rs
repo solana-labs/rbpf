@@ -130,7 +130,7 @@ fn test_fuzz_execute() {
                 executable.set_syscall_registry(syscall_registry);
                 let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
                     executable.as_ref(),
-                    &[],
+                    &mut [],
                     &[],
                 )
                 .unwrap();

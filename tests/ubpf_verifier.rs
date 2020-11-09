@@ -57,9 +57,12 @@ fn test_verifier_success() {
         Config::default(),
     )
     .unwrap();
-    let _ =
-        EbpfVm::<VerifierTestError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
-            .unwrap();
+    let _ = EbpfVm::<VerifierTestError, DefaultInstructionMeter>::new(
+        executable.as_ref(),
+        &mut [],
+        &[],
+    )
+    .unwrap();
 }
 
 #[test]

@@ -25,7 +25,8 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
         Executable::<UserError, DefaultInstructionMeter>::from_elf(&elf, None, Config::default())
             .unwrap();
     let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
+        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
+            .unwrap();
     bencher.iter(|| {
         vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
             .unwrap()
@@ -43,7 +44,8 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
             .unwrap();
     executable.jit_compile().unwrap();
     let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[]).unwrap();
+        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
+            .unwrap();
     bencher.iter(|| {
         vm.execute_program_jit(&mut DefaultInstructionMeter {})
             .unwrap()

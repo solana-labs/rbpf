@@ -40,8 +40,8 @@ macro_rules! test_interpreter_and_jit {
         test_interpreter_and_jit!(1, syscall_registry, $($location => $syscall_function; $syscall_context_object),*);
         $executable.set_syscall_registry(syscall_registry);
         let instruction_count_interpreter = {
-            let mem = $mem;
-            let mut vm = EbpfVm::new($executable.as_ref(), &mem, &[]).unwrap();
+            let mut mem = $mem;
+            let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
             test_interpreter_and_jit!(2, vm, $($location => $syscall_function; $syscall_context_object),*);
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count });
             assert!(check_closure(&vm, result));
@@ -51,8 +51,8 @@ macro_rules! test_interpreter_and_jit {
         {
             let check_closure = $check;
             let compilation_result = $executable.jit_compile();
-            let mem = $mem;
-            let mut vm = EbpfVm::new($executable.as_ref(), &mem, &[]).unwrap();
+            let mut mem = $mem;
+            let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, Err(err))),
                 Ok(()) => {
@@ -3062,7 +3062,7 @@ fn test_large_program() {
         )
         .unwrap();
         let mut vm =
-            EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &[], &[])
+            EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
                 .unwrap();
         assert_eq!(
             0,
