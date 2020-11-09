@@ -49,9 +49,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Debug for JitProgram<E, I> {
     }
 }
 
-impl<E: UserDefinedError, I: InstructionMeter>  PartialEq for JitProgram<E, I> {
+impl<E: UserDefinedError, I: InstructionMeter> PartialEq for JitProgram<E, I> {
     fn eq(&self, other: &JitProgram<E, I>) -> bool {
-        self.main as *const u8 == other.main as *const u8
+        std::ptr::eq(self.main as *const u8, other.main as *const u8)
     }
 }
 
