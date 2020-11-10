@@ -10,13 +10,13 @@ extern crate goblin;
 extern crate scroll;
 
 use crate::{
+    ebpf,
     error::{EbpfError, UserDefinedError},
     jit::{compile, JitProgram},
     vm::{Config, Executable, InstructionMeter, SyscallRegistry},
 };
 use byteorder::{ByteOrder, LittleEndian};
-use ebpf;
-use elf::goblin::{
+use goblin::{
     elf::{header::*, reloc::*, section_header::*, Elf},
     error::Error as GoblinError,
 };
@@ -603,8 +603,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{ebpf, fuzz::fuzz, user_error::UserError, vm::DefaultInstructionMeter};
-    use elf::scroll::Pwrite;
+    use crate::{
+        ebpf, elf::scroll::Pwrite, fuzz::fuzz, user_error::UserError, vm::DefaultInstructionMeter,
+    };
     use rand::{distributions::Uniform, Rng};
     use std::{collections::HashMap, fs::File, io::Read};
     type ElfExecutable = EBpfElf<UserError, DefaultInstructionMeter>;

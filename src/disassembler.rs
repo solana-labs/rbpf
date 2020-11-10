@@ -7,7 +7,7 @@
 //! Functions in this module are used to handle eBPF programs with a higher level representation,
 //! for example to disassemble the code into a human-readable format.
 
-use ebpf;
+use crate::ebpf;
 
 #[inline]
 fn alu_imm_str(name: &str, insn: &ebpf::Insn) -> String {

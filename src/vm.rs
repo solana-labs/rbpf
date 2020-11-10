@@ -58,7 +58,16 @@ pub type SyscallFunction<E, O> =
 pub trait SyscallObject<E: UserDefinedError> {
     /// Call the syscall function
     #[allow(clippy::too_many_arguments)]
-    fn call(&mut self, u64, u64, u64, u64, u64, &MemoryMapping, &mut ProgramResult<E>);
+    fn call(
+        &mut self,
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        memory_mapping: &MemoryMapping,
+        result: &mut ProgramResult<E>,
+    );
 }
 
 /// Syscall function and binding slot for a context object
@@ -188,7 +197,7 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Get the syscall registry
     fn get_syscall_registry(&self) -> &SyscallRegistry;
     /// Set (overwrite) the syscall registry
-    fn set_syscall_registry(&mut self, SyscallRegistry);
+    fn set_syscall_registry(&mut self, syscall_registry: SyscallRegistry);
     /// Get the JIT compiled program
     fn get_compiled_program(&self) -> Option<&JitProgram<E, I>>;
     /// JIT compile the executable

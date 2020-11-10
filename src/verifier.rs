@@ -21,11 +21,7 @@
 //!
 //! Contrary to the verifier of the Linux kernel, this one does not modify the bytecode at all.
 
-use crate::{
-    ebpf::{self},
-    error::UserDefinedError,
-};
-use user_error::UserError;
+use crate::{ebpf, error::UserDefinedError, user_error::UserError};
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]

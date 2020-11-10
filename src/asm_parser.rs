@@ -9,11 +9,14 @@
 
 //! This module parses eBPF assembly language source code.
 
-use combine::char::{alpha_num, char, digit, hex_digit, spaces, string};
-use combine::primitives::{Error, Info};
 use combine::{
-    between, eof, many, many1, one_of, optional, parser, sep_by, try, ParseError, ParseResult,
-    Parser, State, Stream,
+    attempt, between,
+    char::{alpha_num, char, digit, hex_digit, spaces, string},
+    combine_parse_partial, combine_parser_impl,
+    easy::{Error, Errors, Info},
+    eof, many, many1, one_of, optional, parse_mode, parser, sep_by,
+    stream::state::{SourcePosition, State},
+    Parser, Stream,
 };
 
 /// Operand of an instruction.
@@ -38,69 +41,60 @@ pub struct Instruction {
     pub operands: Vec<Operand>,
 }
 
-fn ident<I>(input: I) -> ParseResult<String, I>
-where
-    I: Stream<Item = char>,
-{
-    many1(alpha_num()).parse_stream(input)
+parser! {
+    fn ident[I]()(I) -> String where [I: Stream<Item=char>] {
+        many1(alpha_num())
+    }
 }
 
-fn integer<I>(input: I) -> ParseResult<i64, I>
-where
-    I: Stream<Item = char>,
-{
-    let sign = optional(one_of("-+".chars())).map(|x| match x {
-        Some('-') => -1,
-        _ => 1,
-    });
-    let hex = string("0x")
-        .with(many1(hex_digit()))
-        .map(|x: String| u64::from_str_radix(&x, 16).unwrap() as i64);
-    let dec = many1(digit()).map(|x: String| i64::from_str_radix(&x, 10).unwrap());
-    (sign, try(hex).or(dec))
-        .map(|(s, x)| s * x)
-        .parse_stream(input)
+parser! {
+    fn integer[I]()(I) -> i64 where [I: Stream<Item=char>] {
+        let sign = optional(one_of("-+".chars())).map(|x| match x {
+            Some('-') => -1,
+            _ => 1,
+        });
+        let hex = string("0x")
+            .with(many1(hex_digit()))
+            .map(|x: String| u64::from_str_radix(&x, 16).unwrap() as i64);
+        let dec = many1(digit()).map(|x: String| i64::from_str_radix(&x, 10).unwrap());
+        (sign, attempt(hex).or(dec))
+            .map(|(s, x)| s * x)
+    }
 }
 
-fn register<I>(input: I) -> ParseResult<i64, I>
-where
-    I: Stream<Item = char>,
-{
-    char('r')
-        .with(many1(digit()))
-        .map(|x: String| i64::from_str_radix(&x, 10).unwrap())
-        .parse_stream(input)
+parser! {
+    fn register[I]()(I) -> i64 where [I: Stream<Item=char>] {
+        char('r')
+            .with(many1(digit()))
+            .map(|x: String| i64::from_str_radix(&x, 10).unwrap())
+    }
 }
 
-fn operand<I>(input: I) -> ParseResult<Operand, I>
-where
-    I: Stream<Item = char>,
-{
-    let register_operand = parser(register).map(Operand::Register);
-    let immediate = parser(integer).map(Operand::Integer);
-    let memory = between(
-        char('['),
-        char(']'),
-        (parser(register), optional(parser(integer))),
-    )
-    .map(|t| Operand::Memory(t.0, t.1.unwrap_or(0)));
-    register_operand
-        .or(immediate)
-        .or(memory)
-        .parse_stream(input)
+parser! {
+    fn operand[I]()(I) -> Operand where [I: Stream<Item=char>] {
+        let register_operand = register().map(Operand::Register);
+        let immediate = integer().map(Operand::Integer);
+        let memory = between(
+            char('['),
+            char(']'),
+            (register(), optional(integer())),
+        )
+        .map(|t| Operand::Memory(t.0, t.1.unwrap_or(0)));
+        register_operand
+            .or(immediate)
+            .or(memory)
+    }
 }
 
-fn instruction<I>(input: I) -> ParseResult<Instruction, I>
-where
-    I: Stream<Item = char>,
-{
-    let operands = sep_by(parser(operand), char(',').skip(spaces()));
-    (parser(ident).skip(spaces()), operands, spaces())
-        .map(|t| Instruction {
-            name: t.0,
-            operands: t.1,
-        })
-        .parse_stream(input)
+parser! {
+    fn instruction[I]()(I) -> Instruction where [I: Stream<Item=char>] {
+        let operands = sep_by(operand(), char(',').skip(spaces()));
+        (ident().skip(spaces()), operands, spaces())
+            .map(|t| Instruction {
+                name: t.0,
+                operands: t.1,
+            })
+    }
 }
 
 fn format_info(info: &Info<char, &str>) -> String {
@@ -121,7 +115,7 @@ fn format_error(error: &Error<char, &str>) -> String {
     }
 }
 
-fn format_parse_error(parse_error: &ParseError<State<&str>>) -> String {
+fn format_parse_error(parse_error: &Errors<char, &str, SourcePosition>) -> String {
     format!(
         "Parse error at line {} column {}: {}",
         parse_error.position.line,
@@ -140,8 +134,8 @@ fn format_parse_error(parse_error: &ParseError<State<&str>>) -> String {
 /// The instructions are not validated and may have invalid names and operand types.
 pub fn parse(input: &str) -> Result<Vec<Instruction>, String> {
     match spaces()
-        .with(many(parser(instruction)).skip(eof()))
-        .parse(State::new(input))
+        .with(many(instruction()).skip(eof()))
+        .easy_parse(State::with_positioner(input, SourcePosition::default()))
     {
         Ok((insts, _)) => Ok(insts),
         Err(err) => Err(format_parse_error(&err)),
@@ -151,63 +145,51 @@ pub fn parse(input: &str) -> Result<Vec<Instruction>, String> {
 #[cfg(test)]
 mod tests {
     use super::{ident, instruction, integer, operand, parse, register, Instruction, Operand};
-    use combine::{parser, Parser};
+    use combine::Parser;
 
     // Unit tests for the different kinds of parsers.
 
     #[test]
     fn test_ident() {
-        assert_eq!(parser(ident).parse("nop"), Ok(("nop".to_string(), "")));
-        assert_eq!(parser(ident).parse("add32"), Ok(("add32".to_string(), "")));
-        assert_eq!(
-            parser(ident).parse("add32*"),
-            Ok(("add32".to_string(), "*"))
-        );
+        assert_eq!(ident().parse("nop"), Ok(("nop".to_string(), "")));
+        assert_eq!(ident().parse("add32"), Ok(("add32".to_string(), "")));
+        assert_eq!(ident().parse("add32*"), Ok(("add32".to_string(), "*")));
     }
 
     #[test]
     fn test_integer() {
-        assert_eq!(parser(integer).parse("0"), Ok((0, "")));
-        assert_eq!(parser(integer).parse("42"), Ok((42, "")));
-        assert_eq!(parser(integer).parse("+42"), Ok((42, "")));
-        assert_eq!(parser(integer).parse("-42"), Ok((-42, "")));
-        assert_eq!(parser(integer).parse("0x0"), Ok((0, "")));
+        assert_eq!(integer().parse("0"), Ok((0, "")));
+        assert_eq!(integer().parse("42"), Ok((42, "")));
+        assert_eq!(integer().parse("+42"), Ok((42, "")));
+        assert_eq!(integer().parse("-42"), Ok((-42, "")));
+        assert_eq!(integer().parse("0x0"), Ok((0, "")));
         assert_eq!(
-            parser(integer).parse("0x123456789abcdef0"),
+            integer().parse("0x123456789abcdef0"),
             Ok((0x123456789abcdef0, ""))
         );
-        assert_eq!(parser(integer).parse("-0x1f"), Ok((-31, "")));
+        assert_eq!(integer().parse("-0x1f"), Ok((-31, "")));
     }
 
     #[test]
     fn test_register() {
-        assert_eq!(parser(register).parse("r0"), Ok((0, "")));
-        assert_eq!(parser(register).parse("r15"), Ok((15, "")));
+        assert_eq!(register().parse("r0"), Ok((0, "")));
+        assert_eq!(register().parse("r15"), Ok((15, "")));
     }
 
     #[test]
     fn test_operand() {
-        assert_eq!(parser(operand).parse("r0"), Ok((Operand::Register(0), "")));
+        assert_eq!(operand().parse("r0"), Ok((Operand::Register(0), "")));
+        assert_eq!(operand().parse("r15"), Ok((Operand::Register(15), "")));
+        assert_eq!(operand().parse("0"), Ok((Operand::Integer(0), "")));
+        assert_eq!(operand().parse("42"), Ok((Operand::Integer(42), "")));
+        assert_eq!(operand().parse("[r1]"), Ok((Operand::Memory(1, 0), "")));
+        assert_eq!(operand().parse("[r3+5]"), Ok((Operand::Memory(3, 5), "")));
         assert_eq!(
-            parser(operand).parse("r15"),
-            Ok((Operand::Register(15), ""))
-        );
-        assert_eq!(parser(operand).parse("0"), Ok((Operand::Integer(0), "")));
-        assert_eq!(parser(operand).parse("42"), Ok((Operand::Integer(42), "")));
-        assert_eq!(
-            parser(operand).parse("[r1]"),
-            Ok((Operand::Memory(1, 0), ""))
-        );
-        assert_eq!(
-            parser(operand).parse("[r3+5]"),
-            Ok((Operand::Memory(3, 5), ""))
-        );
-        assert_eq!(
-            parser(operand).parse("[r3+0x1f]"),
+            operand().parse("[r3+0x1f]"),
             Ok((Operand::Memory(3, 31), ""))
         );
         assert_eq!(
-            parser(operand).parse("[r3-0x1f]"),
+            operand().parse("[r3-0x1f]"),
             Ok((Operand::Memory(3, -31), ""))
         );
     }
@@ -215,7 +197,7 @@ mod tests {
     #[test]
     fn test_instruction() {
         assert_eq!(
-            parser(instruction).parse("exit"),
+            instruction().parse("exit"),
             Ok((
                 Instruction {
                     name: "exit".to_string(),
@@ -226,7 +208,7 @@ mod tests {
         );
 
         assert_eq!(
-            parser(instruction).parse("call 2"),
+            instruction().parse("call 2"),
             Ok((
                 Instruction {
                     name: "call".to_string(),
@@ -237,7 +219,7 @@ mod tests {
         );
 
         assert_eq!(
-            parser(instruction).parse("addi r1, 2"),
+            instruction().parse("addi r1, 2"),
             Ok((
                 Instruction {
                     name: "addi".to_string(),
@@ -248,7 +230,7 @@ mod tests {
         );
 
         assert_eq!(
-            parser(instruction).parse("ldxb r2, [r1+12]"),
+            instruction().parse("ldxb r2, [r1+12]"),
             Ok((
                 Instruction {
                     name: "ldxb".to_string(),
@@ -259,7 +241,7 @@ mod tests {
         );
 
         assert_eq!(
-            parser(instruction).parse("lsh r3, 0x8"),
+            instruction().parse("lsh r3, 0x8"),
             Ok((
                 Instruction {
                     name: "lsh".to_string(),
@@ -270,7 +252,7 @@ mod tests {
         );
 
         assert_eq!(
-            parser(instruction).parse("jne r3, 0x8, +37"),
+            instruction().parse("jne r3, 0x8, +37"),
             Ok((
                 Instruction {
                     name: "jne".to_string(),
@@ -286,7 +268,7 @@ mod tests {
 
         // Whitespace between operands is optional.
         assert_eq!(
-            parser(instruction).parse("jne r3,0x8,+37"),
+            instruction().parse("jne r3,0x8,+37"),
             Ok((
                 Instruction {
                     name: "jne".to_string(),
@@ -637,7 +619,7 @@ exit
         assert_eq!(
             parse("exit\n^"),
             Err(
-                "Parse error at line 2 column 1: unexpected '^', expected end of input".to_string()
+                "Parse error at line 2 column 1: unexpected '^', expected letter or digit, expected whitespaces, expected end of input".to_string()
             )
         );
     }
@@ -646,7 +628,7 @@ exit
     fn test_initial_whitespace() {
         assert_eq!(
             parse(
-                " 
+                "
                           exit"
             ),
             Ok(vec![Instruction {

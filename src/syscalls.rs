@@ -29,7 +29,6 @@ use crate::{
     vm::SyscallObject,
 };
 use std::u64;
-use time;
 
 /// Return type of syscalls
 pub type Result = std::result::Result<u64, EbpfError<UserError>>;

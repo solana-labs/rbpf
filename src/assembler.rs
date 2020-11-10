@@ -10,10 +10,11 @@ use self::InstructionType::{
     AluBinary, AluUnary, CallImm, CallReg, Endian, JumpConditional, JumpUnconditional, LoadAbs,
     LoadImm, LoadInd, LoadReg, NoOperand, StoreImm, StoreReg,
 };
-use asm_parser::Operand::{Integer, Memory, Nil, Register};
-use asm_parser::{parse, Instruction, Operand};
-use ebpf;
-use ebpf::Insn;
+use crate::asm_parser::{
+    parse, Instruction, Operand,
+    Operand::{Integer, Memory, Nil, Register},
+};
+use crate::ebpf::{self, Insn};
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
