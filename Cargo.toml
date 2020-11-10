@@ -7,7 +7,6 @@ repository = "https://github.com/solana-labs/rbpf"
 homepage = "https://solana.com/"
 keywords = ["BPF", "eBPF", "interpreter", "JIT", "filtering"]
 license = "Apache-2.0"
-edition = "2018"
 
 include = [
     "src/**",
