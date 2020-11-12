@@ -12,7 +12,7 @@
 
 use crate::{
     call_frames::CallFrames,
-    ebpf,
+    disassembler, ebpf,
     elf::EBpfElf,
     error::{EbpfError, UserDefinedError},
     jit::{JitProgram, JitProgramArgument},
@@ -256,7 +256,7 @@ impl InstructionMeter for DefaultInstructionMeter {
 }
 
 /// Used for instruction tracing
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Tracer {
     /// Contains the state at every instruction in order of execution
     pub log: Vec<[u64; 12]>,
@@ -266,6 +266,41 @@ impl Tracer {
     /// Logs the state of a single instruction
     pub fn trace(&mut self, state: [u64; 12]) {
         self.log.push(state);
+    }
+
+    /// Use this method to print the log of this tracer
+    pub fn write<W: std::fmt::Write>(
+        &self,
+        out: &mut W,
+        program: &[u8],
+    ) -> Result<(), std::fmt::Error> {
+        let disassembled = disassembler::to_insn_vec(program);
+        let mut pc_to_instruction_index =
+            vec![0usize; disassembled.last().map(|ins| ins.ptr + 1).unwrap_or(0)];
+        for index in 0..disassembled.len() {
+            pc_to_instruction_index[disassembled[index].ptr] = index;
+        }
+        for index in 0..self.log.len() {
+            let entry = &self.log[index];
+            let ins_index = pc_to_instruction_index[entry[11] as usize];
+            writeln!(
+                out,
+                "{:5?} {:016X?} {:5?}: {}",
+                index, entry, ins_index, disassembled[ins_index].desc
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Compares an interpreter trace and a JIT trace.
+    /// The log of the JIT can be longer because it only validates the instruction meter at branches.
+    pub fn compare(interpreter: &Self, jit: &Self) -> bool {
+        let interpreter = interpreter.log.as_slice();
+        let mut jit = jit.log.as_slice();
+        if jit.len() > interpreter.len() {
+            jit = &jit[0..interpreter.len()];
+        }
+        interpreter == jit
     }
 }
 
@@ -412,9 +447,14 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         self.total_insn_count
     }
 
-    /// Returns the tracer log
-    pub fn get_trace_log(&self) -> &Vec<[u64; 12]> {
-        &self.tracer.log
+    /// Returns the program
+    pub fn get_program(&self) -> &[u8] {
+        &self.program
+    }
+
+    /// Returns the tracer
+    pub fn get_tracer(&self) -> &Tracer {
+        &self.tracer
     }
 
     /// Bind a context object instance to a previously registered syscall

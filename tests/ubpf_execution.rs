@@ -19,7 +19,9 @@ use solana_rbpf::{
     syscalls,
     user_error::UserError,
     verifier::check,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject, SyscallRegistry},
+    vm::{
+        Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject, SyscallRegistry, Tracer,
+    },
 };
 use std::{fs::File, io::Read};
 use test_utils::{
@@ -39,13 +41,17 @@ macro_rules! test_interpreter_and_jit {
         let mut syscall_registry = SyscallRegistry::default();
         test_interpreter_and_jit!(1, syscall_registry, $($location => $syscall_function; $syscall_context_object),*);
         $executable.set_syscall_registry(syscall_registry);
-        let instruction_count_interpreter = {
+        let (instruction_count_interpreter, tracer_interpreter) = {
             let mut mem = $mem;
             let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
             test_interpreter_and_jit!(2, vm, $($location => $syscall_function; $syscall_context_object),*);
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count });
             assert!(check_closure(&vm, result));
-            vm.get_total_instruction_count()
+            let tracer_interpreter = vm.get_tracer().clone();
+            let mut tracer_display = String::new();
+            tracer_interpreter.write(&mut tracer_display, vm.get_program()).unwrap();
+            println!("{}", tracer_display);
+            (vm.get_total_instruction_count(), tracer_interpreter)
         };
         #[cfg(not(windows))]
         {
@@ -61,6 +67,8 @@ macro_rules! test_interpreter_and_jit {
                     assert!(check_closure(&vm, result));
                     let instruction_count_jit = vm.get_total_instruction_count();
                     assert_eq!(instruction_count_interpreter, instruction_count_jit);
+                    let tracer_jit = vm.get_tracer();
+                    assert!(Tracer::compare(&tracer_interpreter, tracer_jit));
                 },
             }
         }
