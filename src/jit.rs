@@ -541,6 +541,7 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
     match dst {
         Value::Register(reg) => {
             // Move vm target_address into RAX
+            emit_push(jit, REGISTER_MAP[0]);
             emit_mov(jit, reg, REGISTER_MAP[0]);
             // Force alignment of RAX
             emit_alu(jit, OperationWidth::Bit64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i32 - 1), None); // RAX &= !(INSN_SIZE - 1, None);
@@ -592,9 +593,14 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
     match dst {
         Value::Register(_reg) => {
             emit_validate_and_profile_instruction_count(jit, None);
-            // callq *%rax
+
+            emit_mov(jit, REGISTER_MAP[0], R11);
+            emit_pop(jit, REGISTER_MAP[0]);
+
+            // callq *%r11
+            emit1(jit, 0x41);
             emit1(jit, 0xff);
-            emit1(jit, 0xd0);
+            emit1(jit, 0xd3);
         },
         Value::Constant64(target_pc) => {
             emit_validate_and_profile_instruction_count(jit, Some(target_pc as usize));
@@ -1029,17 +1035,15 @@ impl<'a> JitCompiler<'a> {
                 ebpf::AND32_REG  => emit_alu(self, OperationWidth::Bit32, 0x21, src, dst, 0, None),
                 ebpf::LSH32_IMM  => emit_alu(self, OperationWidth::Bit32, 0xc1, 4, dst, insn.imm, None),
                 ebpf::LSH32_REG  => {
-                    emit_xchg(self, src, RCX);
-                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 31, None); // Mask shift amount
+                    if src != RCX { emit_xchg(self, src, RCX); }
                     emit_alu(self, OperationWidth::Bit32, 0xd3, 4, dst, 0, None);
-                    emit_xchg(self, RCX, src);
+                    if src != RCX { emit_xchg(self, src, RCX); }
                 },
                 ebpf::RSH32_IMM  => emit_alu(self, OperationWidth::Bit32, 0xc1, 5, dst, insn.imm, None),
                 ebpf::RSH32_REG  => {
-                    emit_xchg(self, src, RCX);
-                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 31, None); // Mask shift amount
+                    if src != RCX { emit_xchg(self, src, RCX); }
                     emit_alu(self, OperationWidth::Bit32, 0xd3, 5, dst, 0, None);
-                    emit_xchg(self, RCX, src);
+                    if src != RCX { emit_xchg(self, src, RCX); }
                 },
                 ebpf::NEG32      => emit_alu(self, OperationWidth::Bit32, 0xf7, 3, dst, 0, None),
                 ebpf::XOR32_IMM  => emit_alu(self, OperationWidth::Bit32, 0x81, 6, dst, insn.imm, None),
@@ -1048,10 +1052,9 @@ impl<'a> JitCompiler<'a> {
                 ebpf::MOV32_REG  => emit_mov(self, src, dst),
                 ebpf::ARSH32_IMM => emit_alu(self, OperationWidth::Bit32, 0xc1, 7, dst, insn.imm, None),
                 ebpf::ARSH32_REG => {
-                    emit_xchg(self, src, RCX);
-                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 31, None); // Mask shift amount
+                    if src != RCX { emit_xchg(self, src, RCX); }
                     emit_alu(self, OperationWidth::Bit32, 0xd3, 7, dst, 0, None);
-                    emit_xchg(self, RCX, src);
+                    if src != RCX { emit_xchg(self, src, RCX); }
                 },
                 ebpf::LE         => {}, // No-op
                 ebpf::BE         => {
@@ -1089,17 +1092,15 @@ impl<'a> JitCompiler<'a> {
                 ebpf::AND64_REG  => emit_alu(self, OperationWidth::Bit64, 0x21, src, dst, 0, None),
                 ebpf::LSH64_IMM  => emit_alu(self, OperationWidth::Bit64, 0xc1, 4, dst, insn.imm, None),
                 ebpf::LSH64_REG  => {
-                    emit_xchg(self, src, RCX);
-                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 63, None); // Mask shift amount
+                    if src != RCX { emit_xchg(self, src, RCX); }
                     emit_alu(self, OperationWidth::Bit64, 0xd3, 4, dst, 0, None);
-                    emit_xchg(self, RCX, src);
+                    if src != RCX { emit_xchg(self, src, RCX); }
                 },
                 ebpf::RSH64_IMM  => emit_alu(self, OperationWidth::Bit64, 0xc1, 5, dst, insn.imm, None),
                 ebpf::RSH64_REG  => {
-                    emit_xchg(self, src, RCX);
-                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 63, None); // Mask shift amount
+                    if src != RCX { emit_xchg(self, src, RCX); }
                     emit_alu(self, OperationWidth::Bit64, 0xd3, 5, dst, 0, None);
-                    emit_xchg(self, RCX, src);
+                    if src != RCX { emit_xchg(self, src, RCX); }
                 },
                 ebpf::NEG64      => emit_alu(self, OperationWidth::Bit64, 0xf7, 3, dst, 0, None),
                 ebpf::XOR64_IMM  => emit_alu(self, OperationWidth::Bit64, 0x81, 6, dst, insn.imm, None),
@@ -1108,10 +1109,9 @@ impl<'a> JitCompiler<'a> {
                 ebpf::MOV64_REG  => emit_mov(self, src, dst),
                 ebpf::ARSH64_IMM => emit_alu(self, OperationWidth::Bit64, 0xc1, 7, dst, insn.imm, None),
                 ebpf::ARSH64_REG => {
-                    emit_xchg(self, src, RCX);
-                    emit_alu(self, OperationWidth::Bit64, 0x81, 4, RCX, 63, None); // Mask shift amount
+                    if src != RCX { emit_xchg(self, src, RCX); }
                     emit_alu(self, OperationWidth::Bit64, 0xd3, 7, dst, 0, None);
-                    emit_xchg(self, RCX, src);
+                    if src != RCX { emit_xchg(self, src, RCX); }
                 },
 
                 // BPF_JMP class
@@ -1323,7 +1323,7 @@ impl<'a> JitCompiler<'a> {
             emit_pop(self, *reg);
         }
 
-        emit1(self, 0xc3); // ret
+        emit1(self, 0xc3); // ret near
 
         Ok(())
     }
