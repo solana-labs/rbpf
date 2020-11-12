@@ -22,7 +22,7 @@ use std::fmt::Error as FormatterError;
 use std::ops::{Index, IndexMut};
 
 use crate::{
-    vm::{Config, Executable, ProgramResult, InstructionMeter},
+    vm::{Config, Executable, ProgramResult, InstructionMeter, Tracer, SYSCALL_CONTEXT_OBJECTS_OFFSET},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, STACK_REG, MM_STACK_START},
     error::{UserDefinedError, EbpfError},
     memory_region::{AccessType, MemoryMapping},
@@ -65,6 +65,7 @@ const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: usize = TARGET_OFFSET + 5;
 const TARGET_PC_DIV_BY_ZERO: usize = TARGET_OFFSET + 6;
 const TARGET_PC_EXCEPTION_AT: usize = TARGET_OFFSET + 7;
 const TARGET_PC_SYSCALL_EXCEPTION: usize = TARGET_OFFSET + 8;
+const TARGET_PC_TRACE: usize = TARGET_OFFSET + 9;
 
 #[derive(Copy, Clone)]
 enum OperandSize {
@@ -525,9 +526,9 @@ fn emit_conditional_branch_imm(jit: &mut JitCompiler, op: u8, imm: i32, dst: u8,
 
 enum Value {
     Register(u8),
-    RegisterPlusConstant(u8, i64),
-    Constant(i64),
-    Stack(i32)
+    RegisterIndirect(u8, i32),
+    RegisterPlusConstant64(u8, i64),
+    Constant64(i64),
 }
 
 #[inline]
@@ -572,7 +573,7 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX += jit.pc_locs;
             emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], 0); // RAX = jit.pc_locs[RAX / 8];
         },
-        Value::Constant(_target_pc) => {},
+        Value::Constant64(_target_pc) => {},
         _ => panic!()
     }
 
@@ -595,7 +596,7 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             emit1(jit, 0xff);
             emit1(jit, 0xd0);
         },
-        Value::Constant(target_pc) => {
+        Value::Constant64(target_pc) => {
             emit_validate_and_profile_instruction_count(jit, Some(target_pc as usize));
             emit1(jit, 0xe8);
             emit_jump_offset(jit, target_pc as usize);
@@ -616,7 +617,7 @@ struct Argument {
 }
 
 #[inline]
-fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argument], return_reg: Option<u8>) {
+fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argument], return_reg: Option<u8>, check_exception: bool) {
     let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
     if let Some(reg) = return_reg {
         let dst = saved_registers.iter().position(|x| *x == reg).unwrap();
@@ -635,8 +636,8 @@ fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argum
                 let dst = saved_registers.len() - (argument.index - ARGUMENT_REGISTERS.len());
                 saved_registers.insert(dst, reg);
             },
-            Value::Stack(slot) => {
-                emit_load(jit, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() as i32 + slot));
+            Value::RegisterIndirect(reg, offset) => {
+                emit_load(jit, OperandSize::S64, reg, R11, offset);
             },
             _ => panic!()
         }
@@ -659,16 +660,16 @@ fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argum
                     emit_mov(jit, reg, dst);
                 }
             },
-            Value::RegisterPlusConstant(reg, offset) => {
+            Value::RegisterIndirect(reg, offset) => {
+                emit_load(jit, OperandSize::S64, reg, dst, offset);
+            },
+            Value::RegisterPlusConstant64(reg, offset) => {
                 emit_load_imm(jit, R11, offset);
                 emit_alu(jit, OperationWidth::Bit64, 0x01, reg, R11, 0, None);
                 emit_mov(jit, R11, dst);
             },
-            Value::Constant(value) => {
+            Value::Constant64(value) => {
                 emit_load_imm(jit, dst, value);
-            },
-            Value::Stack(slot) => {
-                emit_load(jit, OperandSize::S64, RBP, dst, -8 * (CALLEE_SAVED_REGISTERS.len() as i32 + slot));
             },
         }
     }
@@ -688,20 +689,22 @@ fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argum
         emit_pop(jit, *reg);
     }
 
-    // Test if result indicates that an error occured
-    emit_load(jit, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
-    emit_cmp_imm32(jit, R11, 0, Some(0));
+    if check_exception {
+        // Test if result indicates that an error occured
+        emit_load(jit, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
+        emit_cmp_imm32(jit, R11, 0, Some(0));
+    }
 }
 
 #[inline]
 fn emit_address_translation(jit: &mut JitCompiler, host_addr: u8, vm_addr: Value, len: u64, access_type: AccessType) {
     emit_rust_call(jit, MemoryMapping::map::<UserError> as *const u8, &[
         Argument { index: 3, value: vm_addr }, // Specify first as the src register could be overwritten by other arguments
-        Argument { index: 0, value: Value::Stack(1) }, // Pointer to optional typed return value
+        Argument { index: 0, value: Value::RegisterIndirect(RBP, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32) }, // Pointer to optional typed return value
         Argument { index: 1, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
-        Argument { index: 2, value: Value::Constant(access_type as i64) },
-        Argument { index: 4, value: Value::Constant(len as i64) },
-    ], None);
+        Argument { index: 2, value: Value::Constant64(access_type as i64) },
+        Argument { index: 4, value: Value::Constant64(len as i64) },
+    ], None, true);
 
     // Throw error if the result indicates one
     emit_load_imm(jit, R11, jit.pc as i64);
@@ -881,7 +884,7 @@ impl<'a> JitCompiler<'a> {
         // Save initial instruction meter
         emit_rust_call(self, I::get_remaining as *const u8, &[
             Argument { index: 0, value: Value::Register(ARGUMENT_REGISTERS[3]) },
-        ], Some(ARGUMENT_REGISTERS[0]));
+        ], Some(ARGUMENT_REGISTERS[0]), false);
         emit_push(self, ARGUMENT_REGISTERS[0]);
         emit_push(self, ARGUMENT_REGISTERS[3]);
 
@@ -904,6 +907,11 @@ impl<'a> JitCompiler<'a> {
 
             self.pc_locs[self.pc] = self.offset as u64;
 
+            if self.config.enable_trace {
+                emit_load_imm(self, R11, self.pc as i64);
+                emit_jmp(self, TARGET_PC_TRACE);
+            }
+
             let dst = map_register(insn.dst);
             let src = map_register(insn.src);
             let target_pc = (self.pc as isize + insn.off as isize + 1) as usize;
@@ -912,35 +920,35 @@ impl<'a> JitCompiler<'a> {
 
                 // BPF_LD class
                 ebpf::LD_ABS_B   => {
-                    emit_address_translation(self, R11, Value::Constant(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 1, AccessType::Load);
+                    emit_address_translation(self, R11, Value::Constant64(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 1, AccessType::Load);
                     emit_load(self, OperandSize::S8, R11, RAX, 0);
                 },
                 ebpf::LD_ABS_H   => {
-                    emit_address_translation(self, R11, Value::Constant(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 2, AccessType::Load);
+                    emit_address_translation(self, R11, Value::Constant64(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 2, AccessType::Load);
                     emit_load(self, OperandSize::S16, R11, RAX, 0);
                 },
                 ebpf::LD_ABS_W   => {
-                    emit_address_translation(self, R11, Value::Constant(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 4, AccessType::Load);
+                    emit_address_translation(self, R11, Value::Constant64(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 4, AccessType::Load);
                     emit_load(self, OperandSize::S32, R11, RAX, 0);
                 },
                 ebpf::LD_ABS_DW  => {
-                    emit_address_translation(self, R11, Value::Constant(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 8, AccessType::Load);
+                    emit_address_translation(self, R11, Value::Constant64(insn.imm as i64 + ebpf::MM_INPUT_START as i64), 8, AccessType::Load);
                     emit_load(self, OperandSize::S64, R11, RAX, 0);
                 },
                 ebpf::LD_IND_B   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 1, AccessType::Load);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 1, AccessType::Load);
                     emit_load(self, OperandSize::S8, R11, RAX, 0);
                 },
                 ebpf::LD_IND_H   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 2, AccessType::Load);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 2, AccessType::Load);
                     emit_load(self, OperandSize::S16, R11, RAX, 0);
                 },
                 ebpf::LD_IND_W   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 4, AccessType::Load);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 4, AccessType::Load);
                     emit_load(self, OperandSize::S32, R11, RAX, 0);
                 },
                 ebpf::LD_IND_DW  => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 8, AccessType::Load);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, insn.imm as i64 + ebpf::MM_INPUT_START as i64), 8, AccessType::Load);
                     emit_load(self, OperandSize::S64, R11, RAX, 0);
                 },
 
@@ -954,55 +962,55 @@ impl<'a> JitCompiler<'a> {
 
                 // BPF_LDX class
                 ebpf::LD_B_REG   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.off as i64), 1, AccessType::Load);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, insn.off as i64), 1, AccessType::Load);
                     emit_load(self, OperandSize::S8, R11, dst, 0);
                 },
                 ebpf::LD_H_REG   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.off as i64), 2, AccessType::Load);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, insn.off as i64), 2, AccessType::Load);
                     emit_load(self, OperandSize::S16, R11, dst, 0);
                 },
                 ebpf::LD_W_REG   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.off as i64), 4, AccessType::Load);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, insn.off as i64), 4, AccessType::Load);
                     emit_load(self, OperandSize::S32, R11, dst, 0);
                 },
                 ebpf::LD_DW_REG  => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(src, insn.off as i64), 8, AccessType::Load);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, insn.off as i64), 8, AccessType::Load);
                     emit_load(self, OperandSize::S64, R11, dst, 0);
                 },
 
                 // BPF_ST class
                 ebpf::ST_B_IMM   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 1, AccessType::Store);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64), 1, AccessType::Store);
                     emit_store_imm32(self, OperandSize::S8, R11, 0, insn.imm);
                 },
                 ebpf::ST_H_IMM   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 2, AccessType::Store);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64), 2, AccessType::Store);
                     emit_store_imm32(self, OperandSize::S16, R11, 0, insn.imm);
                 },
                 ebpf::ST_W_IMM   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 4, AccessType::Store);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64), 4, AccessType::Store);
                     emit_store_imm32(self, OperandSize::S32, R11, 0, insn.imm);
                 },
                 ebpf::ST_DW_IMM  => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 8, AccessType::Store);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64), 8, AccessType::Store);
                     emit_store_imm32(self, OperandSize::S64, R11, 0, insn.imm);
                 },
 
                 // BPF_STX class
                 ebpf::ST_B_REG  => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 1, AccessType::Store);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64), 1, AccessType::Store);
                     emit_store(self, OperandSize::S8, src, R11, 0);
                 },
                 ebpf::ST_H_REG  => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 2, AccessType::Store);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64), 2, AccessType::Store);
                     emit_store(self, OperandSize::S16, src, R11, 0);
                 },
                 ebpf::ST_W_REG  => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 4, AccessType::Store);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64), 4, AccessType::Store);
                     emit_store(self, OperandSize::S32, src, R11, 0);
                 },
                 ebpf::ST_DW_REG  => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant(dst, insn.off as i64), 8, AccessType::Store);
+                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64), 8, AccessType::Store);
                     emit_store(self, OperandSize::S64, src, R11, 0);
                 },
 
@@ -1157,10 +1165,10 @@ impl<'a> JitCompiler<'a> {
                             emit_rust_call(self, I::consume as *const u8, &[
                                 Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[0]) },
                                 Argument { index: 0, value: Value::Register(R11) },
-                            ], None);
+                            ], None, false);
                         }
 
-                        emit_load(self, OperandSize::S64, R10, RAX, (2 + syscall.context_object_slot as i32) * 8);
+                        emit_load(self, OperandSize::S64, R10, RAX, (SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8);
                         emit_rust_call(self, syscall.function as *const u8, &[
                             Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the SyscallObject
                             Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
@@ -1169,8 +1177,8 @@ impl<'a> JitCompiler<'a> {
                             Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
                             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
                             Argument { index: 6, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
-                            Argument { index: 7, value: Value::Stack(1) }, // Pointer to optional typed return value
-                        ], None);
+                            Argument { index: 7, value: Value::RegisterIndirect(RBP, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32) }, // Pointer to optional typed return value
+                        ], None, true);
 
                         // Throw error if the result indicates one
                         emit_load_imm(self, R11, self.pc as i64);
@@ -1184,14 +1192,14 @@ impl<'a> JitCompiler<'a> {
                             emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 3) as i32);
                             emit_rust_call(self, I::get_remaining as *const u8, &[
                                 Argument { index: 0, value: Value::Register(R11) },
-                            ], Some(ARGUMENT_REGISTERS[0]));
+                            ], Some(ARGUMENT_REGISTERS[0]), false);
                             emit_store(self, OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, -8 * (CALLEE_SAVED_REGISTERS.len() + 2) as i32);
                             emit_undo_profile_instruction_count(self, 0);
                         }
                     } else {
                         match executable.lookup_bpf_call(insn.imm as u32) {
                             Some(target_pc) => {
-                                emit_bpf_call(self, Value::Constant(*target_pc as i64), self.pc_locs.len());
+                                emit_bpf_call(self, Value::Constant64(*target_pc as i64), self.pc_locs.len());
                             },
                             None => executable.report_unresolved_symbol(self.pc)?,
                         }
@@ -1261,6 +1269,36 @@ impl<'a> JitCompiler<'a> {
         set_anchor(self, TARGET_PC_SYSCALL_EXCEPTION);
         emit_profile_instruction_count_of_exception(self);
         emit_jmp(self, TARGET_PC_EPILOGUE);
+
+        if self.config.enable_trace {
+            // Handler for instruction tracing
+            set_anchor(self, TARGET_PC_TRACE);
+
+            // Save registers on stack
+            emit_push(self, R11);
+            for reg in REGISTER_MAP.iter().rev() {
+                emit_push(self, *reg);
+            }
+
+            emit_mov(self, RSP, REGISTER_MAP[0]);
+            emit_rust_call(self, Tracer::trace as *const u8, &[
+                Argument { index: 0, value: Value::RegisterIndirect(R10, std::mem::size_of::<MemoryMapping>() as i32) }, // jit.tracer
+                Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
+            ], None, false);
+
+            // Pop stack and return
+            emit_load_imm(self, REGISTER_MAP[0], self.pc_locs.as_ptr() as i64);
+            emit_alu(self, OperationWidth::Bit32, 0xc1, 4, R11, 3, None); // R11 <<= 3; // R11 *= 8;
+            emit_alu(self, OperationWidth::Bit64, 0x01, REGISTER_MAP[0], R11, 0, None); // R11 += jit.pc_locs;
+            emit_load(self, OperandSize::S64, R11, R11, 0); // R11 = jit.pc_locs[R11];
+            emit_alu(self, OperationWidth::Bit64, 0x81, 0, R11, 12, None); // R11 += 12; // Skip tracing call
+            emit_pop(self, REGISTER_MAP[0]);
+            emit_alu(self, OperationWidth::Bit64, 0x81, 0, RSP, 8 * REGISTER_MAP.len() as i32, None); // RSP += 8 * REGISTER_MAP.len();
+            // jmpq *%r11
+            emit1(self, 0x41);
+            emit1(self, 0xff);
+            emit1(self, 0xe3);
+        }
 
         // Quit gracefully
         set_anchor(self, TARGET_PC_EXIT);

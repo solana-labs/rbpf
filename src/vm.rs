@@ -12,14 +12,14 @@
 
 use crate::{
     call_frames::CallFrames,
-    disassembler, ebpf,
+    ebpf,
     elf::EBpfElf,
     error::{EbpfError, UserDefinedError},
     jit::{JitProgram, JitProgramArgument},
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     user_error::UserError,
 };
-use log::{debug, log_enabled, trace};
+use log::debug;
 use std::{collections::HashMap, fmt::Debug, u32};
 
 /// eBPF verification function that returns an error if the program does not meet its requirements.
@@ -172,12 +172,15 @@ pub struct Config {
     pub max_call_depth: usize,
     /// Size of a stack frame in bytes, must match the size specified in the LLVM BPF backend
     pub stack_frame_size: usize,
+    /// Enable instruction tracing
+    pub enable_trace: bool,
 }
 impl Default for Config {
     fn default() -> Self {
         Self {
             max_call_depth: 20,
             stack_frame_size: 4_096,
+            enable_trace: true,
         }
     }
 }
@@ -252,6 +255,20 @@ impl InstructionMeter for DefaultInstructionMeter {
     }
 }
 
+/// Used for instruction tracing
+#[derive(Default)]
+pub struct Tracer {
+    /// Contains the state at every instruction in order of execution
+    pub log: Vec<[u64; 12]>,
+}
+
+impl Tracer {
+    /// Logs the state of a single instruction
+    pub fn trace(&mut self, state: [u64; 12]) {
+        self.log.push(state);
+    }
+}
+
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
 macro_rules! translate_memory_access {
     ( $self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty ) => {
@@ -274,6 +291,9 @@ macro_rules! translate_memory_access {
         }
     };
 }
+
+/// The syscall_context_objects field also stores some metadata in the front, thus the entries are shifted
+pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 3;
 
 /// A virtual machine to run eBPF program.
 ///
@@ -302,6 +322,7 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     program: &'a [u8],
     program_vm_addr: u64,
     memory_mapping: MemoryMapping,
+    tracer: Tracer,
     syscall_context_objects: Vec<*mut u8>,
     syscall_context_object_pool: Vec<Box<dyn SyscallObject<E> + 'a>>,
     frames: CallFrames,
@@ -360,32 +381,40 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             0,
             false,
         ));
-        let memory_mapping = MemoryMapping::new_from_regions(regions);
         let number_of_syscalls = executable.get_syscall_registry().get_number_of_syscalls();
-        let mut syscall_context_objects = vec![std::ptr::null_mut(); 2 + number_of_syscalls];
-        unsafe {
-            libc::memcpy(
-                syscall_context_objects.as_mut_ptr() as _,
-                std::mem::transmute::<_, _>(&memory_mapping),
-                std::mem::size_of::<MemoryMapping>(),
-            );
-        }
-        Ok(EbpfVm {
+        let mut vm = EbpfVm {
             executable,
             program,
             program_vm_addr,
-            memory_mapping,
-            syscall_context_objects,
+            memory_mapping: MemoryMapping::new_from_regions(regions),
+            tracer: Tracer::default(),
+            syscall_context_objects: vec![
+                std::ptr::null_mut();
+                SYSCALL_CONTEXT_OBJECTS_OFFSET + number_of_syscalls
+            ],
             syscall_context_object_pool: Vec::with_capacity(number_of_syscalls),
             frames,
             last_insn_count: 0,
             total_insn_count: 0,
-        })
+        };
+        unsafe {
+            libc::memcpy(
+                vm.syscall_context_objects.as_mut_ptr() as _,
+                std::mem::transmute::<_, _>(&vm.memory_mapping),
+                std::mem::size_of::<MemoryMapping>(),
+            );
+        }
+        Ok(vm)
     }
 
     /// Returns the number of instructions executed by the last program.
     pub fn get_total_instruction_count(&self) -> u64 {
         self.total_insn_count
+    }
+
+    /// Returns the tracer log
+    pub fn get_trace_log(&self) -> &Vec<[u64; 12]> {
+        &self.tracer.log
     }
 
     /// Bind a context object instance to a previously registered syscall
@@ -435,10 +464,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             .get_syscall_registry()
             .lookup_context_object_slot(vtable.call as u64)
             .unwrap();
-        if !self.syscall_context_objects[2 + slot].is_null() {
+        if !self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot].is_null() {
             Err(EbpfError::SycallAlreadyBound)
         } else {
-            self.syscall_context_objects[2 + slot] = fat_ptr.data;
+            self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot] = fat_ptr.data;
             // Keep the dyn trait objects so that they can be dropped properly later
             self.syscall_context_object_pool
                 .push(syscall_context_object);
@@ -451,7 +480,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         self.executable
             .get_syscall_registry()
             .lookup_context_object_slot(syscall_function as u64)
-            .map(|slot| self.syscall_context_objects[2 + slot])
+            .map(|slot| self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot])
     }
 
     /// Execute the program loaded, with the given packet data.
@@ -501,8 +530,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             reg[1] = ebpf::MM_INPUT_START;
         }
 
-        // Check trace logging outside the instruction loop, saves ~30%
-        let insn_trace = log_enabled!(log::Level::Trace);
+        // Check trace logging outside the instruction loop
+        let insn_trace = self.executable.get_config().enable_trace;
+        self.syscall_context_objects[2] = &mut self.tracer as *mut _ as *mut u8;
 
         // Loop on instructions
         let entry = self.executable.get_entrypoint_instruction_offset()?;
@@ -519,14 +549,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             self.last_insn_count += 1;
 
             if insn_trace {
-                trace!(
-                    "    BPF: {:5?} {:016x?} frame {:?} pc {:4?} {}",
-                    self.last_insn_count,
-                    reg,
-                    self.frames.get_frame_index(),
-                    pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    disassembler::to_insn_vec(&self.program[pc * ebpf::INSN_SIZE..])[0].desc
-                );
+                let mut state = [0u64; 12];
+                state[0..11].copy_from_slice(&reg);
+                state[11] = pc as u64;
+                self.tracer.trace(state);
             }
 
             match insn.opc {
@@ -780,7 +806,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         self.last_insn_count = 0;
                         let mut result: ProgramResult<E> = Ok(0);
                         (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
-                            self.syscall_context_objects[2 + syscall.context_object_slot],
+                            self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot],
                             reg[1],
                             reg[2],
                             reg[3],
@@ -883,6 +909,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             .get_compiled_program()
             .ok_or(EbpfError::JITNotCompiled)?;
         unsafe {
+            self.syscall_context_objects[2] = &mut self.tracer as *mut _ as *mut u8;
             self.last_insn_count = (compiled_program.main)(
                 &result,
                 reg1,
