@@ -248,7 +248,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
 
     /// JIT compile the executable
     fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        self.compiled_program = Some(compile::<E, I>(self, true)?);
+        self.compiled_program = Some(compile::<E, I>(self)?);
         Ok(())
     }
 

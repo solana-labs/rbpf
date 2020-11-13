@@ -63,14 +63,18 @@ macro_rules! test_interpreter_and_jit {
                     test_interpreter_and_jit!(2, vm, $($location => $syscall_function; $syscall_context_object),*);
                     let result = vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count });
                     assert!(check_closure(&vm, result));
-                    let instruction_count_jit = vm.get_total_instruction_count();
-                    assert_eq!(instruction_count_interpreter, instruction_count_jit);
+                    if $executable.get_config().enable_instruction_meter {
+                        let instruction_count_jit = vm.get_total_instruction_count();
+                        assert_eq!(instruction_count_interpreter, instruction_count_jit);
+                    }
                     let tracer_jit = vm.get_tracer();
                     assert!(solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit));
                 },
             }
         }
-        assert_eq!(instruction_count_interpreter, $expected_instruction_count);
+        if $executable.get_config().enable_instruction_meter {
+            assert_eq!(instruction_count_interpreter, $expected_instruction_count);
+        }
     };
 }
 
@@ -79,8 +83,10 @@ macro_rules! test_interpreter_and_jit_asm {
         let program = assemble($source).unwrap();
         #[allow(unused_mut)]
         {
-            let mut config = Config::default();
-            config.enable_trace = true;
+            let config = Config {
+                enable_instruction_tracing: true,
+                ..Default::default()
+            };
             let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, config).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }
@@ -94,8 +100,10 @@ macro_rules! test_interpreter_and_jit_elf {
         file.read_to_end(&mut elf).unwrap();
         #[allow(unused_mut)]
         {
-            let mut config = Config::default();
-            config.enable_trace = true;
+            let config = Config {
+                enable_instruction_tracing: true,
+                ..Default::default()
+            };
             let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, config).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }

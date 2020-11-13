@@ -470,7 +470,7 @@ fn emit_store_imm32(jit: &mut JitCompiler, size: OperandSize, dst: u8, offset: i
 
 #[inline]
 fn emit_profile_instruction_count(jit: &mut JitCompiler, target_pc: Option<usize>) {
-    if jit.enable_instruction_meter {
+    if jit.config.enable_instruction_meter {
         match target_pc {
             Some(target_pc) => {
                 emit_alu(jit, OperationWidth::Bit64, 0x81, 0, ARGUMENT_REGISTERS[0], target_pc as i32 - jit.pc as i32 - 1, None); // instruction_meter += target_pc - (jit.pc + 1);
@@ -486,7 +486,7 @@ fn emit_profile_instruction_count(jit: &mut JitCompiler, target_pc: Option<usize
 
 #[inline]
 fn emit_validate_and_profile_instruction_count(jit: &mut JitCompiler, target_pc: Option<usize>) {
-    if jit.enable_instruction_meter {
+    if jit.config.enable_instruction_meter {
         emit_cmp_imm32(jit, ARGUMENT_REGISTERS[0], jit.pc as i32 + 1, None);
         emit_jcc(jit, 0x82, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         emit_profile_instruction_count(jit, target_pc);
@@ -495,7 +495,7 @@ fn emit_validate_and_profile_instruction_count(jit: &mut JitCompiler, target_pc:
 
 #[inline]
 fn emit_undo_profile_instruction_count(jit: &mut JitCompiler, target_pc: usize) {
-    if jit.enable_instruction_meter {
+    if jit.config.enable_instruction_meter {
         emit_alu(jit, OperationWidth::Bit64, 0x81, 0, ARGUMENT_REGISTERS[0], jit.pc as i32 + 1 - target_pc as i32, None); // instruction_meter += (jit.pc + 1) - target_pc;
     }
 }
@@ -503,7 +503,7 @@ fn emit_undo_profile_instruction_count(jit: &mut JitCompiler, target_pc: usize) 
 #[inline]
 fn emit_profile_instruction_count_of_exception(jit: &mut JitCompiler) {
     emit_alu(jit, OperationWidth::Bit64, 0x81, 0, R11, 1, None);
-    if jit.enable_instruction_meter {
+    if jit.config.enable_instruction_meter {
         emit_alu(jit, OperationWidth::Bit64, 0x29, R11, ARGUMENT_REGISTERS[0], 0, None); // instruction_meter -= pc + 1;
     }
 }
@@ -559,7 +559,7 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             emit_jcc(jit, 0x82, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
             // Calculate offset relative to instruction_addresses
             emit_alu(jit, OperationWidth::Bit64, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None); // RAX -= jit.program_vm_addr;
-            if jit.enable_instruction_meter {
+            if jit.config.enable_instruction_meter {
                 // Calculate the target_pc to update the instruction_meter
                 let shift_amount = INSN_SIZE.trailing_zeros();
                 assert_eq!(INSN_SIZE, 1<<shift_amount);
@@ -804,12 +804,11 @@ struct JitCompiler<'a> {
     special_targets: HashMap<usize, usize>,
     jumps: Vec<Jump>,
     config: Config,
-    enable_instruction_meter: bool,
 }
 
 impl<'a> JitCompiler<'a> {
     // num_pages is unused on windows
-    fn new(_program: &[u8], _config: &Config, _enable_instruction_meter: bool) -> JitCompiler<'a> {
+    fn new(_program: &[u8], _config: &Config) -> JitCompiler<'a> {
         #[cfg(windows)]
         {
             panic!("JIT not supported on windows");
@@ -851,7 +850,6 @@ impl<'a> JitCompiler<'a> {
             special_targets: HashMap::new(),
             jumps: vec![],
             config: *_config,
-            enable_instruction_meter: _enable_instruction_meter,
         }
     }
 
@@ -913,7 +911,7 @@ impl<'a> JitCompiler<'a> {
 
             self.pc_locs[self.pc] = self.offset as u64;
 
-            if self.config.enable_trace {
+            if self.config.enable_instruction_tracing {
                 emit_load_imm(self, R11, self.pc as i64);
                 emit_jmp(self, TARGET_PC_TRACE);
             }
@@ -1156,7 +1154,7 @@ impl<'a> JitCompiler<'a> {
                     // updated later, but not created after compiling (we need the address of the
                     // syscall function in the JIT-compiled program).
                     if let Some(syscall) = executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
-                        if self.enable_instruction_meter {
+                        if self.config.enable_instruction_meter {
                             emit_validate_and_profile_instruction_count(self, Some(0));
                             emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 2) as i32);
                             emit_alu(self, OperationWidth::Bit64, 0x29, ARGUMENT_REGISTERS[0], R11, 0, None);
@@ -1188,7 +1186,7 @@ impl<'a> JitCompiler<'a> {
                         emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32);
                         emit_load(self, OperandSize::S64, R11, REGISTER_MAP[0], 8);
 
-                        if self.enable_instruction_meter {
+                        if self.config.enable_instruction_meter {
                             emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 3) as i32);
                             emit_rust_call(self, I::get_remaining as *const u8, &[
                                 Argument { index: 0, value: Value::Register(R11) },
@@ -1270,7 +1268,7 @@ impl<'a> JitCompiler<'a> {
         emit_profile_instruction_count_of_exception(self);
         emit_jmp(self, TARGET_PC_EPILOGUE);
 
-        if self.config.enable_trace {
+        if self.config.enable_instruction_tracing {
             // Handler for instruction tracing
             set_anchor(self, TARGET_PC_TRACE);
 
@@ -1384,13 +1382,11 @@ impl<'a> std::fmt::Debug for JitCompiler<'a> {
     }
 }
 
-pub fn compile<E: UserDefinedError, I: InstructionMeter>(
-    executable: &dyn Executable<E, I>,
-    enable_instruction_meter: bool)
+pub fn compile<E: UserDefinedError, I: InstructionMeter>(executable: &dyn Executable<E, I>)
     -> Result<JitProgram<E, I>, EbpfError<E>> {
 
     let program = executable.get_text_bytes()?.1;
-    let mut jit = JitCompiler::new(program, executable.get_config(), enable_instruction_meter);
+    let mut jit = JitCompiler::new(program, executable.get_config());
     jit.compile::<E, I>(executable)?;
     jit.resolve_jumps();
     jit.truncate_and_set_permissions();
