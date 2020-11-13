@@ -19,9 +19,7 @@ use solana_rbpf::{
     syscalls,
     user_error::UserError,
     verifier::check,
-    vm::{
-        Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject, SyscallRegistry, Tracer,
-    },
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
 use std::{fs::File, io::Read};
 use test_utils::{
@@ -41,7 +39,7 @@ macro_rules! test_interpreter_and_jit {
         let mut syscall_registry = SyscallRegistry::default();
         test_interpreter_and_jit!(1, syscall_registry, $($location => $syscall_function; $syscall_context_object),*);
         $executable.set_syscall_registry(syscall_registry);
-        let (instruction_count_interpreter, tracer_interpreter) = {
+        let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
             test_interpreter_and_jit!(2, vm, $($location => $syscall_function; $syscall_context_object),*);
@@ -68,7 +66,7 @@ macro_rules! test_interpreter_and_jit {
                     let instruction_count_jit = vm.get_total_instruction_count();
                     assert_eq!(instruction_count_interpreter, instruction_count_jit);
                     let tracer_jit = vm.get_tracer();
-                    assert!(Tracer::compare(&tracer_interpreter, tracer_jit));
+                    assert!(solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit));
                 },
             }
         }
