@@ -180,7 +180,7 @@ impl Default for Config {
         Self {
             max_call_depth: 20,
             stack_frame_size: 4_096,
-            enable_trace: true,
+            enable_trace: false,
         }
     }
 }

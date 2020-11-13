@@ -79,7 +79,9 @@ macro_rules! test_interpreter_and_jit_asm {
         let program = assemble($source).unwrap();
         #[allow(unused_mut)]
         {
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, Config::default()).unwrap();
+            let mut config = Config::default();
+            config.enable_trace = true;
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, config).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }
     };
@@ -92,7 +94,9 @@ macro_rules! test_interpreter_and_jit_elf {
         file.read_to_end(&mut elf).unwrap();
         #[allow(unused_mut)]
         {
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, Config::default()).unwrap();
+            let mut config = Config::default();
+            config.enable_trace = true;
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, config).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }
     };
