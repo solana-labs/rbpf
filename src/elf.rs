@@ -254,8 +254,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
 
     /// Report information on a symbol that failed to be resolved
     fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<(), EbpfError<E>> {
-        let file_offset =
-            insn_offset * ebpf::INSN_SIZE + self.text_section_info.offset_range.start as usize;
+        let file_offset = insn_offset
+            .saturating_mul(ebpf::INSN_SIZE)
+            .saturating_add(self.text_section_info.offset_range.start as usize);
 
         let mut name = "Unknown";
         if let Ok(elf) = Elf::parse(&self.elf_bytes) {
@@ -327,7 +328,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
         // calculate the text section info
         let text_section_info = SectionInfo {
-            vaddr: ebpf::MM_PROGRAM_START + text_section.sh_addr,
+            vaddr: text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START),
             offset_range: text_section.file_range(),
         };
 
@@ -342,7 +343,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         || this_name == ".eh_frame"
                     {
                         return Some(SectionInfo {
-                            vaddr: ebpf::MM_PROGRAM_START + section_header.sh_addr,
+                            vaddr: section_header
+                                .sh_addr
+                                .saturating_add(ebpf::MM_PROGRAM_START),
                             offset_range: section_header.file_range(),
                         });
                     }
@@ -489,19 +492,20 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
         // Fixup all the relocations in the relocation section if exists
         for relocation in &elf.dynrels {
+            let r_offset = relocation.r_offset as usize;
+
+            // Offset of the immediate field
+            let imm_offset = r_offset.saturating_add(BYTE_OFFSET_IMMEDIATE);
             match BPFRelocationType::from_x86_relocation_type(relocation.r_type) {
                 Some(BPFRelocationType::R_BPF_64_RELATIVE) => {
                     // Raw relocation between sections.  The instruction being relocated contains
                     // the virtual address that it needs turned into a physical address.  Read it,
                     // locate it in the ELF, convert to physical address
 
-                    // Offset of the immediate field
-                    let imm_offset = relocation.r_offset as usize + BYTE_OFFSET_IMMEDIATE;
-
                     // Read the instruction's immediate field which contains virtual
                     // address to convert to physical
                     let checked_slice = elf_bytes
-                        .get(imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE)
+                        .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                         .ok_or(ELFError::OutOfBounds)?;
                     let refd_va = LittleEndian::read_u32(&checked_slice) as u64;
 
@@ -510,7 +514,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     }
 
                     // final "physical address" from the VM's perspetive is rooted at `MM_PROGRAM_START`
-                    let refd_pa = ebpf::MM_PROGRAM_START + refd_va;
+                    let refd_pa = ebpf::MM_PROGRAM_START.saturating_add(refd_va);
 
                     // trace!(
                     //     "Relocation section va {:#x} off {:#x} va {:#x} pa {:#x} va {:#x} pa {:#x}",
@@ -518,31 +522,26 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     // );
 
                     // Write the physical address back into the target location
-                    if text_section
-                        .file_range()
-                        .contains(&(relocation.r_offset as usize))
-                    {
+                    if text_section.file_range().contains(&r_offset) {
                         // Instruction lddw spans two instruction slots, split the
                         // physical address into a high and low and write into both slot's imm field
 
                         let mut checked_slice = elf_bytes
-                            .get_mut(imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE)
+                            .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                             .ok_or(ELFError::OutOfBounds)?;
                         LittleEndian::write_u32(&mut checked_slice, (refd_pa & 0xFFFFFFFF) as u32);
                         let mut checked_slice = elf_bytes
                             .get_mut(
-                                imm_offset + ebpf::INSN_SIZE
-                                    ..imm_offset + ebpf::INSN_SIZE + BYTE_LENGTH_IMMEIDATE,
+                                imm_offset.saturating_add(ebpf::INSN_SIZE)
+                                    ..imm_offset
+                                        .saturating_add(ebpf::INSN_SIZE + BYTE_LENGTH_IMMEIDATE),
                             )
                             .ok_or(ELFError::OutOfBounds)?;
                         LittleEndian::write_u32(&mut checked_slice, (refd_pa >> 32) as u32);
                     } else {
                         // 64 bit memory location, write entire 64 bit physical address directly
                         let mut checked_slice = elf_bytes
-                            .get_mut(
-                                relocation.r_offset as usize
-                                    ..relocation.r_offset as usize + mem::size_of::<u64>(),
-                            )
+                            .get_mut(r_offset..r_offset.saturating_add(mem::size_of::<u64>()))
                             .ok_or(ELFError::OutOfBounds)?;
                         LittleEndian::write_u64(&mut checked_slice, refd_pa);
                     }
@@ -562,9 +561,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         .ok_or(ELFError::UnknownSymbol(sym.st_name))?
                         .map_err(|_| ELFError::UnknownSymbol(sym.st_name))?;
                     let hash = ebpf::hash_symbol_name(&name.as_bytes());
-                    let imm_offset = relocation.r_offset as usize + BYTE_OFFSET_IMMEDIATE;
                     let mut checked_slice = elf_bytes
-                        .get_mut(imm_offset..imm_offset + BYTE_LENGTH_IMMEIDATE)
+                        .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                         .ok_or(ELFError::OutOfBounds)?;
                     LittleEndian::write_u32(&mut checked_slice, hash);
                     let text_section = Self::get_section(elf, ".text")?;
