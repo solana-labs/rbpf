@@ -797,7 +797,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 ebpf::LSH64_REG  => reg[dst] = reg[dst].wrapping_shl(reg[src] as u32),
                 ebpf::RSH64_IMM  => reg[dst] >>= insn.imm as u64,
                 ebpf::RSH64_REG  => reg[dst] = (reg[dst] as u64).wrapping_shr(reg[src] as u32),
-                ebpf::NEG64      => reg[dst] = -(reg[dst] as i64) as u64,
+                ebpf::NEG64      => reg[dst] = (reg[dst] as i64).wrapping_neg() as u64,
                 ebpf::MOD64_IMM  => reg[dst] %= insn.imm  as u64,
                 ebpf::MOD64_REG  => {
                     if reg[src] == 0 {
