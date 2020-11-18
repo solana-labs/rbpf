@@ -807,7 +807,7 @@ struct JitCompiler<'a> {
 }
 
 impl<'a> JitCompiler<'a> {
-    // num_pages is unused on windows
+    // Arguments are unused on windows
     fn new(_program: &[u8], _config: &Config) -> JitCompiler<'a> {
         #[cfg(windows)]
         {
@@ -1199,7 +1199,18 @@ impl<'a> JitCompiler<'a> {
                             Some(target_pc) => {
                                 emit_bpf_call(self, Value::Constant64(*target_pc as i64), self.pc_locs.len());
                             },
-                            None => executable.report_unresolved_symbol(self.pc)?,
+                            None => {
+                                // executable.report_unresolved_symbol(self.pc)?;
+                                // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
+                                let executable_dyn_ptr: [*const *const u8; 2] = unsafe { std::mem::transmute(executable) };
+                                emit_rust_call(self, unsafe { *executable_dyn_ptr[1].offset(12) }, &[
+                                    Argument { index: 0, value: Value::RegisterIndirect(RBP, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32) }, // Pointer to optional typed return value
+                                    Argument { index: 1, value: Value::Constant64(executable_dyn_ptr[0] as i64) },
+                                    Argument { index: 2, value: Value::Constant64(self.pc as i64) },
+                                ], None, true);
+                                emit_load_imm(self, R11, self.pc as i64);
+                                emit_jmp(self, TARGET_PC_SYSCALL_EXCEPTION);
+                            },
                         }
                     }
                 },

@@ -253,7 +253,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     }
 
     /// Report information on a symbol that failed to be resolved
-    fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<(), EbpfError<E>> {
+    fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>> {
         let file_offset = insn_offset
             .saturating_mul(ebpf::INSN_SIZE)
             .saturating_add(self.text_section_info.offset_range.start as usize);

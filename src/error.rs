@@ -37,9 +37,6 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Syscall already has a bound context object
     #[error("syscall already has a bound context object")]
     SycallAlreadyBound,
-    /// No program or ELF set
-    #[error("no program or ELF set")]
-    NothingToExecute,
     /// Exceeded max BPF to BPF call depth
     #[error("exceeded max BPF to BPF call depth of {1} at instruction #{0}")]
     CallDepthExceeded(usize, usize),
@@ -57,9 +54,6 @@ pub enum EbpfError<E: UserDefinedError> {
         "callx at instruction {0} attempted to call outside of the text segment to addr 0x{1:x}"
     )]
     CallOutsideTextSegment(usize, u64),
-    /// Unresolved symbol
-    #[error("unresolved symbol at instruction #{0}")]
-    UnresolvedSymbol(usize),
     /// Exceeded max instructions allowed
     #[error("exceeded maximum number of instructions allowed ({1}) at instruction #{0}")]
     ExceededMaxInstructions(usize, u64),

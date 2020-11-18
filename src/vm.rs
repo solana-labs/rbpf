@@ -209,7 +209,7 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// JIT compile the executable
     fn jit_compile(&mut self) -> Result<(), EbpfError<E>>;
     /// Report information on a symbol that failed to be resolved
-    fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<(), EbpfError<E>>;
+    fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>>;
 }
 
 /// Static constructors for Executable
