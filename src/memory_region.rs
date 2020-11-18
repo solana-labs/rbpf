@@ -1,6 +1,9 @@
 //! This module defines memory regions
 
-use crate::error::{EbpfError, UserDefinedError};
+use crate::{
+    ebpf,
+    error::{EbpfError, UserDefinedError},
+};
 use std::fmt;
 
 /// Memory region for bounds checking and address translation
@@ -152,22 +155,19 @@ impl MemoryMapping {
         vm_addr: u64,
         len: u64,
     ) -> EbpfError<E> {
-        let mut regions_string = "".to_string();
-        if !self.regions.is_empty() {
-            regions_string = "regions:".to_string();
-            for region in self.regions.iter() {
-                regions_string = format!(
-                    "  {} \n{:#x} {:#x} {:#x}",
-                    regions_string, region.host_addr, region.vm_addr, region.len,
-                );
-            }
-        }
+        let region_name = match vm_addr & !(ebpf::MM_PROGRAM_START - 1) {
+            ebpf::MM_PROGRAM_START => "program",
+            ebpf::MM_STACK_START => "stack",
+            ebpf::MM_HEAP_START => "heap",
+            ebpf::MM_INPUT_START => "input",
+            _ => "unknown",
+        };
         EbpfError::AccessViolation(
             0, // Filled out later
             access_type,
             vm_addr,
             len,
-            regions_string,
+            region_name,
         )
     }
 }

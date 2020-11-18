@@ -952,8 +952,8 @@ fn test_err_ldabsb_oob() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, _, _, _)
-                    if access_type == AccessType::Load && pc == 29
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
+                    if access_type == AccessType::Load && pc == 29 && vm_addr == 0x400000033 && len == 1 && name == "input"
                 )
             }
         },
@@ -972,8 +972,8 @@ fn test_err_ldabsb_nomem() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, _, _, _)
-                    if access_type == AccessType::Load && pc == 29
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
+                    if access_type == AccessType::Load && pc == 29 && vm_addr == 0x400000033 && len == 1 && name == "input"
                 )
             }
         },
@@ -1064,8 +1064,8 @@ fn test_err_ldindb_oob() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, _, _, _)
-                    if access_type == AccessType::Load && pc == 30
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
+                    if access_type == AccessType::Load && pc == 30 && vm_addr == 0x400000038 && len == 1 && name == "input"
                 )
             }
         },
@@ -1085,8 +1085,8 @@ fn test_err_ldindb_nomem() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, _, _, _)
-                    if access_type == AccessType::Load && pc == 30
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
+                    if access_type == AccessType::Load && pc == 30 && vm_addr == 0x400000038 && len == 1 && name == "input"
                 )
             }
         },
@@ -1180,8 +1180,8 @@ fn test_err_ldxdw_oob() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, _, _, _)
-                    if access_type == AccessType::Load && pc == 29
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
+                    if access_type == AccessType::Load && pc == 29 && vm_addr == 0x400000006 && len == 8 && name == "input"
                 )
             }
         },
@@ -2233,8 +2233,8 @@ fn test_err_stack_out_of_bound() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, _, _, _)
-                    if access_type == AccessType::Store && pc == 29
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
+                    if access_type == AccessType::Store && pc == 29 && vm_addr == 0x1FFFFD000 && len == 1 && name == "program"
                 )
             }
         },
@@ -2466,8 +2466,8 @@ fn test_err_syscall_string() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, _, _, _)
-                    if access_type == AccessType::Load && pc == 0
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
+                    if access_type == AccessType::Load && pc == 0 && vm_addr == 0 && len == 0 && name == "unknown"
                 )
             }
         },

@@ -67,8 +67,8 @@ pub enum EbpfError<E: UserDefinedError> {
     #[error("virtual address overlap {0:x?}")]
     VirtualAddressOverlap(u64),
     /// Access violation
-    #[error("out of bounds memory {1:?} (insn #{0}), addr {2:#x}/{3:?} \n{4}")]
-    AccessViolation(usize, AccessType, u64, u64, String),
+    #[error("Access violation in {4} section at address {2:#x} of size {3:?} by instruction #{0}")]
+    AccessViolation(usize, AccessType, u64, u64, &'static str),
     /// Invalid instruction
     #[error("invalid instruction at {0}")]
     InvalidInstruction(usize),
