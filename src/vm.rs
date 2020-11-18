@@ -129,13 +129,13 @@ impl SyscallRegistry {
                 },
             )
             .is_some()
+            || self
+                .context_object_slots
+                .insert(function, context_object_slot)
+                .is_some()
         {
             Err(EbpfError::SycallAlreadyRegistered)
         } else {
-            assert!(self
-                .context_object_slots
-                .insert(function, context_object_slot)
-                .is_none());
             Ok(())
         }
     }
@@ -210,6 +210,8 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     fn jit_compile(&mut self) -> Result<(), EbpfError<E>>;
     /// Report information on a symbol that failed to be resolved
     fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>>;
+    /// Get all possible syscalls as a map of symbol hashes and names
+    fn get_registerable_syscalls(&self) -> HashMap<u32, String>;
 }
 
 /// Static constructors for Executable
@@ -492,11 +494,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// executable.set_syscall_registry(syscall_registry);
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// // Bind a context object instance to the previously registered syscall
-    /// vm.bind_syscall_context_object(Box::new(BpfTracePrintf {}));
+    /// vm.bind_syscall_context_object(Box::new(BpfTracePrintf {}), None);
     /// ```
     pub fn bind_syscall_context_object(
         &mut self,
         syscall_context_object: Box<dyn SyscallObject<E> + 'a>,
+        hash: Option<u32>,
     ) -> Result<(), EbpfError<E>> {
         let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(&*syscall_context_object) };
         let slot = self

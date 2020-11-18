@@ -134,9 +134,9 @@ fn test_fuzz_execute() {
                     &[],
                 )
                 .unwrap();
-                vm.bind_syscall_context_object(Box::new(BpfSyscallString {}))
+                vm.bind_syscall_context_object(Box::new(BpfSyscallString {}), None)
                     .unwrap();
-                vm.bind_syscall_context_object(Box::new(BpfSyscallU64 {}))
+                vm.bind_syscall_context_object(Box::new(BpfSyscallU64 {}), None)
                     .unwrap();
                 let _ = vm.execute_program_interpreted(&mut DefaultInstructionMeter {});
             }

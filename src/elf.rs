@@ -285,6 +285,24 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
         )
         .into())
     }
+
+    /// Get all possible syscalls as a map of symbol hashes and names
+    fn get_registerable_syscalls(&self) -> HashMap<u32, String> {
+        let mut result = HashMap::new();
+        if let Ok(elf) = Elf::parse(&self.elf_bytes) {
+            for relocation in &elf.dynrels {
+                if let Some(BPFRelocationType::R_BPF_64_32) =
+                    BPFRelocationType::from_x86_relocation_type(relocation.r_type)
+                {
+                    let sym = elf.dynsyms.get(relocation.r_sym).unwrap();
+                    let name = elf.dynstrtab.get(sym.st_name).unwrap().unwrap();
+                    let hash = ebpf::hash_symbol_name(&name.as_bytes());
+                    result.insert(hash, name.to_string());
+                }
+            }
+        }
+        result
+    }
 }
 
 impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {

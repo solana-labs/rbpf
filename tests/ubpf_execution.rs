@@ -32,7 +32,7 @@ macro_rules! test_interpreter_and_jit {
         $($syscall_registry.register_syscall_by_hash::<UserError, _>($location, $syscall_function).unwrap();)*
     };
     (2, $vm:expr, $($location:expr => $syscall_function:expr; $syscall_context_object:expr),*) => {
-        $($vm.bind_syscall_context_object(Box::new($syscall_context_object)).unwrap();)*
+        $($vm.bind_syscall_context_object(Box::new($syscall_context_object), None).unwrap();)*
     };
     ( $executable:expr, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
         let check_closure = $check;
