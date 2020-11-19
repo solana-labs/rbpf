@@ -210,8 +210,8 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     fn jit_compile(&mut self) -> Result<(), EbpfError<E>>;
     /// Report information on a symbol that failed to be resolved
     fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>>;
-    /// Get all possible syscalls as a map of symbol hashes and names
-    fn get_registerable_syscalls(&self) -> HashMap<u32, String>;
+    /// Get syscalls and BPF functions (if debug symbols are not stripped)
+    fn get_symbols(&self) -> (HashMap<u32, String>, HashMap<u64, (String, u64)>);
 }
 
 /// Static constructors for Executable
@@ -502,11 +502,18 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         hash: Option<u32>,
     ) -> Result<(), EbpfError<E>> {
         let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(&*syscall_context_object) };
-        let slot = self
-            .executable
-            .get_syscall_registry()
-            .lookup_context_object_slot(fat_ptr.vtable.methods[0] as u64)
-            .unwrap();
+        let syscall_registry = self.executable.get_syscall_registry();
+        let slot = match hash {
+            Some(hash) => {
+                syscall_registry
+                    .lookup_syscall(hash)
+                    .unwrap()
+                    .context_object_slot
+            }
+            None => syscall_registry
+                .lookup_context_object_slot(fat_ptr.vtable.methods[0] as u64)
+                .unwrap(),
+        };
         if !self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot].is_null() {
             Err(EbpfError::SycallAlreadyBound)
         } else {

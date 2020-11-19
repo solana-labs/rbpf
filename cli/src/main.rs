@@ -1,7 +1,9 @@
 use clap::{App, Arg};
+use rustc_demangle::demangle;
 use solana_rbpf::{
     assembler::assemble,
-    disassembler::disassemble,
+    disassembler::to_insn_vec,
+    ebpf,
     memory_region::MemoryMapping,
     user_error::UserError,
     vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry},
@@ -110,7 +112,7 @@ fn main() {
     }
     .unwrap();
 
-    let syscalls = executable.get_registerable_syscalls();
+    let (syscalls, bpf_functions) = executable.get_symbols();
     let mut syscall_registry = SyscallRegistry::default();
     for hash in syscalls.keys() {
         let _ = syscall_registry.register_syscall_by_hash(*hash, MockSyscall::call);
@@ -119,13 +121,32 @@ fn main() {
 
     match matches.value_of("use") {
         Some("disassembler") => {
-            println!("Syscalls:");
-            for (hash, name) in &syscalls {
-                println!("{:#08X?}: {:?}", name, hash);
-            }
-            println!("Disassembled:");
             let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
-            disassemble(program);
+            for insn in to_insn_vec(program).iter() {
+                if let Some(bpf_function) =
+                    bpf_functions.get(&((insn.ptr + ebpf::ELF_INSN_DUMP_OFFSET) as u64 * 8))
+                {
+                    println!("{}:", demangle(&bpf_function.0));
+                }
+                print!("{:5} ", insn.ptr);
+                if insn.name == "call" {
+                    if let Some(syscall_name) = syscalls.get(&(insn.imm as u32)) {
+                        println!("syscall {}", syscall_name);
+                    } else if let Some(target_pc) = executable.lookup_bpf_call(insn.imm as u32) {
+                        if let Some(bpf_function) = bpf_functions
+                            .get(&((target_pc + ebpf::ELF_INSN_DUMP_OFFSET) as u64 * 8))
+                        {
+                            println!("call {}", demangle(&bpf_function.0));
+                        } else {
+                            println!("call {} # unresolved symbol", target_pc);
+                        }
+                    } else {
+                        println!("call {:x} # unresolved relocation", insn.imm);
+                    }
+                } else {
+                    println!("{}", insn.desc);
+                }
+            }
             return;
         }
         Some("jit") => {
