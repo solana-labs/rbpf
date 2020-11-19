@@ -4,7 +4,7 @@ use solana_rbpf::{
     assembler::assemble,
     disassembler::to_insn_vec,
     ebpf,
-    memory_region::MemoryMapping,
+    memory_region::{MemoryMapping, MemoryRegion},
     user_error::UserError,
     vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
@@ -59,11 +59,20 @@ fn main() {
                 .required_unless_present("assembler"),
         )
         .arg(
+            Arg::new("input")
+                .about("Input for the program to run on")
+                .short('i')
+                .long("input")
+                .value_name("FILE / BYTES")
+                .takes_value(true)
+                .default_value("0"),
+        )
+        .arg(
             Arg::new("memory")
-                .about("Memory for the program to run on")
+                .about("Heap memory for the program to run on")
                 .short('m')
                 .long("mem")
-                .value_name("FILE / COUNT")
+                .value_name("BYTES")
                 .takes_value(true)
                 .default_value("0"),
         )
@@ -155,10 +164,10 @@ fn main() {
         _ => {}
     }
 
-    let mut mem = match matches.value_of("memory").unwrap().parse::<usize>() {
+    let mut mem = match matches.value_of("input").unwrap().parse::<usize>() {
         Ok(allocate) => vec![0u8; allocate],
         Err(_) => {
-            let mut file = File::open(&Path::new(matches.value_of("memory").unwrap())).unwrap();
+            let mut file = File::open(&Path::new(matches.value_of("input").unwrap())).unwrap();
             let mut memory = Vec::new();
             file.read_to_end(&mut memory).unwrap();
             memory
@@ -171,7 +180,16 @@ fn main() {
             .parse::<u64>()
             .unwrap(),
     };
-    let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[]).unwrap();
+    let heap = vec![
+        0_u8;
+        matches
+            .value_of("memory")
+            .unwrap()
+            .parse::<usize>()
+            .unwrap()
+    ];
+    let heap_region = MemoryRegion::new_from_slice(&heap, ebpf::MM_HEAP_START, 0, true);
+    let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[heap_region]).unwrap();
     for (hash, name) in &syscalls {
         vm.bind_syscall_context_object(Box::new(MockSyscall { name: name.clone() }), Some(*hash))
             .unwrap();

@@ -296,6 +296,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rbpf_cli"
+version = "0.2.1"
+dependencies = [
+ "clap",
+ "rustc-demangle",
+ "solana_rbpf",
+ "test_utils",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -335,16 +345,6 @@ dependencies = [
  "scroll",
  "thiserror",
  "time",
-]
-
-[[package]]
-name = "solana_rbpf_cli"
-version = "0.2.1"
-dependencies = [
- "clap",
- "rustc-demangle",
- "solana_rbpf",
- "test_utils",
 ]
 
 [[package]]

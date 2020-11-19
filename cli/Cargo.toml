@@ -1,5 +1,5 @@
 [package]
-name = "solana_rbpf_cli"
+name = "rbpf_cli"
 version = "0.2.1"
 description = "CLI to test and analyze eBPF programs"
 authors = ["Solana Maintainers <maintainers@solana.foundation>"]
