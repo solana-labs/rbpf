@@ -79,26 +79,26 @@ pub struct Syscall {
     pub context_object_slot: usize,
 }
 
-/// A virtual method table for SyscallObject
-pub struct SyscallObjectVtable {
+/// A virtual method table for dyn trait objects
+pub struct DynTraitVtable {
     /// Drops the dyn trait object
     pub drop: fn(*const u8),
     /// Size of the dyn trait object in bytes
     pub size: usize,
     /// Alignment of the dyn trait object in bytes
     pub align: usize,
-    /// The call method of the SyscallObject
-    pub call: *const u8,
+    /// The methods of the trait
+    pub methods: [*const u8; 32],
 }
 
 // Could be replaced by https://doc.rust-lang.org/std/raw/struct.TraitObject.html
 /// A dyn trait fat pointer for SyscallObject
 #[derive(Clone, Copy)]
-pub struct SyscallTraitObject {
+pub struct DynTraitFatPointer {
     /// Pointer to the actual object
     pub data: *mut u8,
     /// Pointer to the virtual method table
-    pub vtable: *const SyscallObjectVtable,
+    pub vtable: &'static DynTraitVtable,
 }
 
 /// Holds the syscall function pointers of an Executable
@@ -498,14 +498,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         &mut self,
         syscall_context_object: Box<dyn SyscallObject<E> + 'a>,
     ) -> Result<(), EbpfError<E>> {
-        let fat_ptr_ptr =
-            unsafe { std::mem::transmute::<_, *const SyscallTraitObject>(&syscall_context_object) };
-        let fat_ptr = unsafe { std::mem::transmute::<_, SyscallTraitObject>(*fat_ptr_ptr) };
-        let vtable = unsafe { std::mem::transmute::<_, &SyscallObjectVtable>(&*fat_ptr.vtable) };
+        let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(&*syscall_context_object) };
         let slot = self
             .executable
             .get_syscall_registry()
-            .lookup_context_object_slot(vtable.call as u64)
+            .lookup_context_object_slot(fat_ptr.vtable.methods[0] as u64)
             .unwrap();
         if !self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot].is_null() {
             Err(EbpfError::SycallAlreadyBound)

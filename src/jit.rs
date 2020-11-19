@@ -22,7 +22,7 @@ use std::fmt::Error as FormatterError;
 use std::ops::{Index, IndexMut};
 
 use crate::{
-    vm::{Config, Executable, ProgramResult, InstructionMeter, Tracer, SYSCALL_CONTEXT_OBJECTS_OFFSET},
+    vm::{Config, Executable, ProgramResult, InstructionMeter, Tracer, DynTraitFatPointer, SYSCALL_CONTEXT_OBJECTS_OFFSET},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, STACK_REG, MM_STACK_START},
     error::{UserDefinedError, EbpfError},
     memory_region::{AccessType, MemoryMapping},
@@ -1202,10 +1202,10 @@ impl<'a> JitCompiler<'a> {
                             None => {
                                 // executable.report_unresolved_symbol(self.pc)?;
                                 // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
-                                let executable_dyn_ptr: [*const *const u8; 2] = unsafe { std::mem::transmute(executable) };
-                                emit_rust_call(self, unsafe { *executable_dyn_ptr[1].offset(12) }, &[
+                                let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(executable) };
+                                emit_rust_call(self, fat_ptr.vtable.methods[9], &[
                                     Argument { index: 0, value: Value::RegisterIndirect(RBP, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32) }, // Pointer to optional typed return value
-                                    Argument { index: 1, value: Value::Constant64(executable_dyn_ptr[0] as i64) },
+                                    Argument { index: 1, value: Value::Constant64(fat_ptr.data as i64) },
                                     Argument { index: 2, value: Value::Constant64(self.pc as i64) },
                                 ], None, true);
                                 emit_load_imm(self, R11, self.pc as i64);
