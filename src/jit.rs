@@ -30,9 +30,9 @@ use crate::{
 };
 
 /// Argument for executing a eBPF JIT-compiled program
-pub struct JitProgramArgument {
+pub struct JitProgramArgument<'a> {
     /// The MemoryMapping to be used to run the compiled code
-    pub memory_mapping: MemoryMapping,
+    pub memory_mapping: MemoryMapping<'a>,
     /// Pointers to the context objects of syscalls
     pub syscall_context_objects: [*const u8; 0],
 }

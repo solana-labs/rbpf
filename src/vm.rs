@@ -333,7 +333,7 @@ macro_rules! translate_memory_access {
 }
 
 /// The syscall_context_objects field also stores some metadata in the front, thus the entries are shifted
-pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 3;
+pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 4;
 
 /// A virtual machine to run eBPF program.
 ///
@@ -361,7 +361,7 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     executable: &'a dyn Executable<E, I>,
     program: &'a [u8],
     program_vm_addr: u64,
-    memory_mapping: MemoryMapping,
+    memory_mapping: MemoryMapping<'a>,
     tracer: Tracer,
     syscall_context_objects: Vec<*mut u8>,
     syscall_context_object_pool: Vec<Box<dyn SyscallObject<E> + 'a>>,
@@ -426,7 +426,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             executable,
             program,
             program_vm_addr,
-            memory_mapping: MemoryMapping::new_from_regions(regions),
+            memory_mapping: MemoryMapping::new(regions, &config),
             tracer: Tracer::default(),
             syscall_context_objects: vec![
                 std::ptr::null_mut();
@@ -973,7 +973,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             .get_compiled_program()
             .ok_or(EbpfError::JITNotCompiled)?;
         unsafe {
-            self.syscall_context_objects[2] = &mut self.tracer as *mut _ as *mut u8;
+            self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET - 1] =
+                &mut self.tracer as *mut _ as *mut u8;
             self.last_insn_count = (compiled_program.main)(
                 &result,
                 reg1,

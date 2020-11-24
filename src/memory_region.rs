@@ -3,6 +3,7 @@
 use crate::{
     ebpf,
     error::{EbpfError, UserDefinedError},
+    vm::Config,
 };
 use std::fmt;
 
@@ -89,17 +90,19 @@ pub enum AccessType {
 }
 
 /// Indirection to use instead of a slice to make handling easier
-#[derive(Default)]
-pub struct MemoryMapping {
+pub struct MemoryMapping<'a> {
     /// Mapped (valid) regions
     regions: Box<[MemoryRegion]>,
+    /// VM configuration
+    config: &'a Config,
 }
-impl MemoryMapping {
+impl<'a> MemoryMapping<'a> {
     /// Creates a new MemoryMapping structure from the given regions
-    pub fn new_from_regions(mut regions: Vec<MemoryRegion>) -> Self {
+    pub fn new(mut regions: Vec<MemoryRegion>, config: &'a Config) -> Self {
         regions.sort();
         Self {
             regions: regions.into_boxed_slice(),
+            config,
         }
     }
 
