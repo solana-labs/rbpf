@@ -327,6 +327,15 @@ macro_rules! translate_memory_access {
                     regions,
                 ));
             }
+            Err(EbpfError::StackAccessViolation(_pc, access_type, vm_addr, len, stack_frame)) => {
+                return Err(EbpfError::StackAccessViolation(
+                    $pc + ebpf::ELF_INSN_DUMP_OFFSET,
+                    access_type,
+                    vm_addr,
+                    len,
+                    stack_frame,
+                ));
+            }
             _ => unreachable!(),
         }
     };

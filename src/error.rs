@@ -66,9 +66,14 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Virtual address overlap
     #[error("virtual address overlap {0:x?}")]
     VirtualAddressOverlap(u64),
-    /// Access violation
+    /// Access violation (general)
     #[error("Access violation in {4} section at address {2:#x} of size {3:?} by instruction #{0}")]
     AccessViolation(usize, AccessType, u64, u64, &'static str),
+    /// Access violation (stack specific)
+    #[error(
+        "Access violation in stack frame {4} at address {2:#x} of size {3:?} by instruction #{0}"
+    )]
+    StackAccessViolation(usize, AccessType, u64, u64, i64),
     /// Invalid instruction
     #[error("invalid instruction at {0}")]
     InvalidInstruction(usize),

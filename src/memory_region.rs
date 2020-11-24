@@ -158,19 +158,31 @@ impl<'a> MemoryMapping<'a> {
         vm_addr: u64,
         len: u64,
     ) -> EbpfError<E> {
-        let region_name = match vm_addr & !(ebpf::MM_PROGRAM_START - 1) {
-            ebpf::MM_PROGRAM_START => "program",
-            ebpf::MM_STACK_START => "stack",
-            ebpf::MM_HEAP_START => "heap",
-            ebpf::MM_INPUT_START => "input",
-            _ => "unknown",
-        };
-        EbpfError::AccessViolation(
-            0, // Filled out later
-            access_type,
-            vm_addr,
-            len,
-            region_name,
-        )
+        let stack_frame =
+            (vm_addr as i64 - ebpf::MM_STACK_START as i64) / self.config.stack_frame_size as i64;
+        if (-1..self.config.max_call_depth as i64 + 1).contains(&stack_frame) {
+            EbpfError::StackAccessViolation(
+                0, // Filled out later
+                access_type,
+                vm_addr,
+                len,
+                stack_frame,
+            )
+        } else {
+            let region_name = match vm_addr & !(ebpf::MM_PROGRAM_START - 1) {
+                ebpf::MM_PROGRAM_START => "program",
+                ebpf::MM_STACK_START => "stack",
+                ebpf::MM_HEAP_START => "heap",
+                ebpf::MM_INPUT_START => "input",
+                _ => "unknown",
+            };
+            EbpfError::AccessViolation(
+                0, // Filled out later
+                access_type,
+                vm_addr,
+                len,
+                region_name,
+            )
+        }
     }
 }
