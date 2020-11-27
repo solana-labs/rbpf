@@ -211,7 +211,7 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Report information on a symbol that failed to be resolved
     fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>>;
     /// Get syscalls and BPF functions (if debug symbols are not stripped)
-    fn get_symbols(&self) -> (HashMap<u32, String>, HashMap<u64, (String, u64)>);
+    fn get_symbols(&self) -> (HashMap<u32, String>, HashMap<usize, (String, usize)>);
 }
 
 /// Static constructors for Executable
