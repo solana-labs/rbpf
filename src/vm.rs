@@ -626,42 +626,42 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 // Since this pointer is constant, and since we already know it (ebpf::MM_INPUT_START), do not
                 // bother re-fetching it, just use ebpf::MM_INPUT_START already.
                 ebpf::LD_ABS_B   => {
-                    let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
+                    let vm_addr = ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64);
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_ABS_H   =>  {
-                    let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
+                    let vm_addr = ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64);
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_ABS_W   => {
-                    let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
+                    let vm_addr = ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64);
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_ABS_DW  => {
-                    let vm_addr = ebpf::MM_INPUT_START.saturating_add((insn.imm as u32) as u64);
+                    let vm_addr = ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64);
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_B   => {
-                    let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
+                    let vm_addr = ebpf::MM_INPUT_START.wrapping_add(reg[src]).wrapping_add(insn.imm as u32 as u64);
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_H   => {
-                    let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
+                    let vm_addr = ebpf::MM_INPUT_START.wrapping_add(reg[src]).wrapping_add(insn.imm as u32 as u64);
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_W   => {
-                    let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
+                    let vm_addr = ebpf::MM_INPUT_START.wrapping_add(reg[src]).wrapping_add(insn.imm as u32 as u64);
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_IND_DW  => {
-                    let vm_addr = ebpf::MM_INPUT_START.saturating_add(reg[src]).saturating_add((insn.imm as u32) as u64);
+                    let vm_addr = ebpf::MM_INPUT_START.wrapping_add(reg[src]).wrapping_add(insn.imm as u32 as u64);
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
                     reg[0] = unsafe { *host_ptr as u64 };
                 },
@@ -674,66 +674,66 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
 
                 // BPF_LDX class
                 ebpf::LD_B_REG   => {
-                    let vm_addr = (reg[src] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[src] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
                     reg[dst] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_H_REG   => {
-                    let vm_addr = (reg[src] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[src] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
                     reg[dst] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_W_REG   => {
-                    let vm_addr = (reg[src] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[src] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
                     reg[dst] = unsafe { *host_ptr as u64 };
                 },
                 ebpf::LD_DW_REG  => {
-                    let vm_addr = (reg[src] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[src] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
                     reg[dst] = unsafe { *host_ptr as u64 };
                 },
 
                 // BPF_ST class
                 ebpf::ST_B_IMM   => {
-                    let vm_addr = (reg[dst] as i64).saturating_add( insn.off as i64) as u64;
+                    let vm_addr = (reg[dst] as i64).wrapping_add( insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u8);
                     unsafe { *host_ptr = insn.imm as u8 };
                 },
                 ebpf::ST_H_IMM   => {
-                    let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u16);
                     unsafe { *host_ptr = insn.imm as u16 };
                 },
                 ebpf::ST_W_IMM   => {
-                    let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u32);
                     unsafe { *host_ptr = insn.imm as u32 };
                 },
                 ebpf::ST_DW_IMM  => {
-                    let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u64);
                     unsafe { *host_ptr = insn.imm as u64 };
                 },
 
                 // BPF_STX class
                 ebpf::ST_B_REG   => {
-                    let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u8);
                     unsafe { *host_ptr = reg[src] as u8 };
                 },
                 ebpf::ST_H_REG   => {
-                    let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u16);
                     unsafe { *host_ptr = reg[src] as u16 };
                 },
                 ebpf::ST_W_REG   => {
-                    let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u32);
                     unsafe { *host_ptr = reg[src] as u32 };
                 },
                 ebpf::ST_DW_REG  => {
-                    let vm_addr = (reg[dst] as i64).saturating_add(insn.off as i64) as u64;
+                    let vm_addr = (reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
                     let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u64);
                     unsafe { *host_ptr = reg[src] as u64 };
                 },
@@ -745,7 +745,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 ebpf::SUB32_REG  => reg[dst] = (reg[dst] as i32).wrapping_sub(reg[src] as i32)   as u64,
                 ebpf::MUL32_IMM  => reg[dst] = (reg[dst] as i32).wrapping_mul(insn.imm)          as u64,
                 ebpf::MUL32_REG  => reg[dst] = (reg[dst] as i32).wrapping_mul(reg[src] as i32)   as u64,
-                ebpf::DIV32_IMM  => reg[dst] = (reg[dst] as u32 / insn.imm as u32)               as u64,
+                ebpf::DIV32_IMM  => {
+                    if insn.imm == 0 {
+                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    }
+                                    reg[dst] = (reg[dst] as u32 / insn.imm as u32)               as u64;
+                },
                 ebpf::DIV32_REG  => {
                     if reg[src] as u32 == 0 {
                         return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
@@ -761,7 +766,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 ebpf::RSH32_IMM  =>   reg[dst] = (reg[dst] as u32).wrapping_shr(insn.imm as u32) as u64,
                 ebpf::RSH32_REG  =>   reg[dst] = (reg[dst] as u32).wrapping_shr(reg[src] as u32) as u64,
                 ebpf::NEG32      => { reg[dst] = (reg[dst] as i32).wrapping_neg()                as u64; reg[dst] &= U32MAX; },
-                ebpf::MOD32_IMM  =>   reg[dst] = (reg[dst] as u32             % insn.imm as u32) as u64,
+                ebpf::MOD32_IMM  => {
+                    if insn.imm == 0 {
+                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    }
+                                      reg[dst] = (reg[dst] as u32             % insn.imm as u32) as u64;
+                },
                 ebpf::MOD32_REG  => {
                     if reg[src] as u32 == 0 {
                         return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
@@ -779,7 +789,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         16 => (reg[dst] as u16).to_le() as u64,
                         32 => (reg[dst] as u32).to_le() as u64,
                         64 =>  reg[dst].to_le(),
-                        _  => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
+                        _  => return Err(EbpfError::InvalidInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
                     };
                 },
                 ebpf::BE         => {
@@ -787,7 +797,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         16 => (reg[dst] as u16).to_be() as u64,
                         32 => (reg[dst] as u32).to_be() as u64,
                         64 =>  reg[dst].to_be(),
-                        _  => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
+                        _  => return Err(EbpfError::InvalidInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
                     };
                 },
 
@@ -798,34 +808,44 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 ebpf::SUB64_REG  => reg[dst] = reg[dst].wrapping_sub(reg[src]),
                 ebpf::MUL64_IMM  => reg[dst] = reg[dst].wrapping_mul(insn.imm as u64),
                 ebpf::MUL64_REG  => reg[dst] = reg[dst].wrapping_mul(reg[src]),
-                ebpf::DIV64_IMM  => reg[dst] /= insn.imm as u64,
+                ebpf::DIV64_IMM  => {
+                    if insn.imm == 0 {
+                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    }
+                                    reg[dst] /= insn.imm as u64;
+                },
                 ebpf::DIV64_REG  => {
                     if reg[src] == 0 {
                         return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
-                    reg[dst] /= reg[src];
+                                    reg[dst] /= reg[src];
                 },
                 ebpf::OR64_IMM   => reg[dst] |=  insn.imm as u64,
                 ebpf::OR64_REG   => reg[dst] |=  reg[src],
                 ebpf::AND64_IMM  => reg[dst] &=  insn.imm as u64,
                 ebpf::AND64_REG  => reg[dst] &=  reg[src],
-                ebpf::LSH64_IMM  => reg[dst] <<= insn.imm as u64,
+                ebpf::LSH64_IMM  => reg[dst] = reg[dst].wrapping_shl(insn.imm as u32),
                 ebpf::LSH64_REG  => reg[dst] = reg[dst].wrapping_shl(reg[src] as u32),
-                ebpf::RSH64_IMM  => reg[dst] >>= insn.imm as u64,
-                ebpf::RSH64_REG  => reg[dst] = (reg[dst] as u64).wrapping_shr(reg[src] as u32),
+                ebpf::RSH64_IMM  => reg[dst] = reg[dst].wrapping_shr(insn.imm as u32),
+                ebpf::RSH64_REG  => reg[dst] = reg[dst].wrapping_shr(reg[src] as u32),
                 ebpf::NEG64      => reg[dst] = (reg[dst] as i64).wrapping_neg() as u64,
-                ebpf::MOD64_IMM  => reg[dst] %= insn.imm  as u64,
+                ebpf::MOD64_IMM  => {
+                    if insn.imm == 0 {
+                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    }
+                                    reg[dst] %= insn.imm  as u64;
+                },
                 ebpf::MOD64_REG  => {
                     if reg[src] == 0 {
                         return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                                     reg[dst] %= reg[src];
                 },
-                ebpf::XOR64_IMM  => reg[dst] ^= insn.imm  as u64,
+                ebpf::XOR64_IMM  => reg[dst] ^= insn.imm as u64,
                 ebpf::XOR64_REG  => reg[dst] ^= reg[src],
-                ebpf::MOV64_IMM  => reg[dst] =  insn.imm  as u64,
+                ebpf::MOV64_IMM  => reg[dst] =  insn.imm as u64,
                 ebpf::MOV64_REG  => reg[dst] =  reg[src],
-                ebpf::ARSH64_IMM => reg[dst] = (reg[dst]  as i64 >> insn.imm) as u64,
+                ebpf::ARSH64_IMM => reg[dst] = (reg[dst] as i64).wrapping_shr(insn.imm as u32) as u64,
                 ebpf::ARSH64_REG => reg[dst] = (reg[dst] as i64).wrapping_shr(reg[src] as u32) as u64,
 
                 // BPF_JMP class
