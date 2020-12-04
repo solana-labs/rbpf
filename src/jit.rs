@@ -729,7 +729,32 @@ fn emit_address_translation(jit: &mut JitCompiler, host_addr: u8, vm_addr: Value
     emit_load(jit, OperandSize::S64, R11, host_addr, 8);
 }
 
-fn muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: i32) {
+fn emit_shift(jit: &mut JitCompiler, width: OperationWidth, opc: u8, src: u8, dst: u8) {
+    match width {
+        OperationWidth::Bit32 => {
+            emit_alu(jit, OperationWidth::Bit32, 0x81, 4, dst, -1, None); // Mask to 32 bit
+            if src != RCX {
+                emit_mov(jit, OperationWidth::Bit64, RCX, R11);
+                emit_mov(jit, OperationWidth::Bit32, src, RCX);
+            }
+            emit_alu(jit, width, 0xd3, opc, dst, 0, None);
+            if src != RCX {
+                emit_mov(jit, OperationWidth::Bit64, R11, RCX);
+            }
+        },
+        OperationWidth::Bit64 => {
+            if src != RCX {
+                emit_xchg(jit, src, RCX);
+            }
+            emit_alu(jit, width, 0xd3, opc, if dst == RCX { src } else { dst }, 0, None);
+            if src != RCX {
+                emit_xchg(jit, src, RCX);
+            }
+        }
+    }
+}
+
+fn emit_muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: i32) {
     let mul = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MUL32_IMM & ebpf::BPF_ALU_OP_MASK);
     let div = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::DIV32_IMM & ebpf::BPF_ALU_OP_MASK);
     let modrm = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MOD32_IMM & ebpf::BPF_ALU_OP_MASK);
@@ -1051,11 +1076,11 @@ impl<'a> JitCompiler<'a> {
                     sign_extend_i32_to_i64(self, dst, dst);
                 },
                 ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::MOD32_IMM  => {
-                    muldivmod(self, insn.opc, dst, dst, insn.imm);
+                    emit_muldivmod(self, insn.opc, dst, dst, insn.imm);
                     sign_extend_i32_to_i64(self, dst, dst);
                 },
                 ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::MOD32_REG  => {
-                    muldivmod(self, insn.opc, src, dst, 0);
+                    emit_muldivmod(self, insn.opc, src, dst, 0);
                     sign_extend_i32_to_i64(self, dst, dst);
                 },
                 ebpf::OR32_IMM   => emit_alu(self, OperationWidth::Bit32, 0x81, 1, dst, insn.imm, None),
@@ -1063,41 +1088,17 @@ impl<'a> JitCompiler<'a> {
                 ebpf::AND32_IMM  => emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, insn.imm, None),
                 ebpf::AND32_REG  => emit_alu(self, OperationWidth::Bit32, 0x21, src, dst, 0, None),
                 ebpf::LSH32_IMM  => emit_alu(self, OperationWidth::Bit32, 0xc1, 4, dst, insn.imm, None),
-                ebpf::LSH32_REG  => {
-                    emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, -1, None); // Mask to 32 bit
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                    emit_alu(self, OperationWidth::Bit32, 0xd3, 4, if dst == RCX { src } else { dst }, 0, None);
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                },
+                ebpf::LSH32_REG  => emit_shift(self, OperationWidth::Bit32, 4, src, dst),
                 ebpf::RSH32_IMM  => emit_alu(self, OperationWidth::Bit32, 0xc1, 5, dst, insn.imm, None),
-                ebpf::RSH32_REG  => {
-                    emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, -1, None); // Mask to 32 bit
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                    emit_alu(self, OperationWidth::Bit32, 0xd3, 5, if dst == RCX { src } else { dst }, 0, None);
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                },
+                ebpf::RSH32_REG  => emit_shift(self, OperationWidth::Bit32, 5, src, dst),
                 ebpf::NEG32      => emit_alu(self, OperationWidth::Bit32, 0xf7, 3, dst, 0, None),
                 ebpf::XOR32_IMM  => emit_alu(self, OperationWidth::Bit32, 0x81, 6, dst, insn.imm, None),
                 ebpf::XOR32_REG  => emit_alu(self, OperationWidth::Bit32, 0x31, src, dst, 0, None),
                 ebpf::MOV32_IMM  => emit_alu(self, OperationWidth::Bit32, 0xc7, 0, dst, insn.imm, None),
                 ebpf::MOV32_REG  => emit_mov(self, OperationWidth::Bit32, src, dst),
                 ebpf::ARSH32_IMM => emit_alu(self, OperationWidth::Bit32, 0xc1, 7, dst, insn.imm, None),
-                ebpf::ARSH32_REG => {
-                    emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, -1, None); // Mask to 32 bit
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                    emit_alu(self, OperationWidth::Bit32, 0xd3, 7, if dst == RCX { src } else { dst }, 0, None);
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                },
-                ebpf::LE         => {
-                    match insn.imm {
-                        16 | 32 | 64 => {
-                            // No-op
-                        }
-                        _ => {
-                            return Err(EbpfError::UnsupportedInstruction(self.pc));
-                        }
-                    }
-                },
+                ebpf::ARSH32_REG => emit_shift(self, OperationWidth::Bit32, 7, src, dst),
+                ebpf::LE         => {},
                 ebpf::BE         => {
                     match insn.imm {
                         16 => {
@@ -1126,36 +1127,24 @@ impl<'a> JitCompiler<'a> {
                 ebpf::SUB64_IMM  => emit_alu(self, OperationWidth::Bit64, 0x81, 5, dst, insn.imm, None),
                 ebpf::SUB64_REG  => emit_alu(self, OperationWidth::Bit64, 0x29, src, dst, 0, None),
                 ebpf::MUL64_IMM | ebpf::DIV64_IMM | ebpf::MOD64_IMM  =>
-                    muldivmod(self, insn.opc, dst, dst, insn.imm),
+                    emit_muldivmod(self, insn.opc, dst, dst, insn.imm),
                 ebpf::MUL64_REG | ebpf::DIV64_REG | ebpf::MOD64_REG  =>
-                    muldivmod(self, insn.opc, src, dst, 0),
+                    emit_muldivmod(self, insn.opc, src, dst, 0),
                 ebpf::OR64_IMM   => emit_alu(self, OperationWidth::Bit64, 0x81, 1, dst, insn.imm, None),
                 ebpf::OR64_REG   => emit_alu(self, OperationWidth::Bit64, 0x09, src, dst, 0, None),
                 ebpf::AND64_IMM  => emit_alu(self, OperationWidth::Bit64, 0x81, 4, dst, insn.imm, None),
                 ebpf::AND64_REG  => emit_alu(self, OperationWidth::Bit64, 0x21, src, dst, 0, None),
                 ebpf::LSH64_IMM  => emit_alu(self, OperationWidth::Bit64, 0xc1, 4, dst, insn.imm, None),
-                ebpf::LSH64_REG  => {
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                    emit_alu(self, OperationWidth::Bit64, 0xd3, 4, if dst == RCX { src } else { dst }, 0, None);
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                },
+                ebpf::LSH64_REG  => emit_shift(self, OperationWidth::Bit64, 4, src, dst),
                 ebpf::RSH64_IMM  => emit_alu(self, OperationWidth::Bit64, 0xc1, 5, dst, insn.imm, None),
-                ebpf::RSH64_REG  => {
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                    emit_alu(self, OperationWidth::Bit64, 0xd3, 5, if dst == RCX { src } else { dst }, 0, None);
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                },
+                ebpf::RSH64_REG  => emit_shift(self, OperationWidth::Bit64, 5, src, dst),
                 ebpf::NEG64      => emit_alu(self, OperationWidth::Bit64, 0xf7, 3, dst, 0, None),
                 ebpf::XOR64_IMM  => emit_alu(self, OperationWidth::Bit64, 0x81, 6, dst, insn.imm, None),
                 ebpf::XOR64_REG  => emit_alu(self, OperationWidth::Bit64, 0x31, src, dst, 0, None),
                 ebpf::MOV64_IMM  => emit_load_imm(self, dst, insn.imm as i64),
                 ebpf::MOV64_REG  => emit_mov(self, OperationWidth::Bit64, src, dst),
                 ebpf::ARSH64_IMM => emit_alu(self, OperationWidth::Bit64, 0xc1, 7, dst, insn.imm, None),
-                ebpf::ARSH64_REG => {
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                    emit_alu(self, OperationWidth::Bit64, 0xd3, 7, if dst == RCX { src } else { dst }, 0, None);
-                    if src != RCX { emit_xchg(self, src, RCX); }
-                },
+                ebpf::ARSH64_REG => emit_shift(self, OperationWidth::Bit64, 7, src, dst),
 
                 // BPF_JMP class
                 ebpf::JA         => {
