@@ -236,7 +236,7 @@ fn emit_pop(jit: &mut JitCompiler, r: u8) {
     emit1(jit, 0x58 | (r & 0b111));
 }
 
-#[derive(Copy, Clone)]
+#[derive(PartialEq, Copy, Clone)]
 enum OperationWidth {
     Bit32 = 0,
     Bit64 = 1,
@@ -278,6 +278,7 @@ fn sign_extend_i32_to_i64(jit: &mut JitCompiler, src: u8, dst: u8) {
 }
 
 // Register to register exchange / swap
+#[allow(dead_code)]
 #[inline]
 fn emit_xchg(jit: &mut JitCompiler, src: u8, dst: u8) {
     emit_alu(jit, OperationWidth::Bit64, 0x87, src, dst, 0, None);
@@ -722,27 +723,16 @@ fn emit_address_translation(jit: &mut JitCompiler, host_addr: u8, vm_addr: Value
 }
 
 fn emit_shift(jit: &mut JitCompiler, width: OperationWidth, opc: u8, src: u8, dst: u8) {
-    match width {
-        OperationWidth::Bit32 => {
-            emit_alu(jit, OperationWidth::Bit32, 0x81, 4, dst, -1, None); // Mask to 32 bit
-            if src != RCX {
-                emit_mov(jit, OperationWidth::Bit64, RCX, R11);
-                emit_mov(jit, OperationWidth::Bit32, src, RCX);
-            }
-            emit_alu(jit, width, 0xd3, opc, dst, 0, None);
-            if src != RCX {
-                emit_mov(jit, OperationWidth::Bit64, R11, RCX);
-            }
-        },
-        OperationWidth::Bit64 => {
-            if src != RCX {
-                emit_xchg(jit, src, RCX);
-            }
-            emit_alu(jit, width, 0xd3, opc, if dst == RCX { src } else { dst }, 0, None);
-            if src != RCX {
-                emit_xchg(jit, src, RCX);
-            }
-        }
+    if width == OperationWidth::Bit32 {
+        emit_alu(jit, OperationWidth::Bit32, 0x81, 4, dst, -1, None); // Mask to 32 bit
+    }
+    emit_mov(jit, OperationWidth::Bit64, if dst == RCX { src } else { RCX }, R11);
+    if src != RCX && dst != RCX {
+        emit_mov(jit, OperationWidth::Bit64, src, RCX);
+    }
+    emit_alu(jit, width, 0xd3, opc, if dst == RCX { src } else { dst }, 0, None);
+    if src != RCX {
+        emit_mov(jit, OperationWidth::Bit64, R11, if dst == RCX { src } else { RCX });
     }
 }
 
@@ -798,6 +788,10 @@ fn emit_muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: i32) {
             emit_mov(jit, OperationWidth::Bit64, RAX, dst);
         }
         emit_pop(jit, RAX);
+    }
+
+    if width == OperationWidth::Bit32 && opc & ebpf::BPF_ALU_OP_MASK == ebpf::BPF_MUL {
+        sign_extend_i32_to_i64(jit, dst, dst);
     }
 }
 
@@ -1060,14 +1054,10 @@ impl<'a> JitCompiler<'a> {
                     emit_alu(self, OperationWidth::Bit32, 0x29, src, dst, 0, None);
                     sign_extend_i32_to_i64(self, dst, dst);
                 },
-                ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::MOD32_IMM  => {
-                    emit_muldivmod(self, insn.opc, dst, dst, insn.imm);
-                    sign_extend_i32_to_i64(self, dst, dst);
-                },
-                ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::MOD32_REG  => {
-                    emit_muldivmod(self, insn.opc, src, dst, 0);
-                    sign_extend_i32_to_i64(self, dst, dst);
-                },
+                ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::MOD32_IMM  =>
+                    emit_muldivmod(self, insn.opc, dst, dst, insn.imm),
+                ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::MOD32_REG  =>
+                    emit_muldivmod(self, insn.opc, src, dst, 0),
                 ebpf::OR32_IMM   => emit_alu(self, OperationWidth::Bit32, 0x81, 1, dst, insn.imm, None),
                 ebpf::OR32_REG   => emit_alu(self, OperationWidth::Bit32, 0x09, src, dst, 0, None),
                 ebpf::AND32_IMM  => emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, insn.imm, None),
