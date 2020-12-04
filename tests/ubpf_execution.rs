@@ -85,7 +85,7 @@ macro_rules! test_interpreter_and_jit_asm {
         {
             let config = Config {
                 enable_instruction_tracing: true,
-                ..Default::default()
+                ..Config::default()
             };
             let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, config).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
@@ -102,7 +102,7 @@ macro_rules! test_interpreter_and_jit_elf {
         {
             let config = Config {
                 enable_instruction_tracing: true,
-                ..Default::default()
+                ..Config::default()
             };
             let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, config).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
@@ -2644,6 +2644,46 @@ fn test_custom_entrypoint() {
 }
 
 // Instruction Meter Limit
+
+#[test]
+fn test_tight_infinite_loop_conditional() {
+    test_interpreter_and_jit_asm!(
+        "
+        jsge r0, r0, -1
+        exit",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                    if pc == 30 && initial_insn_count == 4
+                )
+            }
+        },
+        4
+    );
+}
+
+#[test]
+fn test_tight_infinite_loop_unconditional() {
+    test_interpreter_and_jit_asm!(
+        "
+        ja -1
+        exit",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                    if pc == 30 && initial_insn_count == 4
+                )
+            }
+        },
+        4
+    );
+}
 
 #[test]
 fn test_instruction_count_syscall() {

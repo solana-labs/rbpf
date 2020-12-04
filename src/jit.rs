@@ -493,10 +493,10 @@ fn emit_profile_instruction_count(jit: &mut JitCompiler, target_pc: Option<usize
 }
 
 #[inline]
-fn emit_validate_and_profile_instruction_count(jit: &mut JitCompiler, target_pc: Option<usize>) {
+fn emit_validate_and_profile_instruction_count(jit: &mut JitCompiler, exclusive: bool, target_pc: Option<usize>) {
     if jit.config.enable_instruction_meter {
         emit_cmp_imm32(jit, ARGUMENT_REGISTERS[0], jit.pc as i32 + 1, None);
-        emit_jcc(jit, 0x82, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
+        emit_jcc(jit, if exclusive { 0x82 } else { 0x86 }, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         emit_profile_instruction_count(jit, target_pc);
     }
 }
@@ -518,7 +518,7 @@ fn emit_profile_instruction_count_of_exception(jit: &mut JitCompiler) {
 
 #[inline]
 fn emit_conditional_branch_reg(jit: &mut JitCompiler, op: u8, src: u8, dst: u8, target_pc: usize) {
-    emit_validate_and_profile_instruction_count(jit, Some(target_pc));
+    emit_validate_and_profile_instruction_count(jit, false, Some(target_pc));
     emit_cmp(jit, src, dst, None);
     emit_jcc(jit, op, target_pc);
     emit_undo_profile_instruction_count(jit, target_pc);
@@ -526,7 +526,7 @@ fn emit_conditional_branch_reg(jit: &mut JitCompiler, op: u8, src: u8, dst: u8, 
 
 #[inline]
 fn emit_conditional_branch_imm(jit: &mut JitCompiler, op: u8, imm: i32, dst: u8, target_pc: usize) {
-    emit_validate_and_profile_instruction_count(jit, Some(target_pc));
+    emit_validate_and_profile_instruction_count(jit, false, Some(target_pc));
     emit_cmp_imm32(jit, dst, imm, None);
     emit_jcc(jit, op, target_pc);
     emit_undo_profile_instruction_count(jit, target_pc);
@@ -600,7 +600,7 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
 
     match dst {
         Value::Register(_reg) => {
-            emit_validate_and_profile_instruction_count(jit, None);
+            emit_validate_and_profile_instruction_count(jit, true, None);
 
             emit_mov(jit, OperationWidth::Bit64, REGISTER_MAP[0], R11);
             emit_pop(jit, REGISTER_MAP[0]);
@@ -611,7 +611,7 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             emit1(jit, 0xd3);
         },
         Value::Constant64(target_pc) => {
-            emit_validate_and_profile_instruction_count(jit, Some(target_pc as usize));
+            emit_validate_and_profile_instruction_count(jit, true, Some(target_pc as usize));
             emit1(jit, 0xe8);
             emit_jump_offset(jit, target_pc as usize);
         },
@@ -969,7 +969,7 @@ impl<'a> JitCompiler<'a> {
                 },
 
                 ebpf::LD_DW_IMM  => {
-                    emit_validate_and_profile_instruction_count(self, Some(self.pc + 2));
+                    emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2));
                     self.pc += 1;
                     if self.pc * ebpf::INSN_SIZE >= program.len() {
                         return Err(EbpfError::UnsupportedInstruction(self.pc));
@@ -1160,7 +1160,7 @@ impl<'a> JitCompiler<'a> {
                 // BPF_JMP class
                 ebpf::JA         => {
                     validate_target_pc!(self, target_pc);
-                    emit_validate_and_profile_instruction_count(self, Some(target_pc));
+                    emit_validate_and_profile_instruction_count(self, false, Some(target_pc));
                     emit_jmp(self, target_pc);
                 },
                 ebpf::JEQ_IMM    => {
@@ -1205,14 +1205,14 @@ impl<'a> JitCompiler<'a> {
                 }
                 ebpf::JSET_IMM   => {
                     validate_target_pc!(self, target_pc);
-                    emit_validate_and_profile_instruction_count(self, Some(target_pc));
+                    emit_validate_and_profile_instruction_count(self, false, Some(target_pc));
                     emit_alu(self, OperationWidth::Bit64, 0xf7, 0, dst, insn.imm, None);
                     emit_jcc(self, 0x85, target_pc);
                     emit_undo_profile_instruction_count(self, target_pc);
                 },
                 ebpf::JSET_REG   => {
                     validate_target_pc!(self, target_pc);
-                    emit_validate_and_profile_instruction_count(self, Some(target_pc));
+                    emit_validate_and_profile_instruction_count(self, false, Some(target_pc));
                     emit_alu(self, OperationWidth::Bit64, 0x85, src, dst, 0, None);
                     emit_jcc(self, 0x85, target_pc);
                     emit_undo_profile_instruction_count(self, target_pc);
@@ -1263,7 +1263,7 @@ impl<'a> JitCompiler<'a> {
                     // syscall function in the JIT-compiled program).
                     if let Some(syscall) = executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
                         if self.config.enable_instruction_meter {
-                            emit_validate_and_profile_instruction_count(self, Some(0));
+                            emit_validate_and_profile_instruction_count(self, true, Some(0));
                             emit_load(self, OperandSize::S64, RBP, R11, -8 * (CALLEE_SAVED_REGISTERS.len() + 2) as i32);
                             emit_alu(self, OperationWidth::Bit64, 0x29, ARGUMENT_REGISTERS[0], R11, 0, None);
                             emit_mov(self, OperationWidth::Bit64, R11, ARGUMENT_REGISTERS[0]);
@@ -1330,7 +1330,7 @@ impl<'a> JitCompiler<'a> {
                     emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]), self.pc_locs.len());
                 },
                 ebpf::EXIT      => {
-                    emit_validate_and_profile_instruction_count(self, Some(0));
+                    emit_validate_and_profile_instruction_count(self, true, Some(0));
 
                     emit_load(self, OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], -8 * CALLEE_SAVED_REGISTERS.len() as i32); // load stack_ptr
                     emit_alu(self, OperationWidth::Bit64, 0x81, 4, REGISTER_MAP[STACK_REG], !(self.config.stack_frame_size as i32 * 2 - 1), None); // stack_ptr &= !(jit.config.stack_frame_size * 2 - 1, None);
@@ -1355,7 +1355,7 @@ impl<'a> JitCompiler<'a> {
         }
 
         // Bumper in case there was no final exit
-        emit_validate_and_profile_instruction_count(self, Some(self.pc + 2));
+        emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2));
         emit_load_imm(self, R11, self.pc as i64);
         set_exception_kind::<E>(self, EbpfError::ExecutionOverrun(0));
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
