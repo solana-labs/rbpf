@@ -10,6 +10,7 @@ extern crate solana_rbpf;
 extern crate test_utils;
 extern crate thiserror;
 
+use rand::{rngs::SmallRng, Rng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
     ebpf::{self, hash_symbol_name},
@@ -44,11 +45,11 @@ macro_rules! test_interpreter_and_jit {
             let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
             test_interpreter_and_jit!(2, vm, $($location => $syscall_function; $syscall_context_object),*);
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count });
-            assert!(check_closure(&vm, result));
             let tracer_interpreter = vm.get_tracer().clone();
             let mut tracer_display = String::new();
             tracer_interpreter.write(&mut tracer_display, vm.get_program()).unwrap();
             println!("{}", tracer_display);
+            assert!(check_closure(&vm, result));
             (vm.get_total_instruction_count(), tracer_interpreter)
         };
         #[cfg(not(windows))]
@@ -62,13 +63,13 @@ macro_rules! test_interpreter_and_jit {
                 Ok(()) => {
                     test_interpreter_and_jit!(2, vm, $($location => $syscall_function; $syscall_context_object),*);
                     let result = vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count });
-                    assert!(check_closure(&vm, result));
+                    let tracer_jit = vm.get_tracer();
+                    assert!(solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit));
                     if $executable.get_config().enable_instruction_meter {
                         let instruction_count_jit = vm.get_total_instruction_count();
                         assert_eq!(instruction_count_interpreter, instruction_count_jit);
                     }
-                    let tracer_jit = vm.get_tracer();
-                    assert!(solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit));
+                    assert!(check_closure(&vm, result));
                 },
             }
         }
@@ -3163,5 +3164,95 @@ fn test_large_program() {
             { |_vm, res: Result| res.unwrap() == 0x0 },
             ebpf::PROG_MAX_INSNS as u64
         );
+    }
+}
+
+// Fuzzy
+
+fn execute_generated_program(prog: &[u8]) -> bool {
+    let max_instruction_count = 1024;
+    let mem_size = 1024;
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+        &prog,
+        Some(check),
+        Config {
+            enable_instruction_tracing: true,
+            ..Config::default()
+        },
+    );
+    if executable.is_err() {
+        return false;
+    }
+    let mut executable = executable.unwrap();
+    executable.set_syscall_registry(SyscallRegistry::default());
+    if executable.jit_compile().is_err() {
+        return false;
+    }
+    let (instruction_count_interpreter, _tracer_interpreter, _result_interpreter) = {
+        let mut mem = vec![0u8; mem_size];
+        let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[]).unwrap();
+        let result_interpreter = vm.execute_program_interpreted(&mut TestInstructionMeter {
+            remaining: max_instruction_count,
+        });
+        let tracer_interpreter = vm.get_tracer().clone();
+        (
+            vm.get_total_instruction_count(),
+            tracer_interpreter,
+            result_interpreter,
+        )
+    };
+    #[cfg(not(windows))]
+    {
+        let mut mem = vec![0u8; mem_size];
+        let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[]).unwrap();
+        let result_jit = vm.execute_program_jit(&mut TestInstructionMeter {
+            remaining: max_instruction_count,
+        });
+        let tracer_jit = vm.get_tracer();
+        if !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
+            let mut tracer_display = String::new();
+            tracer_jit
+                .write(&mut tracer_display, vm.get_program())
+                .unwrap();
+            println!("{}", tracer_display);
+            assert!(false);
+        }
+        assert_eq!(_result_interpreter, result_jit);
+        if executable.get_config().enable_instruction_meter {
+            let instruction_count_jit = vm.get_total_instruction_count();
+            assert_eq!(instruction_count_interpreter, instruction_count_jit);
+        }
+    }
+    true
+}
+
+#[test]
+fn test_total_chaos() {
+    let instruction_count = 3;
+    let iteration_count = 1000000;
+    let mut prog = vec![0; instruction_count * ebpf::INSN_SIZE];
+    let seed = rand::thread_rng().gen::<u64>();
+    println!("Fuzzy seed: {:#X}", seed);
+    let mut prng = SmallRng::seed_from_u64(seed);
+    for _ in 0..iteration_count {
+        prng.fill_bytes(&mut prog[0..ebpf::INSN_SIZE * (instruction_count - 1)]);
+        prog[ebpf::INSN_SIZE * (instruction_count - 1)..ebpf::INSN_SIZE * instruction_count]
+            .copy_from_slice(&[ebpf::EXIT, 0, 0, 0, 0, 0, 0, 0]);
+        execute_generated_program(&prog);
+    }
+    for _ in 0..iteration_count {
+        prng.fill_bytes(&mut prog[0..ebpf::INSN_SIZE * (instruction_count - 1)]);
+        for index in (0..prog.len()).step_by(ebpf::INSN_SIZE) {
+            prog[index + 0x1] &= 0x77;
+            prog[index + 0x2] &= 0x00;
+            prog[index + 0x3] &= 0x77;
+            prog[index + 0x4] &= 0x00;
+            prog[index + 0x5] &= 0x77;
+            prog[index + 0x6] &= 0x77;
+            prog[index + 0x7] &= 0x77;
+        }
+        prog[ebpf::INSN_SIZE * (instruction_count - 1)..ebpf::INSN_SIZE * instruction_count]
+            .copy_from_slice(&[ebpf::EXIT, 0, 0, 0, 0, 0, 0, 0]);
+        execute_generated_program(&prog);
     }
 }
