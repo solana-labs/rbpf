@@ -3215,7 +3215,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
                 .write(&mut tracer_display, vm.get_program())
                 .unwrap();
             println!("{}", tracer_display);
-            assert!(false);
+            panic!();
         }
         assert_eq!(_result_interpreter, result_jit);
         if executable.get_config().enable_instruction_meter {
