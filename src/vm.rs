@@ -745,12 +745,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 ebpf::SUB32_REG  => reg[dst] = (reg[dst] as i32).wrapping_sub(reg[src] as i32)   as u64,
                 ebpf::MUL32_IMM  => reg[dst] = (reg[dst] as i32).wrapping_mul(insn.imm)          as u64,
                 ebpf::MUL32_REG  => reg[dst] = (reg[dst] as i32).wrapping_mul(reg[src] as i32)   as u64,
-                ebpf::DIV32_IMM  => {
-                    if insn.imm == 0 {
-                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
-                    }
-                                    reg[dst] = (reg[dst] as u32 / insn.imm as u32)               as u64;
-                },
+                ebpf::DIV32_IMM  => reg[dst] = (reg[dst] as u32 / insn.imm as u32)               as u64,
                 ebpf::DIV32_REG  => {
                     if reg[src] as u32 == 0 {
                         return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
@@ -766,12 +761,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 ebpf::RSH32_IMM  =>   reg[dst] = (reg[dst] as u32).wrapping_shr(insn.imm as u32) as u64,
                 ebpf::RSH32_REG  =>   reg[dst] = (reg[dst] as u32).wrapping_shr(reg[src] as u32) as u64,
                 ebpf::NEG32      => { reg[dst] = (reg[dst] as i32).wrapping_neg()                as u64; reg[dst] &= U32MAX; },
-                ebpf::MOD32_IMM  => {
-                    if insn.imm == 0 {
-                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
-                    }
-                                      reg[dst] = (reg[dst] as u32             % insn.imm as u32) as u64;
-                },
+                ebpf::MOD32_IMM  =>   reg[dst] = (reg[dst] as u32             % insn.imm as u32) as u64,
                 ebpf::MOD32_REG  => {
                     if reg[src] as u32 == 0 {
                         return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
@@ -789,7 +779,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         16 => (reg[dst] as u16).to_le() as u64,
                         32 => (reg[dst] as u32).to_le() as u64,
                         64 =>  reg[dst].to_le(),
-                        _  => return Err(EbpfError::InvalidInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
+                        _  => unreachable!(),
                     };
                 },
                 ebpf::BE         => {
@@ -797,7 +787,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         16 => (reg[dst] as u16).to_be() as u64,
                         32 => (reg[dst] as u32).to_be() as u64,
                         64 =>  reg[dst].to_be(),
-                        _  => return Err(EbpfError::InvalidInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
+                        _  => unreachable!(),
                     };
                 },
 
@@ -808,12 +798,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 ebpf::SUB64_REG  => reg[dst] = reg[dst].wrapping_sub(reg[src]),
                 ebpf::MUL64_IMM  => reg[dst] = reg[dst].wrapping_mul(insn.imm as u64),
                 ebpf::MUL64_REG  => reg[dst] = reg[dst].wrapping_mul(reg[src]),
-                ebpf::DIV64_IMM  => {
-                    if insn.imm == 0 {
-                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
-                    }
-                                    reg[dst] /= insn.imm as u64;
-                },
+                ebpf::DIV64_IMM  => reg[dst] /= insn.imm as u64,
                 ebpf::DIV64_REG  => {
                     if reg[src] == 0 {
                         return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
@@ -829,12 +814,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 ebpf::RSH64_IMM  => reg[dst] = reg[dst].wrapping_shr(insn.imm as u32),
                 ebpf::RSH64_REG  => reg[dst] = reg[dst].wrapping_shr(reg[src] as u32),
                 ebpf::NEG64      => reg[dst] = (reg[dst] as i64).wrapping_neg() as u64,
-                ebpf::MOD64_IMM  => {
-                    if insn.imm == 0 {
-                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
-                    }
-                                    reg[dst] %= insn.imm  as u64;
-                },
+                ebpf::MOD64_IMM  => reg[dst] %= insn.imm  as u64,
                 ebpf::MOD64_REG  => {
                     if reg[src] == 0 {
                         return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));

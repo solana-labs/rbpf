@@ -138,14 +138,6 @@ macro_rules! emit_bytes {
     }}
 }
 
-macro_rules! validate_target_pc {
-    ( $jit:ident, $target_pc:expr ) => {
-        if $target_pc >= $jit.pc_locs.len() {
-            return Err(EbpfError::InvalidInstruction($jit.pc));
-        }
-    }
-}
-
 #[inline]
 fn emit1(jit: &mut JitCompiler, data: u8) {
     emit_bytes!(jit, data, u8);
@@ -935,7 +927,6 @@ impl<'a> JitCompiler<'a> {
         // Jump to custom entry point (if any)
         let entry = executable.get_entrypoint_instruction_offset().unwrap();
         if entry != 0 {
-            validate_target_pc!(self, entry);
             emit_profile_instruction_count(self, Some(entry + 1));
             emit_jmp(self, entry);
         }
@@ -950,9 +941,6 @@ impl<'a> JitCompiler<'a> {
                 emit_jmp(self, TARGET_PC_TRACE);
             }
 
-            if insn.dst >= REGISTER_MAP.len() as u8 || insn.src >= REGISTER_MAP.len() as u8 {
-                return Err(EbpfError::InvalidInstruction(self.pc));
-            }
             let dst = REGISTER_MAP[insn.dst as usize];
             let src = REGISTER_MAP[insn.src as usize];
             let target_pc = (self.pc as isize + insn.off as isize + 1) as usize;
@@ -996,9 +984,6 @@ impl<'a> JitCompiler<'a> {
                 ebpf::LD_DW_IMM  => {
                     emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2));
                     self.pc += 1;
-                    if self.pc * ebpf::INSN_SIZE >= program.len() {
-                        return Err(EbpfError::UnsupportedInstruction(self.pc));
-                    }
                     let second_part = ebpf::get_insn(program, self.pc).imm as u64;
                     let imm = (insn.imm as u32) as u64 | second_part.wrapping_shl(32);
                     emit_load_imm(self, dst, imm as i64);
@@ -1098,7 +1083,9 @@ impl<'a> JitCompiler<'a> {
                 ebpf::MOV32_REG  => emit_mov(self, OperationWidth::Bit32, src, dst),
                 ebpf::ARSH32_IMM => emit_alu(self, OperationWidth::Bit32, 0xc1, 7, dst, insn.imm, None),
                 ebpf::ARSH32_REG => emit_shift(self, OperationWidth::Bit32, 7, src, dst),
-                ebpf::LE         => {},
+                ebpf::LE         => {
+                    // No-op
+                },
                 ebpf::BE         => {
                     match insn.imm {
                         16 => {
@@ -1115,9 +1102,7 @@ impl<'a> JitCompiler<'a> {
                             emit1(self, 0x0f);
                             emit1(self, 0xc8 | (dst & 0b111));
                         }
-                        _ => {
-                            return Err(EbpfError::UnsupportedInstruction(self.pc));
-                        }
+                        _ => unreachable!()
                     }
                 },
 
@@ -1148,104 +1133,41 @@ impl<'a> JitCompiler<'a> {
 
                 // BPF_JMP class
                 ebpf::JA         => {
-                    validate_target_pc!(self, target_pc);
                     emit_validate_and_profile_instruction_count(self, false, Some(target_pc));
                     emit_jmp(self, target_pc);
                 },
-                ebpf::JEQ_IMM    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_imm(self, 0x84, insn.imm, dst, target_pc);
-                }
-                ebpf::JEQ_REG    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_reg(self, 0x84, src, dst, target_pc);
-                }
-                ebpf::JGT_IMM    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_imm(self, 0x87, insn.imm, dst, target_pc);
-                }
-                ebpf::JGT_REG    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_reg(self, 0x87, src, dst, target_pc);
-                }
-                ebpf::JGE_IMM    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_imm(self, 0x83, insn.imm, dst, target_pc);
-                }
-                ebpf::JGE_REG    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_reg(self, 0x83, src, dst, target_pc);
-                }
-                ebpf::JLT_IMM    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_imm(self, 0x82, insn.imm, dst, target_pc);
-                }
-                ebpf::JLT_REG    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_reg(self, 0x82, src, dst, target_pc);
-                }
-                ebpf::JLE_IMM    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_imm(self, 0x86, insn.imm, dst, target_pc);
-                }
-                ebpf::JLE_REG    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_reg(self, 0x86, src, dst, target_pc);
-                }
+                ebpf::JEQ_IMM    => emit_conditional_branch_imm(self, 0x84, insn.imm, dst, target_pc),
+                ebpf::JEQ_REG    => emit_conditional_branch_reg(self, 0x84, src, dst, target_pc),
+                ebpf::JGT_IMM    => emit_conditional_branch_imm(self, 0x87, insn.imm, dst, target_pc),
+                ebpf::JGT_REG    => emit_conditional_branch_reg(self, 0x87, src, dst, target_pc),
+                ebpf::JGE_IMM    => emit_conditional_branch_imm(self, 0x83, insn.imm, dst, target_pc),
+                ebpf::JGE_REG    => emit_conditional_branch_reg(self, 0x83, src, dst, target_pc),
+                ebpf::JLT_IMM    => emit_conditional_branch_imm(self, 0x82, insn.imm, dst, target_pc),
+                ebpf::JLT_REG    => emit_conditional_branch_reg(self, 0x82, src, dst, target_pc),
+                ebpf::JLE_IMM    => emit_conditional_branch_imm(self, 0x86, insn.imm, dst, target_pc),
+                ebpf::JLE_REG    => emit_conditional_branch_reg(self, 0x86, src, dst, target_pc),
                 ebpf::JSET_IMM   => {
-                    validate_target_pc!(self, target_pc);
                     emit_validate_and_profile_instruction_count(self, false, Some(target_pc));
                     emit_alu(self, OperationWidth::Bit64, 0xf7, 0, dst, insn.imm, None);
                     emit_jcc(self, 0x85, target_pc);
                     emit_undo_profile_instruction_count(self, target_pc);
                 },
                 ebpf::JSET_REG   => {
-                    validate_target_pc!(self, target_pc);
                     emit_validate_and_profile_instruction_count(self, false, Some(target_pc));
                     emit_alu(self, OperationWidth::Bit64, 0x85, src, dst, 0, None);
                     emit_jcc(self, 0x85, target_pc);
                     emit_undo_profile_instruction_count(self, target_pc);
                 },
-                ebpf::JNE_IMM    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_imm(self, 0x85, insn.imm, dst, target_pc);
-                },
-                ebpf::JNE_REG    => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_reg(self, 0x85, src, dst, target_pc);
-                },
-                ebpf::JSGT_IMM   => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_imm(self, 0x8f, insn.imm, dst, target_pc);
-                },
-                ebpf::JSGT_REG   => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_reg(self, 0x8f, src, dst, target_pc);
-                },
-                ebpf::JSGE_IMM   => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_imm(self, 0x8d, insn.imm, dst, target_pc);
-                },
-                ebpf::JSGE_REG   => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_reg(self, 0x8d, src, dst, target_pc);
-                },
-                ebpf::JSLT_IMM   => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_imm(self, 0x8c, insn.imm, dst, target_pc);
-                },
-                ebpf::JSLT_REG   => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_reg(self, 0x8c, src, dst, target_pc);
-                },
-                ebpf::JSLE_IMM   => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_imm(self, 0x8e, insn.imm, dst, target_pc);
-                },
-                ebpf::JSLE_REG   => {
-                    validate_target_pc!(self, target_pc);
-                    emit_conditional_branch_reg(self, 0x8e, src, dst, target_pc);
-                },
+                ebpf::JNE_IMM    => emit_conditional_branch_imm(self, 0x85, insn.imm, dst, target_pc),
+                ebpf::JNE_REG    => emit_conditional_branch_reg(self, 0x85, src, dst, target_pc),
+                ebpf::JSGT_IMM   => emit_conditional_branch_imm(self, 0x8f, insn.imm, dst, target_pc),
+                ebpf::JSGT_REG   => emit_conditional_branch_reg(self, 0x8f, src, dst, target_pc),
+                ebpf::JSGE_IMM   => emit_conditional_branch_imm(self, 0x8d, insn.imm, dst, target_pc),
+                ebpf::JSGE_REG   => emit_conditional_branch_reg(self, 0x8d, src, dst, target_pc),
+                ebpf::JSLT_IMM   => emit_conditional_branch_imm(self, 0x8c, insn.imm, dst, target_pc),
+                ebpf::JSLT_REG   => emit_conditional_branch_reg(self, 0x8c, src, dst, target_pc),
+                ebpf::JSLE_IMM   => emit_conditional_branch_imm(self, 0x8e, insn.imm, dst, target_pc),
+                ebpf::JSLE_REG   => emit_conditional_branch_reg(self, 0x8e, src, dst, target_pc),
                 ebpf::CALL_IMM   => {
                     // For JIT, syscalls MUST be registered at compile time. They can be
                     // updated later, but not created after compiling (we need the address of the
@@ -1294,7 +1216,6 @@ impl<'a> JitCompiler<'a> {
                     } else {
                         match executable.lookup_bpf_call(insn.imm as u32) {
                             Some(target_pc) => {
-                                validate_target_pc!(self, *target_pc);
                                 emit_bpf_call(self, Value::Constant64(*target_pc as i64), self.pc_locs.len());
                             },
                             None => {
@@ -1313,9 +1234,6 @@ impl<'a> JitCompiler<'a> {
                     }
                 },
                 ebpf::CALL_REG  => {
-                    if insn.imm as usize >= REGISTER_MAP.len() {
-                        return Err(EbpfError::InvalidInstruction(self.pc));
-                    }
                     emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]), self.pc_locs.len());
                 },
                 ebpf::EXIT      => {
@@ -1337,7 +1255,7 @@ impl<'a> JitCompiler<'a> {
                     emit1(self, 0xc3); // ret near
                 },
 
-                _               => return Err(EbpfError::UnsupportedInstruction(self.pc)),
+                _               => return Err(EbpfError::UnsupportedInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET)),
             }
 
             self.pc += 1;
