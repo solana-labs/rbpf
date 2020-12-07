@@ -278,7 +278,6 @@ fn sign_extend_i32_to_i64(jit: &mut JitCompiler, src: u8, dst: u8) {
 }
 
 // Register to register exchange / swap
-#[allow(dead_code)]
 #[inline]
 fn emit_xchg(jit: &mut JitCompiler, src: u8, dst: u8) {
     emit_alu(jit, OperationWidth::Bit64, 0x87, src, dst, 0, None);
@@ -726,13 +725,25 @@ fn emit_shift(jit: &mut JitCompiler, width: OperationWidth, opc: u8, src: u8, ds
     if width == OperationWidth::Bit32 {
         emit_alu(jit, OperationWidth::Bit32, 0x81, 4, dst, -1, None); // Mask to 32 bit
     }
-    emit_mov(jit, OperationWidth::Bit64, if dst == RCX { src } else { RCX }, R11);
-    if src != RCX && dst != RCX {
+    if src == RCX {
+        if dst == RCX {
+            emit_alu(jit, width, 0xd3, opc, dst, 0, None);
+        } else {
+            emit_mov(jit, OperationWidth::Bit64, RCX, R11);
+            emit_alu(jit, width, 0xd3, opc, dst, 0, None);
+            emit_mov(jit, OperationWidth::Bit64, R11, RCX);
+        }
+    } else if dst == RCX {
+        emit_mov(jit, OperationWidth::Bit64, src, R11);
+        emit_xchg(jit, src, RCX);
+        emit_alu(jit, width, 0xd3, opc, src, 0, None);
         emit_mov(jit, OperationWidth::Bit64, src, RCX);
-    }
-    emit_alu(jit, width, 0xd3, opc, if dst == RCX { src } else { dst }, 0, None);
-    if src != RCX {
-        emit_mov(jit, OperationWidth::Bit64, R11, if dst == RCX { src } else { RCX });
+        emit_mov(jit, OperationWidth::Bit64, R11, src);
+    } else {
+        emit_mov(jit, OperationWidth::Bit64, RCX, R11);
+        emit_mov(jit, OperationWidth::Bit64, src, RCX);
+        emit_alu(jit, width, 0xd3, opc, dst, 0, None);
+        emit_mov(jit, OperationWidth::Bit64, R11, RCX);
     }
 }
 

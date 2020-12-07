@@ -3169,9 +3169,10 @@ fn test_large_program() {
 
 // Fuzzy
 
+#[cfg(not(windows))]
 fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
-    let mem_size = 1024;
+    let mem_size = 1024 * 1024;
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         &prog,
         Some(check),
@@ -3188,7 +3189,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     if executable.jit_compile().is_err() {
         return false;
     }
-    let (instruction_count_interpreter, _tracer_interpreter, _result_interpreter) = {
+    let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {
         let mut mem = vec![0u8; mem_size];
         let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[]).unwrap();
         let result_interpreter = vm.execute_program_interpreted(&mut TestInstructionMeter {
@@ -3201,58 +3202,53 @@ fn execute_generated_program(prog: &[u8]) -> bool {
             result_interpreter,
         )
     };
-    #[cfg(not(windows))]
-    {
-        let mut mem = vec![0u8; mem_size];
-        let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[]).unwrap();
-        let result_jit = vm.execute_program_jit(&mut TestInstructionMeter {
-            remaining: max_instruction_count,
-        });
-        let tracer_jit = vm.get_tracer();
-        if !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
-            let mut tracer_display = String::new();
-            tracer_jit
-                .write(&mut tracer_display, vm.get_program())
-                .unwrap();
-            println!("{}", tracer_display);
-            panic!();
-        }
-        assert_eq!(_result_interpreter, result_jit);
-        if executable.get_config().enable_instruction_meter {
-            let instruction_count_jit = vm.get_total_instruction_count();
-            assert_eq!(instruction_count_interpreter, instruction_count_jit);
-        }
+    let mut mem = vec![0u8; mem_size];
+    let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[]).unwrap();
+    let result_jit = vm.execute_program_jit(&mut TestInstructionMeter {
+        remaining: max_instruction_count,
+    });
+    let tracer_jit = vm.get_tracer();
+    if !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit) {
+        let mut tracer_display = String::new();
+        tracer_jit
+            .write(&mut tracer_display, vm.get_program())
+            .unwrap();
+        println!("{}", tracer_display);
+        panic!();
+    }
+    assert_eq!(result_interpreter, result_jit);
+    if executable.get_config().enable_instruction_meter {
+        let instruction_count_jit = vm.get_total_instruction_count();
+        assert_eq!(instruction_count_interpreter, instruction_count_jit);
     }
     true
 }
 
+#[cfg(not(windows))]
 #[test]
 fn test_total_chaos() {
-    let instruction_count = 3;
+    let instruction_count = 6;
     let iteration_count = 1000000;
-    let mut prog = vec![0; instruction_count * ebpf::INSN_SIZE];
-    let seed = rand::thread_rng().gen::<u64>();
-    println!("Fuzzy seed: {:#X}", seed);
+    let mut program = vec![0; instruction_count * ebpf::INSN_SIZE];
+    program[ebpf::INSN_SIZE * (instruction_count - 1)..ebpf::INSN_SIZE * instruction_count]
+        .copy_from_slice(&[ebpf::EXIT, 0, 0, 0, 0, 0, 0, 0]);
+    let seed = 0xC2DB2F8F282284A0;
     let mut prng = SmallRng::seed_from_u64(seed);
     for _ in 0..iteration_count {
-        prng.fill_bytes(&mut prog[0..ebpf::INSN_SIZE * (instruction_count - 1)]);
-        prog[ebpf::INSN_SIZE * (instruction_count - 1)..ebpf::INSN_SIZE * instruction_count]
-            .copy_from_slice(&[ebpf::EXIT, 0, 0, 0, 0, 0, 0, 0]);
-        execute_generated_program(&prog);
+        prng.fill_bytes(&mut program[0..ebpf::INSN_SIZE * (instruction_count - 1)]);
+        execute_generated_program(&program);
     }
     for _ in 0..iteration_count {
-        prng.fill_bytes(&mut prog[0..ebpf::INSN_SIZE * (instruction_count - 1)]);
-        for index in (0..prog.len()).step_by(ebpf::INSN_SIZE) {
-            prog[index + 0x1] &= 0x77;
-            prog[index + 0x2] &= 0x00;
-            prog[index + 0x3] &= 0x77;
-            prog[index + 0x4] &= 0x00;
-            prog[index + 0x5] &= 0x77;
-            prog[index + 0x6] &= 0x77;
-            prog[index + 0x7] &= 0x77;
+        prng.fill_bytes(&mut program[0..ebpf::INSN_SIZE * (instruction_count - 1)]);
+        for index in (0..program.len()).step_by(ebpf::INSN_SIZE) {
+            program[index + 0x1] &= 0x77;
+            program[index + 0x2] &= 0x00;
+            program[index + 0x3] &= 0x77;
+            program[index + 0x4] &= 0x00;
+            program[index + 0x5] &= 0x77;
+            program[index + 0x6] &= 0x77;
+            program[index + 0x7] &= 0x77;
         }
-        prog[ebpf::INSN_SIZE * (instruction_count - 1)..ebpf::INSN_SIZE * instruction_count]
-            .copy_from_slice(&[ebpf::EXIT, 0, 0, 0, 0, 0, 0, 0]);
-        execute_generated_program(&prog);
+        execute_generated_program(&program);
     }
 }
