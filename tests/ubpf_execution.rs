@@ -10,7 +10,8 @@ extern crate solana_rbpf;
 extern crate test_utils;
 extern crate thiserror;
 
-use rand::{rngs::SmallRng, Rng, RngCore, SeedableRng};
+#[cfg(not(windows))]
+use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
     ebpf::{self, hash_symbol_name},
