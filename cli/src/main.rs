@@ -263,7 +263,7 @@ impl AnalysisResult {
 
 fn main() {
     let matches = App::new("Solana RBPF CLI")
-        .version("0.2.1")
+        .version("0.2.2")
         .author("Solana Maintainers <maintainers@solana.foundation>")
         .about("CLI to test and analyze eBPF programs")
         .arg(
