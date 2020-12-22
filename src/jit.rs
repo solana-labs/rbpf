@@ -756,13 +756,13 @@ fn emit_shift(jit: &mut JitCompiler, width: OperationWidth, opc: u8, src: u8, ds
     }
 }
 
-fn emit_muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: i32) {
+fn emit_muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: Option<i32>) {
     let mul = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MUL32_IMM & ebpf::BPF_ALU_OP_MASK);
     let div = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::DIV32_IMM & ebpf::BPF_ALU_OP_MASK);
     let modrm = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MOD32_IMM & ebpf::BPF_ALU_OP_MASK);
     let width = if (opc & ebpf::BPF_CLS_MASK) == ebpf::BPF_ALU64 { OperationWidth::Bit64 } else { OperationWidth::Bit32 };
 
-    if (div || modrm) && imm == 0 {
+    if (div || modrm) && imm.is_none() {
         // Save pc
         emit_load_imm(jit, R11, jit.pc as i64);
 
@@ -780,7 +780,7 @@ fn emit_muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: i32) {
         emit_push(jit, RDX);
     }
 
-    if imm != 0 {
+    if let Some(imm) = imm {
         emit_load_imm(jit, R11, imm as i64);
     } else {
         emit_mov(jit, OperationWidth::Bit64, src, R11);
@@ -1038,9 +1038,9 @@ impl<'a> JitCompiler<'a> {
                     sign_extend_i32_to_i64(self, dst, dst);
                 },
                 ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::MOD32_IMM  =>
-                    emit_muldivmod(self, insn.opc, dst, dst, insn.imm),
+                    emit_muldivmod(self, insn.opc, dst, dst, Some(insn.imm)),
                 ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::MOD32_REG  =>
-                    emit_muldivmod(self, insn.opc, src, dst, 0),
+                    emit_muldivmod(self, insn.opc, src, dst, None),
                 ebpf::OR32_IMM   => emit_alu(self, OperationWidth::Bit32, 0x81, 1, dst, insn.imm, None),
                 ebpf::OR32_REG   => emit_alu(self, OperationWidth::Bit32, 0x09, src, dst, 0, None),
                 ebpf::AND32_IMM  => emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, insn.imm, None),
@@ -1085,9 +1085,9 @@ impl<'a> JitCompiler<'a> {
                 ebpf::SUB64_IMM  => emit_alu(self, OperationWidth::Bit64, 0x81, 5, dst, insn.imm, None),
                 ebpf::SUB64_REG  => emit_alu(self, OperationWidth::Bit64, 0x29, src, dst, 0, None),
                 ebpf::MUL64_IMM | ebpf::DIV64_IMM | ebpf::MOD64_IMM  =>
-                    emit_muldivmod(self, insn.opc, dst, dst, insn.imm),
+                    emit_muldivmod(self, insn.opc, dst, dst, Some(insn.imm)),
                 ebpf::MUL64_REG | ebpf::DIV64_REG | ebpf::MOD64_REG  =>
-                    emit_muldivmod(self, insn.opc, src, dst, 0),
+                    emit_muldivmod(self, insn.opc, src, dst, None),
                 ebpf::OR64_IMM   => emit_alu(self, OperationWidth::Bit64, 0x81, 1, dst, insn.imm, None),
                 ebpf::OR64_REG   => emit_alu(self, OperationWidth::Bit64, 0x09, src, dst, 0, None),
                 ebpf::AND64_IMM  => emit_alu(self, OperationWidth::Bit64, 0x81, 4, dst, insn.imm, None),
