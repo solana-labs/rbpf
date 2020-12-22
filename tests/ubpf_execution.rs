@@ -2366,6 +2366,29 @@ fn test_err_callx_oob_high() {
 }
 
 #[test]
+fn test_err_callx_lddw() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r8, 0x1
+        lsh64 r8, 0x20
+        or64 r8, 40
+        callx 0x8
+        lddw r0, 0x1122334455667788
+        exit",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::UnsupportedInstruction(pc) if pc == 34
+                )
+            }
+        },
+        5
+    );
+}
+
+#[test]
 fn test_bpf_to_bpf_depth() {
     let config = Config::default();
     for i in 0..config.max_call_depth {

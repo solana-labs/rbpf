@@ -64,10 +64,11 @@ const TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = TARGET_OFFSET + 4;
 const TARGET_PC_CALL_DEPTH_EXCEEDED: usize = TARGET_OFFSET + 5;
 const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: usize = TARGET_OFFSET + 6;
 const TARGET_PC_DIV_BY_ZERO: usize = TARGET_OFFSET + 7;
-const TARGET_PC_EXCEPTION_AT: usize = TARGET_OFFSET + 8;
-const TARGET_PC_SYSCALL_EXCEPTION: usize = TARGET_OFFSET + 9;
-const TARGET_PC_EXIT: usize = TARGET_OFFSET + 10;
-const TARGET_PC_EPILOGUE: usize = TARGET_OFFSET + 11;
+const TARGET_PC_UNSUPPORTED_INSTRUCTION: usize = TARGET_OFFSET + 8;
+const TARGET_PC_EXCEPTION_AT: usize = TARGET_OFFSET + 9;
+const TARGET_PC_SYSCALL_EXCEPTION: usize = TARGET_OFFSET + 10;
+const TARGET_PC_EXIT: usize = TARGET_OFFSET + 11;
+const TARGET_PC_EPILOGUE: usize = TARGET_OFFSET + 12;
 
 #[derive(Copy, Clone)]
 enum OperandSize {
@@ -959,6 +960,7 @@ impl<'a> JitCompiler<'a> {
                 ebpf::LD_DW_IMM  => {
                     emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2));
                     self.pc += 1;
+                    self.jumps.push(Jump { in_content: false, location: self.pc, target_pc: TARGET_PC_UNSUPPORTED_INSTRUCTION });
                     let second_part = ebpf::get_insn(program, self.pc).imm as u64;
                     let imm = (insn.imm as u32) as u64 | second_part.wrapping_shl(32);
                     emit_load_imm(self, dst, imm as i64);
@@ -1309,6 +1311,15 @@ impl<'a> JitCompiler<'a> {
         // Handler for EbpfError::DivideByZero
         set_anchor(self, TARGET_PC_DIV_BY_ZERO);
         set_exception_kind::<E>(self, EbpfError::DivideByZero(0));
+        emit_jmp(self, TARGET_PC_EXCEPTION_AT);
+
+        // Handler for EbpfError::UnsupportedInstruction
+        set_anchor(self, TARGET_PC_UNSUPPORTED_INSTRUCTION);
+        emit_call(self, TARGET_PC_TRANSLATE_PC);
+        if self.config.enable_instruction_tracing {
+            emit_call(self, TARGET_PC_TRACE);
+        }
+        set_exception_kind::<E>(self, EbpfError::UnsupportedInstruction(0));
         // emit_jmp(self, TARGET_PC_EXCEPTION_AT); // Fall-through
 
         // Handler for exceptions which report their pc
@@ -1417,6 +1428,7 @@ impl<'a> JitCompiler<'a> {
         let _code_size = round_to_page_size(self.offset);
         #[cfg(not(windows))]
         unsafe {
+            libc::mprotect(self.pc_locs.as_mut_ptr() as *mut _, self.pc_locs.len(), libc::PROT_READ);
             self.contents = std::slice::from_raw_parts_mut(self.contents.as_mut_ptr() as *mut _, _code_size);
             libc::mprotect(self.contents.as_mut_ptr() as *mut _, self.contents.len(), libc::PROT_EXEC | libc::PROT_READ);
         }
