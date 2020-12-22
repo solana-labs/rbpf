@@ -858,9 +858,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                     reg[ebpf::STACK_REG] =
                         self.frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
                     if target_address < self.program_vm_addr {
-                        return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, reg[insn.imm as usize]));
+                        return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
                     }
-                    next_pc = Self::check_pc(self.program_vm_addr, &self.program, pc, (target_address - self.program_vm_addr) as usize / ebpf::INSN_SIZE)?;
+                    next_pc = self.check_pc(pc, (target_address - self.program_vm_addr) as usize / ebpf::INSN_SIZE)?;
                 },
 
                 // Do not delegate the check to the verifier, since registered functions can be
@@ -886,14 +886,14 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         if instruction_meter_enabled {
                             remaining_insn_count = instruction_meter.get_remaining();
                         }
-                    } else if let Some(new_pc) = self.executable.lookup_bpf_call(insn.imm as u32) {
+                    } else if let Some(target_pc) = self.executable.lookup_bpf_call(insn.imm as u32) {
                         // make BPF to BPF call
                         reg[ebpf::STACK_REG] = self.frames.push(
                             &reg[ebpf::FIRST_SCRATCH_REG
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
                             next_pc,
                         )?;
-                        next_pc = Self::check_pc(self.program_vm_addr, &self.program, pc, *new_pc)?;
+                        next_pc = self.check_pc(pc, *target_pc)?;
                     } else {
                         self.executable.report_unresolved_symbol(pc)?;
                     }
@@ -907,7 +907,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                                 .copy_from_slice(&saved_reg);
                             reg[ebpf::STACK_REG] = stack_ptr;
-                            next_pc = Self::check_pc(self.program_vm_addr, &self.program, pc, ptr)?;
+                            next_pc = self.check_pc(pc, ptr)?;
                         }
                         _ => {
                             debug!("BPF instructions executed: {:?}", self.last_insn_count);
@@ -931,26 +931,21 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         ))
     }
 
-    fn check_pc(
-        program_vm_addr: u64,
-        prog: &[u8],
-        current_pc: usize,
-        new_pc: usize,
-    ) -> Result<usize, EbpfError<E>> {
+    fn check_pc(&self, current_pc: usize, target_pc: usize) -> Result<usize, EbpfError<E>> {
         let offset =
-            new_pc
+            target_pc
                 .checked_mul(ebpf::INSN_SIZE)
                 .ok_or(EbpfError::CallOutsideTextSegment(
                     current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    program_vm_addr + (new_pc * ebpf::INSN_SIZE) as u64,
+                    self.program_vm_addr + (target_pc * ebpf::INSN_SIZE) as u64,
                 ))?;
-        let _ =
-            prog.get(offset..offset + ebpf::INSN_SIZE)
-                .ok_or(EbpfError::CallOutsideTextSegment(
-                    current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    program_vm_addr + (new_pc * ebpf::INSN_SIZE) as u64,
-                ))?;
-        Ok(new_pc)
+        let _ = self.program.get(offset..offset + ebpf::INSN_SIZE).ok_or(
+            EbpfError::CallOutsideTextSegment(
+                current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
+                self.program_vm_addr + (target_pc * ebpf::INSN_SIZE) as u64,
+            ),
+        )?;
+        Ok(target_pc)
     }
 
     /// Execute the previously JIT-compiled program, with the given packet data in a manner
