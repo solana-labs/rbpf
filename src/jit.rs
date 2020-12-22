@@ -1057,7 +1057,16 @@ impl<'a> JitCompiler<'a> {
                 ebpf::ARSH32_IMM => emit_alu(self, OperationWidth::Bit32, 0xc1, 7, dst, insn.imm, None),
                 ebpf::ARSH32_REG => emit_shift(self, OperationWidth::Bit32, 7, src, dst),
                 ebpf::LE         => {
-                    // No-op
+                    match insn.imm {
+                        16 => {
+                            emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, 0xffff, None); // Mask to 16 bit
+                        }
+                        32 => {
+                            emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, -1, None); // Mask to 32 bit
+                        }
+                        64 => {}
+                        _ => unreachable!()
+                    }
                 },
                 ebpf::BE         => {
                     match insn.imm {
@@ -1065,8 +1074,7 @@ impl<'a> JitCompiler<'a> {
                             // rol
                             emit1(self, 0x66); // 16-bit override
                             emit_alu(self, OperationWidth::Bit32, 0xc1, 0, dst, 8, None);
-                            // and
-                            emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, 0xffff, None);
+                            emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, 0xffff, None); // Mask to 16 bit
                         }
                         32 | 64 => {
                             // bswap

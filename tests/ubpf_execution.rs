@@ -589,6 +589,20 @@ fn test_le16() {
 }
 
 #[test]
+fn test_le16_high() {
+    test_interpreter_and_jit_asm!(
+        "
+        ldxdw r0, [r1]
+        le16 r0
+        exit",
+        [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
+        (),
+        { |_vm, res: Result| { res.unwrap() == 0x2211 } },
+        3
+    );
+}
+
+#[test]
 fn test_le32() {
     test_interpreter_and_jit_asm!(
         "
@@ -598,6 +612,20 @@ fn test_le32() {
         [0x44, 0x33, 0x22, 0x11],
         (),
         { |_vm, res: Result| { res.unwrap() == 0x11223344 } },
+        3
+    );
+}
+
+#[test]
+fn test_le32_high() {
+    test_interpreter_and_jit_asm!(
+        "
+        ldxdw r0, [r1]
+        le32 r0
+        exit",
+        [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
+        (),
+        { |_vm, res: Result| { res.unwrap() == 0x44332211 } },
         3
     );
 }
