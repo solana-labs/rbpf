@@ -158,6 +158,11 @@ impl AnalysisResult {
         let mut destination_iter = result.destinations.iter_mut().peekable();
         let mut source_iter = result.sources.iter().peekable();
         while let Some((begin, label)) = destination_iter.next() {
+            if *begin >= result.instructions.last().unwrap().ptr {
+                println!("WARNING: Invalid symbol {:?} at {} beyond last instruction", label.name, begin);
+                label.length = 0;
+                continue;
+            }
             if label.length > 0 {
                 continue;
             }
