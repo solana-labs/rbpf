@@ -93,6 +93,8 @@ pub enum AccessType {
 pub struct MemoryMapping<'a> {
     /// Mapped (valid) regions
     regions: Box<[MemoryRegion]>,
+    /// Copy of the regions vm_addr fields to improve cache density
+    dense_keys: Box<[u64]>,
     /// VM configuration
     config: &'a Config,
 }
@@ -100,8 +102,14 @@ impl<'a> MemoryMapping<'a> {
     /// Creates a new MemoryMapping structure from the given regions
     pub fn new(mut regions: Vec<MemoryRegion>, config: &'a Config) -> Self {
         regions.sort();
+        let dense_keys = regions
+            .iter()
+            .map(|region| region.vm_addr)
+            .collect::<Vec<u64>>()
+            .into_boxed_slice();
         Self {
             regions: regions.into_boxed_slice(),
+            dense_keys,
             config,
         }
     }
@@ -113,10 +121,7 @@ impl<'a> MemoryMapping<'a> {
         vm_addr: u64,
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
-        let index = match self
-            .regions
-            .binary_search_by(|probe| probe.vm_addr.cmp(&vm_addr))
-        {
+        let index = match self.dense_keys.binary_search(&vm_addr) {
             Ok(index) => index,
             Err(index) => {
                 if index == 0 {

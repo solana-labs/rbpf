@@ -342,7 +342,7 @@ macro_rules! translate_memory_access {
 }
 
 /// The syscall_context_objects field also stores some metadata in the front, thus the entries are shifted
-pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 4;
+pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 6;
 
 /// A virtual machine to run eBPF program.
 ///
