@@ -42,9 +42,6 @@ impl UserDefinedError for VerifierTestError {}
 
 #[test]
 fn test_verifier_success() {
-    fn verifier_success(_prog: &[u8]) -> Result<(), VerifierTestError> {
-        Ok(())
-    }
     let prog = assemble(
         "
         mov32 r0, 0xBEE
@@ -53,7 +50,7 @@ fn test_verifier_success() {
     .unwrap();
     let executable = Executable::<VerifierTestError, DefaultInstructionMeter>::from_text_bytes(
         &prog,
-        Some(verifier_success),
+        Some(|_prog: &[u8]| Ok(())),
         Config::default(),
     )
     .unwrap();

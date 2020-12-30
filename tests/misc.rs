@@ -103,10 +103,6 @@ fn test_fuzz_execute() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
-    fn user_check(prog: &[u8]) -> Result<(), UserError> {
-        check(prog)
-    }
-
     println!("mangle the whole file");
     fuzz(
         &elf,
@@ -117,7 +113,7 @@ fn test_fuzz_execute() {
         |bytes: &mut [u8]| {
             if let Ok(mut executable) = Executable::<UserError, DefaultInstructionMeter>::from_elf(
                 &bytes,
-                Some(user_check),
+                Some(check),
                 Config::default(),
             ) {
                 let mut syscall_registry = SyscallRegistry::default();
