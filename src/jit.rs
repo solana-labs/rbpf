@@ -602,7 +602,7 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
 
     match dst {
         Value::Register(_reg) => {
-            emit_validate_and_profile_instruction_count(jit, true, None);
+            emit_validate_and_profile_instruction_count(jit, false, None);
 
             emit_mov(jit, OperationWidth::Bit64, REGISTER_MAP[0], R11);
             emit_pop(jit, REGISTER_MAP[0]);
@@ -613,7 +613,7 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             emit1(jit, 0xd3);
         },
         Value::Constant64(target_pc) => {
-            emit_validate_and_profile_instruction_count(jit, true, Some(target_pc as usize));
+            emit_validate_and_profile_instruction_count(jit, false, Some(target_pc as usize));
             emit_call(jit, target_pc as usize);
         },
         _ => panic!()
@@ -1204,7 +1204,7 @@ impl<'a> JitCompiler<'a> {
                             emit_undo_profile_instruction_count(self, 0);
                         }
                     } else {
-                        match executable.lookup_bpf_call(insn.imm as u32) {
+                        match executable.lookup_bpf_function(insn.imm as u32) {
                             Some(target_pc) => {
                                 emit_bpf_call(self, Value::Constant64(*target_pc as i64), self.pc_section.len() - 1);
                             },
@@ -1212,7 +1212,7 @@ impl<'a> JitCompiler<'a> {
                                 // executable.report_unresolved_symbol(self.pc)?;
                                 // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
                                 let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(executable) };
-                                emit_rust_call(self, fat_ptr.vtable.methods[9], &[
+                                emit_rust_call(self, fat_ptr.vtable.methods[10], &[
                                     Argument { index: 0, value: Value::RegisterIndirect(RBP, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32) }, // Pointer to optional typed return value
                                     Argument { index: 1, value: Value::Constant64(fat_ptr.data as i64) },
                                     Argument { index: 2, value: Value::Constant64(self.pc as i64) },

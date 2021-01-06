@@ -226,8 +226,13 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
         Ok(self.entrypoint)
     }
 
+    /// Set a symbol's instruction offset
+    fn define_bpf_function(&mut self, hash: u32, pc: usize) {
+        self.calls.insert(hash, pc);
+    }
+
     /// Get a symbol's instruction offset
-    fn lookup_bpf_call(&self, hash: u32) -> Option<&usize> {
+    fn lookup_bpf_function(&self, hash: u32) -> Option<&usize> {
         self.calls.get(&hash)
     }
 

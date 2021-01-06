@@ -198,8 +198,10 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     fn get_ro_sections(&self) -> Result<Vec<(u64, &[u8])>, EbpfError<E>>;
     /// Get the entry point offset into the text section
     fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>>;
+    /// Set a symbol's instruction offset
+    fn define_bpf_function(&mut self, hash: u32, pc: usize);
     /// Get a symbol's instruction offset
-    fn lookup_bpf_call(&self, hash: u32) -> Option<&usize>;
+    fn lookup_bpf_function(&self, hash: u32) -> Option<&usize>;
     /// Get the syscall registry
     fn get_syscall_registry(&self) -> &SyscallRegistry;
     /// Set (overwrite) the syscall registry
@@ -886,7 +888,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         if instruction_meter_enabled {
                             remaining_insn_count = instruction_meter.get_remaining();
                         }
-                    } else if let Some(target_pc) = self.executable.lookup_bpf_call(insn.imm as u32) {
+                    } else if let Some(target_pc) = self.executable.lookup_bpf_function(insn.imm as u32) {
                         // make BPF to BPF call
                         reg[ebpf::STACK_REG] = self.frames.push(
                             &reg[ebpf::FIRST_SCRATCH_REG

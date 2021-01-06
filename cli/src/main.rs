@@ -85,7 +85,7 @@ impl AnalysisResult {
         for insn in result.instructions.iter() {
             match insn.opc {
                 ebpf::CALL_IMM => {
-                    if let Some(target_pc) = executable.lookup_bpf_call(insn.imm as u32) {
+                    if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
                         // result.sources.insert(insn.ptr, vec![*target_pc]);
                         if !result.destinations.contains_key(target_pc) {
                             result.destinations.insert(*target_pc, Label {
@@ -199,7 +199,7 @@ impl AnalysisResult {
                 ebpf::CALL_IMM => {
                     insn.desc = if let Some(syscall_name) = syscalls.get(&(insn.imm as u32)) {
                         format!("syscall {}", syscall_name)
-                    } else if let Some(target_pc) = executable.lookup_bpf_call(insn.imm as u32)
+                    } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32)
                     {
                         format!("call {}", resolve_label!(result.destinations, target_pc))
                     } else {

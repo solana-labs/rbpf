@@ -46,12 +46,8 @@ macro_rules! test_interpreter_and_jit {
             let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
             test_interpreter_and_jit!(2, vm, $($location => $syscall_function; $syscall_context_object),*);
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count });
-            let tracer_interpreter = vm.get_tracer().clone();
-            let mut tracer_display = String::new();
-            tracer_interpreter.write(&mut tracer_display, vm.get_program()).unwrap();
-            println!("{}", tracer_display);
             assert!(check_closure(&vm, result));
-            (vm.get_total_instruction_count(), tracer_interpreter)
+            (vm.get_total_instruction_count(), vm.get_tracer().clone())
         };
         #[cfg(not(windows))]
         {
@@ -65,7 +61,15 @@ macro_rules! test_interpreter_and_jit {
                     test_interpreter_and_jit!(2, vm, $($location => $syscall_function; $syscall_context_object),*);
                     let result = vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count });
                     let tracer_jit = vm.get_tracer();
-                    assert!(solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit));
+                    if !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
+                        let mut tracer_display = String::new();
+                        _tracer_interpreter.write(&mut tracer_display, vm.get_program()).unwrap();
+                        println!("{}", tracer_display);
+                        let mut tracer_display = String::new();
+                        tracer_jit.write(&mut tracer_display, vm.get_program()).unwrap();
+                        println!("{}", tracer_display);
+                        panic!();
+                    }
                     if $executable.get_config().enable_instruction_meter {
                         let instruction_count_jit = vm.get_total_instruction_count();
                         assert_eq!(instruction_count_interpreter, instruction_count_jit);
@@ -2463,9 +2467,7 @@ fn test_err_reg_stack_depth() {
         callx 0x0
         exit",
         [],
-        (
-            hash_symbol_name(b"log") => BpfSyscallString::call; BpfSyscallString {},
-        ),
+        (),
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2736,6 +2738,66 @@ fn test_tight_infinite_loop_unconditional() {
             }
         },
         4
+    );
+}
+
+#[test]
+fn test_tight_infinite_recursion() {
+    let program = assemble(
+        "
+        mov64 r3, 0x41414141
+        call 0x53075d44
+        exit",
+    )
+    .unwrap();
+    let config = Config {
+        enable_instruction_tracing: true,
+        ..Config::default()
+    };
+    let mut executable =
+        Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, config)
+            .unwrap();
+    executable.define_bpf_function(0x53075d44, 0x0);
+    #[allow(unused_mut)]
+    {
+        test_interpreter_and_jit!(
+            executable,
+            [],
+            (),
+            {
+                |_vm, res: Result| {
+                    matches!(res.unwrap_err(),
+                        EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                        if pc == 31 && initial_insn_count == 4
+                    )
+                }
+            },
+            4
+        );
+    }
+}
+
+#[test]
+fn test_tight_infinite_recursion_callx() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r8, 0x1
+        lsh64 r8, 0x20
+        or64 r8, 0x18
+        mov64 r3, 0x41414141
+        callx 8
+        exit",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                    if pc == 34 && initial_insn_count == 7
+                )
+            }
+        },
+        7
     );
 }
 
