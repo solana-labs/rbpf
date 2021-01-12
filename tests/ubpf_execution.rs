@@ -2398,6 +2398,41 @@ fn test_err_callx_oob_high() {
 }
 
 #[test]
+fn test_err_call_lddw() {
+    let program = assemble(
+        "
+        call 0x8
+        lddw r0, 0x1122334455667788
+        exit",
+    )
+    .unwrap();
+    let config = Config {
+        enable_instruction_tracing: true,
+        ..Config::default()
+    };
+    let mut executable =
+        Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, config)
+            .unwrap();
+    executable.define_bpf_function(0x8, 0x2);
+    #[allow(unused_mut)]
+    {
+        test_interpreter_and_jit!(
+            executable,
+            [],
+            (),
+            {
+                |_vm, res: Result| {
+                    matches!(res.unwrap_err(),
+                        EbpfError::UnsupportedInstruction(pc) if pc == 31
+                    )
+                }
+            },
+            2
+        );
+    }
+}
+
+#[test]
 fn test_err_callx_lddw() {
     test_interpreter_and_jit_asm!(
         "

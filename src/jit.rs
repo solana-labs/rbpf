@@ -63,12 +63,13 @@ const TARGET_PC_TRANSLATE_PC_LOOP: usize = TARGET_OFFSET + 3;
 const TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = TARGET_OFFSET + 4;
 const TARGET_PC_CALL_DEPTH_EXCEEDED: usize = TARGET_OFFSET + 5;
 const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: usize = TARGET_OFFSET + 6;
-const TARGET_PC_DIV_BY_ZERO: usize = TARGET_OFFSET + 7;
-const TARGET_PC_UNSUPPORTED_INSTRUCTION: usize = TARGET_OFFSET + 8;
-const TARGET_PC_EXCEPTION_AT: usize = TARGET_OFFSET + 9;
-const TARGET_PC_SYSCALL_EXCEPTION: usize = TARGET_OFFSET + 10;
-const TARGET_PC_EXIT: usize = TARGET_OFFSET + 11;
-const TARGET_PC_EPILOGUE: usize = TARGET_OFFSET + 12;
+const TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION: usize = TARGET_OFFSET + 7;
+const TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION: usize = TARGET_OFFSET + 8;
+const TARGET_PC_DIV_BY_ZERO: usize = TARGET_OFFSET + 9;
+const TARGET_PC_EXCEPTION_AT: usize = TARGET_OFFSET + 10;
+const TARGET_PC_SYSCALL_EXCEPTION: usize = TARGET_OFFSET + 11;
+const TARGET_PC_EXIT: usize = TARGET_OFFSET + 12;
+const TARGET_PC_EPILOGUE: usize = TARGET_OFFSET + 13;
 
 #[derive(Copy, Clone)]
 enum OperandSize {
@@ -614,6 +615,8 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
         },
         Value::Constant64(target_pc) => {
             emit_validate_and_profile_instruction_count(jit, false, Some(target_pc as usize));
+
+            emit_load_imm(jit, R11, target_pc as i64);
             emit_call(jit, target_pc as usize);
         },
         _ => panic!()
@@ -969,7 +972,7 @@ impl<'a> JitCompiler<'a> {
                 ebpf::LD_DW_IMM  => {
                     emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2));
                     self.pc += 1;
-                    self.pc_section_jumps.push(Jump { location: self.pc, target_pc: TARGET_PC_UNSUPPORTED_INSTRUCTION });
+                    self.pc_section_jumps.push(Jump { location: self.pc, target_pc: TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION });
                     let second_part = ebpf::get_insn(program, self.pc).imm as u64;
                     let imm = (insn.imm as u32) as u64 | second_part.wrapping_shl(32);
                     emit_load_imm(self, dst, imm as i64);
@@ -1331,8 +1334,12 @@ impl<'a> JitCompiler<'a> {
         emit_jmp(self, TARGET_PC_EXCEPTION_AT);
 
         // Handler for EbpfError::UnsupportedInstruction
-        set_anchor(self, TARGET_PC_UNSUPPORTED_INSTRUCTION);
+        set_anchor(self, TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION);
         emit_call(self, TARGET_PC_TRANSLATE_PC);
+        // emit_jmp(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION); // Fall-through
+
+        // Handler for EbpfError::UnsupportedInstruction
+        set_anchor(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION);
         if self.config.enable_instruction_tracing {
             emit_call(self, TARGET_PC_TRACE);
         }
@@ -1431,7 +1438,13 @@ impl<'a> JitCompiler<'a> {
                 );
             }
         }
+        let call_unsupported_instruction = self.handler_anchors.get(&TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION).unwrap();
+        let callx_unsupported_instruction = self.handler_anchors.get(&TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION).unwrap();
         for offset in self.pc_section.iter_mut() {
+            if *offset == *call_unsupported_instruction as u64 {
+                // Turns compiletime exception handlers to runtime ones (as they need to turn the host PC back into a BPF PC)
+                *offset = *callx_unsupported_instruction as u64;
+            }
             *offset = unsafe { (self.text_section.as_ptr() as *const u8).add(*offset as usize) } as u64;
         }
     }
