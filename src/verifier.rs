@@ -258,7 +258,7 @@ pub fn check(prog: &[u8]) -> Result<(), UserError> {
             ebpf::ADD64_REG  => {},
             ebpf::SUB64_IMM  => {},
             ebpf::SUB64_REG  => {},
-            ebpf::MUL64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
+            ebpf::MUL64_IMM  => {},
             ebpf::MUL64_REG  => {},
             ebpf::DIV64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
             ebpf::DIV64_REG  => {},
