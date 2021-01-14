@@ -199,7 +199,7 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Get the entry point offset into the text section
     fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>>;
     /// Set a symbol's instruction offset
-    fn define_bpf_function(&mut self, hash: u32, pc: usize);
+    fn register_bpf_function(&mut self, hash: u32, pc: usize);
     /// Get a symbol's instruction offset
     fn lookup_bpf_function(&self, hash: u32) -> Option<&usize>;
     /// Get the syscall registry

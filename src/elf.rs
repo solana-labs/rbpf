@@ -227,7 +227,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     }
 
     /// Set a symbol's instruction offset
-    fn define_bpf_function(&mut self, hash: u32, pc: usize) {
+    fn register_bpf_function(&mut self, hash: u32, pc: usize) {
         self.calls.insert(hash, pc);
     }
 

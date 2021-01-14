@@ -30,31 +30,25 @@ use test_utils::{
 };
 
 macro_rules! test_interpreter_and_jit {
-    (0, $executable:expr, $syscall_registry:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
+    (register, $executable:expr, $syscall_registry:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
         $syscall_registry.register_syscall_by_hash::<UserError, _>($location, $syscall_function).unwrap();
     };
-    (0, $executable:expr, $syscall_registry:expr, $location:expr => $function_pc:expr) => {
-        $executable.define_bpf_function($location, $function_pc);
+    (register, $executable:expr, $syscall_registry:expr, $location:expr => $function_pc:expr) => {
+        $executable.register_bpf_function($location, $function_pc);
     };
-    (1, $executable:expr, $syscall_registry:expr, $($location:expr => $a:expr $(; $b:expr)?),*) => {
-        $(test_interpreter_and_jit!(0, $executable, $syscall_registry, $location => $a $(; $b)?);)*
-    };
-    (2, $vm:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
+    (bind, $vm:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
         $vm.bind_syscall_context_object(Box::new($syscall_context_object), None).unwrap();
     };
-    (2, $vm:expr, $location:expr => $function_pc:expr) => {};
-    (3, $vm:expr, $($location:expr => $a:expr $(; $b:expr)?),*) => {
-        $(test_interpreter_and_jit!(2, $vm, $location => $a $(; $b)?);)*
-    };
-    ( $executable:expr, $mem:tt, ($($location:expr => $a:expr $(; $b:expr)?),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
+    (bind, $vm:expr, $location:expr => $function_pc:expr) => {};
+    ($executable:expr, $mem:tt, ($($location:expr => $a:expr $(; $b:expr)?),* $(,)?), $check:block, $expected_instruction_count:expr) => {
         let check_closure = $check;
         let mut syscall_registry = SyscallRegistry::default();
-        test_interpreter_and_jit!(1, $executable, syscall_registry, $($location => $a $(; $b)?),*);
+        $(test_interpreter_and_jit!(register, $executable, syscall_registry, $location => $a $(; $b)?);)*
         $executable.set_syscall_registry(syscall_registry);
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
-            test_interpreter_and_jit!(3, vm, $($location => $a $(; $b)?),*);
+            $(test_interpreter_and_jit!(bind, vm, $location => $a $(; $b)?);)*
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count });
             assert!(check_closure(&vm, result));
             (vm.get_total_instruction_count(), vm.get_tracer().clone())
@@ -68,7 +62,7 @@ macro_rules! test_interpreter_and_jit {
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, Err(err))),
                 Ok(()) => {
-                    test_interpreter_and_jit!(3, vm, $($location => $a $(; $b)?),*);
+                    $(test_interpreter_and_jit!(bind, vm, $location => $a $(; $b)?);)*
                     let result = vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count });
                     let tracer_jit = vm.get_tracer();
                     if !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
@@ -95,7 +89,7 @@ macro_rules! test_interpreter_and_jit {
 }
 
 macro_rules! test_interpreter_and_jit_asm {
-    ( $source:tt, $mem:tt, ($($location:expr => $a:expr $(; $b:expr)?),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
+    ($source:tt, $mem:tt, ($($location:expr => $a:expr $(; $b:expr)?),* $(,)?), $check:block, $expected_instruction_count:expr) => {
         let program = assemble($source).unwrap();
         #[allow(unused_mut)]
         {
@@ -110,7 +104,7 @@ macro_rules! test_interpreter_and_jit_asm {
 }
 
 macro_rules! test_interpreter_and_jit_elf {
-    ( $source:tt, $mem:tt, ($($location:expr => $a:expr $(; $b:expr)?),* $(,)?), $check:block, $expected_instruction_count:expr ) => {
+    ($source:tt, $mem:tt, ($($location:expr => $a:expr $(; $b:expr)?),* $(,)?), $check:block, $expected_instruction_count:expr) => {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
