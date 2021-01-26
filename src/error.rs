@@ -32,11 +32,14 @@ pub enum EbpfError<E: UserDefinedError> {
     #[error("ELF error: {0}")]
     ELFError(#[from] ELFError),
     /// Syscall was already registered before
-    #[error("syscall was already registered before")]
-    SycallAlreadyRegistered,
+    #[error("syscall #{0} was already registered before")]
+    SycallAlreadyRegistered(usize),
+    /// Syscall was not registered before bind
+    #[error("syscall #{0} was not registered before bind")]
+    SyscallNotRegistered(usize),
     /// Syscall already has a bound context object
-    #[error("syscall already has a bound context object")]
-    SycallAlreadyBound,
+    #[error("syscall #{0} already has a bound context object")]
+    SyscallAlreadyBound(usize),
     /// Exceeded max BPF to BPF call depth
     #[error("exceeded max BPF to BPF call depth of {1} at instruction #{0}")]
     CallDepthExceeded(usize, usize),

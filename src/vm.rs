@@ -134,7 +134,7 @@ impl SyscallRegistry {
                 .insert(function, context_object_slot)
                 .is_some()
         {
-            Err(EbpfError::SycallAlreadyRegistered)
+            Err(EbpfError::SycallAlreadyRegistered(hash as usize))
         } else {
             Ok(())
         }
@@ -518,15 +518,17 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             Some(hash) => {
                 syscall_registry
                     .lookup_syscall(hash)
-                    .unwrap()
+                    .ok_or(EbpfError::SyscallNotRegistered(hash as usize))?
                     .context_object_slot
             }
             None => syscall_registry
                 .lookup_context_object_slot(fat_ptr.vtable.methods[0] as u64)
-                .unwrap(),
+                .ok_or(EbpfError::SyscallNotRegistered(
+                    fat_ptr.vtable.methods[0] as usize,
+                ))?,
         };
         if !self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot].is_null() {
-            Err(EbpfError::SycallAlreadyBound)
+            Err(EbpfError::SyscallAlreadyBound(slot))
         } else {
             self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot] = fat_ptr.data;
             // Keep the dyn trait objects so that they can be dropped properly later
