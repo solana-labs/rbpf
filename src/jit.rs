@@ -132,7 +132,7 @@ const REGISTER_MAP: [u8; 11] = [
 macro_rules! emit_bytes {
     ( $jit:ident, $data:tt, $t:ty ) => {{
         let size = mem::size_of::<$t>() as usize;
-        assert!($jit.offset_in_text_section + size <= $jit.text_section.len());
+        debug_assert!($jit.offset_in_text_section + size <= $jit.text_section.len());
         unsafe {
             #[allow(clippy::cast_ptr_alignment)]
             let ptr = $jit.text_section.as_ptr().add($jit.offset_in_text_section) as *mut $t;
@@ -586,7 +586,10 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], 0); // RAX = jit.pc_section[RAX / 8];
         },
         Value::Constant64(_target_pc) => {},
-        _ => panic!()
+        _ => {
+            #[cfg(debug_assertions)]
+            unreachable!();
+        }
     }
 
     emit_load(jit, OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], -8 * CALLEE_SAVED_REGISTERS.len() as i32); // load stack_ptr
@@ -619,7 +622,10 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value, number_of_instructions: usiz
             emit_load_imm(jit, R11, target_pc as i64);
             emit_call(jit, target_pc as usize);
         },
-        _ => panic!()
+        _ => {
+            #[cfg(debug_assertions)]
+            unreachable!();
+        }
     }
     emit_undo_profile_instruction_count(jit, 0);
 
@@ -638,8 +644,11 @@ struct Argument {
 fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argument], return_reg: Option<u8>, check_exception: bool) {
     let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
     if let Some(reg) = return_reg {
-        let dst = saved_registers.iter().position(|x| *x == reg).unwrap();
-        saved_registers.remove(dst);
+        let dst = saved_registers.iter().position(|x| *x == reg);
+        debug_assert!(dst.is_some());
+        if let Some(dst) = dst {
+            saved_registers.remove(dst);
+        }
     }
 
     // Pass arguments via stack
@@ -649,15 +658,21 @@ fn emit_rust_call(jit: &mut JitCompiler, function: *const u8, arguments: &[Argum
         }
         match argument.value {
             Value::Register(reg) => {
-                let src = saved_registers.iter().position(|x| *x == reg).unwrap();
-                saved_registers.remove(src);
+                let src = saved_registers.iter().position(|x| *x == reg);
+                debug_assert!(src.is_some());
+                if let Some(src) = src {
+                    saved_registers.remove(src);
+                }
                 let dst = saved_registers.len() - (argument.index - ARGUMENT_REGISTERS.len());
                 saved_registers.insert(dst, reg);
             },
             Value::RegisterIndirect(reg, offset) => {
                 emit_load(jit, OperandSize::S64, reg, R11, offset);
             },
-            _ => panic!()
+            _ => {
+                #[cfg(debug_assertions)]
+                unreachable!();
+            }
         }
     }
 
@@ -913,7 +928,7 @@ impl<'a> JitCompiler<'a> {
         self.generate_prologue::<I>();
 
         // Jump to custom entry point (if any)
-        let entry = executable.get_entrypoint_instruction_offset().unwrap();
+        let entry = executable.get_entrypoint_instruction_offset().unwrap_or(0);
         if entry != 0 {
             emit_profile_instruction_count(self, Some(entry + 1));
             emit_jmp(self, entry);
@@ -1077,7 +1092,9 @@ impl<'a> JitCompiler<'a> {
                             emit_alu(self, OperationWidth::Bit32, 0x81, 4, dst, -1, None); // Mask to 32 bit
                         }
                         64 => {}
-                        _ => unreachable!()
+                        _ => {
+                            return Err(EbpfError::InvalidInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                        }
                     }
                 },
                 ebpf::BE         => {
@@ -1095,7 +1112,9 @@ impl<'a> JitCompiler<'a> {
                             emit1(self, 0x0f);
                             emit1(self, 0xc8 | (dst & 0b111));
                         }
-                        _ => unreachable!()
+                        _ => {
+                            return Err(EbpfError::InvalidInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                        }
                     }
                 },
 

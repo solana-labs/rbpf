@@ -26,9 +26,7 @@ pub struct TestInstructionMeter {
 }
 impl InstructionMeter for TestInstructionMeter {
     fn consume(&mut self, amount: u64) {
-        if amount > self.remaining {
-            panic!("Execution count exceeded");
-        }
+        debug_assert!(amount <= self.remaining, "Execution count exceeded");
         self.remaining = self.remaining.saturating_sub(amount);
     }
     fn get_remaining(&self) -> u64 {
@@ -75,7 +73,8 @@ impl SyscallObject<UserError> for BpfSyscallString {
                     break;
                 }
             }
-            let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize)).unwrap();
+            let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize))
+                .unwrap_or("Invalid UTF-8 String");
             println!("log: {}", message);
         }
         *result = Result::Ok(0);

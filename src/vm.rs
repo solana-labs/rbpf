@@ -313,7 +313,7 @@ impl Tracer {
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
 macro_rules! translate_memory_access {
-    ( $self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty ) => {
+    ($self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty) => {
         match $self.memory_mapping.map::<UserError>(
             $access_type,
             $vm_addr,
@@ -783,7 +783,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         16 => (reg[dst] as u16).to_le() as u64,
                         32 => (reg[dst] as u32).to_le() as u64,
                         64 =>  reg[dst].to_le(),
-                        _  => unreachable!(),
+                        _  => {
+                            return Err(EbpfError::InvalidInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                        }
                     };
                 },
                 ebpf::BE         => {
@@ -791,7 +793,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         16 => (reg[dst] as u16).to_be() as u64,
                         32 => (reg[dst] as u32).to_be() as u64,
                         64 =>  reg[dst].to_be(),
-                        _  => unreachable!(),
+                        _  => {
+                            return Err(EbpfError::InvalidInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                        }
                     };
                 },
 

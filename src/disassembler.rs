@@ -157,10 +157,8 @@ pub struct HLInsn {
 /// ```
 #[rustfmt::skip]
 pub fn to_insn_vec(prog: &[u8]) -> Vec<HLInsn> {
-    if prog.len() % ebpf::INSN_SIZE != 0 {
-        panic!("[Disassembler] Error: eBPF program length must be a multiple of {:?} octets is {:?}",
-               ebpf::INSN_SIZE, prog.len());
-    }
+    debug_assert!(prog.len() % ebpf::INSN_SIZE == 0, "eBPF program length must be a multiple of {:?} octets is {:?}", ebpf::INSN_SIZE, prog.len());
+
     if prog.is_empty() {
         return vec![];
     }
@@ -296,11 +294,10 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HLInsn> {
             ebpf::JSLE_REG   => { name = "jsle"; desc = jmp_reg_str(name, &insn); },
             ebpf::CALL_IMM   => { name = "call"; desc = format!("{} {:#x}", name, insn.imm); },
             ebpf::CALL_REG   => { name = "callx"; desc = format!("{} {:#x}", name, insn.imm); },
-            ebpf::EXIT       => { name = "exit";      desc = name.to_string(); },
+            ebpf::EXIT       => { name = "exit"; desc = name.to_string(); },
 
             _                => {
-                panic!("[Disassembler] Error: unknown eBPF opcode {:#2x} (insn #{:?})",
-                       insn.opc, insn_ptr);
+                name = "unknown"; desc = format!("{} opcode={:#x}", name, insn.opc);
             },
         };
 

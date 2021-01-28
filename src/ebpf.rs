@@ -546,13 +546,12 @@ pub fn get_insn(prog: &[u8], idx: usize) -> Insn {
     // This guard should not be needed in most cases, since the verifier already checks the program
     // size, and indexes should be fine in the interpreter/JIT. But this function is publicly
     // available and user can call it with any `idx`, so we have to check anyway.
-    if (idx + 1) * INSN_SIZE > prog.len() {
-        panic!(
-            "Error: cannot reach instruction at index {:?} in program containing {:?} bytes",
-            idx,
-            prog.len()
-        );
-    }
+    debug_assert!(
+        (idx + 1) * INSN_SIZE <= prog.len(),
+        "cannot reach instruction at index {:?} in program containing {:?} bytes",
+        idx,
+        prog.len()
+    );
     get_insn_unchecked(prog, idx)
 }
 /// Same as `get_insn` except not checked
@@ -611,12 +610,12 @@ pub fn get_insn_unchecked(prog: &[u8], idx: usize) -> Insn {
 /// ]);
 /// ```
 pub fn to_insn_vec(prog: &[u8]) -> Vec<Insn> {
-    if prog.len() % INSN_SIZE != 0 {
-        panic!(
-            "Error: eBPF program length must be a multiple of {:?} octets",
-            INSN_SIZE
-        );
-    }
+    debug_assert!(
+        prog.len() % INSN_SIZE == 0,
+        "eBPF program length {:?} must be a multiple of {:?} octets",
+        prog.len(),
+        INSN_SIZE
+    );
 
     let mut res = vec![];
     let mut insn_ptr: usize = 0;

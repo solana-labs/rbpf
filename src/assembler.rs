@@ -216,7 +216,13 @@ fn assemble_internal(parsed: &[Instruction]) -> Result<Vec<Insn>, String> {
                 // Special case for lddw.
                 if let LoadImm = inst_type {
                     if let Integer(imm) = instruction.operands[1] {
-                        result.push(insn(0, 0, 0, 0, imm >> 32).unwrap());
+                        result.push(Insn {
+                            opc: 0,
+                            dst: 0,
+                            src: 0,
+                            off: 0,
+                            imm: (imm >> 32) as i32,
+                        });
                     }
                 }
             }
