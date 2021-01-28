@@ -83,4 +83,7 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Unsupported instruction
     #[error("unsupported instruction at instruction {0}")]
     UnsupportedInstruction(usize),
+    /// Compilation is too big to fit
+    #[error("Compilation exhaused text segment at instruction {0}")]
+    ExhausedTextSegment(usize),
 }
