@@ -152,7 +152,7 @@ fn emit_debugger_trap<E: UserDefinedError>(jit: &mut JitCompiler) -> Result<(), 
 
 #[inline]
 fn emit_modrm<E: UserDefinedError>(jit: &mut JitCompiler, modrm: u8, r: u8, m: u8) -> Result<(), EbpfError<E>> {
-    assert_eq!((modrm | 0xc0), 0xc0);
+    debug_assert_eq!((modrm | 0xc0), 0xc0);
     emit::<u8, E>(jit, (modrm & 0xc0) | ((r & 0b111) << 3) | (m & 0b111))
 }
 
@@ -163,7 +163,7 @@ fn emit_modrm_reg2reg<E: UserDefinedError>(jit: &mut JitCompiler, r: u8, m: u8) 
 
 #[inline]
 fn emit_sib<E: UserDefinedError>(jit: &mut JitCompiler, scale: u8, index: u8, base: u8) -> Result<(), EbpfError<E>> {
-    assert_eq!((scale | 0xc0), 0xc0);
+    debug_assert_eq!((scale | 0xc0), 0xc0);
     emit::<u8, E>(jit, (scale & 0xc0) | ((index & 0b111) << 3) | (base & 0b111))
 }
 
@@ -192,10 +192,10 @@ fn emit_modrm_and_displacement<E: UserDefinedError>(jit: &mut JitCompiler, r: u8
 
 #[inline]
 fn emit_rex<E: UserDefinedError>(jit: &mut JitCompiler, w: u8, r: u8, x: u8, b: u8) -> Result<(), EbpfError<E>> {
-    assert_eq!((w | 1), 1);
-    assert_eq!((r | 1), 1);
-    assert_eq!((x | 1), 1);
-    assert_eq!((b | 1), 1);
+    debug_assert_eq!((w | 1), 1);
+    debug_assert_eq!((r | 1), 1);
+    debug_assert_eq!((x | 1), 1);
+    debug_assert_eq!((b | 1), 1);
     emit::<u8, E>(jit, 0x40 | (w << 3) | (r << 2) | (x << 1) | b)
 }
 
@@ -562,13 +562,13 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, number_
             if jit.config.enable_instruction_meter {
                 // Calculate the target_pc to update the instruction_meter
                 let shift_amount = INSN_SIZE.trailing_zeros();
-                assert_eq!(INSN_SIZE, 1<<shift_amount);
+                debug_assert_eq!(INSN_SIZE, 1<<shift_amount);
                 emit_mov(jit, OperationWidth::Bit64, REGISTER_MAP[0], REGISTER_MAP[STACK_REG])?;
                 emit_alu(jit, OperationWidth::Bit64, 0xc1, 5, REGISTER_MAP[STACK_REG], shift_amount as i32, None)?;
                 emit_push(jit, REGISTER_MAP[STACK_REG])?;
             }
             // Load host target_address from JitProgramArgument.instruction_addresses
-            assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
+            debug_assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
             emit_mov(jit, OperationWidth::Bit64, REGISTER_MAP[0], REGISTER_MAP[STACK_REG])?;
             emit_load_imm(jit, REGISTER_MAP[STACK_REG], jit.pc_section.as_ptr() as i64)?;
             emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None)?; // RAX += jit.pc_section;

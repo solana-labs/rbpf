@@ -27,7 +27,7 @@ impl MemoryRegion {
         let vm_gap_shift = if vm_gap_size > 0 {
             let vm_gap_shift =
                 std::mem::size_of::<u64>() as u8 * 8 - vm_gap_size.leading_zeros() as u8 - 1;
-            assert_eq!(vm_gap_size, 1 << vm_gap_shift);
+            debug_assert_eq!(vm_gap_size, 1 << vm_gap_shift);
             vm_gap_shift
         } else {
             std::mem::size_of::<u64>() as u8 * 8 - 1
