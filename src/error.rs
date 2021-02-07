@@ -47,7 +47,7 @@ pub enum EbpfError<E: UserDefinedError> {
     #[error("attempted to exit root call frame")]
     ExitRootCallFrame,
     /// Divide by zero"
-    #[error("devide by zero at instruction {0}")]
+    #[error("divide by zero at instruction {0}")]
     DivideByZero(usize),
     /// Exceeded max instructions allowed
     #[error("attempted to execute past the end of the text segment at instruction #{0}")]
