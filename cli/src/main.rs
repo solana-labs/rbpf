@@ -6,6 +6,7 @@ use solana_rbpf::{
     ebpf,
     memory_region::{MemoryMapping, MemoryRegion},
     user_error::UserError,
+    verifier::check,
     vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
 use std::{
@@ -337,26 +338,39 @@ fn main() {
                 .short('p')
                 .long("prof"),
         )
+        .arg(
+            Arg::new("verify")
+                .about("Run the verifier before execution or disassembly")
+                .short('v')
+                .long("veri"),
+        )
         .get_matches();
 
     let mut config = Config::default();
     config.enable_instruction_tracing = matches.is_present("trace") || matches.is_present("profile");
-    let mut executable = match matches.value_of("assembler") {
+    let verifier: Option<for<'r> fn(&'r [u8]) -> std::result::Result<_, _>> = if matches.is_present("verify") { Some(check) } else { None };
+    let executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(&Path::new(asm_file_name)).unwrap();
             let mut source = Vec::new();
             file.read_to_end(&mut source).unwrap();
             let program = assemble(std::str::from_utf8(source.as_slice()).unwrap()).unwrap();
-            Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, config)
+            Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, verifier, config)
         }
         None => {
             let mut file = File::open(&Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, config)
+            Executable::<UserError, TestInstructionMeter>::from_elf(&elf, verifier, config)
         }
-    }
-    .unwrap();
+    };
+    let mut executable = match executable {
+        Ok(executable) => executable,
+        Err(err) => {
+            println!("Executable constructor failed: {:?}", err);
+            return;
+        },
+    };
 
     let (syscalls, _bpf_functions) = executable.get_symbols();
     let mut syscall_registry = SyscallRegistry::default();
