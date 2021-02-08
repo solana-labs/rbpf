@@ -2,7 +2,7 @@ use clap::{App, Arg};
 use rustc_demangle::demangle;
 use solana_rbpf::{
     assembler::assemble,
-    disassembler::{HLInsn, to_insn_vec},
+    disassembler::{to_insn_vec, HLInsn},
     ebpf,
     memory_region::{MemoryMapping, MemoryRegion},
     user_error::UserError,
@@ -10,8 +10,10 @@ use solana_rbpf::{
     vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
 use std::{
-    fs::File, io::Read, path::Path,
-    collections::{HashMap, BTreeMap},
+    collections::{BTreeMap, HashMap},
+    fs::File,
+    io::Read,
+    path::Path,
 };
 use test_utils::{Result, TestInstructionMeter};
 
@@ -76,12 +78,15 @@ impl AnalysisResult {
         };
         let (syscalls, bpf_functions) = executable.get_symbols();
         for (pc, bpf_function) in bpf_functions {
-            result.destinations.insert(pc, Label {
-                name: demangle(&bpf_function.0).to_string(),
-                length: 0, // bpf_function.1,
-                kind: LabelKind::Function,
-                sources: Vec::new(),
-            });
+            result.destinations.insert(
+                pc,
+                Label {
+                    name: demangle(&bpf_function.0).to_string(),
+                    length: 0, // bpf_function.1,
+                    kind: LabelKind::Function,
+                    sources: Vec::new(),
+                },
+            );
         }
         for insn in result.instructions.iter() {
             match insn.opc {
@@ -89,12 +94,15 @@ impl AnalysisResult {
                     if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
                         // result.sources.insert(insn.ptr, vec![*target_pc]);
                         if !result.destinations.contains_key(target_pc) {
-                            result.destinations.insert(*target_pc, Label {
-                                name: format!("function_{}", target_pc),
-                                length: 0,
-                                kind: LabelKind::Function,
-                                sources: Vec::new(),
-                            });
+                            result.destinations.insert(
+                                *target_pc,
+                                Label {
+                                    name: format!("function_{}", target_pc),
+                                    length: 0,
+                                    kind: LabelKind::Function,
+                                    sources: Vec::new(),
+                                },
+                            );
                         }
                     }
                 }
@@ -132,35 +140,46 @@ impl AnalysisResult {
                 | ebpf::JSGE_REG
                 | ebpf::JSLT_REG
                 | ebpf::JSLE_REG => {
-                    result.sources.insert(insn.ptr, vec![insn.ptr + 1, target_pc]);
-                    result.destinations.insert(insn.ptr + 1, Label {
-                        name: format!("lbb_{}", insn.ptr + 1),
-                        length: 0,
-                        kind: LabelKind::BasicBlock,
-                        sources: Vec::new(),
-                    });
+                    result
+                        .sources
+                        .insert(insn.ptr, vec![insn.ptr + 1, target_pc]);
+                    result.destinations.insert(
+                        insn.ptr + 1,
+                        Label {
+                            name: format!("lbb_{}", insn.ptr + 1),
+                            length: 0,
+                            kind: LabelKind::BasicBlock,
+                            sources: Vec::new(),
+                        },
+                    );
                 }
-                _ => continue
+                _ => continue,
             }
-            if !result.destinations.contains_key(&target_pc) {
-                result.destinations.insert(target_pc, Label {
-                    name: format!("lbb_{}", target_pc),
-                    length: 0,
-                    kind: LabelKind::BasicBlock,
-                    sources: Vec::new(),
-                });
-            }
+            result.destinations.entry(target_pc).or_insert(Label {
+                name: format!("lbb_{}", target_pc),
+                length: 0,
+                kind: LabelKind::BasicBlock,
+                sources: Vec::new(),
+            });
         }
         for (source, destinations) in &result.sources {
             for destination in destinations {
-                result.destinations.get_mut(destination).unwrap().sources.push(*source);
+                result
+                    .destinations
+                    .get_mut(destination)
+                    .unwrap()
+                    .sources
+                    .push(*source);
             }
         }
         let mut destination_iter = result.destinations.iter_mut().peekable();
         let mut source_iter = result.sources.iter().peekable();
         while let Some((begin, label)) = destination_iter.next() {
             if *begin >= result.instructions.last().unwrap().ptr {
-                println!("WARNING: Invalid symbol {:?} at {} beyond last instruction", label.name, begin);
+                println!(
+                    "WARNING: Invalid symbol {:?} at {} beyond last instruction",
+                    label.name, begin
+                );
                 label.length = 0;
                 continue;
             }
@@ -168,7 +187,7 @@ impl AnalysisResult {
                 continue;
             }
             while let Some(next_source) = source_iter.peek() {
-                if *next_source.0 + 1 <= *begin {
+                if *next_source.0 < *begin {
                     source_iter.next();
                 } else {
                     break;
@@ -186,12 +205,10 @@ impl AnalysisResult {
                 } else {
                     *next_destination.0
                 }
+            } else if let Some(next_source) = source_iter.next() {
+                *next_source.0 + 1
             } else {
-                if let Some(next_source) = source_iter.next() {
-                    *next_source.0 + 1
-                } else {
-                    result.instructions.last().unwrap().ptr
-                }
+                result.instructions.last().unwrap().ptr
             };
             label.length = end - begin;
         }
@@ -211,9 +228,10 @@ impl AnalysisResult {
                     let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
                     insn.desc = format!(
                         "{} {}",
-                        insn.name, resolve_label!(result.destinations, target_pc)
+                        insn.name,
+                        resolve_label!(result.destinations, target_pc)
                     );
-                },
+                }
                 ebpf::JEQ_IMM
                 | ebpf::JGT_IMM
                 | ebpf::JGE_IMM
@@ -228,7 +246,10 @@ impl AnalysisResult {
                     let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
                     insn.desc = format!(
                         "{} r{}, {:#x}, {}",
-                        insn.name, insn.dst, insn.imm, resolve_label!(result.destinations, target_pc)
+                        insn.name,
+                        insn.dst,
+                        insn.imm,
+                        resolve_label!(result.destinations, target_pc)
                     );
                 }
                 ebpf::JEQ_REG
@@ -245,7 +266,10 @@ impl AnalysisResult {
                     let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
                     insn.desc = format!(
                         "{} r{}, r{}, {}",
-                        insn.name, insn.dst, insn.src, resolve_label!(result.destinations, target_pc)
+                        insn.name,
+                        insn.dst,
+                        insn.src,
+                        resolve_label!(result.destinations, target_pc)
                     );
                 }
                 _ => {}
@@ -257,7 +281,7 @@ impl AnalysisResult {
     pub fn print_label_at(&self, ptr: usize) -> bool {
         if let Some(label) = self.destinations.get(&ptr) {
             if label.kind == LabelKind::Function {
-                println!("");
+                println!();
             }
             println!("{}:", label.name);
             true
@@ -346,16 +370,25 @@ fn main() {
         )
         .get_matches();
 
-    let mut config = Config::default();
-    config.enable_instruction_tracing = matches.is_present("trace") || matches.is_present("profile");
-    let verifier: Option<for<'r> fn(&'r [u8]) -> std::result::Result<_, _>> = if matches.is_present("verify") { Some(check) } else { None };
+    let config = Config {
+        enable_instruction_tracing: matches.is_present("trace") || matches.is_present("profile"),
+        ..Config::default()
+    };
+    let verifier: Option<for<'r> fn(&'r [u8]) -> std::result::Result<_, _>> =
+        if matches.is_present("verify") {
+            Some(check)
+        } else {
+            None
+        };
     let executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(&Path::new(asm_file_name)).unwrap();
             let mut source = Vec::new();
             file.read_to_end(&mut source).unwrap();
             let program = assemble(std::str::from_utf8(source.as_slice()).unwrap()).unwrap();
-            Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, verifier, config)
+            Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+                &program, verifier, config,
+            )
         }
         None => {
             let mut file = File::open(&Path::new(matches.value_of("elf").unwrap())).unwrap();
@@ -369,7 +402,7 @@ fn main() {
         Err(err) => {
             println!("Executable constructor failed: {:?}", err);
             return;
-        },
+        }
     };
 
     let (syscalls, _bpf_functions) = executable.get_symbols();
@@ -451,13 +484,23 @@ fn main() {
         }
         let trace = &vm.get_tracer().log;
         for (index, traced_instruction) in trace.iter().enumerate() {
-            if let Some(destination_counter) = destination_counters.get_mut(&(traced_instruction[11] as usize)) {
+            if let Some(destination_counter) =
+                destination_counters.get_mut(&(traced_instruction[11] as usize))
+            {
                 *destination_counter += 1;
             }
-            if let Some(source_counter) = source_counters.get_mut(&(traced_instruction[11] as usize)) {
+            if let Some(source_counter) =
+                source_counters.get_mut(&(traced_instruction[11] as usize))
+            {
                 let next_traced_instruction = trace[index + 1];
-                let destinations = analysis_result.sources.get(&(traced_instruction[11] as usize)).unwrap();
-                if let Some(destination_index) = destinations.iter().position(|&ptr| ptr == next_traced_instruction[11] as usize) {
+                let destinations = analysis_result
+                    .sources
+                    .get(&(traced_instruction[11] as usize))
+                    .unwrap();
+                if let Some(destination_index) = destinations
+                    .iter()
+                    .position(|&ptr| ptr == next_traced_instruction[11] as usize)
+                {
                     source_counter[destination_index] += 1;
                 }
             }
@@ -465,11 +508,17 @@ fn main() {
         println!("Profile:");
         for insn in analysis_result.instructions.iter() {
             if analysis_result.print_label_at(insn.ptr) {
-                println!("    # Basic block executed: {}", destination_counters[&insn.ptr]);
+                println!(
+                    "    # Basic block executed: {}",
+                    destination_counters[&insn.ptr]
+                );
             }
             println!("    {}", insn.desc);
             if let Some(source_counter) = source_counters.get(&insn.ptr) {
-                println!("    # Branch: {} fall through, {} jump", source_counter[0], source_counter[1]);
+                println!(
+                    "    # Branch: {} fall through, {} jump",
+                    source_counter[0], source_counter[1]
+                );
             }
         }
     }
