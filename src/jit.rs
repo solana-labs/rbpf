@@ -37,8 +37,53 @@ pub struct JitProgramArgument<'a> {
     pub syscall_context_objects: [*const u8; 0],
 }
 
+struct JitProgramSections {
+    pc_section: &'static mut [u64],
+    text_section: &'static mut [u8],
+}
+
+impl JitProgramSections {
+    fn new(pc: usize, code_size: usize) -> Self {
+        let pc_loc_table_size = round_to_page_size(pc * 8);
+        let code_size = round_to_page_size(code_size);
+        unsafe {
+            let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
+            libc::posix_memalign(&mut raw, PAGE_SIZE, pc_loc_table_size + code_size);
+            std::ptr::write_bytes(raw, 0x00, pc_loc_table_size);
+            std::ptr::write_bytes(raw.add(pc_loc_table_size), 0xcc, code_size); // Populate with debugger traps
+            Self {
+                pc_section: std::slice::from_raw_parts_mut(raw as *mut u64, pc),
+                text_section: std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size) as *mut u8, code_size),
+            }
+        }
+    }
+
+    fn seal(&mut self) {
+        if !self.pc_section.is_empty() {
+            unsafe {
+                libc::mprotect(self.pc_section.as_mut_ptr() as *mut _, round_to_page_size(self.pc_section.len()), libc::PROT_READ);
+                libc::mprotect(self.text_section.as_mut_ptr() as *mut _, round_to_page_size(self.text_section.len()), libc::PROT_EXEC | libc::PROT_READ);
+            }
+        }
+    }
+}
+
+impl Drop for JitProgramSections {
+    fn drop(&mut self) {
+        if !self.pc_section.is_empty() {
+            unsafe {
+                libc::mprotect(self.pc_section.as_mut_ptr() as *mut _, round_to_page_size(self.pc_section.len()), libc::PROT_READ | libc::PROT_WRITE);
+                libc::mprotect(self.text_section.as_mut_ptr() as *mut _, round_to_page_size(self.text_section.len()), libc::PROT_READ | libc::PROT_WRITE);
+                libc::free(self.pc_section.as_ptr() as *mut _);
+            }
+        }
+    }
+}
+
 /// eBPF JIT-compiled program
 pub struct JitProgram<E: UserDefinedError, I: InstructionMeter> {
+    /// Holds and manages the protected memory
+    _sections: JitProgramSections,
     /// Call this with JitProgramArgument to execute the compiled code
     pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, &mut I) -> i64,
 }
@@ -50,8 +95,21 @@ impl<E: UserDefinedError, I: InstructionMeter> Debug for JitProgram<E, I> {
 }
 
 impl<E: UserDefinedError, I: InstructionMeter> PartialEq for JitProgram<E, I> {
-    fn eq(&self, other: &JitProgram<E, I>) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self.main as *const u8, other.main as *const u8)
+    }
+}
+
+impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
+    pub fn new(executable: &dyn Executable<E, I>) -> Result<Self, EbpfError<E>> {
+        let program = executable.get_text_bytes()?.1;
+        let mut jit = JitCompiler::new(program, executable.get_config());
+        jit.compile::<E, I>(executable)?;
+        let main = unsafe { mem::transmute(jit.result.text_section.as_ptr()) };
+        Ok(Self {
+            _sections: jit.result,
+            main,
+        })
     }
 }
 
@@ -132,12 +190,12 @@ const REGISTER_MAP: [u8; 11] = [
 #[inline]
 fn emit<T, E: UserDefinedError>(jit: &mut JitCompiler, data: T) -> Result<(), EbpfError<E>> {
     let size = mem::size_of::<T>() as usize;
-    if jit.offset_in_text_section + size > jit.text_section.len() {
+    if jit.offset_in_text_section + size > jit.result.text_section.len() {
         return Err(EbpfError::ExhausedTextSegment(jit.pc));
     }
     unsafe {
         #[allow(clippy::cast_ptr_alignment)]
-        let ptr = jit.text_section.as_ptr().add(jit.offset_in_text_section) as *mut T;
+        let ptr = jit.result.text_section.as_ptr().add(jit.offset_in_text_section) as *mut T;
         *ptr = data as T;
     }
     jit.offset_in_text_section += size;
@@ -570,9 +628,9 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, number_
             // Load host target_address from JitProgramArgument.instruction_addresses
             debug_assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
             emit_mov(jit, OperationWidth::Bit64, REGISTER_MAP[0], REGISTER_MAP[STACK_REG])?;
-            emit_load_imm(jit, REGISTER_MAP[STACK_REG], jit.pc_section.as_ptr() as i64)?;
-            emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None)?; // RAX += jit.pc_section;
-            emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], 0)?; // RAX = jit.pc_section[RAX / 8];
+            emit_load_imm(jit, REGISTER_MAP[STACK_REG], jit.result.pc_section.as_ptr() as i64)?;
+            emit_alu(jit, OperationWidth::Bit64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None)?; // RAX += jit.result.pc_section;
+            emit_load(jit, OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], 0)?; // RAX = jit.result.pc_section[RAX / 8];
         },
         Value::Constant64(_target_pc) => {},
         _ => {
@@ -847,14 +905,13 @@ impl Jump {
     fn get_target_offset(&self, jit: &JitCompiler) -> u64 {
         match jit.handler_anchors.get(&self.target_pc) {
             Some(target) => *target as u64,
-            None         => jit.pc_section[self.target_pc]
+            None         => jit.result.pc_section[self.target_pc]
         }
     }
 }
 
-struct JitCompiler<'a> {
-    pc_section: &'a mut [u64],
-    text_section: &'a mut [u8],
+struct JitCompiler {
+    result: JitProgramSections,
     pc_section_jumps: Vec<Jump>,
     text_section_jumps: Vec<Jump>,
     offset_in_text_section: usize,
@@ -864,18 +921,57 @@ struct JitCompiler<'a> {
     config: Config,
 }
 
-impl<'a> JitCompiler<'a> {
+impl Index<usize> for JitCompiler {
+    type Output = u8;
+
+    fn index(&self, _index: usize) -> &u8 {
+        &self.result.text_section[_index]
+    }
+}
+
+impl IndexMut<usize> for JitCompiler {
+    fn index_mut(&mut self, _index: usize) -> &mut u8 {
+        &mut self.result.text_section[_index]
+    }
+}
+
+impl std::fmt::Debug for JitCompiler {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<(), FormatterError> {
+        fmt.write_str("JIT text_section: [")?;
+        for i in self.result.text_section as &[u8] {
+            fmt.write_fmt(format_args!(" {:#04x},", i))?;
+        };
+        fmt.write_str(" ] | ")?;
+        fmt.debug_struct("JIT state")
+            .field("memory", &self.result.pc_section.as_ptr())
+            .field("pc", &self.pc)
+            .field("offset_in_text_section", &self.offset_in_text_section)
+            .field("pc_section", &self.result.pc_section)
+            .field("handler_anchors", &self.handler_anchors)
+            .field("pc_section_jumps", &self.pc_section_jumps)
+            .field("text_section_jumps", &self.text_section_jumps)
+            .finish()
+    }
+}
+
+impl JitCompiler {
     // Arguments are unused on windows
-    fn new(_program: &[u8], _config: &Config) -> JitCompiler<'a> {
+    fn new(_program: &[u8], _config: &Config) -> JitCompiler {
         #[cfg(windows)]
         {
             panic!("JIT not supported on windows");
         }
-        let pc_section: &mut[u64];
-        let text_section: &mut[u8];
 
+        let sections: JitProgramSections;
+        #[cfg(windows)]
+        {
+            sections = JitProgramSections {
+                pc_section: &mut [],
+                text_section: &mut [],
+            }
+        }
         #[cfg(not(windows))] // Without this block windows will fail ungracefully, hence the panic above
-        unsafe {
+        {
             // Scan through program to find actual number of instructions
             let mut pc = 0;
             while pc * ebpf::INSN_SIZE < _program.len() {
@@ -885,23 +981,11 @@ impl<'a> JitCompiler<'a> {
                     _ => 1,
                 };
             }
-
-            let pc_loc_table_size = round_to_page_size((pc + 1) * 8);
-            let code_size = round_to_page_size(pc * 256 + 512);
-
-            let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
-            libc::posix_memalign(&mut raw, PAGE_SIZE, pc_loc_table_size + code_size);
-
-            std::ptr::write_bytes(raw, 0x00, pc_loc_table_size);
-            pc_section = std::slice::from_raw_parts_mut(raw as *mut u64, pc + 1);
-
-            std::ptr::write_bytes(raw.add(pc_loc_table_size), 0xcc, code_size); // Populate with debugger traps
-            text_section = std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size) as *mut u8, code_size);
+            sections = JitProgramSections::new(pc + 1, pc * 256 + 512);
         }
 
         JitCompiler {
-            pc_section,
-            text_section,
+            result: sections,
             pc_section_jumps: vec![],
             text_section_jumps: vec![],
             offset_in_text_section: 0,
@@ -913,7 +997,7 @@ impl<'a> JitCompiler<'a> {
     }
 
     fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self,
-                   executable: &'a dyn Executable<E, I>) -> Result<(), EbpfError<E>> {
+            executable: &dyn Executable<E, I>) -> Result<(), EbpfError<E>> {
         let (program_vm_addr, program) = executable.get_text_bytes()?;
         self.program_vm_addr = program_vm_addr;
 
@@ -929,7 +1013,7 @@ impl<'a> JitCompiler<'a> {
         while self.pc * ebpf::INSN_SIZE < program.len() {
             let insn = ebpf::get_insn(program, self.pc);
 
-            self.pc_section[self.pc] = self.offset_in_text_section as u64;
+            self.result.pc_section[self.pc] = self.offset_in_text_section as u64;
 
             if self.config.enable_instruction_tracing {
                 emit_load_imm(self, R11, self.pc as i64)?;
@@ -1220,7 +1304,7 @@ impl<'a> JitCompiler<'a> {
                     } else {
                         match executable.lookup_bpf_function(insn.imm as u32) {
                             Some(target_pc) => {
-                                emit_bpf_call(self, Value::Constant64(*target_pc as i64), self.pc_section.len() - 1)?;
+                                emit_bpf_call(self, Value::Constant64(*target_pc as i64), self.result.pc_section.len() - 1)?;
                             },
                             None => {
                                 // executable.report_unresolved_symbol(self.pc)?;
@@ -1238,7 +1322,7 @@ impl<'a> JitCompiler<'a> {
                     }
                 },
                 ebpf::CALL_REG  => {
-                    emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]), self.pc_section.len() - 1)?;
+                    emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]), self.result.pc_section.len() - 1)?;
                 },
                 ebpf::EXIT      => {
                     emit_validate_and_profile_instruction_count(self, true, Some(0))?;
@@ -1264,7 +1348,7 @@ impl<'a> JitCompiler<'a> {
 
             self.pc += 1;
         }
-        self.pc_section[self.pc] = self.offset_in_text_section as u64; // Bumper so that the linear search of TARGET_PC_TRANSLATE_PC can not run off
+        self.result.pc_section[self.pc] = self.offset_in_text_section as u64; // Bumper so that the linear search of TARGET_PC_TRANSLATE_PC can not run off
 
         // Bumper in case there was no final exit
         emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2))?;
@@ -1276,7 +1360,7 @@ impl<'a> JitCompiler<'a> {
         self.generate_exception_handlers::<E>()?;
         self.generate_epilogue::<E>()?;
         self.resolve_jumps();
-        self.truncate_and_set_permissions();
+        self.result.seal();
 
         Ok(())
     }
@@ -1307,13 +1391,13 @@ impl<'a> JitCompiler<'a> {
         // Translates a host pc back to a BPF pc by linear search of the pc_section table
         set_anchor(self, TARGET_PC_TRANSLATE_PC);
         emit_push(self, REGISTER_MAP[0])?; // Save REGISTER_MAP[0]
-        emit_load_imm(self, REGISTER_MAP[0], self.pc_section.as_ptr() as i64 - 8)?; // Loop index and pointer to look up
+        emit_load_imm(self, REGISTER_MAP[0], self.result.pc_section.as_ptr() as i64 - 8)?; // Loop index and pointer to look up
         set_anchor(self, TARGET_PC_TRANSLATE_PC_LOOP); // Loop label
         emit_alu(self, OperationWidth::Bit64, 0x81, 0, REGISTER_MAP[0], 8, None)?; // Increase index
         emit_cmp(self, R11, REGISTER_MAP[0], Some(0))?; // Look up and compare against value at index
         emit_jcc(self, 0x82, TARGET_PC_TRANSLATE_PC_LOOP)?; // Continue while *REGISTER_MAP[0] < R11
         emit_mov(self, OperationWidth::Bit64, REGISTER_MAP[0], R11)?; // R11 = REGISTER_MAP[0];
-        emit_load_imm(self, REGISTER_MAP[0], self.pc_section.as_ptr() as i64)?; // REGISTER_MAP[0] = self.pc_section;
+        emit_load_imm(self, REGISTER_MAP[0], self.result.pc_section.as_ptr() as i64)?; // REGISTER_MAP[0] = self.result.pc_section;
         emit_alu(self, OperationWidth::Bit64, 0x29, REGISTER_MAP[0], R11, 0, None)?; // R11 -= REGISTER_MAP[0];
         emit_alu(self, OperationWidth::Bit64, 0xc1, 5, R11, 3, None)?; // R11 >>= 3;
         emit_pop(self, REGISTER_MAP[0])?; // Restore REGISTER_MAP[0]
@@ -1436,7 +1520,7 @@ impl<'a> JitCompiler<'a> {
 
     fn resolve_jumps(&mut self) {
         for jump in &self.pc_section_jumps {
-            self.pc_section[jump.location] = jump.get_target_offset(&self);
+            self.result.pc_section[jump.location] = jump.get_target_offset(&self);
         }
         for jump in &self.text_section_jumps {
             let offset_value = jump.get_target_offset(&self) as i32
@@ -1444,7 +1528,7 @@ impl<'a> JitCompiler<'a> {
                 - std::mem::size_of::<i32>() as i32; // Jump from end of instruction
             unsafe {
                 libc::memcpy(
-                    self.text_section.as_ptr().add(jump.location) as *mut libc::c_void,
+                    self.result.text_section.as_ptr().add(jump.location) as *mut libc::c_void,
                     &offset_value as *const i32 as *const libc::c_void,
                     std::mem::size_of::<i32>(),
                 );
@@ -1452,66 +1536,12 @@ impl<'a> JitCompiler<'a> {
         }
         let call_unsupported_instruction = self.handler_anchors.get(&TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION).unwrap();
         let callx_unsupported_instruction = self.handler_anchors.get(&TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION).unwrap();
-        for offset in self.pc_section.iter_mut() {
+        for offset in self.result.pc_section.iter_mut() {
             if *offset == *call_unsupported_instruction as u64 {
                 // Turns compiletime exception handlers to runtime ones (as they need to turn the host PC back into a BPF PC)
                 *offset = *callx_unsupported_instruction as u64;
             }
-            *offset = unsafe { (self.text_section.as_ptr() as *const u8).add(*offset as usize) } as u64;
+            *offset = unsafe { (self.result.text_section.as_ptr() as *const u8).add(*offset as usize) } as u64;
         }
     }
-
-    fn truncate_and_set_permissions(&mut self) {
-        let _code_size = round_to_page_size(self.offset_in_text_section);
-        #[cfg(not(windows))]
-        unsafe {
-            libc::mprotect(self.pc_section.as_mut_ptr() as *mut _, self.pc_section.len(), libc::PROT_READ);
-            self.text_section = std::slice::from_raw_parts_mut(self.text_section.as_mut_ptr() as *mut _, _code_size);
-            libc::mprotect(self.text_section.as_mut_ptr() as *mut _, self.text_section.len(), libc::PROT_EXEC | libc::PROT_READ);
-        }
-    }
-} // struct JitCompiler
-
-impl<'a> Index<usize> for JitCompiler<'a> {
-    type Output = u8;
-
-    fn index(&self, _index: usize) -> &u8 {
-        &self.text_section[_index]
-    }
-}
-
-impl<'a> IndexMut<usize> for JitCompiler<'a> {
-    fn index_mut(&mut self, _index: usize) -> &mut u8 {
-        &mut self.text_section[_index]
-    }
-}
-
-impl<'a> std::fmt::Debug for JitCompiler<'a> {
-    fn fmt(&self, fmt: &mut Formatter) -> Result<(), FormatterError> {
-        fmt.write_str("JIT text_section: [")?;
-        for i in self.text_section as &[u8] {
-            fmt.write_fmt(format_args!(" {:#04x},", i))?;
-        };
-        fmt.write_str(" ] | ")?;
-        fmt.debug_struct("JIT state")
-            .field("pc", &self.pc)
-            .field("offset_in_text_section", &self.offset_in_text_section)
-            .field("pc_section", &self.pc_section)
-            .field("handler_anchors", &self.handler_anchors)
-            .field("pc_section_jumps", &self.pc_section_jumps)
-            .field("text_section_jumps", &self.text_section_jumps)
-            .finish()
-    }
-}
-
-pub fn compile<E: UserDefinedError, I: InstructionMeter>(executable: &dyn Executable<E, I>)
-    -> Result<JitProgram<E, I>, EbpfError<E>> {
-
-    let program = executable.get_text_bytes()?.1;
-    let mut jit = JitCompiler::new(program, executable.get_config());
-    jit.compile::<E, I>(executable)?;
-
-    Ok(JitProgram {
-        main: unsafe { mem::transmute(jit.text_section.as_ptr()) },
-    })
 }

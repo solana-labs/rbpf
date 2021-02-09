@@ -12,7 +12,7 @@ extern crate scroll;
 use crate::{
     ebpf,
     error::{EbpfError, UserDefinedError},
-    jit::{compile, JitProgram},
+    jit::JitProgram,
     vm::{Config, Executable, InstructionMeter, SyscallRegistry},
 };
 use byteorder::{ByteOrder, LittleEndian};
@@ -253,7 +253,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
 
     /// JIT compile the executable
     fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        self.compiled_program = Some(compile::<E, I>(self)?);
+        self.compiled_program = Some(JitProgram::<E, I>::new(self)?);
         Ok(())
     }
 
