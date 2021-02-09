@@ -88,6 +88,13 @@ impl AnalysisResult {
                 },
             );
         }
+        let entrypoint_pc = executable.get_entrypoint_instruction_offset().unwrap();
+        result.destinations.entry(entrypoint_pc).or_insert(Label {
+            name: "entrypoint".to_string(),
+            length: 0,
+            kind: LabelKind::Function,
+            sources: Vec::new(),
+        });
         for insn in result.instructions.iter() {
             match insn.opc {
                 ebpf::CALL_IMM => {
@@ -175,13 +182,16 @@ impl AnalysisResult {
         let mut destination_iter = result.destinations.iter_mut().peekable();
         let mut source_iter = result.sources.iter().peekable();
         while let Some((begin, label)) = destination_iter.next() {
-            if *begin >= result.instructions.last().unwrap().ptr {
-                println!(
-                    "WARNING: Invalid symbol {:?} at {} beyond last instruction",
-                    label.name, begin
-                );
-                label.length = 0;
-                continue;
+            match result
+                .instructions
+                .binary_search_by(|insn| insn.ptr.cmp(begin))
+            {
+                Ok(_) => {}
+                Err(_index) => {
+                    println!("WARNING: Invalid symbol {:?}, pc={}", label.name, begin);
+                    label.length = 0;
+                    continue;
+                }
             }
             if label.length > 0 {
                 continue;
