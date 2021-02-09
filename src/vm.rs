@@ -283,9 +283,10 @@ impl Tracer {
     ) -> Result<(), std::fmt::Error> {
         let disassembled = disassembler::to_insn_vec(program);
         let mut pc_to_instruction_index =
-            vec![0usize; disassembled.last().map(|ins| ins.ptr + 1).unwrap_or(0)];
+            vec![0usize; disassembled.last().map(|ins| ins.ptr + 2).unwrap_or(0)];
         for index in 0..disassembled.len() {
             pc_to_instruction_index[disassembled[index].ptr] = index;
+            pc_to_instruction_index[disassembled[index].ptr + 1] = index;
         }
         for index in 0..self.log.len() {
             let entry = &self.log[index];
