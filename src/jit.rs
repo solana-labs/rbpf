@@ -923,6 +923,7 @@ impl<'a> JitCompiler<'a> {
         let entry = executable.get_entrypoint_instruction_offset().unwrap_or(0);
         if entry != 0 {
             emit_profile_instruction_count(self, Some(entry + 1))?;
+            emit_load_imm(self, R11, entry as i64)?;
             emit_jmp(self, entry)?;
         }
 
