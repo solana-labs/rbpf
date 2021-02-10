@@ -44,21 +44,30 @@ struct JitProgramSections {
 
 impl JitProgramSections {
     fn new(pc: usize, code_size: usize) -> Self {
-        let pc_loc_table_size = round_to_page_size(pc * 8);
-        let code_size = round_to_page_size(code_size);
+        let _pc_loc_table_size = round_to_page_size(pc * 8);
+        let _code_size = round_to_page_size(code_size);
+        #[cfg(windows)]
+        {
+            Self {
+                pc_section: &mut [],
+                text_section: &mut [],
+            }
+        }
+        #[cfg(not(windows))]
         unsafe {
             let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
-            libc::posix_memalign(&mut raw, PAGE_SIZE, pc_loc_table_size + code_size);
-            std::ptr::write_bytes(raw, 0x00, pc_loc_table_size);
-            std::ptr::write_bytes(raw.add(pc_loc_table_size), 0xcc, code_size); // Populate with debugger traps
+            libc::posix_memalign(&mut raw, PAGE_SIZE, _pc_loc_table_size + _code_size);
+            std::ptr::write_bytes(raw, 0x00, _pc_loc_table_size);
+            std::ptr::write_bytes(raw.add(_pc_loc_table_size), 0xcc, _code_size); // Populate with debugger traps
             Self {
                 pc_section: std::slice::from_raw_parts_mut(raw as *mut u64, pc),
-                text_section: std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size) as *mut u8, code_size),
+                text_section: std::slice::from_raw_parts_mut(raw.add(_pc_loc_table_size) as *mut u8, _code_size),
             }
         }
     }
 
     fn seal(&mut self) {
+        #[cfg(not(windows))]
         if !self.pc_section.is_empty() {
             unsafe {
                 libc::mprotect(self.pc_section.as_mut_ptr() as *mut _, round_to_page_size(self.pc_section.len()), libc::PROT_READ);
@@ -70,6 +79,7 @@ impl JitProgramSections {
 
 impl Drop for JitProgramSections {
     fn drop(&mut self) {
+        #[cfg(not(windows))]
         if !self.pc_section.is_empty() {
             unsafe {
                 libc::mprotect(self.pc_section.as_mut_ptr() as *mut _, round_to_page_size(self.pc_section.len()), libc::PROT_READ | libc::PROT_WRITE);
@@ -962,30 +972,18 @@ impl JitCompiler {
             panic!("JIT not supported on windows");
         }
 
-        let sections: JitProgramSections;
-        #[cfg(windows)]
-        {
-            sections = JitProgramSections {
-                pc_section: &mut [],
-                text_section: &mut [],
-            }
-        }
-        #[cfg(not(windows))] // Without this block windows will fail ungracefully, hence the panic above
-        {
-            // Scan through program to find actual number of instructions
-            let mut pc = 0;
-            while pc * ebpf::INSN_SIZE < _program.len() {
-                let insn = ebpf::get_insn(_program, pc);
-                pc += match insn.opc {
-                    ebpf::LD_DW_IMM => 2,
-                    _ => 1,
-                };
-            }
-            sections = JitProgramSections::new(pc + 1, pc * 256 + 512);
+        // Scan through program to find actual number of instructions
+        let mut pc = 0;
+        while pc * ebpf::INSN_SIZE < _program.len() {
+            let insn = ebpf::get_insn(_program, pc);
+            pc += match insn.opc {
+                ebpf::LD_DW_IMM => 2,
+                _ => 1,
+            };
         }
 
         JitCompiler {
-            result: sections,
+            result: JitProgramSections::new(pc + 1, pc * 256 + 512),
             pc_section_jumps: vec![],
             text_section_jumps: vec![],
             offset_in_text_section: 0,
