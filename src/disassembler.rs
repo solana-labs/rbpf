@@ -82,7 +82,7 @@ fn jmp_reg_str(name: &str, insn: &ebpf::Insn) -> String {
 /// documentation about eBPF, or <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md> for a
 /// more concise version.
 #[derive(Debug, PartialEq)]
-pub struct HLInsn {
+pub struct HlInsn {
     /// Instruction pointer.
     pub ptr: usize,
     /// Operation code.
@@ -102,7 +102,7 @@ pub struct HLInsn {
     pub imm: i64,
 }
 
-/// Return a vector of `struct HLInsn` built from an eBPF program.
+/// Return a vector of `struct HlInsn` built from an eBPF program.
 ///
 /// This is made public to provide a way to manipulate a program as a vector of instructions, in a
 /// high-level format, for example for dumping the program instruction after instruction with a
@@ -133,7 +133,7 @@ pub struct HLInsn {
 ///
 /// let v = disassembler::to_insn_vec(prog);
 /// assert_eq!(v, vec![
-///     disassembler::HLInsn {
+///     disassembler::HlInsn {
 ///         ptr: 0,
 ///         opc: 0x18,
 ///         name: "lddw".to_string(),
@@ -143,7 +143,7 @@ pub struct HLInsn {
 ///         off: 0,
 ///         imm: 0x1122334455667788
 ///     },
-///     disassembler::HLInsn {
+///     disassembler::HlInsn {
 ///         ptr: 2,
 ///         opc: 0x95,
 ///         name: "exit".to_string(),
@@ -156,7 +156,7 @@ pub struct HLInsn {
 /// ]);
 /// ```
 #[rustfmt::skip]
-pub fn to_insn_vec(prog: &[u8]) -> Vec<HLInsn> {
+pub fn to_insn_vec(prog: &[u8]) -> Vec<HlInsn> {
     debug_assert!(prog.len() % ebpf::INSN_SIZE == 0, "eBPF program length must be a multiple of {:?} octets is {:?}", ebpf::INSN_SIZE, prog.len());
 
     if prog.is_empty() {
@@ -301,7 +301,7 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HLInsn> {
             },
         };
 
-        res.push(HLInsn {
+        res.push(HlInsn {
             ptr,
             opc:  insn.opc,
             name: name.to_string(),

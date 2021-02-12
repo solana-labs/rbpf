@@ -984,7 +984,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         let compiled_program = self
             .executable
             .get_compiled_program()
-            .ok_or(EbpfError::JITNotCompiled)?;
+            .ok_or(EbpfError::JitNotCompiled)?;
         unsafe {
             self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET - 1] =
                 &mut self.tracer as *mut _ as *mut u8;

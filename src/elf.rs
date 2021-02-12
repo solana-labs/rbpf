@@ -24,7 +24,7 @@ use std::{collections::HashMap, fmt::Debug, mem, ops::Range, str};
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum ELFError {
+pub enum ElfError {
     /// Failed to parse ELF file
     #[error("Failed to parse ELF file: {0}")]
     FailedToParse(String),
@@ -54,7 +54,7 @@ pub enum ELFError {
     WrongEndianess,
     /// Incompatible ELF: wrong ABI
     #[error("Incompatible ELF: wrong ABI")]
-    WrongABI,
+    WrongAbi,
     /// Incompatible ELF: wrong mchine
     #[error("Incompatible ELF: wrong machine")]
     WrongMachine,
@@ -66,7 +66,7 @@ pub enum ELFError {
     MultipleTextSections,
     /// .bss section mot supported
     #[error(".bss section not supported")]
-    BSSNotSupported,
+    BssNotSupported,
     /// Relocation failed, no loadable section contains virtual address
     #[error("Relocation failed, no loadable section contains virtual address {0:#x}")]
     AddressOutsideLoadableSection(u64),
@@ -89,7 +89,7 @@ pub enum ELFError {
     #[error("Offset or value is out of bounds")]
     OutOfBounds,
 }
-impl From<GoblinError> for ELFError {
+impl From<GoblinError> for ElfError {
     fn from(error: GoblinError) -> Self {
         match error {
             GoblinError::Malformed(string) => Self::FailedToParse(format!("malformed: {}", string)),
@@ -101,7 +101,7 @@ impl From<GoblinError> for ELFError {
 }
 impl<E: UserDefinedError> From<GoblinError> for EbpfError<E> {
     fn from(error: GoblinError) -> Self {
-        ELFError::from(error).into()
+        ElfError::from(error).into()
     }
 }
 
@@ -128,9 +128,9 @@ const BYTE_LENGTH_IMMEIDATE: usize = 4;
 /// BPF relocation types.
 #[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Copy, Clone)]
-enum BPFRelocationType {
+enum BpfRelocationType {
     /// No relocation, placeholder
-    R_BPF_NONE = 0,
+    R_Bpf_None = 0,
     /// 64 bit relocation of a ldxdw instruction.
     /// The ldxdw instruction occupies two instruction slots. The 64-bit address
     /// to load from is split into the 32-bit imm field of each slot. The first
@@ -138,7 +138,7 @@ enum BPFRelocationType {
     /// as the file offset) of the location to load. Relocation involves calculating
     /// the post-load 64-bit physical address referenced by the imm field and writing
     /// that physical address back into the imm fields of the ldxdw instruction.
-    R_BPF_64_RELATIVE = 8,
+    R_Bpf_64_Relative = 8,
     /// Relocation of a call instruction.
     /// The existing imm field contains either an offset of the instruction to jump to
     /// (think local function call) or a special value of "-1".  If -1 the symbol must
@@ -149,14 +149,14 @@ enum BPFRelocationType {
     /// jump to.  In the case of a local jump the hash is calculated using the current
     /// program counter and in the case of a symbol the hash is calculated using the
     /// name of the symbol.
-    R_BPF_64_32 = 10,
+    R_Bpf_64_32 = 10,
 }
-impl BPFRelocationType {
-    fn from_x86_relocation_type(from: u32) -> Option<BPFRelocationType> {
+impl BpfRelocationType {
+    fn from_x86_relocation_type(from: u32) -> Option<BpfRelocationType> {
         match from {
-            R_X86_64_NONE => Some(BPFRelocationType::R_BPF_NONE),
-            R_X86_64_RELATIVE => Some(BPFRelocationType::R_BPF_64_RELATIVE),
-            R_X86_64_32 => Some(BPFRelocationType::R_BPF_64_32),
+            R_X86_64_NONE => Some(BpfRelocationType::R_Bpf_None),
+            R_X86_64_RELATIVE => Some(BpfRelocationType::R_Bpf_64_Relative),
+            R_X86_64_32 => Some(BpfRelocationType::R_Bpf_64_32),
             _ => None,
         }
     }
@@ -202,7 +202,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
             &self
                 .elf_bytes
                 .get(self.text_section_info.offset_range.clone())
-                .ok_or(ELFError::OutOfBounds)?,
+                .ok_or(ElfError::OutOfBounds)?,
         ))
     }
 
@@ -215,7 +215,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
                     section_info.vaddr,
                     self.elf_bytes
                         .get(section_info.offset_range.clone())
-                        .ok_or(ELFError::OutOfBounds)?,
+                        .ok_or(ElfError::OutOfBounds)?,
                 ))
             })
             .collect::<Result<Vec<_>, EbpfError<E>>>()
@@ -266,24 +266,24 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
         let mut name = "Unknown";
         if let Ok(elf) = Elf::parse(&self.elf_bytes) {
             for relocation in &elf.dynrels {
-                if let Some(BPFRelocationType::R_BPF_64_32) =
-                    BPFRelocationType::from_x86_relocation_type(relocation.r_type)
+                if let Some(BpfRelocationType::R_Bpf_64_32) =
+                    BpfRelocationType::from_x86_relocation_type(relocation.r_type)
                 {
                     if relocation.r_offset as usize == file_offset {
                         let sym = elf
                             .dynsyms
                             .get(relocation.r_sym)
-                            .ok_or(ELFError::UnknownSymbol(relocation.r_sym))?;
+                            .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
                         name = elf
                             .dynstrtab
                             .get(sym.st_name)
-                            .ok_or(ELFError::UnknownSymbol(sym.st_name))?
-                            .map_err(|_| ELFError::UnknownSymbol(sym.st_name))?;
+                            .ok_or(ElfError::UnknownSymbol(sym.st_name))?
+                            .map_err(|_| ElfError::UnknownSymbol(sym.st_name))?;
                     }
                 }
             }
         }
-        Err(ELFError::UnresolvedSymbol(
+        Err(ElfError::UnresolvedSymbol(
             name.to_string(),
             file_offset / ebpf::INSN_SIZE + ebpf::ELF_INSN_DUMP_OFFSET,
             file_offset,
@@ -341,7 +341,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     }
 
     /// Fully loads an ELF, including validation and relocation
-    pub fn load(config: Config, bytes: &[u8]) -> Result<Self, ELFError> {
+    pub fn load(config: Config, bytes: &[u8]) -> Result<Self, ElfError> {
         let elf = Elf::parse(bytes)?;
         let mut elf_bytes = bytes.to_vec();
         Self::validate(&elf, &elf_bytes)?;
@@ -354,7 +354,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         // calculate entrypoint offset into the text section
         let offset = elf.header.e_entry - text_section.sh_addr;
         if offset % ebpf::INSN_SIZE as u64 != 0 {
-            return Err(ELFError::InvalidEntrypoint);
+            return Err(ElfError::InvalidEntrypoint);
         }
         let entrypoint = offset as usize / ebpf::INSN_SIZE;
 
@@ -404,13 +404,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     pub fn fixup_relative_calls(
         calls: &mut HashMap<u32, usize>,
         elf_bytes: &mut [u8],
-    ) -> Result<(), ELFError> {
+    ) -> Result<(), ElfError> {
         for i in 0..elf_bytes.len() / ebpf::INSN_SIZE {
             let mut insn = ebpf::get_insn(elf_bytes, i);
             if insn.opc == 0x85 && insn.imm != -1 {
                 let insn_idx = i as isize + 1 + insn.imm as isize;
                 if insn_idx < 0 || insn_idx >= (elf_bytes.len() / ebpf::INSN_SIZE) as isize {
-                    return Err(ELFError::RelativeJumpOutOfBounds(
+                    return Err(ElfError::RelativeJumpOutOfBounds(
                         i + ebpf::ELF_INSN_DUMP_OFFSET,
                     ));
                 }
@@ -419,7 +419,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 LittleEndian::write_u64(&mut key, i as u64);
                 let hash = ebpf::hash_symbol_name(&key);
                 if calls.insert(hash, insn_idx as usize).is_some() {
-                    return Err(ELFError::RelocationHashCollision(
+                    return Err(ElfError::RelocationHashCollision(
                         i + ebpf::ELF_INSN_DUMP_OFFSET,
                     ));
                 }
@@ -427,7 +427,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 insn.imm = hash as i32;
                 let checked_slice = elf_bytes
                     .get_mut(i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE)
-                    .ok_or(ELFError::OutOfBounds)?;
+                    .ok_or(ElfError::OutOfBounds)?;
                 checked_slice.copy_from_slice(&insn.to_vec());
             }
         }
@@ -435,21 +435,21 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     }
 
     /// Validates the ELF
-    pub fn validate(elf: &Elf, elf_bytes: &[u8]) -> Result<(), ELFError> {
+    pub fn validate(elf: &Elf, elf_bytes: &[u8]) -> Result<(), ElfError> {
         if elf.header.e_ident[EI_CLASS] != ELFCLASS64 {
-            return Err(ELFError::WrongClass);
+            return Err(ElfError::WrongClass);
         }
         if elf.header.e_ident[EI_DATA] != ELFDATA2LSB {
-            return Err(ELFError::WrongEndianess);
+            return Err(ElfError::WrongEndianess);
         }
         if elf.header.e_ident[EI_OSABI] != ELFOSABI_NONE {
-            return Err(ELFError::WrongABI);
+            return Err(ElfError::WrongAbi);
         }
         if elf.header.e_machine != EM_BPF {
-            return Err(ELFError::WrongMachine);
+            return Err(ElfError::WrongMachine);
         }
         if elf.header.e_type != ET_DYN {
-            return Err(ELFError::WrongType);
+            return Err(ElfError::WrongType);
         }
 
         let num_text_sections = elf.section_headers.iter().fold(0, |count, section_header| {
@@ -461,13 +461,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             count
         });
         if 1 != num_text_sections {
-            return Err(ELFError::MultipleTextSections);
+            return Err(ElfError::MultipleTextSections);
         }
 
         for section_header in elf.section_headers.iter() {
             if let Some(Ok(this_name)) = elf.shdr_strtab.get(section_header.sh_name) {
                 if this_name == ".bss" {
-                    return Err(ELFError::BSSNotSupported);
+                    return Err(ElfError::BssNotSupported);
                 }
             }
         }
@@ -477,15 +477,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             let end = section_header
                 .sh_offset
                 .checked_add(section_header.sh_size)
-                .ok_or(ELFError::OutOfBounds)? as usize;
-            let _ = elf_bytes.get(start..end).ok_or(ELFError::OutOfBounds)?;
+                .ok_or(ElfError::OutOfBounds)? as usize;
+            let _ = elf_bytes.get(start..end).ok_or(ElfError::OutOfBounds)?;
         }
         let text_section = Self::get_section(elf, ".text")?;
         if !text_section
             .vm_range()
             .contains(&(elf.header.e_entry as usize))
         {
-            return Err(ELFError::EntrypointOutOfBounds);
+            return Err(ElfError::EntrypointOutOfBounds);
         }
 
         Ok(())
@@ -494,7 +494,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     // Private functions
 
     /// Get a section by name
-    fn get_section(elf: &Elf, name: &str) -> Result<SectionHeader, ELFError> {
+    fn get_section(elf: &Elf, name: &str) -> Result<SectionHeader, ElfError> {
         match elf.section_headers.iter().find(|section_header| {
             if let Some(Ok(this_name)) = elf.shdr_strtab.get(section_header.sh_name) {
                 return this_name == name;
@@ -502,7 +502,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             false
         }) {
             Some(section) => Ok(section.clone()),
-            None => Err(ELFError::SectionNotFound(name.to_string())),
+            None => Err(ElfError::SectionNotFound(name.to_string())),
         }
     }
 
@@ -511,7 +511,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         elf: &Elf,
         elf_bytes: &mut [u8],
         calls: &mut HashMap<u32, usize>,
-    ) -> Result<(), ELFError> {
+    ) -> Result<(), ElfError> {
         let text_section = Self::get_section(elf, ".text")?;
 
         // Fixup all program counter relative call instructions
@@ -519,7 +519,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             calls,
             &mut elf_bytes
                 .get_mut(text_section.file_range())
-                .ok_or(ELFError::OutOfBounds)?,
+                .ok_or(ElfError::OutOfBounds)?,
         )?;
 
         // Fixup all the relocations in the relocation section if exists
@@ -528,8 +528,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
             // Offset of the immediate field
             let imm_offset = r_offset.saturating_add(BYTE_OFFSET_IMMEDIATE);
-            match BPFRelocationType::from_x86_relocation_type(relocation.r_type) {
-                Some(BPFRelocationType::R_BPF_64_RELATIVE) => {
+            match BpfRelocationType::from_x86_relocation_type(relocation.r_type) {
+                Some(BpfRelocationType::R_Bpf_64_Relative) => {
                     // Raw relocation between sections.  The instruction being relocated contains
                     // the virtual address that it needs turned into a physical address.  Read it,
                     // locate it in the ELF, convert to physical address
@@ -538,11 +538,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     // address to convert to physical
                     let checked_slice = elf_bytes
                         .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
-                        .ok_or(ELFError::OutOfBounds)?;
+                        .ok_or(ElfError::OutOfBounds)?;
                     let refd_va = LittleEndian::read_u32(&checked_slice) as u64;
 
                     if refd_va == 0 {
-                        return Err(ELFError::InvalidVirtualAddress(refd_va));
+                        return Err(ElfError::InvalidVirtualAddress(refd_va));
                     }
 
                     // final "physical address" from the VM's perspetive is rooted at `MM_PROGRAM_START`
@@ -560,7 +560,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
                         let mut checked_slice = elf_bytes
                             .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
-                            .ok_or(ELFError::OutOfBounds)?;
+                            .ok_or(ElfError::OutOfBounds)?;
                         LittleEndian::write_u32(&mut checked_slice, (refd_pa & 0xFFFFFFFF) as u32);
                         let mut checked_slice = elf_bytes
                             .get_mut(
@@ -568,17 +568,17 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                                     ..imm_offset
                                         .saturating_add(ebpf::INSN_SIZE + BYTE_LENGTH_IMMEIDATE),
                             )
-                            .ok_or(ELFError::OutOfBounds)?;
+                            .ok_or(ElfError::OutOfBounds)?;
                         LittleEndian::write_u32(&mut checked_slice, (refd_pa >> 32) as u32);
                     } else {
                         // 64 bit memory location, write entire 64 bit physical address directly
                         let mut checked_slice = elf_bytes
                             .get_mut(r_offset..r_offset.saturating_add(mem::size_of::<u64>()))
-                            .ok_or(ELFError::OutOfBounds)?;
+                            .ok_or(ElfError::OutOfBounds)?;
                         LittleEndian::write_u64(&mut checked_slice, refd_pa);
                     }
                 }
-                Some(BPFRelocationType::R_BPF_64_32) => {
+                Some(BpfRelocationType::R_Bpf_64_32) => {
                     // The .text section has an unresolved call to symbol instruction
                     // Hash the symbol name and stick it into the call instruction's imm
                     // field.  Later that hash will be used to look up the function location.
@@ -586,21 +586,21 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     let sym = elf
                         .dynsyms
                         .get(relocation.r_sym)
-                        .ok_or(ELFError::UnknownSymbol(relocation.r_sym))?;
+                        .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
                     let name = elf
                         .dynstrtab
                         .get(sym.st_name)
-                        .ok_or(ELFError::UnknownSymbol(sym.st_name))?
-                        .map_err(|_| ELFError::UnknownSymbol(sym.st_name))?;
+                        .ok_or(ElfError::UnknownSymbol(sym.st_name))?
+                        .map_err(|_| ElfError::UnknownSymbol(sym.st_name))?;
                     let hash = ebpf::hash_symbol_name(&name.as_bytes());
                     let mut checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
-                        .ok_or(ELFError::OutOfBounds)?;
+                        .ok_or(ElfError::OutOfBounds)?;
                     LittleEndian::write_u32(&mut checked_slice, hash);
                     let text_section = Self::get_section(elf, ".text")?;
                     if sym.is_function() && sym.st_value != 0 {
                         if !text_section.vm_range().contains(&(sym.st_value as usize)) {
-                            return Err(ELFError::OutOfBounds);
+                            return Err(ElfError::OutOfBounds);
                         }
                         calls.insert(
                             hash,
@@ -608,7 +608,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         );
                     }
                 }
-                _ => return Err(ELFError::UnknownRelocation(relocation.r_type)),
+                _ => return Err(ElfError::UnknownRelocation(relocation.r_type)),
             }
         }
 
@@ -714,7 +714,7 @@ mod test {
         let mut elf_bytes = elf_bytes;
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         assert_eq!(
-            Err(ELFError::EntrypointOutOfBounds),
+            Err(ElfError::EntrypointOutOfBounds),
             ElfExecutable::load(Config::default(), &elf_bytes)
         );
 
@@ -722,7 +722,7 @@ mod test {
         let mut elf_bytes = elf_bytes;
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         assert_eq!(
-            Err(ELFError::EntrypointOutOfBounds),
+            Err(ElfError::EntrypointOutOfBounds),
             ElfExecutable::load(Config::default(), &elf_bytes)
         );
 
@@ -730,7 +730,7 @@ mod test {
         let mut elf_bytes = elf_bytes;
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         assert_eq!(
-            Err(ELFError::InvalidEntrypoint),
+            Err(ElfError::InvalidEntrypoint),
             ElfExecutable::load(Config::default(), &elf_bytes)
         );
 

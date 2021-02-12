@@ -101,7 +101,7 @@ fn test_verifier_err_div_by_zero_imm() {
 }
 
 #[test]
-#[should_panic(expected = "UnsupportedLEBEArgument(0)")]
+#[should_panic(expected = "UnsupportedLeBeArgument(0)")]
 fn test_verifier_err_endian_size() {
     let prog = &[
         0xdc, 0x01, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, //
@@ -117,7 +117,7 @@ fn test_verifier_err_endian_size() {
 }
 
 #[test]
-#[should_panic(expected = "IncompleteLDDW(0)")]
+#[should_panic(expected = "IncompleteLddw(0)")]
 fn test_verifier_err_incomplete_lddw() {
     // Note: ubpf has test-err-incomplete-lddw2, which is the same
     let prog = &[
@@ -184,7 +184,7 @@ fn test_verifier_err_invalid_reg_src() {
 }
 
 #[test]
-#[should_panic(expected = "JumpToMiddleOfLDDW(2, 0)")]
+#[should_panic(expected = "JumpToMiddleOfLddw(2, 0)")]
 fn test_verifier_err_jmp_lddw() {
     let prog = assemble(
         "

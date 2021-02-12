@@ -17,7 +17,7 @@
 //! <https://www.kernel.org/doc/Documentation/networking/filter.txt>, or for a shorter version of
 //! the list of the operation codes: <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md>
 
-use crate::{elf::ELFError, memory_region::AccessType};
+use crate::{elf::ElfError, memory_region::AccessType};
 
 /// User defined errors must implement this trait
 pub trait UserDefinedError: 'static + std::error::Error {}
@@ -30,7 +30,7 @@ pub enum EbpfError<E: UserDefinedError> {
     UserError(#[from] E),
     /// ELF error
     #[error("ELF error: {0}")]
-    ELFError(#[from] ELFError),
+    ElfError(#[from] ElfError),
     /// Syscall was already registered before
     #[error("syscall #{0} was already registered before")]
     SycallAlreadyRegistered(usize),
@@ -62,7 +62,7 @@ pub enum EbpfError<E: UserDefinedError> {
     ExceededMaxInstructions(usize, u64),
     /// Program has not been JIT-compiled
     #[error("program has not been JIT-compiled")]
-    JITNotCompiled,
+    JitNotCompiled,
     /// Invalid virtual address
     #[error("invalid virtual address {0:x?}")]
     InvalidVirtualAddress(u64),

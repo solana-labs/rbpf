@@ -15,7 +15,7 @@ use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
     ebpf::{self, hash_symbol_name},
-    elf::ELFError,
+    elf::ElfError,
     error::EbpfError,
     memory_region::AccessType,
     syscalls,
@@ -2870,7 +2870,7 @@ fn test_non_terminate_early() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::ELFError(ELFError::UnresolvedSymbol(a, b, c))
+                    EbpfError::ElfError(ElfError::UnresolvedSymbol(a, b, c))
                     if a == "Unknown" && b == 35 && c == 48
                 )
             }
@@ -2970,7 +2970,7 @@ fn test_err_symbol_unresolved() {
         [],
         (),
         {
-            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 29 && offset == 0)
+            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 29 && offset == 0)
         },
         1
     );
@@ -2990,7 +2990,7 @@ fn test_err_call_unresolved() {
         [],
         (),
         {
-            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 34 && offset == 40)
+            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 34 && offset == 40)
         },
         6
     );
@@ -3005,7 +3005,7 @@ fn test_err_unresolved_elf() {
             hash_symbol_name(b"log") => BpfSyscallString::call; BpfSyscallString {},
         ),
         {
-            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::ELFError(ELFError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "log_64" && pc == 550 && offset == 4168)
+            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "log_64" && pc == 550 && offset == 4168)
         },
         9
     );

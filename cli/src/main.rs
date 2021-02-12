@@ -2,7 +2,7 @@ use clap::{App, Arg};
 use rustc_demangle::demangle;
 use solana_rbpf::{
     assembler::assemble,
-    disassembler::{to_insn_vec, HLInsn},
+    disassembler::{to_insn_vec, HlInsn},
     ebpf,
     memory_region::{MemoryMapping, MemoryRegion},
     user_error::UserError,
@@ -63,7 +63,7 @@ macro_rules! resolve_label {
 }
 
 struct AnalysisResult {
-    instructions: Vec<HLInsn>,
+    instructions: Vec<HlInsn>,
     destinations: BTreeMap<usize, Label>,
     sources: BTreeMap<usize, Vec<usize>>,
 }

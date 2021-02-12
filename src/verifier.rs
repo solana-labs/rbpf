@@ -41,24 +41,24 @@ pub enum VerifierError {
     /// DivisionByZero
     #[error("division by 0 (insn #{0})")]
     DivisionByZero(usize),
-    /// UnsupportedLEBEArgument
+    /// UnsupportedLeBeArgument
     #[error("unsupported argument for LE/BE (insn #{0})")]
-    UnsupportedLEBEArgument(usize),
-    /// LDDWCannotBeLast
+    UnsupportedLeBeArgument(usize),
+    /// LddwCannotBeLast
     #[error("LD_DW instruction cannot be last in program")]
-    LDDWCannotBeLast,
-    /// IncompleteLDDW
+    LddwCannotBeLast,
+    /// IncompleteLddw
     #[error("incomplete LD_DW instruction (insn #{0})")]
-    IncompleteLDDW(usize),
+    IncompleteLddw(usize),
     /// InfiniteLoop
     #[error("infinite loop (insn #{0})")]
     InfiniteLoop(usize),
     /// JumpOutOfCode
     #[error("jump out of code to #{0} (insn #{1})")]
     JumpOutOfCode(usize, usize),
-    /// JumpToMiddleOfLDDW
+    /// JumpToMiddleOfLddw
     #[error("jump to middle of LD_DW at #{0} (insn #{1})")]
-    JumpToMiddleOfLDDW(usize, usize),
+    JumpToMiddleOfLddw(usize, usize),
     /// InvalidSourceRegister
     #[error("invalid source register (insn #{0})")]
     InvalidSourceRegister(usize),
@@ -114,7 +114,7 @@ fn check_imm_nonzero(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierE
 fn check_imm_endian(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
     match insn.imm {
         16 | 32 | 64 => Ok(()),
-        _ => Err(VerifierError::UnsupportedLEBEArgument(insn_ptr)),
+        _ => Err(VerifierError::UnsupportedLeBeArgument(insn_ptr)),
     }
 }
 
@@ -123,7 +123,7 @@ fn check_load_dw(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
     // this function should be called only for LD_DW insn, that cannot be last in program.
     let next_insn = ebpf::get_insn(prog, insn_ptr + 1);
     if next_insn.opc != 0 {
-        return Err(VerifierError::IncompleteLDDW(insn_ptr));
+        return Err(VerifierError::IncompleteLddw(insn_ptr));
     }
     Ok(())
 }
@@ -143,7 +143,7 @@ fn check_jmp_offset(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
     }
     let dst_insn = ebpf::get_insn(prog, dst_insn_ptr as usize);
     if dst_insn.opc == 0 {
-        return Err(VerifierError::JumpToMiddleOfLDDW(
+        return Err(VerifierError::JumpToMiddleOfLddw(
             dst_insn_ptr as usize,
             insn_ptr,
         ));
