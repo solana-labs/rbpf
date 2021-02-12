@@ -56,20 +56,19 @@ impl<E: UserDefinedError, I: InstructionMeter> PartialEq for JitProgram<E, I> {
 }
 
 // Special values for target_pc in struct Jump
-const TARGET_OFFSET: usize = ebpf::PROG_MAX_INSNS;
-const TARGET_PC_TRACE: usize = TARGET_OFFSET + 1;
-const TARGET_PC_TRANSLATE_PC: usize = TARGET_OFFSET + 2;
-const TARGET_PC_TRANSLATE_PC_LOOP: usize = TARGET_OFFSET + 3;
-const TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = TARGET_OFFSET + 4;
-const TARGET_PC_CALL_DEPTH_EXCEEDED: usize = TARGET_OFFSET + 5;
-const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: usize = TARGET_OFFSET + 6;
-const TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION: usize = TARGET_OFFSET + 7;
-const TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION: usize = TARGET_OFFSET + 8;
-const TARGET_PC_DIV_BY_ZERO: usize = TARGET_OFFSET + 9;
-const TARGET_PC_EXCEPTION_AT: usize = TARGET_OFFSET + 10;
-const TARGET_PC_SYSCALL_EXCEPTION: usize = TARGET_OFFSET + 11;
-const TARGET_PC_EXIT: usize = TARGET_OFFSET + 12;
-const TARGET_PC_EPILOGUE: usize = TARGET_OFFSET + 13;
+const TARGET_PC_TRACE: usize = std::usize::MAX - 13;
+const TARGET_PC_TRANSLATE_PC: usize = std::usize::MAX - 12;
+const TARGET_PC_TRANSLATE_PC_LOOP: usize = std::usize::MAX - 11;
+const TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = std::usize::MAX - 10;
+const TARGET_PC_CALL_DEPTH_EXCEEDED: usize = std::usize::MAX - 9;
+const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: usize = std::usize::MAX - 8;
+const TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION: usize = std::usize::MAX - 7;
+const TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION: usize = std::usize::MAX - 6;
+const TARGET_PC_DIV_BY_ZERO: usize = std::usize::MAX - 5;
+const TARGET_PC_EXCEPTION_AT: usize = std::usize::MAX - 4;
+const TARGET_PC_SYSCALL_EXCEPTION: usize = std::usize::MAX - 3;
+const TARGET_PC_EXIT: usize = std::usize::MAX - 2;
+const TARGET_PC_EPILOGUE: usize = std::usize::MAX - 1;
 
 #[derive(Copy, Clone)]
 enum OperandSize {
