@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "rbpf_cli"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "clap",
  "rustc-demangle",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "solana_rbpf"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "byteorder",
  "combine",
@@ -375,7 +375,7 @@ dependencies = [
 
 [[package]]
 name = "test_utils"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "libc",
  "solana_rbpf",
