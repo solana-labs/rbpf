@@ -58,12 +58,12 @@ fn ldind_str(name: &str, insn: &ebpf::Insn) -> String {
 
 #[inline]
 fn jmp_imm_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} r{}, {:#x}, {:+#x}", name, insn.dst, insn.imm, insn.off)
+    format!("{} r{}, {:#x}, {:+}", name, insn.dst, insn.imm, insn.off)
 }
 
 #[inline]
 fn jmp_reg_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} r{}, r{}, {:+#x}", name, insn.dst, insn.src, insn.off)
+    format!("{} r{}, r{}, {:+}", name, insn.dst, insn.src, insn.off)
 }
 
 /// High-level representation of an eBPF instruction.
