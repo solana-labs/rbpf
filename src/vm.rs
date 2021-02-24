@@ -290,11 +290,13 @@ impl Tracer {
         }
         for index in 0..self.log.len() {
             let entry = &self.log[index];
-            let ins_index = pc_to_instruction_index[entry[11] as usize];
             writeln!(
                 out,
                 "{:5?} {:016X?} {:5?}: {}",
-                index, entry, ins_index, disassembled[ins_index].desc
+                index,
+                &entry[0..10],
+                entry[11] as usize + ebpf::ELF_INSN_DUMP_OFFSET,
+                disassembled[pc_to_instruction_index[entry[11] as usize]].desc,
             )?;
         }
         Ok(())

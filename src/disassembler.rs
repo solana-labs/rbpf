@@ -349,6 +349,6 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HlInsn> {
 /// ```
 pub fn disassemble(prog: &[u8]) {
     for insn in to_insn_vec(prog).iter() {
-        println!("{:5} {}", insn.ptr, insn.desc);
+        println!("{:5} {}", insn.ptr + ebpf::ELF_INSN_DUMP_OFFSET, insn.desc);
     }
 }
