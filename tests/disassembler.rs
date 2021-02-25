@@ -78,8 +78,8 @@ fn test_ja() {
 // Example for InstructionType::JumpConditional.
 #[test]
 fn test_jeq() {
-    disasm!("jeq r1, 0x4, +0x8");
-    disasm!("jeq r1, r3, +0x8");
+    disasm!("jeq r1, 0x4, +8");
+    disasm!("jeq r1, r3, +8");
 }
 
 // Example for InstructionType::Call.
@@ -263,31 +263,31 @@ stxdw [r1+0x2], r3"
 #[test]
 fn test_jump_conditional() {
     disasm!(
-        "jeq r1, r2, +0x3
-jgt r1, r2, +0x3
-jge r1, r2, +0x3
-jlt r1, r2, +0x3
-jle r1, r2, +0x3
-jset r1, r2, +0x3
-jne r1, r2, +0x3
-jsgt r1, r2, +0x3
-jsge r1, r2, +0x3
-jslt r1, r2, +0x3
-jsle r1, r2, +0x3"
+        "jeq r1, r2, +3
+jgt r1, r2, +3
+jge r1, r2, +3
+jlt r1, r2, +3
+jle r1, r2, +3
+jset r1, r2, +3
+jne r1, r2, +3
+jsgt r1, r2, +3
+jsge r1, r2, +3
+jslt r1, r2, +3
+jsle r1, r2, +3"
     );
 
     disasm!(
-        "jeq r1, 0x2, +0x3
-jgt r1, 0x2, +0x3
-jge r1, 0x2, +0x3
-jlt r1, 0x2, +0x3
-jle r1, 0x2, +0x3
-jset r1, 0x2, +0x3
-jne r1, 0x2, +0x3
-jsgt r1, 0x2, +0x3
-jsge r1, 0x2, +0x3
-jslt r1, 0x2, +0x3
-jsle r1, 0x2, +0x3"
+        "jeq r1, 0x2, +3
+jgt r1, 0x2, +3
+jge r1, 0x2, +3
+jlt r1, 0x2, +3
+jle r1, 0x2, +3
+jset r1, 0x2, +3
+jne r1, 0x2, +3
+jsgt r1, 0x2, +3
+jsge r1, 0x2, +3
+jslt r1, 0x2, +3
+jsle r1, 0x2, +3"
     );
 }
 
