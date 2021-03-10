@@ -612,6 +612,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         let mut remaining_insn_count = if instruction_meter_enabled { instruction_meter.get_remaining() } else { 0 };
         let initial_insn_count = remaining_insn_count;
         self.last_insn_count = 0;
+        let mut total_insn_count = 0;
         while next_pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= self.program.len() {
             let pc = next_pc;
             next_pc += 1;
@@ -881,6 +882,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         if instruction_meter_enabled {
                             let _ = instruction_meter.consume(self.last_insn_count);
                         }
+                        total_insn_count += self.last_insn_count;
                         self.last_insn_count = 0;
                         let mut result: ProgramResult<E> = Ok(0);
                         (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
@@ -921,7 +923,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                             next_pc = self.check_pc(pc, ptr)?;
                         }
                         _ => {
-                            debug!("BPF instructions executed: {:?}", self.last_insn_count);
+                            debug!("BPF instructions executed (interp): {:?}", total_insn_count + self.last_insn_count);
                             debug!(
                                 "Max frame depth reached: {:?}",
                                 self.frames.get_max_frame_index()

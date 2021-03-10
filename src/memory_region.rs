@@ -64,8 +64,12 @@ impl fmt::Debug for MemoryRegion {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "host_addr: {:#x?}, vm_addr: {:#x?}, len: {}",
-            self.host_addr, self.vm_addr, self.len
+            "host_addr: {:#x?}-{:#x?}, vm_addr: {:#x?}-{:#x?}, len: {}",
+            self.host_addr,
+            self.host_addr + self.len,
+            self.vm_addr,
+            self.vm_addr + self.len,
+            self.len
         )
     }
 }
