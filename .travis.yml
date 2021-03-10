@@ -21,7 +21,7 @@ script:
 - export RUSTFLAGS="-D warnings"
 - cargo build --verbose
 - cargo test --verbose
-- if [[ $(rustup default) == *"nightly"* ]]; then cargo bench; fi
+- if [[ $(rustup default) == *"nightly"* ]]; then cargo bench -- --nocapture; fi
 
 before_deploy:
 - cargo doc
