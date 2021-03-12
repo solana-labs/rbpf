@@ -311,9 +311,8 @@ impl X86Instruction {
                         sib.base &= 0b111;
                     } else {
                         debug_assert_ne!(self.second_operand & 0b111, RSP); // Reserved for SIB addressing
-                        if indirect.displacement == 0 {
-                            debug_assert_ne!(self.second_operand & 0b111, RBP); // Reserved for RIP relative addressing (position independent code)
-                        } else if indirect.displacement >= -128 && indirect.displacement <= 127 {
+                        if (indirect.displacement >= -128 && indirect.displacement <= 127) ||
+                           (indirect.displacement == 0 && self.second_operand & 0b111 == RBP) {
                             displacement_size = OperandSize::S8;
                             modrm.mode = 1;
                         } else {
