@@ -229,7 +229,7 @@ struct X86Rex {
     b: bool,
 }
 
-struct X86ModRM {
+struct X86ModRm {
     mode: u8,
     r: u8,
     m: u8,
@@ -285,7 +285,7 @@ impl X86Instruction {
             x: false,
             b: self.second_operand & 0b1000 != 0,
         };
-        let mut modrm = X86ModRM {
+        let mut modrm = X86ModRm {
             mode: 0,
             r: self.first_operand & 0b111,
             m: self.second_operand & 0b111,
