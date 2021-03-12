@@ -1144,13 +1144,15 @@ impl JitCompiler {
 
         self.generate_prologue::<E, I>()?;
 
-        // Jump to custom entry point (if any)
+        // Jump to entry point
         let entry = executable.get_entrypoint_instruction_offset().unwrap_or(0);
-        if entry != 0 {
-            emit_profile_instruction_count(self, Some(entry + 1))?;
-            X86Instruction::load_immediate(OperandSize::S64, R11, entry as i64).emit(self)?;
-            emit_jmp(self, entry)?;
-        }
+        emit_profile_instruction_count(self, Some(entry + 1))?;
+        X86Instruction::load_immediate(OperandSize::S64, R11, entry as i64).emit(self)?;
+        emit_jmp(self, entry)?;
+
+        // Have these in front so that the linear search of TARGET_PC_TRANSLATE_PC does not terminate early
+        self.generate_helper_routines::<E>()?;
+        self.generate_exception_handlers::<E>()?;
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
             let insn = ebpf::get_insn(program, self.pc);
@@ -1491,8 +1493,6 @@ impl JitCompiler {
         emit_set_exception_kind::<E>(self, EbpfError::ExecutionOverrun(0))?;
         emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
 
-        self.generate_helper_routines::<E>()?;
-        self.generate_exception_handlers::<E>()?;
         self.generate_epilogue::<E>()?;
         self.resolve_jumps();
         self.result.seal();
@@ -1529,8 +1529,8 @@ impl JitCompiler {
         X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], self.result.pc_section.as_ptr() as i64 - 8).emit(self)?; // Loop index and pointer to look up
         set_anchor(self, TARGET_PC_TRANSLATE_PC_LOOP); // Loop label
         emit_alu(self, OperandSize::S64, 0x81, 0, REGISTER_MAP[0], 8, None)?; // Increase index
-        X86Instruction::cmp(OperandSize::S64, R11, REGISTER_MAP[0], Some(X86IndirectAccess::Offset(0))).emit(self)?; // Look up and compare against value at index
-        emit_jcc(self, 0x82, TARGET_PC_TRANSLATE_PC_LOOP)?; // Continue while *REGISTER_MAP[0] < R11
+        X86Instruction::cmp(OperandSize::S64, R11, REGISTER_MAP[0], Some(X86IndirectAccess::Offset(8))).emit(self)?; // Look up and compare against value at next index
+        emit_jcc(self, 0x86, TARGET_PC_TRANSLATE_PC_LOOP)?; // Continue while *REGISTER_MAP[0] <= R11
         X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(self)?; // R11 = REGISTER_MAP[0];
         X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], self.result.pc_section.as_ptr() as i64).emit(self)?; // REGISTER_MAP[0] = self.result.pc_section;
         emit_alu(self, OperandSize::S64, 0x29, REGISTER_MAP[0], R11, 0, None)?; // R11 -= REGISTER_MAP[0];
@@ -1565,7 +1565,10 @@ impl JitCompiler {
 
         // Handler for EbpfError::UnsupportedInstruction
         set_anchor(self, TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION);
+        emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 = 0;
+        X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(0, R11, 0)).emit(self)?;    
         emit_call(self, TARGET_PC_TRANSLATE_PC)?;
+        emit_alu(self, OperandSize::S64, 0x81, 0, R11, 2, None)?; // Increment exception pc
         // emit_jmp(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION)?; // Fall-through
 
         // Handler for EbpfError::UnsupportedInstruction

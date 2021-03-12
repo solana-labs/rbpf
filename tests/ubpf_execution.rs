@@ -65,7 +65,7 @@ macro_rules! test_interpreter_and_jit {
                     $(test_interpreter_and_jit!(bind, vm, $location => $a $(; $b)?);)*
                     let result = vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count });
                     let tracer_jit = vm.get_tracer();
-                    if !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
+                    if !check_closure(&vm, result) || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
                         let mut tracer_display = String::new();
                         _tracer_interpreter.write(&mut tracer_display, vm.get_program()).unwrap();
                         println!("{}", tracer_display);
@@ -78,7 +78,6 @@ macro_rules! test_interpreter_and_jit {
                         let instruction_count_jit = vm.get_total_instruction_count();
                         assert_eq!(instruction_count_interpreter, instruction_count_jit);
                     }
-                    assert!(check_closure(&vm, result));
                 },
             }
         }
@@ -3312,7 +3311,16 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         remaining: max_instruction_count,
     });
     let tracer_jit = vm.get_tracer();
-    if !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit) {
+    if result_interpreter != result_jit
+        || !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit)
+    {
+        println!("result_interpreter={:?}", result_interpreter);
+        println!("result_jit={:?}", result_jit);
+        let mut tracer_display = String::new();
+        tracer_interpreter
+            .write(&mut tracer_display, vm.get_program())
+            .unwrap();
+        println!("{}", tracer_display);
         let mut tracer_display = String::new();
         tracer_jit
             .write(&mut tracer_display, vm.get_program())
@@ -3320,7 +3328,6 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         println!("{}", tracer_display);
         panic!();
     }
-    assert_eq!(result_interpreter, result_jit);
     if executable.get_config().enable_instruction_meter {
         let instruction_count_jit = vm.get_total_instruction_count();
         assert_eq!(instruction_count_interpreter, instruction_count_jit);
