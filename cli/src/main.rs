@@ -2,20 +2,27 @@ use clap::{App, Arg};
 use rustc_demangle::demangle;
 use solana_rbpf::{
     assembler::assemble,
-    disassembler::{to_insn_vec, HlInsn},
     ebpf,
     memory_region::{MemoryMapping, MemoryRegion},
+    static_analysis::{AnalysisResult, LabelKind},
     user_error::UserError,
     verifier::check,
     vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
-use std::{
-    collections::{BTreeMap, HashMap},
-    fs::File,
-    io::Read,
-    path::Path,
-};
+use std::{collections::HashMap, fs::File, io::Read, path::Path};
 use test_utils::{Result, TestInstructionMeter};
+
+pub fn print_label_at(analysis_result: &AnalysisResult, ptr: usize) -> bool {
+    if let Some(label) = analysis_result.destinations.get(&ptr) {
+        if label.kind == LabelKind::Function {
+            println!();
+        }
+        println!("{}:", demangle(&label.name).to_string());
+        true
+    } else {
+        false
+    }
+}
 
 pub struct MockSyscall {
     name: String,
@@ -36,268 +43,6 @@ impl SyscallObject<UserError> for MockSyscall {
             self.name, arg1, arg2, arg3, arg4, arg5,
         );
         *result = Result::Ok(0);
-    }
-}
-
-#[derive(PartialEq)]
-enum LabelKind {
-    Function,
-    BasicBlock,
-}
-
-struct Label {
-    name: String,
-    length: usize,
-    kind: LabelKind,
-    sources: Vec<usize>,
-}
-
-macro_rules! resolve_label {
-    ($labels:expr, $target_pc:expr) => {
-        if let Some(label) = $labels.get(&$target_pc) {
-            label.name.clone()
-        } else {
-            format!("{} # unresolved symbol", $target_pc)
-        }
-    };
-}
-
-struct AnalysisResult {
-    instructions: Vec<HlInsn>,
-    destinations: BTreeMap<usize, Label>,
-    sources: BTreeMap<usize, Vec<usize>>,
-}
-
-impl AnalysisResult {
-    fn analyze_executable(executable: &dyn Executable<UserError, TestInstructionMeter>) -> Self {
-        let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
-        let mut result = Self {
-            instructions: to_insn_vec(program),
-            destinations: BTreeMap::new(),
-            sources: BTreeMap::new(),
-        };
-        let (syscalls, bpf_functions) = executable.get_symbols();
-        for (pc, bpf_function) in bpf_functions {
-            result.destinations.insert(
-                pc,
-                Label {
-                    name: demangle(&bpf_function.0).to_string(),
-                    length: 0, // bpf_function.1,
-                    kind: LabelKind::Function,
-                    sources: Vec::new(),
-                },
-            );
-        }
-        let entrypoint_pc = executable.get_entrypoint_instruction_offset().unwrap();
-        result.destinations.entry(entrypoint_pc).or_insert(Label {
-            name: "entrypoint".to_string(),
-            length: 0,
-            kind: LabelKind::Function,
-            sources: Vec::new(),
-        });
-        for insn in result.instructions.iter() {
-            match insn.opc {
-                ebpf::CALL_IMM => {
-                    if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
-                        // result.sources.insert(insn.ptr, vec![*target_pc]);
-                        if !result.destinations.contains_key(target_pc) {
-                            result.destinations.insert(
-                                *target_pc,
-                                Label {
-                                    name: format!("function_{}", target_pc),
-                                    length: 0,
-                                    kind: LabelKind::Function,
-                                    sources: Vec::new(),
-                                },
-                            );
-                        }
-                    }
-                }
-                ebpf::CALL_REG | ebpf::EXIT => {
-                    result.sources.insert(insn.ptr, vec![]);
-                }
-                _ => {}
-            }
-        }
-        for insn in result.instructions.iter() {
-            let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
-            match insn.opc {
-                ebpf::JA => {
-                    result.sources.insert(insn.ptr, vec![target_pc]);
-                }
-                ebpf::JEQ_IMM
-                | ebpf::JGT_IMM
-                | ebpf::JGE_IMM
-                | ebpf::JLT_IMM
-                | ebpf::JLE_IMM
-                | ebpf::JSET_IMM
-                | ebpf::JNE_IMM
-                | ebpf::JSGT_IMM
-                | ebpf::JSGE_IMM
-                | ebpf::JSLT_IMM
-                | ebpf::JSLE_IMM
-                | ebpf::JEQ_REG
-                | ebpf::JGT_REG
-                | ebpf::JGE_REG
-                | ebpf::JLT_REG
-                | ebpf::JLE_REG
-                | ebpf::JSET_REG
-                | ebpf::JNE_REG
-                | ebpf::JSGT_REG
-                | ebpf::JSGE_REG
-                | ebpf::JSLT_REG
-                | ebpf::JSLE_REG => {
-                    result
-                        .sources
-                        .insert(insn.ptr, vec![insn.ptr + 1, target_pc]);
-                    result.destinations.insert(
-                        insn.ptr + 1,
-                        Label {
-                            name: format!("lbb_{}", insn.ptr + 1),
-                            length: 0,
-                            kind: LabelKind::BasicBlock,
-                            sources: Vec::new(),
-                        },
-                    );
-                }
-                _ => continue,
-            }
-            result.destinations.entry(target_pc).or_insert(Label {
-                name: format!("lbb_{}", target_pc),
-                length: 0,
-                kind: LabelKind::BasicBlock,
-                sources: Vec::new(),
-            });
-        }
-        for (source, destinations) in &result.sources {
-            for destination in destinations {
-                result
-                    .destinations
-                    .get_mut(destination)
-                    .unwrap()
-                    .sources
-                    .push(*source);
-            }
-        }
-        let mut destination_iter = result.destinations.iter_mut().peekable();
-        let mut source_iter = result.sources.iter().peekable();
-        while let Some((begin, label)) = destination_iter.next() {
-            match result
-                .instructions
-                .binary_search_by(|insn| insn.ptr.cmp(begin))
-            {
-                Ok(_) => {}
-                Err(_index) => {
-                    println!("WARNING: Invalid symbol {:?}, pc={}", label.name, begin);
-                    label.length = 0;
-                    continue;
-                }
-            }
-            if label.length > 0 {
-                continue;
-            }
-            while let Some(next_source) = source_iter.peek() {
-                if *next_source.0 < *begin {
-                    source_iter.next();
-                } else {
-                    break;
-                }
-            }
-            let end = if let Some(next_destination) = destination_iter.peek() {
-                if let Some(next_source) = source_iter.peek() {
-                    let next_source = *next_source.0 + 1;
-                    if next_source < *next_destination.0 {
-                        source_iter.next();
-                        next_source
-                    } else {
-                        *next_destination.0
-                    }
-                } else {
-                    *next_destination.0
-                }
-            } else if let Some(next_source) = source_iter.next() {
-                *next_source.0 + 1
-            } else {
-                result.instructions.last().unwrap().ptr
-            };
-            label.length = end - begin;
-        }
-        for insn in result.instructions.iter_mut() {
-            match insn.opc {
-                ebpf::CALL_IMM => {
-                    insn.desc = if let Some(syscall_name) = syscalls.get(&(insn.imm as u32)) {
-                        format!("syscall {}", syscall_name)
-                    } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32)
-                    {
-                        format!("call {}", resolve_label!(result.destinations, target_pc))
-                    } else {
-                        format!("call {:x} # unresolved relocation", insn.imm)
-                    };
-                }
-                ebpf::JA => {
-                    let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
-                    insn.desc = format!(
-                        "{} {}",
-                        insn.name,
-                        resolve_label!(result.destinations, target_pc)
-                    );
-                }
-                ebpf::JEQ_IMM
-                | ebpf::JGT_IMM
-                | ebpf::JGE_IMM
-                | ebpf::JLT_IMM
-                | ebpf::JLE_IMM
-                | ebpf::JSET_IMM
-                | ebpf::JNE_IMM
-                | ebpf::JSGT_IMM
-                | ebpf::JSGE_IMM
-                | ebpf::JSLT_IMM
-                | ebpf::JSLE_IMM => {
-                    let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
-                    insn.desc = format!(
-                        "{} r{}, {:#x}, {}",
-                        insn.name,
-                        insn.dst,
-                        insn.imm,
-                        resolve_label!(result.destinations, target_pc)
-                    );
-                }
-                ebpf::JEQ_REG
-                | ebpf::JGT_REG
-                | ebpf::JGE_REG
-                | ebpf::JLT_REG
-                | ebpf::JLE_REG
-                | ebpf::JSET_REG
-                | ebpf::JNE_REG
-                | ebpf::JSGT_REG
-                | ebpf::JSGE_REG
-                | ebpf::JSLT_REG
-                | ebpf::JSLE_REG => {
-                    let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
-                    insn.desc = format!(
-                        "{} r{}, r{}, {}",
-                        insn.name,
-                        insn.dst,
-                        insn.src,
-                        resolve_label!(result.destinations, target_pc)
-                    );
-                }
-                _ => {}
-            }
-        }
-        result
-    }
-
-    pub fn print_label_at(&self, ptr: usize) -> bool {
-        if let Some(label) = self.destinations.get(&ptr) {
-            if label.kind == LabelKind::Function {
-                println!();
-            }
-            println!("{}:", label.name);
-            true
-        } else {
-            false
-        }
     }
 }
 
@@ -421,12 +166,12 @@ fn main() {
         let _ = syscall_registry.register_syscall_by_hash(*hash, MockSyscall::call);
     }
     executable.set_syscall_registry(syscall_registry);
-    let analysis_result = AnalysisResult::analyze_executable(executable.as_ref());
+    let analysis_result = AnalysisResult::from_executable(executable.as_ref());
 
     match matches.value_of("use") {
         Some("disassembler") => {
             for insn in analysis_result.instructions.iter() {
-                analysis_result.print_label_at(insn.ptr);
+                print_label_at(&analysis_result, insn.ptr);
                 println!("    {}", insn.desc);
             }
             return;
@@ -517,7 +262,7 @@ fn main() {
         }
         println!("Profile:");
         for insn in analysis_result.instructions.iter() {
-            if analysis_result.print_label_at(insn.ptr) {
+            if print_label_at(&analysis_result, insn.ptr) {
                 println!(
                     "    # Basic block executed: {}",
                     destination_counters[&insn.ptr]
