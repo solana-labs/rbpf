@@ -38,3 +38,4 @@ pub mod syscalls;
 pub mod user_error;
 pub mod verifier;
 pub mod vm;
+mod x86;
