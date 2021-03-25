@@ -5,18 +5,23 @@ use solana_rbpf::{
     ebpf,
     error::UserDefinedError,
     memory_region::{MemoryMapping, MemoryRegion},
-    static_analysis::Analysis,
+    static_analysis::{Analysis, CfgNode},
     user_error::UserError,
     verifier::check,
     vm::{Config, EbpfVm, Executable, InstructionMeter, SyscallObject, SyscallRegistry},
 };
-use std::{collections::HashMap, fs::File, io::Read, path::Path};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs::File,
+    io::Read,
+    path::Path,
+};
 use test_utils::{Result, TestInstructionMeter};
 
 fn annotate_cfg_nodes_with_labels<E: UserDefinedError, I: InstructionMeter>(
     analysis: &mut Analysis,
     executable: &dyn Executable<E, I>,
-) -> HashMap<usize, (bool, String)> {
+) -> HashMap<usize, String> {
     let labels = analysis
         .cfg_nodes
         .iter()
@@ -24,29 +29,29 @@ fn annotate_cfg_nodes_with_labels<E: UserDefinedError, I: InstructionMeter>(
             (
                 *pc,
                 if let Some((name, _length)) = analysis.bpf_functions.get(&pc) {
-                    (true, format!("\n{}", demangle(&name).to_string()))
+                    format!("{}", demangle(&name).to_string())
                 } else if cfg_node.is_function_entry {
-                    (true, format!("function_{}", pc))
+                    format!("function_{}", pc)
                 } else {
-                    (false, format!("lbb_{}", pc))
+                    format!("lbb_{}", pc)
                 },
             )
         })
-        .collect::<HashMap<usize, (bool, String)>>();
+        .collect::<HashMap<usize, String>>();
     for insn in analysis.instructions.iter_mut() {
         match insn.opc {
             ebpf::CALL_IMM => {
                 insn.desc = if let Some(syscall_name) = analysis.syscalls.get(&(insn.imm as u32)) {
                     format!("syscall {}", syscall_name)
                 } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
-                    format!("call {}", labels.get(target_pc).unwrap().1)
+                    format!("call {}", labels.get(target_pc).unwrap())
                 } else {
                     format!("call {:x} # unresolved relocation", insn.imm)
                 };
             }
             ebpf::JA => {
                 let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
-                insn.desc = format!("{} {}", insn.name, labels.get(&target_pc).unwrap().1);
+                insn.desc = format!("{} {}", insn.name, labels.get(&target_pc).unwrap());
             }
             ebpf::JEQ_IMM
             | ebpf::JGT_IMM
@@ -65,7 +70,7 @@ fn annotate_cfg_nodes_with_labels<E: UserDefinedError, I: InstructionMeter>(
                     insn.name,
                     insn.dst,
                     insn.imm,
-                    labels.get(&target_pc).unwrap().1
+                    labels.get(&target_pc).unwrap()
                 );
             }
             ebpf::JEQ_REG
@@ -85,7 +90,7 @@ fn annotate_cfg_nodes_with_labels<E: UserDefinedError, I: InstructionMeter>(
                     insn.name,
                     insn.dst,
                     insn.src,
-                    labels.get(&target_pc).unwrap().1
+                    labels.get(&target_pc).unwrap()
                 );
             }
             _ => {}
@@ -94,13 +99,17 @@ fn annotate_cfg_nodes_with_labels<E: UserDefinedError, I: InstructionMeter>(
     labels
 }
 
-fn print_label_at(labels: &HashMap<usize, (bool, String)>, ptr: usize) -> bool {
-    if let Some((is_function_entry, name)) = labels.get(&ptr) {
-        if *is_function_entry {
-            println!("\n{}:", name);
-        } else {
-            println!("{}:", name);
+fn print_label_at(
+    labels: &HashMap<usize, String>,
+    cfg_nodes: &BTreeMap<usize, CfgNode>,
+    ptr: usize,
+) -> bool {
+    if let Some(name) = labels.get(&ptr) {
+        let cfg_node = cfg_nodes.get(&ptr).unwrap();
+        if cfg_node.is_function_entry {
+            println!();
         }
+        println!("{}:", name);
         true
     } else {
         false
@@ -254,7 +263,7 @@ fn main() {
     match matches.value_of("use") {
         Some("disassembler") => {
             for insn in analysis.instructions.iter() {
-                print_label_at(&labels, insn.ptr);
+                print_label_at(&labels, &analysis.cfg_nodes, insn.ptr);
                 println!("    {}", insn.desc);
             }
             return;
@@ -310,52 +319,60 @@ fn main() {
         println!("Trace:\n{}", tracer_display);
     }
     if matches.is_present("profile") {
-        let mut destination_counters = HashMap::new();
-        let mut source_counters = HashMap::new();
-        for destination in analysis.cfg_nodes.keys() {
-            destination_counters.insert(*destination as usize, 0usize);
-        }
-        for (source, destinations) in &analysis.cfg_edges {
-            if destinations.len() == 2 {
-                source_counters.insert(*source as usize, vec![0usize; destinations.len()]);
+        let mut cfg_node_counters = HashMap::new();
+        let mut cfg_edge_counters = HashMap::new();
+        let mut cfg_node_iter = analysis.cfg_nodes.iter_mut().peekable();
+        while let Some((cfg_node_start, cfg_node)) = cfg_node_iter.next() {
+            cfg_node_counters.insert(*cfg_node_start, 0usize);
+            if cfg_node.destinations.len() == 2 {
+                let cfg_node_end = if let Some(next_cfg_node) = cfg_node_iter.peek() {
+                    *next_cfg_node.0
+                } else {
+                    analysis.instructions.len()
+                } - 1;
+                cfg_edge_counters.insert(
+                    cfg_node_end,
+                    (*cfg_node_start, vec![0usize; cfg_node.destinations.len()]),
+                );
             }
         }
         let trace = &vm.get_tracer().log;
         for (index, traced_instruction) in trace.iter().enumerate() {
-            if let Some(destination_counter) =
-                destination_counters.get_mut(&(traced_instruction[11] as usize))
+            if let Some(cfg_node_counter) =
+                cfg_node_counters.get_mut(&(traced_instruction[11] as usize))
             {
-                *destination_counter += 1;
+                *cfg_node_counter += 1;
             }
-            if let Some(source_counter) =
-                source_counters.get_mut(&(traced_instruction[11] as usize))
+            if let Some(edge_counter) =
+                cfg_edge_counters.get_mut(&(traced_instruction[11] as usize))
             {
                 let next_traced_instruction = trace[index + 1];
-                let destinations = analysis
-                    .cfg_edges
-                    .get(&(traced_instruction[11] as usize))
-                    .unwrap();
+                let destinations = &analysis
+                    .cfg_nodes
+                    .get(&edge_counter.0)
+                    .unwrap()
+                    .destinations;
                 if let Some(destination_index) = destinations
                     .iter()
                     .position(|&ptr| ptr == next_traced_instruction[11] as usize)
                 {
-                    source_counter[destination_index] += 1;
+                    edge_counter.1[destination_index] += 1;
                 }
             }
         }
         println!("Profile:");
         for insn in analysis.instructions.iter() {
-            if print_label_at(&labels, insn.ptr) {
+            if print_label_at(&labels, &analysis.cfg_nodes, insn.ptr) {
                 println!(
                     "    # Basic block executed: {}",
-                    destination_counters[&insn.ptr]
+                    cfg_node_counters[&insn.ptr]
                 );
             }
             println!("    {}", insn.desc);
-            if let Some(source_counter) = source_counters.get(&insn.ptr) {
+            if let Some(edge_counter) = cfg_edge_counters.get(&insn.ptr) {
                 println!(
                     "    # Branch: {} fall through, {} jump",
-                    source_counter[0], source_counter[1]
+                    edge_counter.1[0], edge_counter.1[1]
                 );
             }
         }

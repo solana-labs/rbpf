@@ -9,14 +9,15 @@ use crate::{
 };
 use std::collections::{BTreeMap, HashMap};
 
-/// A node of the control flow graph
+/// A node of the control-flow graph
+#[derive(Default)]
 pub struct CfgNode {
-    /// Length in instruction slots
-    pub length: usize,
-    /// Is at least one of the sources a call instruction
+    /// Is at least one of the sources a "call" instruction
     pub is_function_entry: bool,
-    /// PCs of instructions which can jump here
+    /// Basic blocks which can jump to the start of this basic block
     pub sources: Vec<usize>,
+    /// Basic blocks which the end of this basic block can jump to
+    pub destinations: Vec<usize>,
 }
 
 /// Result of the executable analysis
@@ -27,10 +28,8 @@ pub struct Analysis {
     pub syscalls: HashMap<u32, String>,
     /// BPF functions of the executable (available if debug symbols are not stripped)
     pub bpf_functions: HashMap<usize, (String, usize)>,
-    /// Nodes of the control flow graph
+    /// Nodes of the control-flow graph
     pub cfg_nodes: BTreeMap<usize, CfgNode>,
-    /// Edges of the control flow graph (source, destinations)
-    pub cfg_edges: BTreeMap<usize, Vec<usize>>,
 }
 
 impl Analysis {
@@ -38,61 +37,78 @@ impl Analysis {
     pub fn from_executable<E: UserDefinedError, I: InstructionMeter>(
         executable: &dyn Executable<E, I>,
     ) -> Self {
-        let mut result = {
-            let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
-            let (syscalls, bpf_functions) = executable.get_symbols();
-            Self {
-                instructions: to_insn_vec(program),
-                syscalls,
-                bpf_functions,
-                cfg_nodes: BTreeMap::new(),
-                cfg_edges: BTreeMap::new(),
-            }
+        let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
+        let (syscalls, bpf_functions) = executable.get_symbols();
+        let mut result = Self {
+            instructions: to_insn_vec(program),
+            syscalls,
+            bpf_functions,
+            cfg_nodes: BTreeMap::new(),
         };
-        for pc in result.bpf_functions.keys() {
-            result.cfg_nodes.insert(
-                *pc,
-                CfgNode {
-                    length: 0,
-                    is_function_entry: true,
-                    sources: Vec::new(),
-                },
-            );
+        result.split_into_basic_blocks(executable);
+        result
+    }
+
+    fn split_into_basic_blocks<E: UserDefinedError, I: InstructionMeter>(
+        &mut self,
+        executable: &dyn Executable<E, I>,
+    ) {
+        fn insert_basic_block(
+            cfg_nodes: &mut BTreeMap<usize, CfgNode>,
+            pc: usize,
+            is_function_entry: bool,
+        ) {
+            if let Some(cfg_node) = cfg_nodes.get_mut(&pc) {
+                cfg_node.is_function_entry = cfg_node.is_function_entry || is_function_entry;
+            } else {
+                cfg_nodes.insert(
+                    pc,
+                    CfgNode {
+                        is_function_entry,
+                        ..CfgNode::default()
+                    },
+                );
+            }
+        }
+        let mut cfg_edges = BTreeMap::new();
+        for pc in self.bpf_functions.keys() {
+            insert_basic_block(&mut self.cfg_nodes, *pc, true);
         }
         let entrypoint_pc = executable.get_entrypoint_instruction_offset().unwrap();
-        result.cfg_nodes.entry(entrypoint_pc).or_insert(CfgNode {
-            length: 0,
-            is_function_entry: true,
-            sources: Vec::new(),
-        });
-        for insn in result.instructions.iter() {
-            match insn.opc {
-                ebpf::CALL_IMM => {
-                    if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
-                        result.cfg_edges.insert(insn.ptr, vec![*target_pc]);
-                        if !result.cfg_nodes.contains_key(target_pc) {
-                            result.cfg_nodes.insert(
-                                *target_pc,
-                                CfgNode {
-                                    length: 0,
-                                    is_function_entry: true,
-                                    sources: Vec::new(),
-                                },
-                            );
-                        }
-                    }
-                }
-                ebpf::CALL_REG | ebpf::EXIT => {
-                    result.cfg_edges.insert(insn.ptr, Vec::new());
-                }
-                _ => {}
-            }
-        }
-        for insn in result.instructions.iter() {
+        insert_basic_block(&mut self.cfg_nodes, entrypoint_pc, true);
+        for insn in self.instructions.iter() {
             let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
             match insn.opc {
+                ebpf::CALL_IMM => {
+                    if let Some(syscall_name) = self.syscalls.get(&(insn.imm as u32)) {
+                        cfg_edges.insert(
+                            insn.ptr,
+                            if syscall_name == "abort" {
+                                vec![]
+                            } else {
+                                vec![insn.ptr + 1]
+                            },
+                        );
+                        insert_basic_block(&mut self.cfg_nodes, insn.ptr + 1, false);
+                    } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32)
+                    {
+                        cfg_edges.insert(insn.ptr, vec![*target_pc]);
+                        insert_basic_block(&mut self.cfg_nodes, insn.ptr + 1, false);
+                        insert_basic_block(&mut self.cfg_nodes, *target_pc, true);
+                    }
+                }
+                ebpf::CALL_REG => {
+                    cfg_edges.insert(insn.ptr, vec![]); // Abnormal CFG edge
+                    insert_basic_block(&mut self.cfg_nodes, insn.ptr + 1, false);
+                }
+                ebpf::EXIT => {
+                    cfg_edges.insert(insn.ptr, vec![]);
+                    insert_basic_block(&mut self.cfg_nodes, insn.ptr + 1, false);
+                }
                 ebpf::JA => {
-                    result.cfg_edges.insert(insn.ptr, vec![target_pc]);
+                    cfg_edges.insert(insn.ptr, vec![target_pc]);
+                    insert_basic_block(&mut self.cfg_nodes, insn.ptr + 1, false);
+                    insert_basic_block(&mut self.cfg_nodes, target_pc, false);
                 }
                 ebpf::JEQ_IMM
                 | ebpf::JGT_IMM
@@ -116,72 +132,75 @@ impl Analysis {
                 | ebpf::JSGE_REG
                 | ebpf::JSLT_REG
                 | ebpf::JSLE_REG => {
-                    result
-                        .cfg_edges
-                        .insert(insn.ptr, vec![insn.ptr + 1, target_pc]);
-                    result.cfg_nodes.insert(
-                        insn.ptr + 1,
-                        CfgNode {
-                            length: 0,
-                            is_function_entry: false,
-                            sources: Vec::new(),
-                        },
-                    );
+                    cfg_edges.insert(insn.ptr, vec![insn.ptr + 1, target_pc]);
+                    insert_basic_block(&mut self.cfg_nodes, insn.ptr + 1, false);
+                    insert_basic_block(&mut self.cfg_nodes, target_pc, false);
                 }
-                _ => continue,
-            }
-            result.cfg_nodes.entry(target_pc).or_insert(CfgNode {
-                length: 0,
-                is_function_entry: false,
-                sources: Vec::new(),
-            });
-        }
-        for (source, destinations) in &result.cfg_edges {
-            for destination in destinations {
-                result
-                    .cfg_nodes
-                    .get_mut(destination)
-                    .unwrap()
-                    .sources
-                    .push(*source);
+                _ => {}
             }
         }
-        let mut destination_iter = result.cfg_nodes.iter_mut().peekable();
-        let mut source_iter = result.cfg_edges.iter().peekable();
-        while let Some((begin, cfg_node)) = destination_iter.next() {
-            match result
-                .instructions
-                .binary_search_by(|insn| insn.ptr.cmp(begin))
-            {
-                Ok(_) => {}
-                Err(_index) => continue,
-            }
-            while let Some(next_source) = source_iter.peek() {
-                if *next_source.0 < *begin {
-                    source_iter.next();
+        {
+            let mut cfg_nodes = BTreeMap::new();
+            std::mem::swap(&mut self.cfg_nodes, &mut cfg_nodes);
+            let mut cfg_nodes = cfg_nodes
+                .into_iter()
+                .filter(|(cfg_node_start, _cfg_node)| {
+                    match self
+                        .instructions
+                        .binary_search_by(|insn| insn.ptr.cmp(&cfg_node_start))
+                    {
+                        Ok(_) => true,
+                        Err(_index) => false,
+                    }
+                })
+                .collect();
+            std::mem::swap(&mut self.cfg_nodes, &mut cfg_nodes);
+        }
+        let mut cfg_node_iter = self.cfg_nodes.iter_mut().peekable();
+        let mut cfg_edge_iter = cfg_edges.iter_mut().peekable();
+        while let Some((cfg_node_start, cfg_node)) = cfg_node_iter.next() {
+            while let Some(next_cfg_edge) = cfg_edge_iter.peek() {
+                if *next_cfg_edge.0 < *cfg_node_start {
+                    println!(
+                        "WARN: Skipped edge {} before block {}",
+                        *next_cfg_edge.0, *cfg_node_start
+                    );
+                    cfg_edge_iter.next();
                 } else {
                     break;
                 }
             }
-            let end = if let Some(next_destination) = destination_iter.peek() {
-                if let Some(next_source) = source_iter.peek() {
-                    let next_source = *next_source.0 + 1;
-                    if next_source < *next_destination.0 {
-                        source_iter.next();
-                        next_source
-                    } else {
-                        *next_destination.0
-                    }
+            if let Some(next_cfg_edge) = cfg_edge_iter.peek() {
+                let terminal_edge = if let Some(next_cfg_node) = cfg_node_iter.peek() {
+                    *next_cfg_edge.0 < *next_cfg_node.0
                 } else {
-                    *next_destination.0
+                    true
+                };
+                if terminal_edge {
+                    cfg_node.destinations = next_cfg_edge.1.clone();
+                    cfg_edge_iter.next();
+                    continue;
                 }
-            } else if let Some(next_source) = source_iter.next() {
-                *next_source.0 + 1
-            } else {
-                result.instructions.last().unwrap().ptr
-            };
-            cfg_node.length = end - begin;
+            }
+            if let Some(next_cfg_node) = cfg_node_iter.peek() {
+                if !next_cfg_node.1.is_function_entry {
+                    cfg_node.destinations.push(*next_cfg_node.0);
+                }
+            }
         }
-        result
+        let cfg_edges = self
+            .cfg_nodes
+            .iter()
+            .map(|(source, cfg_node)| (*source, cfg_node.destinations.clone()))
+            .collect::<Vec<(usize, Vec<usize>)>>();
+        for (source, destinations) in cfg_edges {
+            for destination in &destinations {
+                self.cfg_nodes
+                    .get_mut(&destination)
+                    .unwrap()
+                    .sources
+                    .push(source);
+            }
+        }
     }
 }
