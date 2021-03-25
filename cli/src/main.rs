@@ -3,28 +3,111 @@ use rustc_demangle::demangle;
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
+    error::UserDefinedError,
     memory_region::{MemoryMapping, MemoryRegion},
-    static_analysis::{AnalysisResult, LabelKind},
+    static_analysis::Analysis,
     user_error::UserError,
     verifier::check,
-    vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry},
+    vm::{Config, EbpfVm, Executable, InstructionMeter, SyscallObject, SyscallRegistry},
 };
 use std::{collections::HashMap, fs::File, io::Read, path::Path};
 use test_utils::{Result, TestInstructionMeter};
 
-pub fn print_label_at(analysis_result: &AnalysisResult, ptr: usize) -> bool {
-    if let Some(label) = analysis_result.destinations.get(&ptr) {
-        if label.kind == LabelKind::Function {
-            println!();
+fn annotate_cfg_nodes_with_labels<E: UserDefinedError, I: InstructionMeter>(
+    analysis: &mut Analysis,
+    executable: &dyn Executable<E, I>,
+) -> HashMap<usize, (bool, String)> {
+    let labels = analysis
+        .cfg_nodes
+        .iter()
+        .map(|(pc, cfg_node)| {
+            (
+                *pc,
+                if let Some((name, _length)) = analysis.bpf_functions.get(&pc) {
+                    (true, format!("\n{}", demangle(&name).to_string()))
+                } else if cfg_node.is_function_entry {
+                    (true, format!("function_{}", pc))
+                } else {
+                    (false, format!("lbb_{}", pc))
+                },
+            )
+        })
+        .collect::<HashMap<usize, (bool, String)>>();
+    for insn in analysis.instructions.iter_mut() {
+        match insn.opc {
+            ebpf::CALL_IMM => {
+                insn.desc = if let Some(syscall_name) = analysis.syscalls.get(&(insn.imm as u32)) {
+                    format!("syscall {}", syscall_name)
+                } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
+                    format!("call {}", labels.get(target_pc).unwrap().1)
+                } else {
+                    format!("call {:x} # unresolved relocation", insn.imm)
+                };
+            }
+            ebpf::JA => {
+                let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
+                insn.desc = format!("{} {}", insn.name, labels.get(&target_pc).unwrap().1);
+            }
+            ebpf::JEQ_IMM
+            | ebpf::JGT_IMM
+            | ebpf::JGE_IMM
+            | ebpf::JLT_IMM
+            | ebpf::JLE_IMM
+            | ebpf::JSET_IMM
+            | ebpf::JNE_IMM
+            | ebpf::JSGT_IMM
+            | ebpf::JSGE_IMM
+            | ebpf::JSLT_IMM
+            | ebpf::JSLE_IMM => {
+                let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
+                insn.desc = format!(
+                    "{} r{}, {:#x}, {}",
+                    insn.name,
+                    insn.dst,
+                    insn.imm,
+                    labels.get(&target_pc).unwrap().1
+                );
+            }
+            ebpf::JEQ_REG
+            | ebpf::JGT_REG
+            | ebpf::JGE_REG
+            | ebpf::JLT_REG
+            | ebpf::JLE_REG
+            | ebpf::JSET_REG
+            | ebpf::JNE_REG
+            | ebpf::JSGT_REG
+            | ebpf::JSGE_REG
+            | ebpf::JSLT_REG
+            | ebpf::JSLE_REG => {
+                let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
+                insn.desc = format!(
+                    "{} r{}, r{}, {}",
+                    insn.name,
+                    insn.dst,
+                    insn.src,
+                    labels.get(&target_pc).unwrap().1
+                );
+            }
+            _ => {}
         }
-        println!("{}:", demangle(&label.name).to_string());
+    }
+    labels
+}
+
+fn print_label_at(labels: &HashMap<usize, (bool, String)>, ptr: usize) -> bool {
+    if let Some((is_function_entry, name)) = labels.get(&ptr) {
+        if *is_function_entry {
+            println!("\n{}:", name);
+        } else {
+            println!("{}:", name);
+        }
         true
     } else {
         false
     }
 }
 
-pub struct MockSyscall {
+struct MockSyscall {
     name: String,
 }
 impl SyscallObject<UserError> for MockSyscall {
@@ -160,18 +243,18 @@ fn main() {
         }
     };
 
-    let (syscalls, _bpf_functions) = executable.get_symbols();
+    let mut analysis = Analysis::from_executable(executable.as_ref());
+    let labels = annotate_cfg_nodes_with_labels(&mut analysis, executable.as_ref());
     let mut syscall_registry = SyscallRegistry::default();
-    for hash in syscalls.keys() {
+    for hash in analysis.syscalls.keys() {
         let _ = syscall_registry.register_syscall_by_hash(*hash, MockSyscall::call);
     }
     executable.set_syscall_registry(syscall_registry);
-    let analysis_result = AnalysisResult::from_executable(executable.as_ref());
 
     match matches.value_of("use") {
         Some("disassembler") => {
-            for insn in analysis_result.instructions.iter() {
-                print_label_at(&analysis_result, insn.ptr);
+            for insn in analysis.instructions.iter() {
+                print_label_at(&labels, insn.ptr);
                 println!("    {}", insn.desc);
             }
             return;
@@ -208,7 +291,7 @@ fn main() {
     ];
     let heap_region = MemoryRegion::new_from_slice(&heap, ebpf::MM_HEAP_START, 0, true);
     let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[heap_region]).unwrap();
-    for (hash, name) in &syscalls {
+    for (hash, name) in &analysis.syscalls {
         vm.bind_syscall_context_object(Box::new(MockSyscall { name: name.clone() }), Some(*hash))
             .unwrap();
     }
@@ -229,10 +312,10 @@ fn main() {
     if matches.is_present("profile") {
         let mut destination_counters = HashMap::new();
         let mut source_counters = HashMap::new();
-        for destination in analysis_result.destinations.keys() {
+        for destination in analysis.cfg_nodes.keys() {
             destination_counters.insert(*destination as usize, 0usize);
         }
-        for (source, destinations) in &analysis_result.sources {
+        for (source, destinations) in &analysis.cfg_edges {
             if destinations.len() == 2 {
                 source_counters.insert(*source as usize, vec![0usize; destinations.len()]);
             }
@@ -248,8 +331,8 @@ fn main() {
                 source_counters.get_mut(&(traced_instruction[11] as usize))
             {
                 let next_traced_instruction = trace[index + 1];
-                let destinations = analysis_result
-                    .sources
+                let destinations = analysis
+                    .cfg_edges
                     .get(&(traced_instruction[11] as usize))
                     .unwrap();
                 if let Some(destination_index) = destinations
@@ -261,8 +344,8 @@ fn main() {
             }
         }
         println!("Profile:");
-        for insn in analysis_result.instructions.iter() {
-            if print_label_at(&analysis_result, insn.ptr) {
+        for insn in analysis.instructions.iter() {
+            if print_label_at(&labels, insn.ptr) {
                 println!(
                     "    # Basic block executed: {}",
                     destination_counters[&insn.ptr]
