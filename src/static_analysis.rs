@@ -18,6 +18,8 @@ pub struct CfgNode {
     pub destinations: Vec<usize>,
     /// Range of the instructions belonging to this basic block
     pub instructions: std::ops::Range<usize>,
+    /// Strongly connected component ID (and topological order)
+    pub scc_id: usize,
 }
 
 /// Result of the executable analysis
@@ -49,6 +51,7 @@ impl Analysis {
             entrypoint: executable.get_entrypoint_instruction_offset().unwrap(),
         };
         result.split_into_basic_blocks(executable, false);
+        result.control_flow_graph_tarjan();
         result
     }
 
@@ -67,6 +70,9 @@ impl Analysis {
         }
     }
 
+    /// Splits the sequence of instructions into basic blocks
+    ///
+    /// Also links the control-flow graph edges between the basic blocks.
     fn split_into_basic_blocks<E: UserDefinedError, I: InstructionMeter>(
         &mut self,
         executable: &dyn Executable<E, I>,
@@ -241,6 +247,94 @@ impl Analysis {
                 }
             }
             self.link_cfg_edges(cfg_edges, true);
+        }
+    }
+
+    /// Finds the strongly connected components
+    ///
+    /// Generates a topological order as by-product.
+    fn control_flow_graph_tarjan(&mut self) {
+        struct NodeState {
+            cfg_node: usize,
+            discovery: usize,
+            lowlink: usize,
+            scc_id: usize,
+            is_on_scc_stack: bool,
+        }
+        let mut nodes = self
+            .cfg_nodes
+            .iter_mut()
+            .enumerate()
+            .map(|(v, (key, cfg_node))| {
+                cfg_node.scc_id = v;
+                NodeState {
+                    cfg_node: *key,
+                    discovery: usize::MAX,
+                    lowlink: usize::MAX,
+                    scc_id: usize::MAX,
+                    is_on_scc_stack: false,
+                }
+            })
+            .collect::<Vec<NodeState>>();
+        let mut scc_id = 0;
+        let mut scc_stack = Vec::new();
+        let mut discovered = 0;
+        let mut next_v = 1;
+        let mut recursion_stack = vec![(0, 0)];
+        'dfs: while let Some((v, edge_index)) = recursion_stack.pop() {
+            let node = &mut nodes[v];
+            if edge_index == 0 {
+                node.discovery = discovered;
+                node.lowlink = discovered;
+                node.is_on_scc_stack = true;
+                scc_stack.push(v);
+                discovered += 1;
+            }
+            let cfg_node = self.cfg_nodes.get(&node.cfg_node).unwrap();
+            for j in edge_index..cfg_node.destinations.len() {
+                let w = self
+                    .cfg_nodes
+                    .get(&cfg_node.destinations[j])
+                    .unwrap()
+                    .scc_id;
+                if nodes[w].discovery == usize::MAX {
+                    recursion_stack.push((v, j + 1));
+                    recursion_stack.push((w, 0));
+                    continue 'dfs;
+                } else if nodes[w].is_on_scc_stack {
+                    nodes[v].lowlink = nodes[v].lowlink.min(nodes[w].discovery);
+                }
+            }
+            if nodes[v].discovery == nodes[v].lowlink {
+                while let Some(w) = scc_stack.pop() {
+                    let node = &mut nodes[w];
+                    node.is_on_scc_stack = false;
+                    node.scc_id = scc_id;
+                    if w == v {
+                        break;
+                    }
+                }
+                scc_id += 1;
+            }
+            if let Some((w, _)) = recursion_stack.last() {
+                nodes[*w].lowlink = nodes[*w].lowlink.min(nodes[v].lowlink);
+            } else {
+                loop {
+                    if next_v == nodes.len() {
+                        break 'dfs;
+                    }
+                    if nodes[next_v].discovery == usize::MAX {
+                        break;
+                    }
+                    next_v += 1;
+                }
+                recursion_stack.push((next_v, 0));
+                next_v += 1;
+            }
+        }
+        for node in &nodes {
+            let cfg_node = self.cfg_nodes.get_mut(&node.cfg_node).unwrap();
+            cfg_node.scc_id = node.scc_id;
         }
     }
 }
