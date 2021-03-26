@@ -173,7 +173,7 @@ fn main() {
                 .short('u')
                 .long("use")
                 .takes_value(true)
-                .possible_values(&["disassembler", "interpreter", "jit"])
+                .possible_values(&["cfg", "disassembler", "interpreter", "jit"])
                 .required(true),
         )
         .arg(
@@ -249,6 +249,87 @@ fn main() {
     executable.set_syscall_registry(syscall_registry);
 
     match matches.value_of("use") {
+        Some("cfg") => {
+            fn html_escape(string: &str) -> String {
+                string
+                    .replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace("\"", "&quot;")
+            }
+            println!("digraph {{");
+            println!("  graph [");
+            println!("    rankdir=TB;");
+            println!("    style=filled;");
+            println!("    color=lightgrey;");
+            println!("  ];");
+            println!("  node [");
+            println!("    shape=rect;");
+            println!("    style=filled;");
+            println!("    fillcolor=white;");
+            println!("    fontname=\"Courier New\";");
+            println!("  ];");
+            const MAX_CELL_CONTENT_LENGTH: usize = 15;
+            let mut function_iter = analysis.functions.iter().peekable();
+            let mut cfg_node_iter = analysis.cfg_nodes.iter().peekable();
+            while let Some((function, (name, _length))) = function_iter.next() {
+                let function_end = if let Some(next_function) = function_iter.peek() {
+                    *next_function.0 - 1
+                } else {
+                    analysis.instructions.last().unwrap().ptr
+                };
+                let mut is_first = true;
+                while let Some(cfg_node) = cfg_node_iter.peek() {
+                    if *cfg_node.0 <= function_end {
+                        if is_first {
+                            is_first = false;
+                            println!("  subgraph cluster_{} {{", *function);
+                            println!("    label={:?};", html_escape(name));
+                        }
+                        println!("    lbb_{} [label=<<table border=\"0\" cellborder=\"0\" cellpadding=\"3\">{}</table>>];",
+                            *cfg_node.0,
+                            analysis.instructions[cfg_node.1.instructions.clone()].iter()
+                            .map(|instruction| {
+                                if let Some(split_index) = instruction.desc.find(' ') {
+                                    let mut rest = instruction.desc[split_index+1..].to_string();
+                                    if rest.len() > MAX_CELL_CONTENT_LENGTH + 1 {
+                                        rest.truncate(MAX_CELL_CONTENT_LENGTH);
+                                        rest = format!("{}…", rest);
+                                    }
+                                    format!("<tr><td align=\"left\">{}</td><td align=\"left\">{}</td></tr>", html_escape(&instruction.desc[..split_index]), html_escape(&rest))
+                                } else {
+                                    format!("<tr><td align=\"left\">{}</td></tr>", html_escape(&instruction.desc))
+                                }
+                            })
+                            .collect::<Vec<String>>()
+                            .join("")
+                        );
+                        cfg_node_iter.next();
+                    } else {
+                        break;
+                    }
+                }
+                if !is_first {
+                    println!("  }}");
+                }
+            }
+            for (cfg_node_start, cfg_node) in analysis.cfg_nodes.iter() {
+                if !cfg_node.destinations.is_empty() {
+                    println!(
+                        "  lbb_{} -> {{{}}};",
+                        *cfg_node_start,
+                        cfg_node
+                            .destinations
+                            .iter()
+                            .map(|destination| format!("lbb_{}", *destination))
+                            .collect::<Vec<String>>()
+                            .join(" ")
+                    );
+                }
+            }
+            println!("}}");
+            return;
+        }
         Some("disassembler") => {
             for insn in analysis.instructions.iter() {
                 print_label_at(&labels, &analysis, insn.ptr);
