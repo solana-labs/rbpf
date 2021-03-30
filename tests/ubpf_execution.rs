@@ -96,7 +96,7 @@ macro_rules! test_interpreter_and_jit_asm {
                 enable_instruction_tracing: true,
                 ..Config::default()
             };
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(&program, None, config).unwrap();
+            let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_text_bytes(&program, None, config).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $a $(; $b)?),*), $check, $expected_instruction_count);
         }
     };
@@ -113,7 +113,7 @@ macro_rules! test_interpreter_and_jit_elf {
                 enable_instruction_tracing: true,
                 ..Config::default()
             };
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, config).unwrap();
+            let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, None, config).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $a $(; $b)?),*), $check, $expected_instruction_count);
         }
     };
@@ -2708,7 +2708,7 @@ fn test_custom_entrypoint() {
     file.read_to_end(&mut elf).unwrap();
     elf[24] = 80; // Move entrypoint to later in the text section
     let mut executable =
-        Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, Config::default())
+        <dyn Executable<UserError, TestInstructionMeter>>::from_elf(&elf, None, Config::default())
             .unwrap();
     test_interpreter_and_jit!(
         executable,
@@ -3244,7 +3244,7 @@ fn test_large_program() {
     #[allow(unused_mut)]
     {
         let mut executable =
-            Executable::<UserError, TestInstructionMeter>::from_text_bytes(&prog, None, config)
+            <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(&prog, None, config)
                 .unwrap();
         test_interpreter_and_jit!(
             executable,
@@ -3260,7 +3260,7 @@ fn test_large_program() {
         prog.extend_from_slice(&assemble("exit").unwrap());
 
         assert!(
-            Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(
+            <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(
                 &prog,
                 Some(check),
                 config,
@@ -3276,7 +3276,7 @@ fn test_large_program() {
 fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
-    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
         &prog,
         Some(check),
         Config {

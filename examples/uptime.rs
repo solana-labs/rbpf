@@ -42,7 +42,7 @@ fn main() {
     ];
 
     // Create a VM: this one takes no data. Load prog1 in it.
-    let executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(
+    let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog1,
         None,
         Config::default(),
@@ -65,7 +65,7 @@ fn main() {
     // In the following example we use a syscall to get the elapsed time since boot time: we
     // reimplement uptime in eBPF, in Rust. Because why not.
 
-    let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(
+    let mut executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog2,
         None,
         Config::default(),

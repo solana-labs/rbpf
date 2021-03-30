@@ -111,11 +111,13 @@ fn test_fuzz_execute() {
         0..elf.len(),
         0..255,
         |bytes: &mut [u8]| {
-            if let Ok(mut executable) = Executable::<UserError, DefaultInstructionMeter>::from_elf(
-                &bytes,
-                Some(check),
-                Config::default(),
-            ) {
+            if let Ok(mut executable) =
+                <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
+                    &bytes,
+                    Some(check),
+                    Config::default(),
+                )
+            {
                 let mut syscall_registry = SyscallRegistry::default();
                 syscall_registry
                     .register_syscall_by_name::<UserError, _>(b"log", BpfSyscallString::call)

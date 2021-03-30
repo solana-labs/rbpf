@@ -56,7 +56,7 @@ parser! {
         let hex = string("0x")
             .with(many1(hex_digit()))
             .map(|x: String| u64::from_str_radix(&x, 16).unwrap_or(0) as i64);
-        let dec = many1(digit()).map(|x: String| i64::from_str_radix(&x, 10).unwrap_or(0));
+        let dec = many1(digit()).map(|x: String| x.parse::<i64>().unwrap_or(0));
         (sign, attempt(hex).or(dec))
             .map(|(s, x)| s * x)
     }
@@ -66,7 +66,7 @@ parser! {
     fn register[I]()(I) -> i64 where [I: Stream<Item=char>] {
         char('r')
             .with(many1(digit()))
-            .map(|x: String| i64::from_str_radix(&x, 10).unwrap_or(0))
+            .map(|x: String| x.parse::<i64>().unwrap_or(0))
     }
 }
 
