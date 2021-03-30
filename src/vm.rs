@@ -294,7 +294,7 @@ impl Tracer {
                 out,
                 "{:5?} {:016X?} {:5?}: {}",
                 index,
-                &entry[0..10],
+                &entry[0..11],
                 entry[11] as usize + ebpf::ELF_INSN_DUMP_OFFSET,
                 disassembled[pc_to_instruction_index[entry[11] as usize]].desc,
             )?;
