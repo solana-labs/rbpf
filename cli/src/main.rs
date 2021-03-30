@@ -257,9 +257,34 @@ fn main() {
                     .replace(">", "&gt;")
                     .replace("\"", "&quot;")
             }
+            fn emit_cfg_node(analysis: &Analysis, start_pc: usize) {
+                let cfg_node = &analysis.cfg_nodes[&start_pc];
+                println!("    lbb_{} [label=<<table border=\"0\" cellborder=\"0\" cellpadding=\"3\">{}</table>>];",
+                start_pc,
+                    analysis.instructions[cfg_node.instructions.clone()].iter()
+                    .map(|instruction| {
+                        if let Some(split_index) = instruction.desc.find(' ') {
+                            let mut rest = instruction.desc[split_index+1..].to_string();
+                            if rest.len() > MAX_CELL_CONTENT_LENGTH + 1 {
+                                rest.truncate(MAX_CELL_CONTENT_LENGTH);
+                                rest = format!("{}…", rest);
+                            }
+                            format!("<tr><td align=\"left\">{}</td><td align=\"left\">{}</td></tr>", html_escape(&instruction.desc[..split_index]), html_escape(&rest))
+                        } else {
+                            format!("<tr><td align=\"left\">{}</td></tr>", html_escape(&instruction.desc))
+                        }
+                    })
+                    .collect::<Vec<String>>()
+                    .join("")
+                );
+                for child in &cfg_node.dominated_children {
+                    emit_cfg_node(analysis, *child);
+                }
+            }
             println!("digraph {{");
             println!("  graph [");
-            println!("    rankdir=TB;");
+            println!("    rankdir=LR;");
+            println!("    concentrate=True;");
             println!("    style=filled;");
             println!("    color=lightgrey;");
             println!("  ];");
@@ -270,48 +295,11 @@ fn main() {
             println!("    fontname=\"Courier New\";");
             println!("  ];");
             const MAX_CELL_CONTENT_LENGTH: usize = 15;
-            let mut function_iter = analysis.functions.iter().peekable();
-            let mut cfg_node_iter = analysis.cfg_nodes.iter().peekable();
-            while let Some((function, (name, _length))) = function_iter.next() {
-                let function_end = if let Some(next_function) = function_iter.peek() {
-                    *next_function.0 - 1
-                } else {
-                    analysis.instructions.last().unwrap().ptr
-                };
-                let mut is_first = true;
-                while let Some(cfg_node) = cfg_node_iter.peek() {
-                    if *cfg_node.0 <= function_end {
-                        if is_first {
-                            is_first = false;
-                            println!("  subgraph cluster_{} {{", *function);
-                            println!("    label={:?};", html_escape(name));
-                        }
-                        println!("    lbb_{} [label=<<table border=\"0\" cellborder=\"0\" cellpadding=\"3\">{}</table>>];",
-                            *cfg_node.0,
-                            analysis.instructions[cfg_node.1.instructions.clone()].iter()
-                            .map(|instruction| {
-                                if let Some(split_index) = instruction.desc.find(' ') {
-                                    let mut rest = instruction.desc[split_index+1..].to_string();
-                                    if rest.len() > MAX_CELL_CONTENT_LENGTH + 1 {
-                                        rest.truncate(MAX_CELL_CONTENT_LENGTH);
-                                        rest = format!("{}…", rest);
-                                    }
-                                    format!("<tr><td align=\"left\">{}</td><td align=\"left\">{}</td></tr>", html_escape(&instruction.desc[..split_index]), html_escape(&rest))
-                                } else {
-                                    format!("<tr><td align=\"left\">{}</td></tr>", html_escape(&instruction.desc))
-                                }
-                            })
-                            .collect::<Vec<String>>()
-                            .join("")
-                        );
-                        cfg_node_iter.next();
-                    } else {
-                        break;
-                    }
-                }
-                if !is_first {
-                    println!("  }}");
-                }
+            for (function, (name, _length)) in analysis.functions.iter() {
+                println!("  subgraph cluster_{} {{", *function);
+                println!("    label={:?};", html_escape(name));
+                emit_cfg_node(&analysis, *function);
+                println!("  }}");
             }
             for (cfg_node_start, cfg_node) in analysis.cfg_nodes.iter() {
                 if !cfg_node.destinations.is_empty() {

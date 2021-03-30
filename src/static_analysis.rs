@@ -10,7 +10,6 @@ use crate::{
 use std::collections::BTreeMap;
 
 /// A node of the control-flow graph
-#[derive(Default)]
 pub struct CfgNode {
     /// Basic blocks which can jump to the start of this basic block
     pub sources: Vec<usize>,
@@ -20,6 +19,26 @@ pub struct CfgNode {
     pub instructions: std::ops::Range<usize>,
     /// Strongly connected component ID (and topological order)
     pub scc_id: usize,
+    /// Discovery order inside a strongly connected component
+    pub index_in_scc: usize,
+    /// Immediate dominator (the last control flow junction)
+    pub dominator_parent: usize,
+    /// All basic blocks which can only be reached through this one
+    pub dominated_children: Vec<usize>,
+}
+
+impl Default for CfgNode {
+    fn default() -> Self {
+        Self {
+            sources: Vec::new(),
+            destinations: Vec::new(),
+            instructions: 0..0,
+            scc_id: usize::MAX,
+            index_in_scc: usize::MAX,
+            dominator_parent: usize::MAX,
+            dominated_children: Vec::new(),
+        }
+    }
 }
 
 /// Result of the executable analysis
@@ -52,6 +71,7 @@ impl Analysis {
         };
         result.split_into_basic_blocks(executable, false);
         result.control_flow_graph_tarjan();
+        result.control_flow_graph_dominance_hierarchy();
         result
     }
 
@@ -306,10 +326,13 @@ impl Analysis {
                 }
             }
             if nodes[v].discovery == nodes[v].lowlink {
+                let mut index_in_scc = 0;
                 while let Some(w) = scc_stack.pop() {
                     let node = &mut nodes[w];
                     node.is_on_scc_stack = false;
                     node.scc_id = scc_id;
+                    node.discovery = index_in_scc;
+                    index_in_scc += 1;
                     if w == v {
                         break;
                     }
@@ -335,6 +358,73 @@ impl Analysis {
         for node in &nodes {
             let cfg_node = self.cfg_nodes.get_mut(&node.cfg_node).unwrap();
             cfg_node.scc_id = node.scc_id;
+            cfg_node.index_in_scc = node.discovery;
+        }
+    }
+
+    /// Topological order relation in the control-flow graph
+    fn control_flow_graph_order(&self, a: usize, b: usize) -> std::cmp::Ordering {
+        let cfg_node_a = &self.cfg_nodes[&a];
+        let cfg_node_b = &self.cfg_nodes[&b];
+        (cfg_node_b.scc_id.cmp(&cfg_node_a.scc_id))
+            .then(cfg_node_b.index_in_scc.cmp(&cfg_node_a.index_in_scc))
+    }
+
+    /// Finds the dominance hierarchy of the control-flow graph
+    ///
+    /// Uses the Cooper-Harvey-Kennedy algorithm.
+    fn control_flow_graph_dominance_hierarchy(&mut self) {
+        let mut postorder = self.cfg_nodes.keys().cloned().collect::<Vec<_>>();
+        postorder.sort_by(|a, b| self.control_flow_graph_order(*a, *b));
+        loop {
+            let mut terminate = true;
+            for b in &postorder {
+                let cfg_node = &self.cfg_nodes[b];
+                let mut dominator_parent = usize::MAX;
+                if cfg_node.sources.is_empty() {
+                    dominator_parent = *b;
+                } else {
+                    for p in &cfg_node.sources {
+                        if self.cfg_nodes[p].dominator_parent == usize::MAX {
+                            continue;
+                        }
+                        if dominator_parent == usize::MAX {
+                            dominator_parent = *p;
+                            continue;
+                        }
+                        let mut p = *p;
+                        while dominator_parent != p {
+                            match self.control_flow_graph_order(dominator_parent, p) {
+                                std::cmp::Ordering::Greater => {
+                                    dominator_parent =
+                                        self.cfg_nodes[&dominator_parent].dominator_parent;
+                                }
+                                std::cmp::Ordering::Less => {
+                                    p = self.cfg_nodes[&p].dominator_parent;
+                                }
+                                std::cmp::Ordering::Equal => unreachable!(),
+                            }
+                        }
+                    }
+                }
+                if cfg_node.dominator_parent != dominator_parent {
+                    let mut cfg_node = self.cfg_nodes.get_mut(b).unwrap();
+                    cfg_node.dominator_parent = dominator_parent;
+                    terminate = false;
+                }
+            }
+            if terminate {
+                break;
+            }
+        }
+        for b in &postorder {
+            let cfg_node = &self.cfg_nodes[b];
+            if *b == cfg_node.dominator_parent {
+                continue;
+            }
+            let p = cfg_node.dominator_parent;
+            let dominator_cfg_node = self.cfg_nodes.get_mut(&p).unwrap();
+            dominator_cfg_node.dominated_children.push(*b);
         }
     }
 }
