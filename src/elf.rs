@@ -64,7 +64,7 @@ pub enum ElfError {
     /// Multiple text sections
     #[error("Multiple text sections, consider removing llc option: -function-sections")]
     MultipleTextSections,
-    /// .bss section mot supported
+    /// Read-write data not supported
     #[error(".bss section not supported")]
     BssNotSupported,
     /// Relocation failed, no loadable section contains virtual address
