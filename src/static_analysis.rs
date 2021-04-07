@@ -7,13 +7,13 @@ use crate::{
     vm::Executable,
     vm::InstructionMeter,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// A node of the control-flow graph
 pub struct CfgNode {
-    /// Basic blocks which can jump to the start of this basic block
+    /// Predecessors which can jump to the start of this basic block
     pub sources: Vec<usize>,
-    /// Basic blocks which the end of this basic block can jump to
+    /// Successors which the end of this basic block can jump to
     pub destinations: Vec<usize>,
     /// Range of the instructions belonging to this basic block
     pub instructions: std::ops::Range<usize>,
@@ -25,6 +25,58 @@ pub struct CfgNode {
     pub dominator_parent: usize,
     /// All basic blocks which can only be reached through this one
     pub dominated_children: Vec<usize>,
+}
+
+/// The source a data flow edge originates from
+pub enum DataDependencySource {
+    /// Points to a single instruction
+    Instruction(usize),
+    /// Points to a basic block which starts with a Φ node (because it has multiple CFG sources)
+    PhiNode(usize),
+}
+
+/// The register or memory location a data flow edge guards
+#[derive(PartialEq, Eq, Hash, Clone)]
+pub enum DataResource {
+    /// A BPF register
+    Register(u8),
+    /// A (potentially writeable) memory location
+    Memory,
+}
+
+/// The kind of a data flow edge
+pub enum DataDependencyKind {
+    /// This kind represents data flow edges which actually carry data
+    ///
+    /// E.g. the destination reads a resource, written by the source.
+    Filled,
+    /// This kind incurrs no actual data flow
+    ///
+    /// E.g. the destination overwrites a resource, written by the source.
+    Empty,
+}
+
+/// An edge of the data flow graph
+pub struct DataDependencyEdge {
+    /// An instruction or Φ node
+    pub source: DataDependencySource,
+    /// Write-read or write-write
+    pub kind: DataDependencyKind,
+    /// A register or memory location
+    pub resource: DataResource,
+}
+
+/// Describes the unresolved data dependencies of basic blocks
+///
+/// It is only used as an intermediate result inside the data flow analysis.
+#[derive(Default)]
+struct BasicBlockDataDependencies {
+    /// The last instruction that each resource was written by
+    pub provided_outputs: HashMap<DataResource, usize>,
+    /// The first instruction that overwrites a resource of the predecessors
+    pub write_dependencies: HashMap<DataResource, usize>,
+    /// Instructions that read a resource from the predecessors
+    pub read_dependencies: HashMap<DataResource, Vec<usize>>,
 }
 
 impl Default for CfgNode {
@@ -53,6 +105,10 @@ pub struct Analysis {
     pub cfg_nodes: BTreeMap<usize, CfgNode>,
     /// CfgNode where the execution starts
     pub entrypoint: usize,
+    /// Data flow Φ nodes
+    pub phi_nodes: BTreeMap<usize, Vec<DataDependencyEdge>>,
+    /// Data flow instruction nodes
+    pub instruction_nodes: BTreeMap<usize, Vec<DataDependencyEdge>>,
 }
 
 impl Analysis {
@@ -68,10 +124,14 @@ impl Analysis {
             functions,
             cfg_nodes: BTreeMap::new(),
             entrypoint: executable.get_entrypoint_instruction_offset().unwrap(),
+            phi_nodes: BTreeMap::new(),
+            instruction_nodes: BTreeMap::new(),
         };
         result.split_into_basic_blocks(executable, false);
         result.control_flow_graph_tarjan();
         result.control_flow_graph_dominance_hierarchy();
+        let basic_block_data_dependencies = result.intra_basic_block_data_flow();
+        result.inter_basic_block_data_flow(basic_block_data_dependencies);
         result
     }
 
@@ -426,5 +486,197 @@ impl Analysis {
             let dominator_cfg_node = self.cfg_nodes.get_mut(&p).unwrap();
             dominator_cfg_node.dominated_children.push(*b);
         }
+    }
+
+    /// Find the dependencies between the instructions inside of the basic blocks
+    fn intra_basic_block_data_flow(&mut self) -> Vec<BasicBlockDataDependencies> {
+        fn input(
+            state: &mut (
+                BTreeMap<usize, Vec<DataDependencyEdge>>,
+                BasicBlockDataDependencies,
+            ),
+            insn: &HlInsn,
+            resource: DataResource,
+        ) {
+            if let Some(source) = state.1.provided_outputs.get(&resource) {
+                state
+                    .0
+                    .entry(insn.ptr)
+                    .or_insert_with(Vec::new)
+                    .push(DataDependencyEdge {
+                        source: DataDependencySource::Instruction(*source),
+                        kind: DataDependencyKind::Filled,
+                        resource,
+                    });
+            } else {
+                state
+                    .1
+                    .read_dependencies
+                    .entry(resource)
+                    .or_insert_with(Vec::new)
+                    .push(insn.ptr);
+            }
+        }
+        fn output(
+            state: &mut (
+                BTreeMap<usize, Vec<DataDependencyEdge>>,
+                BasicBlockDataDependencies,
+            ),
+            insn: &HlInsn,
+            resource: DataResource,
+        ) {
+            if let Some(source) = state.1.provided_outputs.get(&resource) {
+                state
+                    .0
+                    .entry(insn.ptr)
+                    .or_insert_with(Vec::new)
+                    .push(DataDependencyEdge {
+                        source: DataDependencySource::Instruction(*source),
+                        kind: DataDependencyKind::Empty,
+                        resource: resource.clone(),
+                    });
+            } else {
+                state
+                    .1
+                    .write_dependencies
+                    .insert(resource.clone(), insn.ptr);
+            }
+            state.1.provided_outputs.insert(resource, insn.ptr);
+        }
+        let mut state = (BTreeMap::new(), BasicBlockDataDependencies::default());
+        let basic_block_data_dependencies = self
+            .cfg_nodes
+            .values()
+            .map(|cfg_node| {
+                for insn in self.instructions[cfg_node.instructions.clone()].iter() {
+                    match insn.opc {
+                        ebpf::LD_ABS_B | ebpf::LD_ABS_H | ebpf::LD_ABS_W | ebpf::LD_ABS_DW => {
+                            output(&mut state, insn, DataResource::Register(0));
+                        }
+                        ebpf::LD_IND_B | ebpf::LD_IND_H | ebpf::LD_IND_W | ebpf::LD_IND_DW => {
+                            input(&mut state, insn, DataResource::Register(insn.src));
+                            output(&mut state, insn, DataResource::Register(0));
+                        }
+                        ebpf::LD_DW_IMM => {
+                            output(&mut state, insn, DataResource::Register(insn.dst));
+                        }
+                        ebpf::LD_B_REG | ebpf::LD_H_REG | ebpf::LD_W_REG | ebpf::LD_DW_REG => {
+                            input(&mut state, insn, DataResource::Memory);
+                            input(&mut state, insn, DataResource::Register(insn.src));
+                            output(&mut state, insn, DataResource::Register(insn.dst));
+                        }
+                        ebpf::ST_B_IMM | ebpf::ST_H_IMM | ebpf::ST_W_IMM | ebpf::ST_DW_IMM => {
+                            input(&mut state, insn, DataResource::Register(insn.dst));
+                            output(&mut state, insn, DataResource::Memory);
+                        }
+                        ebpf::ST_B_REG | ebpf::ST_H_REG | ebpf::ST_W_REG | ebpf::ST_DW_REG => {
+                            input(&mut state, insn, DataResource::Register(insn.src));
+                            input(&mut state, insn, DataResource::Register(insn.dst));
+                            output(&mut state, insn, DataResource::Memory);
+                        }
+                        ebpf::ADD32_IMM
+                        | ebpf::SUB32_IMM
+                        | ebpf::MUL32_IMM
+                        | ebpf::DIV32_IMM
+                        | ebpf::OR32_IMM
+                        | ebpf::AND32_IMM
+                        | ebpf::LSH32_IMM
+                        | ebpf::RSH32_IMM
+                        | ebpf::MOD32_IMM
+                        | ebpf::XOR32_IMM
+                        | ebpf::MOV32_IMM
+                        | ebpf::ARSH32_IMM
+                        | ebpf::ADD64_IMM
+                        | ebpf::SUB64_IMM
+                        | ebpf::MUL64_IMM
+                        | ebpf::DIV64_IMM
+                        | ebpf::OR64_IMM
+                        | ebpf::AND64_IMM
+                        | ebpf::LSH64_IMM
+                        | ebpf::RSH64_IMM
+                        | ebpf::MOD64_IMM
+                        | ebpf::XOR64_IMM
+                        | ebpf::MOV64_IMM
+                        | ebpf::ARSH64_IMM
+                        | ebpf::NEG32
+                        | ebpf::NEG64
+                        | ebpf::LE
+                        | ebpf::BE => {
+                            input(&mut state, insn, DataResource::Register(insn.dst));
+                            output(&mut state, insn, DataResource::Register(insn.dst));
+                        }
+                        ebpf::ADD32_REG
+                        | ebpf::SUB32_REG
+                        | ebpf::MUL32_REG
+                        | ebpf::DIV32_REG
+                        | ebpf::OR32_REG
+                        | ebpf::AND32_REG
+                        | ebpf::LSH32_REG
+                        | ebpf::RSH32_REG
+                        | ebpf::MOD32_REG
+                        | ebpf::XOR32_REG
+                        | ebpf::MOV32_REG
+                        | ebpf::ARSH32_REG
+                        | ebpf::ADD64_REG
+                        | ebpf::SUB64_REG
+                        | ebpf::MUL64_REG
+                        | ebpf::DIV64_REG
+                        | ebpf::OR64_REG
+                        | ebpf::AND64_REG
+                        | ebpf::LSH64_REG
+                        | ebpf::RSH64_REG
+                        | ebpf::MOD64_REG
+                        | ebpf::XOR64_REG
+                        | ebpf::MOV64_REG
+                        | ebpf::ARSH64_REG => {
+                            input(&mut state, insn, DataResource::Register(insn.src));
+                            input(&mut state, insn, DataResource::Register(insn.dst));
+                            output(&mut state, insn, DataResource::Register(insn.dst));
+                        }
+                        ebpf::JEQ_IMM
+                        | ebpf::JGT_IMM
+                        | ebpf::JGE_IMM
+                        | ebpf::JLT_IMM
+                        | ebpf::JLE_IMM
+                        | ebpf::JSET_IMM
+                        | ebpf::JNE_IMM
+                        | ebpf::JSGT_IMM
+                        | ebpf::JSGE_IMM
+                        | ebpf::JSLT_IMM
+                        | ebpf::JSLE_IMM => {
+                            input(&mut state, insn, DataResource::Register(insn.dst));
+                        }
+                        ebpf::JEQ_REG
+                        | ebpf::JGT_REG
+                        | ebpf::JGE_REG
+                        | ebpf::JLT_REG
+                        | ebpf::JLE_REG
+                        | ebpf::JSET_REG
+                        | ebpf::JNE_REG
+                        | ebpf::JSGT_REG
+                        | ebpf::JSGE_REG
+                        | ebpf::JSLT_REG
+                        | ebpf::JSLE_REG => {
+                            input(&mut state, insn, DataResource::Register(insn.src));
+                            input(&mut state, insn, DataResource::Register(insn.dst));
+                        }
+                        _ => {}
+                    }
+                }
+                let mut deps = BasicBlockDataDependencies::default();
+                std::mem::swap(&mut deps, &mut state.1);
+                deps
+            })
+            .collect();
+        self.instruction_nodes = state.0;
+        basic_block_data_dependencies
+    }
+
+    /// Find the dependencies inbetween the basic blocks and create the Φ nodes
+    fn inter_basic_block_data_flow(
+        &mut self,
+        _basic_block_data_dependencies: Vec<BasicBlockDataDependencies>,
+    ) {
+        // TODO
     }
 }
