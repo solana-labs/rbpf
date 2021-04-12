@@ -7,7 +7,7 @@ use crate::{
     vm::Executable,
     vm::InstructionMeter,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// A node of the control-flow graph
 pub struct CfgNode {
@@ -37,7 +37,7 @@ pub enum DfgNode {
 }
 
 /// The register or memory location a data-flow edge guards
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(PartialOrd, Ord, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum DataResource {
     /// A BPF register
     Register(u8),
@@ -46,7 +46,7 @@ pub enum DataResource {
 }
 
 /// The kind of a data-flow edge
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(PartialOrd, Ord, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum DfgEdgeKind {
     /// This kind represents data-flow edges which actually carry data
     ///
@@ -59,7 +59,7 @@ pub enum DfgEdgeKind {
 }
 
 /// An edge of the data-flow graph
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(PartialOrd, Ord, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DfgEdge {
     /// An instruction or Φ node that depends on the source (key in dfg_nodes)
     pub destination: DfgNode,
@@ -98,7 +98,7 @@ pub struct Analysis {
     /// CfgNode where the execution starts
     pub entrypoint: usize,
     /// Data flow nodes (the keys are DfgEdge sources)
-    pub dfg_nodes: BTreeMap<DfgNode, HashSet<DfgEdge>>,
+    pub dfg_nodes: BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
 }
 
 impl Analysis {
@@ -484,7 +484,7 @@ impl Analysis {
         fn bind(
             state: &mut (
                 usize,
-                BTreeMap<DfgNode, HashSet<DfgEdge>>,
+                BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
                 HashMap<DataResource, usize>,
             ),
             insn: &HlInsn,
@@ -505,7 +505,7 @@ impl Analysis {
             state
                 .1
                 .entry(source)
-                .or_insert_with(HashSet::new)
+                .or_insert_with(BTreeSet::new)
                 .insert(DfgEdge {
                     destination,
                     kind,
@@ -636,10 +636,11 @@ impl Analysis {
                             bind(&mut state, insn, false, DataResource::Register(insn.src));
                             bind(&mut state, insn, false, DataResource::Register(insn.dst));
                         }
-                        ebpf::CALL_REG => {
-                            if !(ebpf::FIRST_SCRATCH_REG
-                                ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS)
-                                .contains(&(insn.imm as usize))
+                        ebpf::CALL_REG | ebpf::CALL_IMM => {
+                            if insn.opc == ebpf::CALL_REG
+                                && !(ebpf::FIRST_SCRATCH_REG
+                                    ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS)
+                                    .contains(&(insn.imm as usize))
                             {
                                 bind(
                                     &mut state,
@@ -648,15 +649,17 @@ impl Analysis {
                                     DataResource::Register(insn.imm as u8),
                                 );
                             }
+                            bind(&mut state, insn, false, DataResource::Memory);
+                            bind(&mut state, insn, true, DataResource::Memory);
                             for reg in (0..ebpf::FIRST_SCRATCH_REG).chain([10].iter().cloned()) {
                                 bind(&mut state, insn, false, DataResource::Register(reg as u8));
                                 bind(&mut state, insn, true, DataResource::Register(reg as u8));
                             }
                         }
-                        ebpf::CALL_IMM | ebpf::EXIT => {
+                        ebpf::EXIT => {
+                            bind(&mut state, insn, false, DataResource::Memory);
                             for reg in (0..ebpf::FIRST_SCRATCH_REG).chain([10].iter().cloned()) {
                                 bind(&mut state, insn, false, DataResource::Register(reg as u8));
-                                bind(&mut state, insn, true, DataResource::Register(reg as u8));
                             }
                         }
                         _ => {}
@@ -674,8 +677,68 @@ impl Analysis {
     /// Connect the dependencies inbetween the basic blocks
     fn inter_basic_block_data_flow(
         &mut self,
-        _basic_block_outputs: BTreeMap<usize, HashMap<DataResource, usize>>,
+        basic_block_outputs: BTreeMap<usize, HashMap<DataResource, usize>>,
     ) {
-        // TODO
+        let mut continue_propagation = true;
+        while continue_propagation {
+            continue_propagation = false;
+            for basic_block_start in self.topological_order.iter().rev() {
+                if !self
+                    .dfg_nodes
+                    .contains_key(&DfgNode::PhiNode(*basic_block_start))
+                {
+                    continue;
+                }
+                let basic_block = &self.cfg_nodes[basic_block_start];
+                let mut edges = BTreeSet::new();
+                std::mem::swap(
+                    self.dfg_nodes
+                        .get_mut(&DfgNode::PhiNode(*basic_block_start))
+                        .unwrap(),
+                    &mut edges,
+                );
+                for predecessor in basic_block.sources.iter() {
+                    let provided_outputs = &basic_block_outputs[predecessor];
+                    for edge in edges.iter() {
+                        let mut source_is_a_phi_node = false;
+                        let source = if let Some(source) = provided_outputs.get(&edge.resource) {
+                            DfgNode::InstructionNode(*source)
+                        } else {
+                            source_is_a_phi_node = true;
+                            DfgNode::PhiNode(*predecessor)
+                        };
+                        let mut edge = edge.clone();
+                        if basic_block.sources.len() != 1 {
+                            edge.destination = DfgNode::PhiNode(*basic_block_start);
+                        }
+                        if self
+                            .dfg_nodes
+                            .entry(source.clone())
+                            .or_insert_with(BTreeSet::new)
+                            .insert(edge.clone())
+                            && source_is_a_phi_node
+                            && source != DfgNode::PhiNode(*basic_block_start)
+                        {
+                            continue_propagation = true;
+                        }
+                    }
+                }
+                let reflective_edges = self
+                    .dfg_nodes
+                    .get_mut(&DfgNode::PhiNode(*basic_block_start))
+                    .unwrap();
+                for edge in reflective_edges.iter() {
+                    if edges.insert(edge.clone()) {
+                        continue_propagation = true;
+                    }
+                }
+                std::mem::swap(reflective_edges, &mut edges);
+            }
+        }
+        for (basic_block_start, basic_block) in self.cfg_nodes.iter() {
+            if basic_block.sources.len() == 1 {
+                self.dfg_nodes.remove(&DfgNode::PhiNode(*basic_block_start));
+            }
+        }
     }
 }
