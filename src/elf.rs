@@ -374,6 +374,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             vaddr: text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START),
             offset_range: text_section.file_range(),
         };
+        if text_section_info.vaddr > ebpf::MM_STACK_START {
+            return Err(ElfError::OutOfBounds);
+        }
 
         // calculate the read-only section infos
         let mut ro_section_infos = elf
@@ -396,6 +399,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             .collect::<Vec<_>>();
         ro_section_infos.sort_by(|a, b| a.vaddr.cmp(&b.vaddr));
         for i in 0..ro_section_infos.len() {
+            if ro_section_infos[i].vaddr > ebpf::MM_STACK_START {
+                return Err(ElfError::OutOfBounds);
+            }
             if i > 0
                 && ro_section_infos[i - 1]
                     .vaddr
