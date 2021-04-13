@@ -24,8 +24,12 @@ fn bench_load_elf(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        Executable::<UserError, DefaultInstructionMeter>::from_elf(&elf, None, Config::default())
-            .unwrap()
+        <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
+            &elf,
+            None,
+            Config::default(),
+        )
+        .unwrap()
     });
 }
 
@@ -35,7 +39,7 @@ fn bench_load_elf_without_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        let executable = Executable::<UserError, DefaultInstructionMeter>::from_elf(
+        let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
             &elf,
             None,
             Config::default(),
@@ -51,7 +55,7 @@ fn bench_load_elf_with_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_elf(
+        let mut executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
             &elf,
             None,
             Config::default(),

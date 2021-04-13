@@ -23,9 +23,12 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable =
-        Executable::<UserError, DefaultInstructionMeter>::from_elf(&elf, None, Config::default())
-            .unwrap();
+    let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
+        &elf,
+        None,
+        Config::default(),
+    )
+    .unwrap();
     let mut vm =
         EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
             .unwrap();
@@ -41,9 +44,12 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let mut executable =
-        Executable::<UserError, DefaultInstructionMeter>::from_elf(&elf, None, Config::default())
-            .unwrap();
+    let mut executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
+        &elf,
+        None,
+        Config::default(),
+    )
+    .unwrap();
     executable.jit_compile().unwrap();
     let mut vm =
         EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
@@ -61,7 +67,7 @@ fn bench_jit_vs_interpreter(
     mem: &mut [u8],
 ) {
     let program = assemble(assembly).unwrap();
-    let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
         &program,
         None,
         Config::default(),
