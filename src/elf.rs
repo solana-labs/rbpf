@@ -164,6 +164,7 @@ impl BpfRelocationType {
 
 #[derive(Debug, PartialEq)]
 struct SectionInfo {
+    name: String,
     vaddr: u64,
     offset_range: Range<usize>,
 }
@@ -327,6 +328,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             elf_bytes: text_bytes.to_vec(),
             entrypoint: 0,
             text_section_info: SectionInfo {
+                name: ".text".to_string(),
                 vaddr: ebpf::MM_PROGRAM_START,
                 offset_range: Range {
                     start: 0,
@@ -360,6 +362,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
         // calculate the text section info
         let text_section_info = SectionInfo {
+            name: elf
+                .shdr_strtab
+                .get(text_section.sh_name)
+                .unwrap()
+                .unwrap()
+                .to_string(),
             vaddr: text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START),
             offset_range: text_section.file_range(),
         };
@@ -369,12 +377,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             .section_headers
             .iter()
             .filter_map(|section_header| {
-                if let Some(Ok(this_name)) = elf.shdr_strtab.get(section_header.sh_name) {
-                    if this_name == ".rodata"
-                        || this_name == ".data.rel.ro"
-                        || this_name == ".eh_frame"
-                    {
+                if let Some(Ok(name)) = elf.shdr_strtab.get(section_header.sh_name) {
+                    if name == ".rodata" || name == ".data.rel.ro" || name == ".eh_frame" {
                         return Some(SectionInfo {
+                            name: name.to_string(),
                             vaddr: section_header
                                 .sh_addr
                                 .saturating_add(ebpf::MM_PROGRAM_START),
