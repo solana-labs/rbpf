@@ -119,15 +119,25 @@ impl<'a> MemoryMapping<'a> {
     }
 
     /// Creates a new MemoryMapping structure from the given regions
-    pub fn new(mut regions: Vec<MemoryRegion>, config: &'a Config) -> Self {
+    pub fn new<E: UserDefinedError>(
+        mut regions: Vec<MemoryRegion>,
+        config: &'a Config,
+    ) -> Result<Self, EbpfError<E>> {
         let mut result = Self {
             regions: vec![MemoryRegion::default(); regions.len()].into_boxed_slice(),
             dense_keys: vec![0; regions.len()].into_boxed_slice(),
             config,
         };
         regions.sort();
+        for index in 1..regions.len() {
+            let first = &regions[index - 1];
+            let second = &regions[index];
+            if first.vm_addr.saturating_add(first.len) > second.vm_addr {
+                return Err(EbpfError::VirtualAddressOverlap(second.vm_addr));
+            }
+        }
         result.construct_eytzinger_order(&regions, 0, 0);
-        result
+        Ok(result)
     }
 
     /// Given a list of regions translate from virtual machine to host address
@@ -160,12 +170,11 @@ impl<'a> MemoryMapping<'a> {
         index: usize,
         new_len: u64,
     ) -> Result<(), EbpfError<E>> {
-        if index < self.regions.len() - 1
-            && self.regions[index].vm_addr + new_len > self.regions[index + 1].vm_addr
+        let first = &self.regions[index];
+        let second = &self.regions[index + 1];
+        if index < self.regions.len() - 1 && first.vm_addr.saturating_add(new_len) > second.vm_addr
         {
-            return Err(EbpfError::VirtualAddressOverlap(
-                self.regions[index + 1].vm_addr,
-            ));
+            return Err(EbpfError::VirtualAddressOverlap(second.vm_addr));
         }
         self.regions[index].len = new_len;
         Ok(())

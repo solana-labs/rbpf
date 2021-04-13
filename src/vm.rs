@@ -440,7 +440,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             executable,
             program,
             program_vm_addr,
-            memory_mapping: MemoryMapping::new(regions, &config),
+            memory_mapping: MemoryMapping::new(regions, &config)?,
             tracer: Tracer::default(),
             syscall_context_objects: vec![
                 std::ptr::null_mut();

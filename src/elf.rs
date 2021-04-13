@@ -43,9 +43,6 @@ pub enum ElfError {
     /// Section no found
     #[error("Section not found: {0}")]
     SectionNotFound(String),
-    /// Section overlap
-    #[error("Section overlap found between {0} and {1}")]
-    SectionOverlap(String, String),
     /// Relative jump out of bounds
     #[error("Relative jump out of bounds at instruction #{0}")]
     RelativeJumpOutOfBounds(usize),
@@ -379,7 +376,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         }
 
         // calculate the read-only section infos
-        let mut ro_section_infos = elf
+        let ro_section_infos = elf
             .section_headers
             .iter()
             .filter_map(|section_header| {
@@ -397,21 +394,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 None
             })
             .collect::<Vec<_>>();
-        ro_section_infos.sort_by(|a, b| a.vaddr.cmp(&b.vaddr));
-        for i in 0..ro_section_infos.len() {
-            if ro_section_infos[i].vaddr > ebpf::MM_STACK_START {
+        for ro_section_info in ro_section_infos.iter() {
+            if ro_section_info.vaddr > ebpf::MM_STACK_START {
                 return Err(ElfError::OutOfBounds);
-            }
-            if i > 0
-                && ro_section_infos[i - 1]
-                    .vaddr
-                    .saturating_add(ro_section_infos[i - 1].offset_range.len() as u64)
-                    > ro_section_infos[i].vaddr
-            {
-                return Err(ElfError::SectionOverlap(
-                    ro_section_infos[i - 1].name.clone(),
-                    ro_section_infos[i].name.clone(),
-                ));
             }
         }
 
