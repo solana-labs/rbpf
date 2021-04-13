@@ -170,11 +170,12 @@ impl<'a> MemoryMapping<'a> {
         index: usize,
         new_len: u64,
     ) -> Result<(), EbpfError<E>> {
-        let first = &self.regions[index];
-        let second = &self.regions[index + 1];
-        if index < self.regions.len() - 1 && first.vm_addr.saturating_add(new_len) > second.vm_addr
+        if index < self.regions.len() - 1
+            && self.regions[index].vm_addr.saturating_add(new_len) > self.regions[index + 1].vm_addr
         {
-            return Err(EbpfError::VirtualAddressOverlap(second.vm_addr));
+            return Err(EbpfError::VirtualAddressOverlap(
+                self.regions[index + 1].vm_addr,
+            ));
         }
         self.regions[index].len = new_len;
         Ok(())
