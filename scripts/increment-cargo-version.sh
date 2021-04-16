@@ -32,7 +32,7 @@ for ignore in "${ignores[@]}"; do
 done
 
 # shellcheck disable=2207
-Cargo_tomls=($(find . -mindepth 2 -name Cargo.toml "${not_paths[@]}"))
+Cargo_tomls=($(find . -mindepth 1 -name Cargo.toml "${not_paths[@]}"))
 # shellcheck disable=2207
 markdownFiles=($(find . -name "*.md" "${not_paths[@]}"))
 
