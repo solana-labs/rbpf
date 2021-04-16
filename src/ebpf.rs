@@ -62,6 +62,9 @@ pub const MM_HEAP_START: u64 = 0x300000000;
 /// Start of the input buffers in the memory map
 pub const MM_INPUT_START: u64 = 0x400000000;
 
+/// Alignment of the memory regions in host address space
+pub const HOST_ALIGN: usize = 16;
+
 // eBPF op codes.
 // See also https://www.kernel.org/doc/Documentation/networking/filter.txt
 

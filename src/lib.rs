@@ -23,6 +23,7 @@ extern crate rand;
 extern crate thiserror;
 extern crate time;
 
+pub mod aligned_memory;
 mod asm_parser;
 pub mod assembler;
 pub mod call_frames;

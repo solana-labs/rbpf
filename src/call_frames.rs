@@ -1,7 +1,8 @@
 //! Call frame handler
 
 use crate::{
-    ebpf::{ELF_INSN_DUMP_OFFSET, MM_STACK_START, SCRATCH_REGS},
+    aligned_memory::AlignedMemory,
+    ebpf::{ELF_INSN_DUMP_OFFSET, HOST_ALIGN, MM_STACK_START, SCRATCH_REGS},
     error::{EbpfError, UserDefinedError},
     memory_region::MemoryRegion,
 };
@@ -19,7 +20,7 @@ struct CallFrame {
 /// call frames
 #[derive(Clone, Debug)]
 pub struct CallFrames {
-    stack: Vec<u8>,
+    stack: AlignedMemory,
     region: MemoryRegion,
     frame_index: usize,
     frame_index_max: usize,
@@ -28,9 +29,9 @@ pub struct CallFrames {
 impl CallFrames {
     /// New call frame, depth indicates maximum call depth
     pub fn new(depth: usize, frame_size: usize) -> Self {
-        let stack = vec![0u8; depth * frame_size];
+        let stack = AlignedMemory::new(depth * frame_size, HOST_ALIGN);
         let region =
-            MemoryRegion::new_from_slice(&stack[..], MM_STACK_START, frame_size as u64, true);
+            MemoryRegion::new_from_slice(stack.as_slice(), MM_STACK_START, frame_size as u64, true);
         let mut frames = CallFrames {
             stack,
             region,

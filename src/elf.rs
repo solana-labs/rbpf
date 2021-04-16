@@ -10,6 +10,7 @@ extern crate goblin;
 extern crate scroll;
 
 use crate::{
+    aligned_memory::AlignedMemory,
     ebpf,
     error::{EbpfError, UserDefinedError},
     jit::JitProgram,
@@ -175,7 +176,7 @@ pub struct EBpfElf<E: UserDefinedError, I: InstructionMeter> {
     /// Configuration settings
     config: Config,
     /// Loaded and executable elf
-    elf_bytes: Vec<u8>,
+    elf_bytes: AlignedMemory,
     /// Entrypoint instruction offset
     entrypoint: usize,
     /// Text section info
@@ -202,6 +203,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
             self.text_section_info.vaddr,
             &self
                 .elf_bytes
+                .as_slice()
                 .get(self.text_section_info.offset_range.clone())
                 .ok_or(ElfError::OutOfBounds)?,
         ))
@@ -215,6 +217,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
                 Ok((
                     section_info.vaddr,
                     self.elf_bytes
+                        .as_slice()
                         .get(section_info.offset_range.clone())
                         .ok_or(ElfError::OutOfBounds)?,
                 ))
@@ -265,7 +268,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
             .saturating_add(self.text_section_info.offset_range.start as usize);
 
         let mut name = "Unknown";
-        if let Ok(elf) = Elf::parse(&self.elf_bytes) {
+        if let Ok(elf) = Elf::parse(self.elf_bytes.as_slice()) {
             for relocation in &elf.dynrels {
                 if let Some(BpfRelocationType::R_Bpf_64_32) =
                     BpfRelocationType::from_x86_relocation_type(relocation.r_type)
@@ -296,7 +299,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     fn get_symbols(&self) -> (HashMap<u32, String>, HashMap<usize, (String, usize)>) {
         let mut syscalls = HashMap::new();
         let mut bpf_functions = HashMap::new();
-        if let Ok(elf) = Elf::parse(&self.elf_bytes) {
+        if let Ok(elf) = Elf::parse(self.elf_bytes.as_slice()) {
             for symbol in &elf.dynsyms {
                 if symbol.st_info != 0x10 {
                     continue;
@@ -323,9 +326,11 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
 impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     /// Create from raw text section bytes (list of instructions)
     pub fn new_from_text_bytes(config: Config, text_bytes: &[u8]) -> Self {
+        let mut elf_bytes = AlignedMemory::new(text_bytes.len(), ebpf::HOST_ALIGN);
+        elf_bytes.as_slice_mut().copy_from_slice(text_bytes);
         Self {
             config,
-            elf_bytes: text_bytes.to_vec(),
+            elf_bytes,
             entrypoint: 0,
             text_section_info: SectionInfo {
                 name: ".text".to_string(),
@@ -345,11 +350,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     /// Fully loads an ELF, including validation and relocation
     pub fn load(config: Config, bytes: &[u8]) -> Result<Self, ElfError> {
         let elf = Elf::parse(bytes)?;
-        let mut elf_bytes = bytes.to_vec();
-        Self::validate(&elf, &elf_bytes)?;
+        let mut elf_bytes = AlignedMemory::new(bytes.len(), ebpf::HOST_ALIGN);
+        elf_bytes.as_slice_mut().copy_from_slice(bytes);
+
+        Self::validate(&elf, &elf_bytes.as_slice())?;
 
         let mut calls = HashMap::default();
-        Self::relocate(&elf, &mut elf_bytes, &mut calls)?;
+        Self::relocate(&elf, elf_bytes.as_slice_mut(), &mut calls)?;
 
         let text_section = Self::get_section(&elf, ".text")?;
 
