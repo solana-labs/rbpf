@@ -44,7 +44,7 @@ impl AlignedMemory {
     pub fn fill(&mut self, num: usize, value: u8) -> std::io::Result<()> {
         if self.write_index + num >= self.len {
             return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+                std::io::ErrorKind::InvalidInput,
                 "aligned memory fill failed",
             ));
         }
@@ -61,7 +61,7 @@ impl std::io::Write for AlignedMemory {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if self.write_index + buf.len() >= self.mem.len() {
             return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+                std::io::ErrorKind::InvalidInput,
                 "aligned memory write failed",
             ));
         }
