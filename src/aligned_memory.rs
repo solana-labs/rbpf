@@ -42,7 +42,7 @@ impl AlignedMemory {
     }
     /// Fill memory with value starting at the write_index
     pub fn fill(&mut self, num: usize, value: u8) -> std::io::Result<()> {
-        if self.write_index + num >= self.len {
+        if self.write_index + num > self.align_offset + self.len() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "aligned memory fill failed",
@@ -59,7 +59,7 @@ impl AlignedMemory {
 }
 impl std::io::Write for AlignedMemory {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if self.write_index + buf.len() >= self.mem.len() {
+        if self.write_index + buf.len() > self.align_offset + self.len() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "aligned memory write failed",
@@ -71,5 +71,44 @@ impl std::io::Write for AlignedMemory {
     }
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn do_test(align: usize) {
+        let mut aligned_memory = AlignedMemory::new(10, align);
+        assert!(!aligned_memory.is_empty());
+        assert_eq!(aligned_memory.len(), 10);
+        assert_eq!(aligned_memory.as_slice().len(), 10);
+        assert_eq!(aligned_memory.as_slice_mut().len(), 10);
+
+        assert_eq!(aligned_memory.write(&[42u8; 1]).unwrap(), 1);
+        assert_eq!(aligned_memory.write(&[42u8; 9]).unwrap(), 9);
+        assert_eq!(aligned_memory.as_slice(), &[42u8; 10]);
+        assert_eq!(aligned_memory.write(&[42u8; 0]).unwrap(), 0);
+        assert_eq!(aligned_memory.as_slice(), &[42u8; 10]);
+        aligned_memory.write(&[42u8; 1]).unwrap_err();
+        assert_eq!(aligned_memory.as_slice(), &[42u8; 10]);
+        aligned_memory.as_slice_mut().copy_from_slice(&[84u8; 10]);
+        assert_eq!(aligned_memory.as_slice(), &[84u8; 10]);
+
+        let mut aligned_memory = AlignedMemory::new(10, align);
+        aligned_memory.fill(5, 0).unwrap();
+        aligned_memory.fill(2, 1).unwrap();
+        assert_eq!(aligned_memory.write(&[2u8; 3]).unwrap(), 3);
+        assert_eq!(aligned_memory.as_slice(), &[0, 0, 0, 0, 0, 1, 1, 2, 2, 2]);
+        aligned_memory.fill(1, 3).unwrap_err();
+        aligned_memory.write(&[4u8; 1]).unwrap_err();
+        assert_eq!(aligned_memory.as_slice(), &[0, 0, 0, 0, 0, 1, 1, 2, 2, 2]);
+    }
+
+    #[test]
+    fn test_aligned_memory() {
+        do_test(1);
+        do_test(32768);
     }
 }
