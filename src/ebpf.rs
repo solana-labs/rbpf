@@ -569,66 +569,6 @@ pub fn augment_lddw_unchecked(prog: &[u8], insn: &mut Insn) {
     insn.imm = ((insn.imm as u64 & 0xffffffff) | ((more_significant_half as u64) << 32)) as i64;
 }
 
-/// Return a vector of `struct Insn` built from a program.
-///
-/// This is provided as a convenience for users wishing to manipulate a vector of instructions, for
-/// example for dumping the program instruction after instruction with a custom format.
-///
-/// Note that the two parts of `LD_DW_IMM` instructions (spanning on 64 bits) are considered as two
-/// distinct instructions.
-///
-/// # Examples
-///
-/// ```
-/// use solana_rbpf::ebpf;
-///
-/// let prog = &[
-///     0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55,
-///     0x00, 0x00, 0x00, 0x00, 0x44, 0x33, 0x22, 0x11,
-///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-/// ];
-///
-/// let v = ebpf::to_insn_vec(prog);
-/// assert_eq!(v, vec![
-///     ebpf::Insn {
-///         ptr: 0x00,
-///         opc: 0x18,
-///         dst: 0,
-///         src: 0,
-///         off: 0,
-///         imm: 0x55667788
-///     },
-///     ebpf::Insn {
-///         ptr: 0x08,
-///         opc: 0,
-///         dst: 0,
-///         src: 0,
-///         off: 0,
-///         imm: 0x11223344
-///     },
-///     ebpf::Insn {
-///         ptr: 0x10,
-///         opc: 0x95,
-///         dst: 0,
-///         src: 0,
-///         off: 0,
-///         imm: 0
-///     },
-/// ]);
-/// ```
-pub fn to_insn_vec(prog: &[u8]) -> Vec<Insn> {
-    debug_assert!(
-        prog.len() % INSN_SIZE == 0,
-        "eBPF program length {:?} must be a multiple of {:?} octets",
-        prog.len(),
-        INSN_SIZE
-    );
-
-    (0..prog.len() / INSN_SIZE)
-        .map(|insn_ptr| get_insn(prog, insn_ptr))
-        .collect()
-}
-
 /// Hash a symbol name
 ///
 /// This function is used by both the relocator and the VM to translate symbol names
