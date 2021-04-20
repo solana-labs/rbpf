@@ -160,7 +160,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
         dst: dst as u8,
         src: src as u8,
         off: off as i16,
-        imm: imm as i32,
+        imm,
     })
 }
 
@@ -221,7 +221,7 @@ fn assemble_internal(parsed: &[Instruction]) -> Result<Vec<Insn>, String> {
                             dst: 0,
                             src: 0,
                             off: 0,
-                            imm: (imm >> 32) as i32,
+                            imm: (imm >> 32) as i64,
                         });
                     }
                 }

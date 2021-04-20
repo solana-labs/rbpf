@@ -15,7 +15,7 @@ fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
     Ok(ebpf::to_insn_vec(&assemble(src)?))
 }
 
-fn insn(opc: u8, dst: u8, src: u8, off: i16, imm: i32) -> ebpf::Insn {
+fn insn(opc: u8, dst: u8, src: u8, off: i16, imm: i64) -> ebpf::Insn {
     ebpf::Insn {
         opc,
         dst,
@@ -135,8 +135,8 @@ fn test_lddw() {
     assert_eq!(
         asm("lddw r1, 0xff11ee22dd33cc44"),
         Ok(vec![
-            insn(ebpf::LD_DW_IMM, 1, 0, 0, 0xdd33cc44u32 as i32),
-            insn(0, 0, 0, 0, 0xff11ee22u32 as i32)
+            insn(ebpf::LD_DW_IMM, 1, 0, 0, 0xffffffffdd33cc44u64 as i64),
+            insn(0, 0, 0, 0, 0xffffffffff11ee22u64 as i64)
         ])
     );
 }

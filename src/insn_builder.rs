@@ -29,7 +29,7 @@ pub trait Instruction: Sized {
     }
 
     /// returns immediate value
-    fn get_imm(&self) -> i32 {
+    fn get_imm(&self) -> i64 {
         self.get_insn().imm
     }
 
@@ -52,7 +52,7 @@ pub trait Instruction: Sized {
     }
 
     /// sets immediate value
-    fn set_imm(mut self, imm: i32) -> Self {
+    fn set_imm(mut self, imm: i64) -> Self {
         self.get_insn_mut().imm = imm;
         self
     }

@@ -433,7 +433,7 @@ pub struct Insn {
     /// Offset operand.
     pub off: i16,
     /// Immediate value operand.
-    pub imm: i32,
+    pub imm: i64,
 }
 
 impl fmt::Debug for Insn {
@@ -500,16 +500,7 @@ impl Insn {
     /// assert_eq!(insn.to_vec(), prog);
     /// ```
     pub fn to_vec(&self) -> Vec<u8> {
-        vec![
-            self.opc,
-            self.src.wrapping_shl(4) | self.dst,
-            (self.off & 0xff) as u8,
-            self.off.wrapping_shr(8) as u8,
-            (self.imm & 0xff) as u8,
-            (self.imm & 0xff_00).wrapping_shr(8) as u8,
-            (self.imm as u32 & 0xff_00_00).wrapping_shr(16) as u8,
-            (self.imm as u32 & 0xff_00_00_00).wrapping_shr(24) as u8,
-        ]
+        self.to_array().to_vec()
     }
 }
 
@@ -564,7 +555,7 @@ pub fn get_insn_unchecked(prog: &[u8], idx: usize) -> Insn {
         dst: prog[INSN_SIZE * idx + 1] & 0x0f,
         src: (prog[INSN_SIZE * idx + 1] & 0xf0) >> 4,
         off: LittleEndian::read_i16(&prog[(INSN_SIZE * idx + 2)..]),
-        imm: LittleEndian::read_i32(&prog[(INSN_SIZE * idx + 4)..]),
+        imm: LittleEndian::read_i32(&prog[(INSN_SIZE * idx + 4)..]) as i64,
     }
 }
 

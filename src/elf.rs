@@ -445,7 +445,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     ));
                 }
 
-                insn.imm = hash as i32;
+                insn.imm = hash as i64;
                 let checked_slice = elf_bytes
                     .get_mut(i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE)
                     .ok_or(ElfError::OutOfBounds)?;
@@ -788,7 +788,7 @@ mod test {
             dst: 0,
             src: 1,
             off: 0,
-            imm: key as i32,
+            imm: key as i64,
         };
         assert_eq!(insn.to_array(), prog[40..]);
         assert_eq!(*calls.get(&key).unwrap(), 4);
@@ -803,7 +803,7 @@ mod test {
             dst: 0,
             src: 1,
             off: 0,
-            imm: key as i32,
+            imm: key as i64,
         };
         assert_eq!(insn.to_array(), prog[40..]);
         assert_eq!(*calls.get(&key).unwrap(), 0);
@@ -829,7 +829,7 @@ mod test {
             dst: 0,
             src: 1,
             off: 0,
-            imm: key as i32,
+            imm: key as i64,
         };
         assert_eq!(insn.to_array(), prog[..8]);
         assert_eq!(*calls.get(&key).unwrap(), 1);
@@ -844,7 +844,7 @@ mod test {
             dst: 0,
             src: 1,
             off: 0,
-            imm: key as i32,
+            imm: key as i64,
         };
         assert_eq!(insn.to_array(), prog[..8]);
         assert_eq!(*calls.get(&key).unwrap(), 5);
@@ -873,7 +873,7 @@ mod test {
             dst: 0,
             src: 1,
             off: 0,
-            imm: key as i32,
+            imm: key as i64,
         };
         assert_eq!(insn.to_array(), prog[..8]);
         assert_eq!(*calls.get(&key).unwrap(), 1);
@@ -902,7 +902,7 @@ mod test {
             dst: 0,
             src: 1,
             off: 0,
-            imm: key as i32,
+            imm: key as i64,
         };
         assert_eq!(insn.to_array(), prog[40..]);
         assert_eq!(*calls.get(&key).unwrap(), 4);
