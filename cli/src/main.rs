@@ -5,17 +5,12 @@ use solana_rbpf::{
     ebpf,
     error::UserDefinedError,
     memory_region::{MemoryMapping, MemoryRegion},
-    static_analysis::{Analysis, CfgNode},
+    static_analysis::Analysis,
     user_error::UserError,
     verifier::check,
     vm::{Config, EbpfVm, Executable, InstructionMeter, SyscallObject, SyscallRegistry},
 };
-use std::{
-    collections::{BTreeMap, HashMap},
-    fs::File,
-    io::Read,
-    path::Path,
-};
+use std::{collections::HashMap, fs::File, io::Read, path::Path};
 use test_utils::{Result, TestInstructionMeter};
 
 fn annotate_cfg_nodes_with_labels<E: UserDefinedError, I: InstructionMeter>(
@@ -24,14 +19,12 @@ fn annotate_cfg_nodes_with_labels<E: UserDefinedError, I: InstructionMeter>(
 ) -> HashMap<usize, String> {
     let labels = analysis
         .cfg_nodes
-        .iter()
-        .map(|(pc, cfg_node)| {
+        .keys()
+        .map(|pc| {
             (
                 *pc,
-                if let Some((name, _length)) = analysis.bpf_functions.get(&pc) {
-                    format!("{}", demangle(&name).to_string())
-                } else if cfg_node.is_function_entry {
-                    format!("function_{}", pc)
+                if let Some((name, _length)) = analysis.functions.get(&pc) {
+                    demangle(&name).to_string()
                 } else {
                     format!("lbb_{}", pc)
                 },
@@ -99,14 +92,9 @@ fn annotate_cfg_nodes_with_labels<E: UserDefinedError, I: InstructionMeter>(
     labels
 }
 
-fn print_label_at(
-    labels: &HashMap<usize, String>,
-    cfg_nodes: &BTreeMap<usize, CfgNode>,
-    ptr: usize,
-) -> bool {
-    if let Some(name) = labels.get(&ptr) {
-        let cfg_node = cfg_nodes.get(&ptr).unwrap();
-        if cfg_node.is_function_entry {
+fn print_label_at(labels: &HashMap<usize, String>, analysis: &Analysis, pc: usize) -> bool {
+    if let Some(name) = labels.get(&pc) {
+        if analysis.functions.contains_key(&pc) {
             println!();
         }
         println!("{}:", name);
@@ -263,7 +251,7 @@ fn main() {
     match matches.value_of("use") {
         Some("disassembler") => {
             for insn in analysis.instructions.iter() {
-                print_label_at(&labels, &analysis.cfg_nodes, insn.ptr);
+                print_label_at(&labels, &analysis, insn.ptr);
                 println!("    {}", insn.desc);
             }
             return;
@@ -321,17 +309,11 @@ fn main() {
     if matches.is_present("profile") {
         let mut cfg_node_counters = HashMap::new();
         let mut cfg_edge_counters = HashMap::new();
-        let mut cfg_node_iter = analysis.cfg_nodes.iter_mut().peekable();
-        while let Some((cfg_node_start, cfg_node)) = cfg_node_iter.next() {
+        for (cfg_node_start, cfg_node) in analysis.cfg_nodes.iter() {
             cfg_node_counters.insert(*cfg_node_start, 0usize);
             if cfg_node.destinations.len() == 2 {
-                let cfg_node_end = if let Some(next_cfg_node) = cfg_node_iter.peek() {
-                    *next_cfg_node.0
-                } else {
-                    analysis.instructions.len()
-                } - 1;
                 cfg_edge_counters.insert(
-                    cfg_node_end,
+                    analysis.instructions[cfg_node.instructions.end].ptr,
                     (*cfg_node_start, vec![0usize; cfg_node.destinations.len()]),
                 );
             }
@@ -362,7 +344,7 @@ fn main() {
         }
         println!("Profile:");
         for insn in analysis.instructions.iter() {
-            if print_label_at(&labels, &analysis.cfg_nodes, insn.ptr) {
+            if print_label_at(&labels, &analysis, insn.ptr) {
                 println!(
                     "    # Basic block executed: {}",
                     cfg_node_counters[&insn.ptr]

@@ -20,7 +20,11 @@ use crate::{
     user_error::UserError,
 };
 use log::debug;
-use std::{collections::HashMap, fmt::Debug, u32};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Debug,
+    u32,
+};
 
 /// eBPF verification function that returns an error if the program does not meet its requirements.
 ///
@@ -213,7 +217,7 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Report information on a symbol that failed to be resolved
     fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>>;
     /// Get syscalls and BPF functions (if debug symbols are not stripped)
-    fn get_symbols(&self) -> (HashMap<u32, String>, HashMap<usize, (String, usize)>);
+    fn get_symbols(&self) -> (BTreeMap<u32, String>, BTreeMap<usize, (String, usize)>);
 }
 
 /// Static constructors for Executable
