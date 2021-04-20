@@ -773,7 +773,7 @@ impl JitCompiler {
         self.generate_exception_handlers::<E>()?;
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
-            let insn = ebpf::get_insn(program, self.pc);
+            let mut insn = ebpf::get_insn(program, self.pc);
 
             self.result.pc_section[self.pc] = self.offset_in_text_section as u64;
 
@@ -826,9 +826,8 @@ impl JitCompiler {
                     emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2))?;
                     self.pc += 1;
                     self.pc_section_jumps.push(Jump { location: self.pc, target_pc: TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION });
-                    let second_part = ebpf::get_insn(program, self.pc).imm as u64;
-                    let imm = (insn.imm as u32) as u64 | second_part.wrapping_shl(32);
-                    X86Instruction::load_immediate(OperandSize::S64, dst, imm as i64).emit(self)?;
+                    ebpf::augment_lddw_unchecked(program, self.pc, &mut insn);
+                    X86Instruction::load_immediate(OperandSize::S64, dst, insn.imm).emit(self)?;
                 },
 
                 // BPF_LDX class

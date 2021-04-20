@@ -559,6 +559,12 @@ pub fn get_insn_unchecked(prog: &[u8], idx: usize) -> Insn {
     }
 }
 
+/// Merge the two halves of a LD_DW_IMM instruction
+pub fn augment_lddw_unchecked(prog: &[u8], idx: usize, insn: &mut Insn) {
+    let more_significant_half = LittleEndian::read_i32(&prog[(INSN_SIZE * idx + 4)..]);
+    insn.imm = ((insn.imm as u64 & 0xffffffff) | ((more_significant_half as u64) << 32)) as i64;
+}
+
 /// Return a vector of `struct Insn` built from a program.
 ///
 /// This is provided as a convenience for users wishing to manipulate a vector of instructions, for

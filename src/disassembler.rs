@@ -71,12 +71,12 @@ fn jmp_reg_str(name: &str, insn: &ebpf::Insn) -> String {
 /// In addition to standard operation code and various operand, this struct has the following
 /// properties:
 ///
+/// * It stores the instruction pointer (this can diverge from the instruction index if LD_DW_IMM
+///   instructions are present).
 /// * It stores a name, corresponding to a mnemonic for the operation code.
 /// * It also stores a description, which is a mnemonic for the full instruction, using the actual
 ///   values of the relevant operands, and that can be used for disassembling the eBPF program for
 ///   example.
-/// * Immediate values are stored in an `i64` instead of a traditional i32, in order to merge the
-///   two parts of (otherwise double-length) `LD_DW_IMM` instructions.
 ///
 /// See <https://www.kernel.org/doc/Documentation/networking/filter.txt> for the Linux kernel
 /// documentation about eBPF, or <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md> for a
@@ -116,7 +116,7 @@ pub struct HlInsn {
 /// To do so, the immediate value operand is stored as an `i64` instead as an i32, so be careful
 /// when you use it (see example `examples/to_json.rs`).
 ///
-/// This is to oppose to `ebpf::to_insn_vec()` function, that treats instructions on a low-level
+/// This is opposed to `ebpf::to_insn_vec()` function, that treats instructions on a low-level
 /// ground and do not merge the parts of `LD_DW_IMM`. Also, the version in `ebpf` module does not
 /// use names or descriptions when storing the instructions.
 ///
@@ -167,12 +167,11 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HlInsn> {
     let mut insn_ptr: usize = 0;
 
     while insn_ptr * ebpf::INSN_SIZE < prog.len() {
-        let insn = ebpf::get_insn(prog, insn_ptr);
+        let mut insn = ebpf::get_insn(prog, insn_ptr);
         let ptr = insn_ptr;
 
         let name;
         let desc;
-        let mut imm = insn.imm as i64;
         match insn.opc {
 
             // BPF_LD class
@@ -190,9 +189,8 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HlInsn> {
                 if insn_ptr * ebpf::INSN_SIZE >= prog.len() {
                     break
                 }
-                let next_insn = ebpf::get_insn(prog, insn_ptr);
-                imm = ((insn.imm as u32) as u64 + ((next_insn.imm as u64) << 32)) as i64;
-                name = "lddw"; desc = format!("{} r{:}, {:#x}", name, insn.dst, imm);
+                ebpf::augment_lddw_unchecked(prog, insn_ptr, &mut insn);
+                name = "lddw"; desc = format!("{} r{:}, {:#x}", name, insn.dst, insn.imm);
             },
 
             // BPF_LDX class
@@ -312,7 +310,7 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HlInsn> {
             dst:  insn.dst,
             src:  insn.src,
             off:  insn.off,
-            imm,
+            imm:  insn.imm,
         });
 
         insn_ptr += 1;
