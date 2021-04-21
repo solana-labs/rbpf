@@ -675,7 +675,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 },
 
                 ebpf::LD_DW_IMM  => {
-                    ebpf::augment_lddw_unchecked(self.program, next_pc, &mut insn);
+                    ebpf::augment_lddw_unchecked(self.program, &mut insn);
                     next_pc += 1;
                     reg[dst] = insn.imm as u64;
                 },

@@ -156,6 +156,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
         return Err(format!("Invalid immediate {}", imm));
     }
     Ok(Insn {
+        ptr: 0,
         opc,
         dst: dst as u8,
         src: src as u8,
@@ -217,11 +218,8 @@ fn assemble_internal(parsed: &[Instruction]) -> Result<Vec<Insn>, String> {
                 if let LoadImm = inst_type {
                     if let Integer(imm) = instruction.operands[1] {
                         result.push(Insn {
-                            opc: 0,
-                            dst: 0,
-                            src: 0,
-                            off: 0,
                             imm: (imm >> 32) as i64,
+                            ..Insn::default()
                         });
                     }
                 }

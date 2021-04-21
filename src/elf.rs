@@ -787,8 +787,8 @@ mod test {
             opc: 0x85,
             dst: 0,
             src: 1,
-            off: 0,
             imm: key as i64,
+            ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
         assert_eq!(*calls.get(&key).unwrap(), 4);
@@ -802,8 +802,8 @@ mod test {
             opc: 0x85,
             dst: 0,
             src: 1,
-            off: 0,
             imm: key as i64,
+            ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
         assert_eq!(*calls.get(&key).unwrap(), 0);
@@ -828,8 +828,8 @@ mod test {
             opc: 0x85,
             dst: 0,
             src: 1,
-            off: 0,
             imm: key as i64,
+            ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
         assert_eq!(*calls.get(&key).unwrap(), 1);
@@ -843,8 +843,8 @@ mod test {
             opc: 0x85,
             dst: 0,
             src: 1,
-            off: 0,
             imm: key as i64,
+            ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
         assert_eq!(*calls.get(&key).unwrap(), 5);
@@ -872,8 +872,8 @@ mod test {
             opc: 0x85,
             dst: 0,
             src: 1,
-            off: 0,
             imm: key as i64,
+            ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
         assert_eq!(*calls.get(&key).unwrap(), 1);
@@ -901,8 +901,8 @@ mod test {
             opc: 0x85,
             dst: 0,
             src: 1,
-            off: 0,
             imm: key as i64,
+            ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
         assert_eq!(*calls.get(&key).unwrap(), 4);

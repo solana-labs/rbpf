@@ -826,7 +826,7 @@ impl JitCompiler {
                     emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2))?;
                     self.pc += 1;
                     self.pc_section_jumps.push(Jump { location: self.pc, target_pc: TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION });
-                    ebpf::augment_lddw_unchecked(program, self.pc, &mut insn);
+                    ebpf::augment_lddw_unchecked(program, &mut insn);
                     X86Instruction::load_immediate(OperandSize::S64, dst, insn.imm).emit(self)?;
                 },
 

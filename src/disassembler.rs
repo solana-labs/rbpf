@@ -71,8 +71,6 @@ fn jmp_reg_str(name: &str, insn: &ebpf::Insn) -> String {
 /// In addition to standard operation code and various operand, this struct has the following
 /// properties:
 ///
-/// * It stores the instruction pointer (this can diverge from the instruction index if LD_DW_IMM
-///   instructions are present).
 /// * It stores a name, corresponding to a mnemonic for the operation code.
 /// * It also stores a description, which is a mnemonic for the full instruction, using the actual
 ///   values of the relevant operands, and that can be used for disassembling the eBPF program for
@@ -189,7 +187,7 @@ pub fn to_insn_vec(prog: &[u8]) -> Vec<HlInsn> {
                 if insn_ptr * ebpf::INSN_SIZE >= prog.len() {
                     break
                 }
-                ebpf::augment_lddw_unchecked(prog, insn_ptr, &mut insn);
+                ebpf::augment_lddw_unchecked(prog, &mut insn);
                 name = "lddw"; desc = format!("{} r{:}, {:#x}", name, insn.dst, insn.imm);
             },
 
