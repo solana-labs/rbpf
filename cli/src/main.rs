@@ -1,7 +1,7 @@
 use clap::{App, Arg};
-use rustc_demangle::demangle;
 use solana_rbpf::{
     assembler::assemble,
+    disassembler::disassemble_instruction,
     ebpf,
     error::UserDefinedError,
     memory_region::{MemoryMapping, MemoryRegion},
@@ -13,91 +13,15 @@ use solana_rbpf::{
 use std::{collections::HashMap, fs::File, io::Read, path::Path};
 use test_utils::{Result, TestInstructionMeter};
 
-fn annotate_cfg_nodes_with_labels<E: UserDefinedError, I: InstructionMeter>(
-    analysis: &mut Analysis,
-    executable: &dyn Executable<E, I>,
-) -> HashMap<usize, String> {
-    let labels = analysis
-        .cfg_nodes
-        .keys()
-        .map(|pc| {
-            (
-                *pc,
-                if let Some((name, _length)) = analysis.functions.get(&pc) {
-                    demangle(&name).to_string()
-                } else {
-                    format!("lbb_{}", pc)
-                },
-            )
-        })
-        .collect::<HashMap<usize, String>>();
-    for insn in analysis.instructions.iter_mut() {
-        match insn.opc {
-            ebpf::CALL_IMM => {
-                insn.desc = if let Some(syscall_name) = analysis.syscalls.get(&(insn.imm as u32)) {
-                    format!("syscall {}", syscall_name)
-                } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
-                    format!("call {}", labels.get(target_pc).unwrap())
-                } else {
-                    format!("call {:x} # unresolved relocation", insn.imm)
-                };
-            }
-            ebpf::JA => {
-                let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
-                insn.desc = format!("{} {}", insn.name, labels.get(&target_pc).unwrap());
-            }
-            ebpf::JEQ_IMM
-            | ebpf::JGT_IMM
-            | ebpf::JGE_IMM
-            | ebpf::JLT_IMM
-            | ebpf::JLE_IMM
-            | ebpf::JSET_IMM
-            | ebpf::JNE_IMM
-            | ebpf::JSGT_IMM
-            | ebpf::JSGE_IMM
-            | ebpf::JSLT_IMM
-            | ebpf::JSLE_IMM => {
-                let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
-                insn.desc = format!(
-                    "{} r{}, {:#x}, {}",
-                    insn.name,
-                    insn.dst,
-                    insn.imm,
-                    labels.get(&target_pc).unwrap()
-                );
-            }
-            ebpf::JEQ_REG
-            | ebpf::JGT_REG
-            | ebpf::JGE_REG
-            | ebpf::JLT_REG
-            | ebpf::JLE_REG
-            | ebpf::JSET_REG
-            | ebpf::JNE_REG
-            | ebpf::JSGT_REG
-            | ebpf::JSGE_REG
-            | ebpf::JSLT_REG
-            | ebpf::JSLE_REG => {
-                let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
-                insn.desc = format!(
-                    "{} r{}, r{}, {}",
-                    insn.name,
-                    insn.dst,
-                    insn.src,
-                    labels.get(&target_pc).unwrap()
-                );
-            }
-            _ => {}
-        }
-    }
-    labels
-}
-
-fn print_label_at(labels: &HashMap<usize, String>, analysis: &Analysis, pc: usize) -> bool {
-    if let Some(name) = labels.get(&pc) {
+fn print_label_at<E: UserDefinedError, I: InstructionMeter>(
+    analysis: &Analysis<E, I>,
+    pc: usize,
+) -> bool {
+    if let Some(cfg_node) = analysis.cfg_nodes.get(&pc) {
         if analysis.functions.contains_key(&pc) {
             println!();
         }
-        println!("{}:", name);
+        println!("{}:", cfg_node.label);
         true
     } else {
         false
@@ -240,13 +164,14 @@ fn main() {
         }
     };
 
-    let mut analysis = Analysis::from_executable(executable.as_ref());
-    let labels = annotate_cfg_nodes_with_labels(&mut analysis, executable.as_ref());
+    let (syscalls, _functions) = executable.get_symbols();
     let mut syscall_registry = SyscallRegistry::default();
-    for hash in analysis.syscalls.keys() {
+    for hash in syscalls.keys() {
         let _ = syscall_registry.register_syscall_by_hash(*hash, MockSyscall::call);
     }
     executable.set_syscall_registry(syscall_registry);
+    executable.jit_compile().unwrap();
+    let analysis = Analysis::from_executable(executable.as_ref());
 
     match matches.value_of("use") {
         Some("cfg") => {
@@ -257,21 +182,25 @@ fn main() {
                     .replace(">", "&gt;")
                     .replace("\"", "&quot;")
             }
-            fn emit_cfg_node(analysis: &Analysis, start_pc: usize) {
+            fn emit_cfg_node<E: UserDefinedError, I: InstructionMeter>(
+                analysis: &Analysis<E, I>,
+                start_pc: usize,
+            ) {
                 let cfg_node = &analysis.cfg_nodes[&start_pc];
                 println!("    lbb_{} [label=<<table border=\"0\" cellborder=\"0\" cellpadding=\"3\">{}</table>>];",
                 start_pc,
                     analysis.instructions[cfg_node.instructions.clone()].iter()
-                    .map(|instruction| {
-                        if let Some(split_index) = instruction.desc.find(' ') {
-                            let mut rest = instruction.desc[split_index+1..].to_string();
+                    .map(|insn| {
+                        let desc = disassemble_instruction(&insn, &analysis);
+                        if let Some(split_index) = desc.find(' ') {
+                            let mut rest = desc[split_index+1..].to_string();
                             if rest.len() > MAX_CELL_CONTENT_LENGTH + 1 {
                                 rest.truncate(MAX_CELL_CONTENT_LENGTH);
                                 rest = format!("{}…", rest);
                             }
-                            format!("<tr><td align=\"left\">{}</td><td align=\"left\">{}</td></tr>", html_escape(&instruction.desc[..split_index]), html_escape(&rest))
+                            format!("<tr><td align=\"left\">{}</td><td align=\"left\">{}</td></tr>", html_escape(&desc[..split_index]), html_escape(&rest))
                         } else {
-                            format!("<tr><td align=\"left\">{}</td></tr>", html_escape(&instruction.desc))
+                            format!("<tr><td align=\"left\">{}</td></tr>", html_escape(&desc))
                         }
                     })
                     .collect::<Vec<String>>()
@@ -302,6 +231,12 @@ fn main() {
                 println!("  }}");
             }
             for (cfg_node_start, cfg_node) in analysis.cfg_nodes.iter() {
+                if *cfg_node_start != cfg_node.dominator_parent {
+                    println!(
+                        "  lbb_{} -> lbb_{} [style=dotted; arrowhead=none];",
+                        *cfg_node_start, cfg_node.dominator_parent,
+                    );
+                }
                 if !cfg_node.destinations.is_empty() {
                     println!(
                         "  lbb_{} -> {{{}}};",
@@ -320,13 +255,10 @@ fn main() {
         }
         Some("disassembler") => {
             for insn in analysis.instructions.iter() {
-                print_label_at(&labels, &analysis, insn.ptr);
-                println!("    {}", insn.desc);
+                print_label_at(&analysis, insn.ptr);
+                println!("    {}", disassemble_instruction(&insn, &analysis));
             }
             return;
-        }
-        Some("jit") => {
-            executable.jit_compile().unwrap();
         }
         _ => {}
     }
@@ -371,7 +303,7 @@ fn main() {
     if matches.is_present("trace") {
         let mut tracer_display = String::new();
         vm.get_tracer()
-            .write(&mut tracer_display, vm.get_program())
+            .write(&mut tracer_display, executable.as_ref())
             .unwrap();
         println!("Trace:\n{}", tracer_display);
     }
@@ -413,13 +345,13 @@ fn main() {
         }
         println!("Profile:");
         for insn in analysis.instructions.iter() {
-            if print_label_at(&labels, &analysis, insn.ptr) {
+            if print_label_at(&analysis, insn.ptr) {
                 println!(
                     "    # Basic block executed: {}",
                     cfg_node_counters[&insn.ptr]
                 );
             }
-            println!("    {}", insn.desc);
+            println!("    {}", disassemble_instruction(&insn, &analysis));
             if let Some(edge_counter) = cfg_edge_counters.get(&insn.ptr) {
                 println!(
                     "    # Branch: {} fall through, {} jump",

@@ -539,33 +539,33 @@ impl Insn {
 ///     ];
 /// let insn = ebpf::get_insn(prog, 1);
 /// ```
-pub fn get_insn(prog: &[u8], insn_ptr: usize) -> Insn {
+pub fn get_insn(prog: &[u8], pc: usize) -> Insn {
     // This guard should not be needed in most cases, since the verifier already checks the program
     // size, and indexes should be fine in the interpreter/JIT. But this function is publicly
-    // available and user can call it with any `insn_ptr`, so we have to check anyway.
+    // available and user can call it with any `pc`, so we have to check anyway.
     debug_assert!(
-        (insn_ptr + 1) * INSN_SIZE <= prog.len(),
+        (pc + 1) * INSN_SIZE <= prog.len(),
         "cannot reach instruction at index {:?} in program containing {:?} bytes",
-        insn_ptr,
+        pc,
         prog.len()
     );
-    get_insn_unchecked(prog, insn_ptr)
+    get_insn_unchecked(prog, pc)
 }
 /// Same as `get_insn` except not checked
-pub fn get_insn_unchecked(prog: &[u8], insn_ptr: usize) -> Insn {
+pub fn get_insn_unchecked(prog: &[u8], pc: usize) -> Insn {
     Insn {
-        ptr: INSN_SIZE * insn_ptr,
-        opc: prog[INSN_SIZE * insn_ptr],
-        dst: prog[INSN_SIZE * insn_ptr + 1] & 0x0f,
-        src: (prog[INSN_SIZE * insn_ptr + 1] & 0xf0) >> 4,
-        off: LittleEndian::read_i16(&prog[(INSN_SIZE * insn_ptr + 2)..]),
-        imm: LittleEndian::read_i32(&prog[(INSN_SIZE * insn_ptr + 4)..]) as i64,
+        ptr: pc,
+        opc: prog[INSN_SIZE * pc],
+        dst: prog[INSN_SIZE * pc + 1] & 0x0f,
+        src: (prog[INSN_SIZE * pc + 1] & 0xf0) >> 4,
+        off: LittleEndian::read_i16(&prog[(INSN_SIZE * pc + 2)..]),
+        imm: LittleEndian::read_i32(&prog[(INSN_SIZE * pc + 4)..]) as i64,
     }
 }
 
 /// Merge the two halves of a LD_DW_IMM instruction
 pub fn augment_lddw_unchecked(prog: &[u8], insn: &mut Insn) {
-    let more_significant_half = LittleEndian::read_i32(&prog[(insn.ptr + INSN_SIZE + 4)..]);
+    let more_significant_half = LittleEndian::read_i32(&prog[((insn.ptr + 1) * INSN_SIZE + 4)..]);
     insn.imm = ((insn.imm as u64 & 0xffffffff) | ((more_significant_half as u64) << 32)) as i64;
 }
 

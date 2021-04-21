@@ -7,22 +7,34 @@
 // copied, modified, or distributed except according to those terms.
 
 extern crate solana_rbpf;
-
-use solana_rbpf::assembler::assemble;
-use solana_rbpf::disassembler::to_insn_vec;
+use solana_rbpf::{
+    assembler::assemble,
+    disassembler::disassemble_instruction,
+    static_analysis::Analysis,
+    user_error::UserError,
+    vm::{Config, Executable},
+};
+use test_utils::TestInstructionMeter;
 
 // Using a macro to keep actual line numbers in failure output
 macro_rules! disasm {
     ($src:expr) => {{
         let src = $src;
-        let asm = assemble(src).expect("Can't assemble from string");
-        let insn = to_insn_vec(&asm);
-        let reasm = insn
-            .into_iter()
-            .map(|ins| ins.desc)
+        let program = assemble(src).expect("Can't assemble from string");
+        let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
+            &program,
+            None,
+            Config::default(),
+        )
+        .unwrap();
+        executable.register_bpf_function(0x2A, 1);
+        let analysis = Analysis::from_executable(executable.as_ref());
+        let reasm = analysis
+            .instructions
+            .iter()
+            .map(|insn| disassemble_instruction(&insn, &analysis))
             .collect::<Vec<_>>()
             .join("\n");
-
         assert_eq!(src, reasm);
     }};
 }
@@ -72,20 +84,23 @@ fn test_stxw() {
 // Example for InstructionType::JumpUnconditional.
 #[test]
 fn test_ja() {
-    disasm!("ja +0x8");
+    disasm!("ja +0");
 }
 
 // Example for InstructionType::JumpConditional.
 #[test]
 fn test_jeq() {
-    disasm!("jeq r1, 0x4, +8");
-    disasm!("jeq r1, r3, +8");
+    disasm!("jeq r1, 0x4, -1");
+    disasm!("jeq r1, r3, -1");
 }
 
 // Example for InstructionType::Call.
 #[test]
 fn test_call() {
-    disasm!("call 0x3");
+    disasm!(
+        "call 0x2a
+exit"
+    );
 }
 
 // Example for InstructionType::Endian.
@@ -269,11 +284,11 @@ jge r1, r2, +3
 jlt r1, r2, +3
 jle r1, r2, +3
 jset r1, r2, +3
-jne r1, r2, +3
-jsgt r1, r2, +3
-jsge r1, r2, +3
-jslt r1, r2, +3
-jsle r1, r2, +3"
+jne r1, r2, -3
+jsgt r1, r2, -3
+jsge r1, r2, -3
+jslt r1, r2, -3
+jsle r1, r2, -3"
     );
 
     disasm!(
@@ -283,11 +298,11 @@ jge r1, 0x2, +3
 jlt r1, 0x2, +3
 jle r1, 0x2, +3
 jset r1, 0x2, +3
-jne r1, 0x2, +3
-jsgt r1, 0x2, +3
-jsge r1, 0x2, +3
-jslt r1, 0x2, +3
-jsle r1, 0x2, +3"
+jne r1, 0x2, -3
+jsgt r1, 0x2, -3
+jsge r1, 0x2, -3
+jslt r1, 0x2, -3
+jsle r1, 0x2, -3"
     );
 }
 

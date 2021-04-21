@@ -10,9 +10,11 @@
 
 //! Virtual machine and JIT compiler for eBPF programs.
 
+use crate::disassembler::disassemble_instruction;
+use crate::static_analysis::Analysis;
 use crate::{
     call_frames::CallFrames,
-    disassembler, ebpf,
+    ebpf,
     elf::EBpfElf,
     error::{EbpfError, UserDefinedError},
     jit::{JitProgram, JitProgramArgument},
@@ -280,27 +282,34 @@ impl Tracer {
     }
 
     /// Use this method to print the log of this tracer
-    pub fn write<W: std::fmt::Write>(
+    pub fn write<W: std::fmt::Write, E: UserDefinedError, I: InstructionMeter>(
         &self,
         out: &mut W,
-        program: &[u8],
+        executable: &dyn Executable<E, I>,
     ) -> Result<(), std::fmt::Error> {
-        let disassembled = disassembler::to_insn_vec(program);
-        let mut pc_to_instruction_index =
-            vec![0usize; disassembled.last().map(|ins| ins.ptr + 2).unwrap_or(0)];
-        for index in 0..disassembled.len() {
-            pc_to_instruction_index[disassembled[index].ptr] = index;
-            pc_to_instruction_index[disassembled[index].ptr + 1] = index;
+        let analysis = Analysis::from_executable(executable);
+        let mut pc_to_insn_index = vec![
+            0usize;
+            analysis
+                .instructions
+                .last()
+                .map(|insn| insn.ptr + 2)
+                .unwrap_or(0)
+        ];
+        for (index, insn) in analysis.instructions.iter().enumerate() {
+            pc_to_insn_index[insn.ptr] = index;
+            pc_to_insn_index[insn.ptr + 1] = index;
         }
         for index in 0..self.log.len() {
             let entry = &self.log[index];
+            let insn = &analysis.instructions[pc_to_insn_index[entry[11] as usize]];
             writeln!(
                 out,
                 "{:5?} {:016X?} {:5?}: {}",
                 index,
                 &entry[0..11],
                 entry[11] as usize + ebpf::ELF_INSN_DUMP_OFFSET,
-                disassembled[pc_to_instruction_index[entry[11] as usize]].desc,
+                disassemble_instruction(&insn, &analysis),
             )?;
         }
         Ok(())

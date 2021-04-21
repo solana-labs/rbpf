@@ -67,10 +67,10 @@ macro_rules! test_interpreter_and_jit {
                     let tracer_jit = vm.get_tracer();
                     if !check_closure(&vm, result) || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
                         let mut tracer_display = String::new();
-                        _tracer_interpreter.write(&mut tracer_display, vm.get_program()).unwrap();
+                        _tracer_interpreter.write(&mut tracer_display, $executable.as_ref()).unwrap();
                         println!("{}", tracer_display);
                         let mut tracer_display = String::new();
-                        tracer_jit.write(&mut tracer_display, vm.get_program()).unwrap();
+                        tracer_jit.write(&mut tracer_display, $executable.as_ref()).unwrap();
                         println!("{}", tracer_display);
                         panic!();
                     }
@@ -3318,12 +3318,12 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         println!("result_jit={:?}", result_jit);
         let mut tracer_display = String::new();
         tracer_interpreter
-            .write(&mut tracer_display, vm.get_program())
+            .write(&mut tracer_display, executable.as_ref())
             .unwrap();
         println!("{}", tracer_display);
         let mut tracer_display = String::new();
         tracer_jit
-            .write(&mut tracer_display, vm.get_program())
+            .write(&mut tracer_display, executable.as_ref())
             .unwrap();
         println!("{}", tracer_display);
         panic!();

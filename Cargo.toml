@@ -29,6 +29,7 @@ rand = { version = "0.7.3", features = ["small_rng"]}
 scroll = "0.10.1"
 thiserror = "1.0"
 time = "0.1"
+rustc-demangle = "0.1"
 
 [dev-dependencies]
 elf = "0.0.10"

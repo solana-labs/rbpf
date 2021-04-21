@@ -23,7 +23,7 @@ fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
 
 fn insn(ptr: usize, opc: u8, dst: u8, src: u8, off: i16, imm: i64) -> ebpf::Insn {
     ebpf::Insn {
-        ptr: ptr * ebpf::INSN_SIZE,
+        ptr,
         opc,
         dst,
         src,

@@ -12,4 +12,3 @@ edition = "2018"
 solana_rbpf = { path = "../" }
 test_utils = { path = "../test_utils/" }
 clap = "3.0.0-beta.2"
-rustc-demangle = "0.1"

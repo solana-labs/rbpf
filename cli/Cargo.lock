@@ -300,7 +300,6 @@ name = "rbpf_cli"
 version = "0.2.8"
 dependencies = [
  "clap",
- "rustc-demangle",
  "solana_rbpf",
  "test_utils",
 ]
@@ -342,6 +341,7 @@ dependencies = [
  "libc",
  "log",
  "rand",
+ "rustc-demangle",
  "scroll",
  "thiserror",
  "time",

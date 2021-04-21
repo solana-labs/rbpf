@@ -1,16 +1,14 @@
 //! Static Byte Code Analysis
 
-use crate::{
-    disassembler::{to_insn_vec, HlInsn},
-    ebpf,
-    error::UserDefinedError,
-    vm::Executable,
-    vm::InstructionMeter,
-};
+use crate::{ebpf, error::UserDefinedError, vm::Executable, vm::InstructionMeter};
+use rustc_demangle::demangle;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// A node of the control-flow graph
+#[derive(Debug)]
 pub struct CfgNode {
+    /// Human readable name
+    pub label: String,
     /// Predecessors which can jump to the start of this basic block
     pub sources: Vec<usize>,
     /// Successors which the end of this basic block can jump to
@@ -72,6 +70,7 @@ pub struct DfgEdge {
 impl Default for CfgNode {
     fn default() -> Self {
         Self {
+            label: String::new(),
             sources: Vec::new(),
             destinations: Vec::new(),
             instructions: 0..0,
@@ -84,9 +83,11 @@ impl Default for CfgNode {
 }
 
 /// Result of the executable analysis
-pub struct Analysis {
+pub struct Analysis<'a, E: UserDefinedError, I: InstructionMeter> {
+    /// The program which is analyzed
+    pub executable: &'a dyn Executable<E, I>,
     /// Plain list of instructions as they occur in the executable
-    pub instructions: Vec<HlInsn>,
+    pub instructions: Vec<ebpf::Insn>,
     /// Syscalls used by the executable (available if debug symbols are not stripped)
     pub syscalls: BTreeMap<u32, String>,
     /// Functions in the executable (available if debug symbols are not stripped)
@@ -101,15 +102,34 @@ pub struct Analysis {
     pub dfg_nodes: BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
 }
 
-impl Analysis {
+impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     /// Analyze an executable statically
-    pub fn from_executable<E: UserDefinedError, I: InstructionMeter>(
-        executable: &dyn Executable<E, I>,
-    ) -> Self {
+    pub fn from_executable(executable: &'a dyn Executable<E, I>) -> Self {
         let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
         let (syscalls, functions) = executable.get_symbols();
+        debug_assert!(
+            program.len() % ebpf::INSN_SIZE == 0,
+            "eBPF program length must be a multiple of {:?} octets is {:?}",
+            ebpf::INSN_SIZE,
+            program.len()
+        );
+        let mut instructions = Vec::with_capacity(program.len() / ebpf::INSN_SIZE);
+        let mut insn_ptr: usize = 0;
+        while insn_ptr * ebpf::INSN_SIZE < program.len() {
+            let mut insn = ebpf::get_insn_unchecked(program, insn_ptr);
+            if insn.opc == ebpf::LD_DW_IMM {
+                insn_ptr += 1;
+                if insn_ptr * ebpf::INSN_SIZE >= program.len() {
+                    break;
+                }
+                ebpf::augment_lddw_unchecked(program, &mut insn);
+            }
+            instructions.push(insn);
+            insn_ptr += 1;
+        }
         let mut result = Self {
-            instructions: to_insn_vec(program),
+            executable,
+            instructions,
             syscalls,
             functions,
             cfg_nodes: BTreeMap::new(),
@@ -117,7 +137,8 @@ impl Analysis {
             entrypoint: executable.get_entrypoint_instruction_offset().unwrap(),
             dfg_nodes: BTreeMap::new(),
         };
-        result.split_into_basic_blocks(executable, false);
+        result.split_into_basic_blocks(false);
+        result.label_basic_blocks();
         result.control_flow_graph_tarjan();
         result.control_flow_graph_dominance_hierarchy();
         let basic_block_outputs = result.intra_basic_block_data_flow();
@@ -143,11 +164,7 @@ impl Analysis {
     /// Splits the sequence of instructions into basic blocks
     ///
     /// Also links the control-flow graph edges between the basic blocks.
-    fn split_into_basic_blocks<E: UserDefinedError, I: InstructionMeter>(
-        &mut self,
-        executable: &dyn Executable<E, I>,
-        flatten_call_graph: bool,
-    ) {
+    pub fn split_into_basic_blocks(&mut self, flatten_call_graph: bool) {
         {
             self.functions
                 .entry(self.entrypoint)
@@ -168,7 +185,8 @@ impl Analysis {
                                 .entry(insn.ptr + 1)
                                 .or_insert_with(CfgNode::default);
                         }
-                    } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32)
+                    } else if let Some(target_pc) =
+                        self.executable.lookup_bpf_function(insn.imm as u32)
                     {
                         self.functions
                             .entry(*target_pc)
@@ -254,6 +272,11 @@ impl Analysis {
                 })
                 .collect();
             std::mem::swap(&mut self.cfg_nodes, &mut cfg_nodes);
+            for cfg_edge in cfg_edges.values_mut() {
+                cfg_edge
+                    .1
+                    .retain(|destination| self.cfg_nodes.contains_key(destination));
+            }
         }
         {
             let mut instruction_index = 0;
@@ -320,10 +343,31 @@ impl Analysis {
         }
     }
 
+    /// Gives the basic blocks names
+    pub fn label_basic_blocks(&mut self) {
+        for (pc, cfg_node) in self.cfg_nodes.iter_mut() {
+            cfg_node.label = if let Some((name, _length)) = self.functions.get(&pc) {
+                demangle(&name).to_string()
+            } else {
+                format!("lbb_{}", pc)
+            };
+        }
+    }
+
+    /// Returns Some(label) of the basic block starting at pc or None
+    pub fn get_label(&self, pc: usize) -> Option<&str> {
+        self.cfg_nodes
+            .get(&pc)
+            .map(|cfg_node| cfg_node.label.as_str())
+    }
+
     /// Finds the strongly connected components
     ///
     /// Generates a topological order as by-product.
-    fn control_flow_graph_tarjan(&mut self) {
+    pub fn control_flow_graph_tarjan(&mut self) {
+        if self.cfg_nodes.is_empty() {
+            return;
+        }
         struct NodeState {
             cfg_node: usize,
             discovery: usize,
@@ -416,7 +460,7 @@ impl Analysis {
     }
 
     /// Topological order relation in the control-flow graph
-    fn control_flow_graph_order(&self, a: usize, b: usize) -> std::cmp::Ordering {
+    pub fn control_flow_graph_order(&self, a: usize, b: usize) -> std::cmp::Ordering {
         let cfg_node_a = &self.cfg_nodes[&a];
         let cfg_node_b = &self.cfg_nodes[&b];
         (cfg_node_b.scc_id.cmp(&cfg_node_a.scc_id))
@@ -426,15 +470,23 @@ impl Analysis {
     /// Finds the dominance hierarchy of the control-flow graph
     ///
     /// Uses the Cooper-Harvey-Kennedy algorithm.
-    fn control_flow_graph_dominance_hierarchy(&mut self) {
+    pub fn control_flow_graph_dominance_hierarchy(&mut self) {
+        if self.cfg_nodes.is_empty() {
+            return;
+        }
+        self.cfg_nodes
+            .get_mut(&self.entrypoint)
+            .unwrap()
+            .dominator_parent = self.entrypoint;
         loop {
             let mut terminate = true;
             for b in self.topological_order.iter() {
                 let cfg_node = &self.cfg_nodes[b];
-                let mut dominator_parent = usize::MAX;
+                let mut dominator_parent;
                 if cfg_node.sources.is_empty() {
                     dominator_parent = *b;
                 } else {
+                    dominator_parent = usize::MAX;
                     for p in cfg_node.sources.iter() {
                         if self.cfg_nodes[p].dominator_parent == usize::MAX {
                             continue;
@@ -458,6 +510,9 @@ impl Analysis {
                         }
                     }
                 }
+                if dominator_parent == usize::MAX {
+                    dominator_parent = *b;
+                }
                 if cfg_node.dominator_parent != dominator_parent {
                     let mut cfg_node = self.cfg_nodes.get_mut(b).unwrap();
                     cfg_node.dominator_parent = dominator_parent;
@@ -480,14 +535,14 @@ impl Analysis {
     }
 
     /// Connect the dependencies between the instructions inside of the basic blocks
-    fn intra_basic_block_data_flow(&mut self) -> BTreeMap<usize, HashMap<DataResource, usize>> {
+    pub fn intra_basic_block_data_flow(&mut self) -> BTreeMap<usize, HashMap<DataResource, usize>> {
         fn bind(
             state: &mut (
                 usize,
                 BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
                 HashMap<DataResource, usize>,
             ),
-            insn: &HlInsn,
+            insn: &ebpf::Insn,
             is_output: bool,
             resource: DataResource,
         ) {
@@ -675,7 +730,7 @@ impl Analysis {
     }
 
     /// Connect the dependencies inbetween the basic blocks
-    fn inter_basic_block_data_flow(
+    pub fn inter_basic_block_data_flow(
         &mut self,
         basic_block_outputs: BTreeMap<usize, HashMap<DataResource, usize>>,
     ) {
