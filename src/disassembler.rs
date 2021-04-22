@@ -63,18 +63,32 @@ fn ldind_str(name: &str, insn: &ebpf::Insn) -> String {
 fn jmp_imm_str<E: UserDefinedError, I: InstructionMeter>(
     name: &str,
     insn: &ebpf::Insn,
-    _analysis: &Analysis<E, I>,
+    analysis: &Analysis<E, I>,
 ) -> String {
-    format!("{} r{}, {:#x}, {:+1}", name, insn.dst, insn.imm, insn.off)
+    let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
+    format!(
+        "{} r{}, {:#x}, {}",
+        name,
+        insn.dst,
+        insn.imm,
+        analysis.get_label(target_pc).unwrap_or("[invalid]")
+    )
 }
 
 #[inline]
 fn jmp_reg_str<E: UserDefinedError, I: InstructionMeter>(
     name: &str,
     insn: &ebpf::Insn,
-    _analysis: &Analysis<E, I>,
+    analysis: &Analysis<E, I>,
 ) -> String {
-    format!("{} r{}, r{}, {:+1}", name, insn.dst, insn.src, insn.off)
+    let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
+    format!(
+        "{} r{}, r{}, {}",
+        name,
+        insn.dst,
+        insn.src,
+        analysis.get_label(target_pc).unwrap_or("[invalid]")
+    )
 }
 
 /// Disassemble an eBPF instruction
@@ -174,7 +188,8 @@ pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &
         // BPF_JMP class
         ebpf::JA         => {
             name = "ja";
-            desc = format!("{} {:+1}", name, insn.off);
+            let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
+            desc = format!("{} {}", name, analysis.get_label(target_pc).unwrap_or("[invalid]"));
         },
         ebpf::JEQ_IMM    => { name = "jeq";  desc = jmp_imm_str(name, &insn, analysis); },
         ebpf::JEQ_REG    => { name = "jeq";  desc = jmp_reg_str(name, &insn, analysis); },
@@ -204,7 +219,13 @@ pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &
                 format!("{} {}", name, syscall_name)
             } else {
                 name = "call";
-                format!("{} {:#x}", name, insn.imm)
+                format!("{} {}", name,
+                    analysis
+                    .executable
+                    .lookup_bpf_function(insn.imm as u32)
+                    .and_then(|target_pc| analysis.get_label(*target_pc))
+                    .unwrap_or("[invalid]"),
+                )
             };
         },
         ebpf::CALL_REG   => { name = "callx"; desc = format!("{} {:#x}", name, insn.imm); },

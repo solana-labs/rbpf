@@ -1,5 +1,6 @@
 //! Static Byte Code Analysis
 
+use crate::disassembler::disassemble_instruction;
 use crate::{ebpf, error::UserDefinedError, vm::Executable, vm::InstructionMeter};
 use rustc_demangle::demangle;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -359,6 +360,29 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         self.cfg_nodes
             .get(&pc)
             .map(|cfg_node| cfg_node.label.as_str())
+    }
+
+    /// Returns the assembler code of the analyzed executable
+    pub fn disassemble<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
+        let mut last_basic_block = usize::MAX;
+        for insn in self.instructions.iter() {
+            if let Some(cfg_node) = self.cfg_nodes.get(&insn.ptr) {
+                let is_function = self.functions.contains_key(&insn.ptr);
+                if is_function || cfg_node.sources != vec![last_basic_block] {
+                    if is_function && Some(insn) != self.instructions.first() {
+                        writeln!(output)?;
+                    }
+                    writeln!(output, "{}:", cfg_node.label)?;
+                }
+                last_basic_block = if cfg_node.destinations.len() == 1 {
+                    usize::MAX
+                } else {
+                    insn.ptr
+                };
+            }
+            writeln!(output, "    {}", disassemble_instruction(&insn, self))?;
+        }
+        Ok(())
     }
 
     /// Finds the strongly connected components

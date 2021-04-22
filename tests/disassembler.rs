@@ -8,11 +8,7 @@
 
 extern crate solana_rbpf;
 use solana_rbpf::{
-    assembler::assemble,
-    disassembler::disassemble_instruction,
-    static_analysis::Analysis,
-    user_error::UserError,
-    vm::{Config, Executable},
+    assembler::assemble, static_analysis::Analysis, user_error::UserError, vm::Config,
 };
 use test_utils::TestInstructionMeter;
 
@@ -20,22 +16,12 @@ use test_utils::TestInstructionMeter;
 macro_rules! disasm {
     ($src:expr) => {{
         let src = $src;
-        let program = assemble(src).expect("Can't assemble from string");
-        let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
-            &program,
-            None,
-            Config::default(),
-        )
-        .unwrap();
-        executable.register_bpf_function(0x2A, 1);
+        let executable =
+            assemble::<UserError, TestInstructionMeter>(src, None, Config::default()).unwrap();
         let analysis = Analysis::from_executable(executable.as_ref());
-        let reasm = analysis
-            .instructions
-            .iter()
-            .map(|insn| disassemble_instruction(&insn, &analysis))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert_eq!(src, reasm);
+        let mut reasm = Vec::new();
+        analysis.disassemble(&mut reasm).unwrap();
+        assert_eq!(src, String::from_utf8(reasm).unwrap());
     }};
 }
 
@@ -47,166 +33,196 @@ fn test_empty() {
 // Example for InstructionType::NoOperand.
 #[test]
 fn test_exit() {
-    disasm!("exit");
+    disasm!("entrypoint:\n    exit\n");
 }
 
 // Example for InstructionType::AluBinary.
 #[test]
 fn test_add64() {
-    disasm!("add64 r1, r3");
-    disasm!("add64 r1, 0x5");
+    disasm!("entrypoint:\n    add64 r1, r3\n");
+    disasm!("entrypoint:\n    add64 r1, 0x5\n");
 }
 
 // Example for InstructionType::AluUnary.
 #[test]
 fn test_neg64() {
-    disasm!("neg64 r1");
+    disasm!("entrypoint:\n    neg64 r1\n");
 }
 
 // Example for InstructionType::LoadReg.
 #[test]
 fn test_ldxw() {
-    disasm!("ldxw r1, [r2+0x5]");
+    disasm!("entrypoint:\n    ldxw r1, [r2+0x5]\n");
 }
 
 // Example for InstructionType::StoreImm.
 #[test]
 fn test_stw() {
-    disasm!("stw [r2+0x5], 0x7");
+    disasm!("entrypoint:\n    stw [r2+0x5], 0x7\n");
 }
 
 // Example for InstructionType::StoreReg.
 #[test]
 fn test_stxw() {
-    disasm!("stxw [r2+0x5], r8");
+    disasm!("entrypoint:\n    stxw [r2+0x5], r8\n");
 }
 
 // Example for InstructionType::JumpUnconditional.
 #[test]
 fn test_ja() {
-    disasm!("ja +0");
+    disasm!(
+        "entrypoint:
+    ja lbb_1
+lbb_1:
+    exit
+"
+    );
 }
 
 // Example for InstructionType::JumpConditional.
 #[test]
 fn test_jeq() {
-    disasm!("jeq r1, 0x4, -1");
-    disasm!("jeq r1, r3, -1");
+    disasm!(
+        "entrypoint:
+    jeq r1, 0x4, lbb_1
+lbb_1:
+    exit
+"
+    );
+    disasm!(
+        "entrypoint:
+    jeq r1, r3, lbb_1
+lbb_1:
+    exit
+"
+    );
 }
 
 // Example for InstructionType::Call.
 #[test]
 fn test_call() {
     disasm!(
-        "call 0x2a
-exit"
+        "entrypoint:
+    call function_1
+
+function_1:
+    exit
+"
     );
 }
 
 // Example for InstructionType::Endian.
 #[test]
 fn test_be32() {
-    disasm!("be32 r1");
+    disasm!("entrypoint:\n    be32 r1\n");
 }
 
 // Example for InstructionType::LoadImm.
 #[test]
 fn test_lddw() {
-    disasm!("lddw r1, 0x1234abcd5678eeff");
-    disasm!("lddw r1, 0xff11ee22dd33cc44");
+    disasm!("entrypoint:\n    lddw r1, 0x1234abcd5678eeff\n");
+    disasm!("entrypoint:\n    lddw r1, 0xff11ee22dd33cc44\n");
 }
 
 // Example for InstructionType::LoadAbs.
 #[test]
 fn test_ldabsw() {
-    disasm!("ldabsw 0x1");
+    disasm!("entrypoint:\n    ldabsw 0x1\n");
 }
 
 // Example for InstructionType::LoadInd.
 #[test]
 fn test_ldindw() {
-    disasm!("ldindw r1, 0x2");
+    disasm!("entrypoint:\n    ldindw r1, 0x2\n");
 }
 
 // Example for InstructionType::LoadReg.
 #[test]
 fn test_ldxdw() {
-    disasm!("ldxdw r1, [r2+0x3]");
+    disasm!("entrypoint:\n    ldxdw r1, [r2+0x3]\n");
 }
 
 // Example for InstructionType::StoreImm.
 #[test]
 fn test_sth() {
-    disasm!("sth [r1+0x2], 0x3");
+    disasm!("entrypoint:\n    sth [r1+0x2], 0x3\n");
 }
 
 // Example for InstructionType::StoreReg.
 #[test]
 fn test_stxh() {
-    disasm!("stxh [r1+0x2], r3");
+    disasm!("entrypoint:\n    stxh [r1+0x2], r3\n");
 }
 
 // Test all supported AluBinary mnemonics.
 #[test]
 fn test_alu_binary() {
     disasm!(
-        "add64 r1, r2
-sub64 r1, r2
-mul64 r1, r2
-div64 r1, r2
-or64 r1, r2
-and64 r1, r2
-lsh64 r1, r2
-rsh64 r1, r2
-mod64 r1, r2
-xor64 r1, r2
-mov64 r1, r2
-arsh64 r1, r2"
+        "entrypoint:
+    add64 r1, r2
+    sub64 r1, r2
+    mul64 r1, r2
+    div64 r1, r2
+    or64 r1, r2
+    and64 r1, r2
+    lsh64 r1, r2
+    rsh64 r1, r2
+    mod64 r1, r2
+    xor64 r1, r2
+    mov64 r1, r2
+    arsh64 r1, r2
+"
     );
 
     disasm!(
-        "add64 r1, 0x2
-sub64 r1, 0x2
-mul64 r1, 0x2
-div64 r1, 0x2
-or64 r1, 0x2
-and64 r1, 0x2
-lsh64 r1, 0x2
-rsh64 r1, 0x2
-mod64 r1, 0x2
-xor64 r1, 0x2
-mov64 r1, 0x2
-arsh64 r1, 0x2"
+        "entrypoint:
+    add64 r1, 0x2
+    sub64 r1, 0x2
+    mul64 r1, 0x2
+    div64 r1, 0x2
+    or64 r1, 0x2
+    and64 r1, 0x2
+    lsh64 r1, 0x2
+    rsh64 r1, 0x2
+    mod64 r1, 0x2
+    xor64 r1, 0x2
+    mov64 r1, 0x2
+    arsh64 r1, 0x2
+"
     );
 
     disasm!(
-        "add32 r1, r2
-sub32 r1, r2
-mul32 r1, r2
-div32 r1, r2
-or32 r1, r2
-and32 r1, r2
-lsh32 r1, r2
-rsh32 r1, r2
-mod32 r1, r2
-xor32 r1, r2
-mov32 r1, r2
-arsh32 r1, r2"
+        "entrypoint:
+    add32 r1, r2
+    sub32 r1, r2
+    mul32 r1, r2
+    div32 r1, r2
+    or32 r1, r2
+    and32 r1, r2
+    lsh32 r1, r2
+    rsh32 r1, r2
+    mod32 r1, r2
+    xor32 r1, r2
+    mov32 r1, r2
+    arsh32 r1, r2
+"
     );
 
     disasm!(
-        "add32 r1, 0x2
-sub32 r1, 0x2
-mul32 r1, 0x2
-div32 r1, 0x2
-or32 r1, 0x2
-and32 r1, 0x2
-lsh32 r1, 0x2
-rsh32 r1, 0x2
-mod32 r1, 0x2
-xor32 r1, 0x2
-mov32 r1, 0x2
-arsh32 r1, 0x2"
+        "entrypoint:
+    add32 r1, 0x2
+    sub32 r1, 0x2
+    mul32 r1, 0x2
+    div32 r1, 0x2
+    or32 r1, 0x2
+    and32 r1, 0x2
+    lsh32 r1, 0x2
+    rsh32 r1, 0x2
+    mod32 r1, 0x2
+    xor32 r1, 0x2
+    mov32 r1, 0x2
+    arsh32 r1, 0x2
+"
     );
 }
 
@@ -214,8 +230,10 @@ arsh32 r1, 0x2"
 #[test]
 fn test_alu_unary() {
     disasm!(
-        "neg64 r1
-neg32 r1"
+        "entrypoint:
+    neg64 r1
+    neg32 r1
+"
     );
 }
 
@@ -223,10 +241,12 @@ neg32 r1"
 #[test]
 fn test_load_abs() {
     disasm!(
-        "ldabsw 0x1
-ldabsh 0x1
-ldabsb 0x1
-ldabsdw 0x1"
+        "entrypoint:
+    ldabsw 0x1
+    ldabsh 0x1
+    ldabsb 0x1
+    ldabsdw 0x1
+"
     );
 }
 
@@ -234,10 +254,12 @@ ldabsdw 0x1"
 #[test]
 fn test_load_ind() {
     disasm!(
-        "ldindw r1, 0x2
-ldindh r1, 0x2
-ldindb r1, 0x2
-ldinddw r1, 0x2"
+        "entrypoint:
+    ldindw r1, 0x2
+    ldindh r1, 0x2
+    ldindb r1, 0x2
+    ldinddw r1, 0x2
+"
     );
 }
 
@@ -245,10 +267,12 @@ ldinddw r1, 0x2"
 #[test]
 fn test_load_reg() {
     disasm!(
-        r"ldxw r1, [r2+0x3]
-ldxh r1, [r2+0x3]
-ldxb r1, [r2+0x3]
-ldxdw r1, [r2+0x3]"
+        r"entrypoint:
+    ldxw r1, [r2+0x3]
+    ldxh r1, [r2+0x3]
+    ldxb r1, [r2+0x3]
+    ldxdw r1, [r2+0x3]
+"
     );
 }
 
@@ -256,10 +280,12 @@ ldxdw r1, [r2+0x3]"
 #[test]
 fn test_store_imm() {
     disasm!(
-        "stw [r1+0x2], 0x3
-sth [r1+0x2], 0x3
-stb [r1+0x2], 0x3
-stdw [r1+0x2], 0x3"
+        "entrypoint:
+    stw [r1+0x2], 0x3
+    sth [r1+0x2], 0x3
+    stb [r1+0x2], 0x3
+    stdw [r1+0x2], 0x3
+"
     );
 }
 
@@ -267,10 +293,12 @@ stdw [r1+0x2], 0x3"
 #[test]
 fn test_store_reg() {
     disasm!(
-        "stxw [r1+0x2], r3
-stxh [r1+0x2], r3
-stxb [r1+0x2], r3
-stxdw [r1+0x2], r3"
+        "entrypoint:
+    stxw [r1+0x2], r3
+    stxh [r1+0x2], r3
+    stxb [r1+0x2], r3
+    stxdw [r1+0x2], r3
+"
     );
 }
 
@@ -278,31 +306,39 @@ stxdw [r1+0x2], r3"
 #[test]
 fn test_jump_conditional() {
     disasm!(
-        "jeq r1, r2, +3
-jgt r1, r2, +3
-jge r1, r2, +3
-jlt r1, r2, +3
-jle r1, r2, +3
-jset r1, r2, +3
-jne r1, r2, -3
-jsgt r1, r2, -3
-jsge r1, r2, -3
-jslt r1, r2, -3
-jsle r1, r2, -3"
+        "entrypoint:
+    jeq r1, r2, lbb_11
+    jgt r1, r2, lbb_11
+    jge r1, r2, lbb_11
+    jlt r1, r2, lbb_11
+    jle r1, r2, lbb_11
+    jset r1, r2, lbb_11
+    jne r1, r2, lbb_11
+    jsgt r1, r2, lbb_11
+    jsge r1, r2, lbb_11
+    jslt r1, r2, lbb_11
+    jsle r1, r2, lbb_11
+lbb_11:
+    exit
+"
     );
 
     disasm!(
-        "jeq r1, 0x2, +3
-jgt r1, 0x2, +3
-jge r1, 0x2, +3
-jlt r1, 0x2, +3
-jle r1, 0x2, +3
-jset r1, 0x2, +3
-jne r1, 0x2, -3
-jsgt r1, 0x2, -3
-jsge r1, 0x2, -3
-jslt r1, 0x2, -3
-jsle r1, 0x2, -3"
+        "entrypoint:
+    jeq r1, 0x2, lbb_11
+    jgt r1, 0x2, lbb_11
+    jge r1, 0x2, lbb_11
+    jlt r1, 0x2, lbb_11
+    jle r1, 0x2, lbb_11
+    jset r1, 0x2, lbb_11
+    jne r1, 0x2, lbb_11
+    jsgt r1, 0x2, lbb_11
+    jsge r1, 0x2, lbb_11
+    jslt r1, 0x2, lbb_11
+    jsle r1, 0x2, lbb_11
+lbb_11:
+    exit
+"
     );
 }
 
@@ -310,17 +346,19 @@ jsle r1, 0x2, -3"
 #[test]
 fn test_endian() {
     disasm!(
-        "be16 r1
-be32 r1
-be64 r1
-le16 r1
-le32 r1
-le64 r1"
+        "entrypoint:
+    be16 r1
+    be32 r1
+    be64 r1
+    le16 r1
+    le32 r1
+    le64 r1
+"
     );
 }
 
 #[test]
 fn test_large_immediate() {
-    disasm!("add64 r1, 0x7fffffff");
-    disasm!("add64 r1, 0x7fffffff");
+    disasm!("entrypoint:\n    add64 r1, 0x7fffffff\n");
+    disasm!("entrypoint:\n    add64 r1, 0x7fffffff\n");
 }

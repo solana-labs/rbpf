@@ -7,18 +7,15 @@
 extern crate solana_rbpf;
 extern crate test_utils;
 
-use solana_rbpf::assembler::assemble;
-use solana_rbpf::ebpf;
-use test_utils::{TCP_SACK_ASM, TCP_SACK_BIN};
-
-pub fn to_insn_vec(prog: &[u8]) -> Vec<ebpf::Insn> {
-    (0..prog.len() / ebpf::INSN_SIZE)
-        .map(|insn_ptr| ebpf::get_insn(prog, insn_ptr))
-        .collect()
-}
+use solana_rbpf::{assembler::assemble, ebpf, user_error::UserError, vm::Config};
+use test_utils::{TestInstructionMeter, TCP_SACK_ASM, TCP_SACK_BIN};
 
 fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
-    Ok(to_insn_vec(&assemble(src)?))
+    let executable = assemble::<UserError, TestInstructionMeter>(src, None, Config::default())?;
+    let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
+    Ok((0..program.len() / ebpf::INSN_SIZE)
+        .map(|insn_ptr| ebpf::get_insn(program, insn_ptr))
+        .collect())
 }
 
 fn insn(ptr: usize, opc: u8, dst: u8, src: u8, off: i16, imm: i64) -> ebpf::Insn {
@@ -567,7 +564,10 @@ fn test_large_immediate() {
 
 #[test]
 fn test_tcp_sack() {
-    assert_eq!(assemble(TCP_SACK_ASM), Ok(TCP_SACK_BIN.to_vec()));
+    let executable =
+        assemble::<UserError, TestInstructionMeter>(TCP_SACK_ASM, None, Config::default()).unwrap();
+    let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
+    assert_eq!(program, TCP_SACK_BIN.to_vec());
 }
 
 #[test]
@@ -579,15 +579,7 @@ fn test_error_invalid_instruction() {
 fn test_error_unexpected_operands() {
     assert_eq!(
         asm("add 1, 2"),
-        Err("Failed to encode add: Unexpected operands: [Integer(1), Integer(2)]".to_string())
-    );
-}
-
-#[test]
-fn test_error_too_many_operands() {
-    assert_eq!(
-        asm("add 1, 2, 3, 4"),
-        Err("Failed to encode add: Too many operands".to_string())
+        Err("Unexpected operands: [Integer(1), Integer(2)]".to_string())
     );
 }
 
@@ -595,30 +587,24 @@ fn test_error_too_many_operands() {
 fn test_error_operands_out_of_range() {
     assert_eq!(
         asm("add r16, r2"),
-        Err("Failed to encode add: Invalid destination register 16".to_string())
+        Err("Invalid destination register 16".to_string())
     );
     assert_eq!(
         asm("add r1, r16"),
-        Err("Failed to encode add: Invalid source register 16".to_string())
+        Err("Invalid source register 16".to_string())
     );
-    assert_eq!(
-        asm("ja -32769"),
-        Err("Failed to encode ja: Invalid offset -32769".to_string())
-    );
-    assert_eq!(
-        asm("ja 32768"),
-        Err("Failed to encode ja: Invalid offset 32768".to_string())
-    );
+    assert_eq!(asm("ja -32769"), Err("Invalid offset -32769".to_string()));
+    assert_eq!(asm("ja 32768"), Err("Invalid offset 32768".to_string()));
     assert_eq!(
         asm("add r1, 4294967296"),
-        Err("Failed to encode add: Invalid immediate 4294967296".to_string())
+        Err("Invalid immediate 4294967296".to_string())
     );
     assert_eq!(
         asm("add r1, 2147483648"),
-        Err("Failed to encode add: Invalid immediate 2147483648".to_string())
+        Err("Invalid immediate 2147483648".to_string())
     );
     assert_eq!(
         asm("add r1, -2147483649"),
-        Err("Failed to encode add: Invalid immediate -2147483649".to_string())
+        Err("Invalid immediate -2147483649".to_string())
     );
 }

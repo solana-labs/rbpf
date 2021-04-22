@@ -33,22 +33,18 @@ macro_rules! test_interpreter_and_jit {
     (register, $executable:expr, $syscall_registry:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
         $syscall_registry.register_syscall_by_hash::<UserError, _>($location, $syscall_function).unwrap();
     };
-    (register, $executable:expr, $syscall_registry:expr, $location:expr => $function_pc:expr) => {
-        $executable.register_bpf_function($location, $function_pc);
-    };
     (bind, $vm:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
         $vm.bind_syscall_context_object(Box::new($syscall_context_object), None).unwrap();
     };
-    (bind, $vm:expr, $location:expr => $function_pc:expr) => {};
-    ($executable:expr, $mem:tt, ($($location:expr => $a:expr $(; $b:expr)?),* $(,)?), $check:block, $expected_instruction_count:expr) => {
+    ($executable:expr, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
         let check_closure = $check;
         let mut syscall_registry = SyscallRegistry::default();
-        $(test_interpreter_and_jit!(register, $executable, syscall_registry, $location => $a $(; $b)?);)*
+        $(test_interpreter_and_jit!(register, $executable, syscall_registry, $location => $syscall_function; $syscall_context_object);)*
         $executable.set_syscall_registry(syscall_registry);
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
-            $(test_interpreter_and_jit!(bind, vm, $location => $a $(; $b)?);)*
+            $(test_interpreter_and_jit!(bind, vm, $location => $syscall_function; $syscall_context_object);)*
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count });
             assert!(check_closure(&vm, result));
             (vm.get_total_instruction_count(), vm.get_tracer().clone())
@@ -62,7 +58,7 @@ macro_rules! test_interpreter_and_jit {
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, Err(err))),
                 Ok(()) => {
-                    $(test_interpreter_and_jit!(bind, vm, $location => $a $(; $b)?);)*
+                    $(test_interpreter_and_jit!(bind, vm, $location => $syscall_function; $syscall_context_object);)*
                     let result = vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count });
                     let tracer_jit = vm.get_tracer();
                     if !check_closure(&vm, result) || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
@@ -88,22 +84,21 @@ macro_rules! test_interpreter_and_jit {
 }
 
 macro_rules! test_interpreter_and_jit_asm {
-    ($source:tt, $mem:tt, ($($location:expr => $a:expr $(; $b:expr)?),* $(,)?), $check:block, $expected_instruction_count:expr) => {
-        let program = assemble($source).unwrap();
+    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
         #[allow(unused_mut)]
         {
             let config = Config {
                 enable_instruction_tracing: true,
                 ..Config::default()
             };
-            let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_text_bytes(&program, None, config).unwrap();
-            test_interpreter_and_jit!(executable, $mem, ($($location => $a $(; $b)?),*), $check, $expected_instruction_count);
+            let mut executable = assemble($source, None, config).unwrap();
+            test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }
     };
 }
 
 macro_rules! test_interpreter_and_jit_elf {
-    ($source:tt, $mem:tt, ($($location:expr => $a:expr $(; $b:expr)?),* $(,)?), $check:block, $expected_instruction_count:expr) => {
+    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
@@ -114,7 +109,7 @@ macro_rules! test_interpreter_and_jit_elf {
                 ..Config::default()
             };
             let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, None, config).unwrap();
-            test_interpreter_and_jit!(executable, $mem, ($($location => $a $(; $b)?),*), $check, $expected_instruction_count);
+            test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }
     };
 }
@@ -2402,22 +2397,36 @@ fn test_err_callx_oob_high() {
 
 #[test]
 fn test_err_call_lddw() {
-    test_interpreter_and_jit_asm!(
-        "
-        call 2
-        lddw r0, 0x1122334455667788
-        exit",
-        [],
-        (2 => 0x2),
-        {
-            |_vm, res: Result| {
-                matches!(res.unwrap_err(),
-                    EbpfError::UnsupportedInstruction(pc) if pc == 31
-                )
-            }
-        },
-        2
-    );
+    #[allow(unused_mut)]
+    {
+        let config = Config {
+            enable_instruction_tracing: true,
+            ..Config::default()
+        };
+        let mut executable = assemble(
+            "
+            call 2
+            lddw r0, 0x1122334455667788
+            exit",
+            None,
+            config,
+        )
+        .unwrap();
+        executable.register_bpf_function(2, 2);
+        test_interpreter_and_jit!(
+            executable,
+            [],
+            (),
+            {
+                |_vm, res: Result| {
+                    matches!(res.unwrap_err(),
+                        EbpfError::UnsupportedInstruction(pc) if pc == 31
+                    )
+                }
+            },
+            2
+        );
+    }
 }
 
 #[test]
@@ -2768,11 +2777,12 @@ fn test_tight_infinite_loop_unconditional() {
 fn test_tight_infinite_recursion() {
     test_interpreter_and_jit_asm!(
         "
+        loop:
         mov64 r3, 0x41414141
-        call 0
+        call loop
         exit",
         [],
-        (0 => 0x0),
+        (),
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3220,32 +3230,33 @@ fn test_tcp_sack_nomatch() {
 
 #[test]
 fn test_large_program() {
-    fn write_insn(prog: &mut [u8], index: usize, asm: &str) {
-        let insn = assemble(asm).unwrap();
-        prog[index * ebpf::INSN_SIZE..index * ebpf::INSN_SIZE + insn.len()].copy_from_slice(&insn);
+    let mut insns = vec![ebpf::Insn::default(); ebpf::PROG_MAX_INSNS * 2 - 1];
+    for index in (0..(ebpf::PROG_MAX_INSNS * 2 - 1)).step_by(2) {
+        insns[index].opc = ebpf::LD_DW_IMM;
     }
-
-    let mut prog = vec![0; (ebpf::PROG_MAX_INSNS * 2 - 1) * ebpf::INSN_SIZE];
-    let mut insn = vec![0; ebpf::INSN_SIZE * 2];
-    write_insn(&mut insn, 0, "lddw r0, 0");
-    for index in (0..(ebpf::PROG_MAX_INSNS - 1) * ebpf::INSN_SIZE * 2).step_by(ebpf::INSN_SIZE * 2)
-    {
-        prog[index..index + ebpf::INSN_SIZE * 2].copy_from_slice(&insn);
-    }
-    write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 4, "ja 9");
-    write_insn(&mut prog, ebpf::PROG_MAX_INSNS - 3, "mov r0, 0");
-    write_insn(&mut prog, ebpf::PROG_MAX_INSNS * 2 - 2, "exit");
+    insns[ebpf::PROG_MAX_INSNS - 4].opc = ebpf::JA;
+    insns[ebpf::PROG_MAX_INSNS - 4].off = 9;
+    insns[ebpf::PROG_MAX_INSNS - 3].opc = ebpf::MOV64_IMM;
+    insns[ebpf::PROG_MAX_INSNS * 2 - 2].opc = ebpf::EXIT;
 
     let config = Config {
         enable_instruction_tracing: true,
         ..Config::default()
     };
 
+    let mut program = insns
+        .iter()
+        .map(|insn| insn.to_vec())
+        .flatten()
+        .collect::<Vec<_>>();
     #[allow(unused_mut)]
     {
-        let mut executable =
-            <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(&prog, None, config)
-                .unwrap();
+        let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
+            program.as_slice(),
+            None,
+            config,
+        )
+        .unwrap();
         test_interpreter_and_jit!(
             executable,
             [],
@@ -3257,11 +3268,14 @@ fn test_large_program() {
 
     {
         // Test program that is too large
-        prog.extend_from_slice(&assemble("exit").unwrap());
+        let exit_insn = program[(ebpf::PROG_MAX_INSNS * 2 - 2) * ebpf::INSN_SIZE
+            ..(ebpf::PROG_MAX_INSNS * 2 - 1) * ebpf::INSN_SIZE]
+            .to_vec();
+        program.extend_from_slice(exit_insn.as_slice());
 
         assert!(
             <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(
-                &prog,
+                program.as_slice(),
                 Some(check),
                 config,
             )

@@ -4,9 +4,6 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#![allow(clippy::deprecated_cfg_attr)]
-#![cfg_attr(rustfmt, rustfmt_skip)]
-
 #[macro_use]
 extern crate json;
 
@@ -14,10 +11,12 @@ extern crate elf;
 use std::path::PathBuf;
 
 extern crate solana_rbpf;
-use solana_rbpf::{vm::{Executable, Config, DefaultInstructionMeter},
-static_analysis::Analysis,
-disassembler::disassemble_instruction,
-user_error::UserError};
+use solana_rbpf::{
+    disassembler::disassemble_instruction,
+    static_analysis::Analysis,
+    user_error::UserError,
+    vm::{Config, DefaultInstructionMeter, Executable},
+};
 // Turn a program into a JSON string.
 //
 // Relies on `json` crate.
@@ -28,7 +27,12 @@ user_error::UserError};
 // * Print integers as integers, and not as strings containing their hexadecimal representation
 //   (just replace the relevant `format!()` calls by the commented values.
 fn to_json(program: &[u8]) -> String {
-    let executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(&program, None, Config::default()).unwrap();
+    let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
+        &program,
+        None,
+        Config::default(),
+    )
+    .unwrap();
     let analysis = Analysis::from_executable(executable.as_ref());
 
     let mut json_insns = vec![];
@@ -49,15 +53,17 @@ fn to_json(program: &[u8]) -> String {
             "desc" => disassemble_instruction(&insn, &analysis),
         ));
     }
-    json::stringify_pretty(object!(
+    json::stringify_pretty(
+        object!(
         "size"  => json_insns.len(),
         "insns" => json_insns
-        ), 4)
+        ),
+        4,
+    )
 }
 
 // Load a program from an object file, and prints it to standard output as a JSON string.
 fn main() {
-
     // Let's reuse this file from `load_elf` example.
     let filename = "examples/load_elf__block_a_port.o";
 

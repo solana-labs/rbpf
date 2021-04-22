@@ -6,7 +6,6 @@
 
 extern crate solana_rbpf;
 use solana_rbpf::{
-    disassembler::disassemble_instruction,
     static_analysis::Analysis,
     user_error::UserError,
     vm::{Config, DefaultInstructionMeter, Executable},
@@ -37,11 +36,6 @@ fn main() {
     )
     .unwrap();
     let analysis = Analysis::from_executable(executable.as_ref());
-    let disassembled = analysis
-        .instructions
-        .iter()
-        .map(|insn| disassemble_instruction(&insn, &analysis))
-        .collect::<Vec<_>>()
-        .join("\n");
-    println!("{}", disassembled);
+    let stdout = std::io::stdout();
+    analysis.disassemble(&mut stdout.lock()).unwrap();
 }

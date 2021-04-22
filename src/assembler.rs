@@ -8,14 +8,20 @@
 
 use self::InstructionType::{
     AluBinary, AluUnary, CallImm, CallReg, Endian, JumpConditional, JumpUnconditional, LoadAbs,
-    LoadImm, LoadInd, LoadReg, NoOperand, StoreImm, StoreReg,
+    LoadImm, LoadInd, LoadReg, NoOperand, StoreImm, StoreReg, Syscall,
 };
-use crate::asm_parser::{
-    parse, Instruction, Operand,
-    Operand::{Integer, Memory, Nil, Register},
+use crate::{
+    asm_parser::{
+        parse,
+        Operand::{Integer, Label, Memory, Register},
+        Statement,
+    },
+    ebpf::{self, Insn},
+    error::UserDefinedError,
+    vm::{Config, Executable, InstructionMeter, Verifier},
 };
-use crate::ebpf::{self, Insn};
-use std::collections::HashMap;
+
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum InstructionType {
@@ -29,6 +35,7 @@ enum InstructionType {
     StoreReg,
     JumpUnconditional,
     JumpConditional,
+    Syscall,
     CallImm,
     CallReg,
     Endian(i64),
@@ -82,6 +89,7 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
         // Miscellaneous.
         entry("exit", NoOperand, ebpf::EXIT);
         entry("ja", JumpUnconditional, ebpf::JA);
+        entry("syscall", Syscall, ebpf::CALL_IMM);
         entry("call", CallImm, ebpf::CALL_IMM);
         entry("callx", CallReg, ebpf::CALL_REG);
         entry("lddw", LoadImm, ebpf::LD_DW_IMM);
@@ -149,10 +157,10 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
     if dst < 0 || src >= 16 {
         return Err(format!("Invalid source register {}", src));
     }
-    if off < -32768 || off >= 32768 {
+    if off < std::i16::MIN as i64 || off > std::i16::MAX as i64 {
         return Err(format!("Invalid offset {}", off));
     }
-    if imm < -2147483648 || imm >= 2147483648 {
+    if imm < std::i32::MIN as i64 || imm > std::i32::MAX as i64 {
         return Err(format!("Invalid immediate {}", imm));
     }
     Ok(Insn {
@@ -165,69 +173,15 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
     })
 }
 
-// TODO Use slice patterns when available and remove this function.
-fn operands_tuple(operands: &[Operand]) -> Result<(Operand, Operand, Operand), String> {
-    match operands.len() {
-        0 => Ok((Nil, Nil, Nil)),
-        1 => Ok((operands[0], Nil, Nil)),
-        2 => Ok((operands[0], operands[1], Nil)),
-        3 => Ok((operands[0], operands[1], operands[2])),
-        _ => Err("Too many operands".to_string()),
-    }
-}
-
-fn encode(inst_type: InstructionType, opc: u8, operands: &[Operand]) -> Result<Insn, String> {
-    let (a, b, c) = operands_tuple(operands)?;
-    match (inst_type, a, b, c) {
-        (AluBinary, Register(dst), Register(src), Nil) => insn(opc | ebpf::BPF_X, dst, src, 0, 0),
-        (AluBinary, Register(dst), Integer(imm), Nil) => insn(opc | ebpf::BPF_K, dst, 0, 0, imm),
-        (AluUnary, Register(dst), Nil, Nil) => insn(opc, dst, 0, 0, 0),
-        (LoadAbs, Integer(imm), Nil, Nil) => insn(opc, 0, 0, 0, imm),
-        (LoadInd, Register(src), Integer(imm), Nil) => insn(opc, 0, src, 0, imm),
-        (LoadReg, Register(dst), Memory(src, off), Nil)
-        | (StoreReg, Memory(dst, off), Register(src), Nil) => insn(opc, dst, src, off, 0),
-        (StoreImm, Memory(dst, off), Integer(imm), Nil) => insn(opc, dst, 0, off, imm),
-        (NoOperand, Nil, Nil, Nil) => insn(opc, 0, 0, 0, 0),
-        (JumpUnconditional, Integer(off), Nil, Nil) => insn(opc, 0, 0, off, 0),
-        (JumpConditional, Register(dst), Register(src), Integer(off)) => {
-            insn(opc | ebpf::BPF_X, dst, src, off, 0)
-        }
-        (JumpConditional, Register(dst), Integer(imm), Integer(off)) => {
-            insn(opc | ebpf::BPF_K, dst, 0, off, imm)
-        }
-        (CallImm, Integer(imm), Nil, Nil) => insn(opc, 0, 0, 0, imm),
-        (CallReg, Integer(imm), Nil, Nil) => insn(opc, 0, 0, 0, imm),
-        (Endian(size), Register(dst), Nil, Nil) => insn(opc, dst, 0, 0, size),
-        (LoadImm, Register(dst), Integer(imm), Nil) => insn(opc, dst, 0, 0, (imm << 32) >> 32),
-        _ => Err(format!("Unexpected operands: {:?}", operands)),
-    }
-}
-
-fn assemble_internal(parsed: &[Instruction]) -> Result<Vec<Insn>, String> {
-    let instruction_map = make_instruction_map();
-    let mut result: Vec<Insn> = vec![];
-    for instruction in parsed {
-        let name = instruction.name.as_str();
-        match instruction_map.get(name) {
-            Some(&(inst_type, opc)) => {
-                match encode(inst_type, opc, &instruction.operands) {
-                    Ok(insn) => result.push(insn),
-                    Err(msg) => return Err(format!("Failed to encode {}: {}", name, msg)),
-                }
-                // Special case for lddw.
-                if let LoadImm = inst_type {
-                    if let Integer(imm) = instruction.operands[1] {
-                        result.push(Insn {
-                            imm: (imm >> 32) as i64,
-                            ..Insn::default()
-                        });
-                    }
-                }
-            }
-            None => return Err(format!("Invalid instruction {:?}", name)),
-        }
-    }
-    Ok(result)
+fn resolve_label(
+    insn_ptr: usize,
+    labels: &HashMap<&str, usize>,
+    label: &str,
+) -> Result<i64, String> {
+    labels
+        .get(label)
+        .map(|target_pc| *target_pc as i64 - insn_ptr as i64 - 1)
+        .ok_or_else(|| format!("Label not found {}", label))
 }
 
 /// Parse assembly source and translate to binary.
@@ -235,39 +189,164 @@ fn assemble_internal(parsed: &[Instruction]) -> Result<Vec<Insn>, String> {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::assembler::assemble;
-/// let prog = assemble("add64 r1, 0x605
-///                      mov64 r2, 0x32
-///                      mov64 r1, r0
-///                      be16 r0
-///                      neg64 r2
-///                      exit");
-/// println!("{:?}", prog);
-/// # assert_eq!(prog,
-/// #            Ok(vec![0x07, 0x01, 0x00, 0x00, 0x05, 0x06, 0x00, 0x00,
-/// #                    0xb7, 0x02, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00,
-/// #                    0xbf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-/// #                    0xdc, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
-/// #                    0x87, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-/// #                    0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
+/// use solana_rbpf::{assembler::assemble, user_error::UserError, vm::{Config, DefaultInstructionMeter}};
+/// let executable = assemble::<UserError, DefaultInstructionMeter>(
+///    "add64 r1, 0x605
+///     mov64 r2, 0x32
+///     mov64 r1, r0
+///     be16 r0
+///     neg64 r2
+///     exit",
+///     None,
+///     Config::default()
+/// ).unwrap();
+/// let program = executable.get_text_bytes().unwrap().1;
+/// println!("{:?}", program);
+/// # assert_eq!(program,
+/// #            &[0x07, 0x01, 0x00, 0x00, 0x05, 0x06, 0x00, 0x00,
+/// #              0xb7, 0x02, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00,
+/// #              0xbf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+/// #              0xdc, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
+/// #              0x87, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+/// #              0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 /// ```
 ///
 /// This will produce the following output:
 ///
 /// ```test
-/// Ok([0x07, 0x01, 0x00, 0x00, 0x05, 0x06, 0x00, 0x00,
-///     0xb7, 0x02, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00,
-///     0xbf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-///     0xdc, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
-///     0x87, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+/// [0x07, 0x01, 0x00, 0x00, 0x05, 0x06, 0x00, 0x00,
+///  0xb7, 0x02, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00,
+///  0xbf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+///  0xdc, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
+///  0x87, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+///  0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
 /// ```
-pub fn assemble(src: &str) -> Result<Vec<u8>, String> {
-    let parsed = parse(src)?;
-    let insns = assemble_internal(&parsed)?;
-    let mut result: Vec<u8> = vec![];
-    for insn in insns {
-        result.extend_from_slice(&insn.to_array());
+pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
+    src: &str,
+    verifier: Option<Verifier<E>>,
+    config: Config,
+) -> Result<Box<dyn Executable<E, I>>, String> {
+    let statements = parse(src)?;
+    let instruction_map = make_instruction_map();
+    let mut insn_ptr = 0;
+    let mut labels = HashMap::new();
+    for statement in statements.iter() {
+        match statement {
+            Statement::Label { name } => {
+                labels.insert(name.as_str(), insn_ptr);
+            }
+            Statement::Instruction { name, .. } => {
+                insn_ptr += if name == "lddw" { 2 } else { 1 };
+            }
+        }
     }
-    Ok(result)
+    insn_ptr = 0;
+    let mut functions = HashSet::new();
+    let mut instructions: Vec<Insn> = Vec::new();
+    for statement in statements.iter() {
+        if let Statement::Instruction { name, operands } = statement {
+            let name = name.as_str();
+            match instruction_map.get(name) {
+                Some(&(inst_type, opc)) => {
+                    let mut insn = match (inst_type, operands.as_slice()) {
+                        (AluBinary, [Register(dst), Register(src)]) => {
+                            insn(opc | ebpf::BPF_X, *dst, *src, 0, 0)
+                        }
+                        (AluBinary, [Register(dst), Integer(imm)]) => {
+                            insn(opc | ebpf::BPF_K, *dst, 0, 0, *imm)
+                        }
+                        (AluUnary, [Register(dst)]) => insn(opc, *dst, 0, 0, 0),
+                        (LoadAbs, [Integer(imm)]) => insn(opc, 0, 0, 0, *imm),
+                        (LoadInd, [Register(src), Integer(imm)]) => insn(opc, 0, *src, 0, *imm),
+                        (LoadReg, [Register(dst), Memory(src, off)])
+                        | (StoreReg, [Memory(dst, off), Register(src)]) => {
+                            insn(opc, *dst, *src, *off, 0)
+                        }
+                        (StoreImm, [Memory(dst, off), Integer(imm)]) => {
+                            insn(opc, *dst, 0, *off, *imm)
+                        }
+                        (NoOperand, []) => insn(opc, 0, 0, 0, 0),
+                        (JumpUnconditional, [Integer(off)]) => insn(opc, 0, 0, *off, 0),
+                        (JumpConditional, [Register(dst), Register(src), Integer(off)]) => {
+                            insn(opc | ebpf::BPF_X, *dst, *src, *off, 0)
+                        }
+                        (JumpConditional, [Register(dst), Integer(imm), Integer(off)]) => {
+                            insn(opc | ebpf::BPF_K, *dst, 0, *off, *imm)
+                        }
+                        (JumpUnconditional, [Label(label)]) => {
+                            insn(opc, 0, 0, resolve_label(insn_ptr, &labels, label)?, 0)
+                        }
+                        (CallImm, [Integer(imm)]) => insn(opc, 0, 0, 0, *imm),
+                        (CallReg, [Integer(imm)]) => insn(opc, 0, 0, 0, *imm),
+                        (JumpConditional, [Register(dst), Register(src), Label(label)]) => insn(
+                            opc | ebpf::BPF_X,
+                            *dst,
+                            *src,
+                            resolve_label(insn_ptr, &labels, label)?,
+                            0,
+                        ),
+                        (JumpConditional, [Register(dst), Integer(imm), Label(label)]) => insn(
+                            opc | ebpf::BPF_K,
+                            *dst,
+                            0,
+                            resolve_label(insn_ptr, &labels, label)?,
+                            *imm,
+                        ),
+                        (Syscall, [Label(label)]) => insn(
+                            opc,
+                            0,
+                            0,
+                            0,
+                            ebpf::hash_symbol_name(label.as_bytes()) as i64,
+                        ),
+                        (CallImm, [Label(label)]) => {
+                            functions.insert(label);
+                            insn(
+                                opc,
+                                0,
+                                0,
+                                0,
+                                ebpf::hash_symbol_name(label.as_bytes()) as i32 as i64,
+                            )
+                        }
+                        (Endian(size), [Register(dst)]) => insn(opc, *dst, 0, 0, size),
+                        (LoadImm, [Register(dst), Integer(imm)]) => {
+                            insn(opc, *dst, 0, 0, (*imm << 32) >> 32)
+                        }
+                        _ => Err(format!("Unexpected operands: {:?}", operands)),
+                    }?;
+                    insn.ptr = insn_ptr;
+                    instructions.push(insn);
+                    insn_ptr += 1;
+                    if let LoadImm = inst_type {
+                        if let Integer(imm) = operands[1] {
+                            instructions.push(Insn {
+                                ptr: insn_ptr,
+                                imm: (imm >> 32) as i64,
+                                ..Insn::default()
+                            });
+                            insn_ptr += 1;
+                        }
+                    }
+                }
+                None => return Err(format!("Invalid instruction {:?}", name)),
+            }
+        }
+    }
+    let program = instructions
+        .iter()
+        .map(|insn| insn.to_vec())
+        .flatten()
+        .collect::<Vec<_>>();
+    let mut executable =
+        <dyn Executable<E, I>>::from_text_bytes(&program, verifier, config).unwrap();
+    for label in functions {
+        executable.register_bpf_function(
+            ebpf::hash_symbol_name(label.as_bytes()),
+            *labels
+                .get(label.as_str())
+                .ok_or_else(|| format!("Label not found {}", label))?,
+        );
+    }
+    Ok(executable)
 }

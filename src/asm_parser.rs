@@ -14,13 +14,13 @@ use combine::{
     char::{alpha_num, char, digit, hex_digit, spaces, string},
     combine_parse_partial, combine_parser_impl,
     easy::{Error, Errors, Info},
-    eof, many, many1, one_of, optional, parse_mode, parser, sep_by,
+    eof, many, many1, one_of, optional, parse_mode, parser, sep_by, skip_many,
     stream::state::{SourcePosition, State},
     Parser, Stream,
 };
 
 /// Operand of an instruction.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Operand {
     /// Register number.
     Register(i64),
@@ -28,21 +28,30 @@ pub enum Operand {
     Integer(i64),
     /// Register number and offset.
     Memory(i64, i64),
-    /// Used for pattern matching.
-    Nil,
+    /// Jump target label.
+    Label(String),
 }
 
-/// Parsed instruction.
+/// Parsed statement.
 #[derive(Debug, PartialEq)]
-pub struct Instruction {
-    /// Instruction name.
-    pub name: String,
-    /// Operands.
-    pub operands: Vec<Operand>,
+pub enum Statement {
+    /// Parsed label (name).
+    Label { name: String },
+    /// Parsed instruction (name, operands).
+    Instruction {
+        name: String,
+        operands: Vec<Operand>,
+    },
 }
 
 parser! {
     fn ident[I]()(I) -> String where [I: Stream<Item=char>] {
+        many1(alpha_num().or(char('_')))
+    }
+}
+
+parser! {
+    fn mnemonic[I]()(I) -> String where [I: Stream<Item=char>] {
         many1(alpha_num())
     }
 }
@@ -80,20 +89,26 @@ parser! {
             (register(), optional(integer())),
         )
         .map(|t| Operand::Memory(t.0, t.1.unwrap_or(0)));
+        let label = ident().map(Operand::Label);
         register_operand
             .or(immediate)
             .or(memory)
+            .or(label)
     }
 }
 
 parser! {
-    fn instruction[I]()(I) -> Instruction where [I: Stream<Item=char>] {
-        let operands = sep_by(operand(), char(',').skip(spaces()));
-        (ident().skip(spaces()), operands, spaces())
-            .map(|t| Instruction {
-                name: t.0,
-                operands: t.1,
-            })
+    fn label[I]()(I) -> Statement where [I: Stream<Item=char>] {
+        (ident(), char(':'))
+            .map(|t| Statement::Label { name: t.0 })
+    }
+}
+
+parser! {
+    fn instruction[I]()(I) -> Statement where [I: Stream<Item=char>] {
+        let operands = sep_by(operand(), char(',').skip(skip_many(char(' '))));
+        (mnemonic().skip(skip_many(char(' '))), operands)
+            .map(|t| Statement::Instruction { name: t.0, operands: t.1 })
     }
 }
 
@@ -132,9 +147,10 @@ fn format_parse_error(parse_error: &Errors<char, &str, SourcePosition>) -> Strin
 /// Parse a string into a list of instructions.
 ///
 /// The instructions are not validated and may have invalid names and operand types.
-pub fn parse(input: &str) -> Result<Vec<Instruction>, String> {
+pub fn parse(input: &str) -> Result<Vec<Statement>, String> {
     match spaces()
-        .with(many(instruction()).skip(eof()))
+        .with(many(attempt(label()).or(instruction()).skip(spaces())))
+        .skip(eof())
         .easy_parse(State::with_positioner(input, SourcePosition::default()))
     {
         Ok((insts, _)) => Ok(insts),
@@ -144,16 +160,28 @@ pub fn parse(input: &str) -> Result<Vec<Instruction>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ident, instruction, integer, operand, parse, register, Instruction, Operand};
+    use super::{
+        ident, instruction, integer, mnemonic, operand, parse, register, Operand, Statement,
+    };
     use combine::Parser;
 
     // Unit tests for the different kinds of parsers.
 
     #[test]
     fn test_ident() {
-        assert_eq!(ident().parse("nop"), Ok(("nop".to_string(), "")));
-        assert_eq!(ident().parse("add32"), Ok(("add32".to_string(), "")));
-        assert_eq!(ident().parse("add32*"), Ok(("add32".to_string(), "*")));
+        assert_eq!(
+            ident().parse("entrypoint"),
+            Ok(("entrypoint".to_string(), ""))
+        );
+        assert_eq!(ident().parse("lbb_1"), Ok(("lbb_1".to_string(), "")));
+        assert_eq!(ident().parse("exit:"), Ok(("exit".to_string(), ":")));
+    }
+
+    #[test]
+    fn test_mnemonic() {
+        assert_eq!(mnemonic().parse("nop"), Ok(("nop".to_string(), "")));
+        assert_eq!(mnemonic().parse("add32"), Ok(("add32".to_string(), "")));
+        assert_eq!(mnemonic().parse("add32*"), Ok(("add32".to_string(), "*")));
     }
 
     #[test]
@@ -199,7 +227,7 @@ mod tests {
         assert_eq!(
             instruction().parse("exit"),
             Ok((
-                Instruction {
+                Statement::Instruction {
                     name: "exit".to_string(),
                     operands: vec![],
                 },
@@ -210,7 +238,7 @@ mod tests {
         assert_eq!(
             instruction().parse("call 2"),
             Ok((
-                Instruction {
+                Statement::Instruction {
                     name: "call".to_string(),
                     operands: vec![Operand::Integer(2)],
                 },
@@ -221,7 +249,7 @@ mod tests {
         assert_eq!(
             instruction().parse("addi r1, 2"),
             Ok((
-                Instruction {
+                Statement::Instruction {
                     name: "addi".to_string(),
                     operands: vec![Operand::Register(1), Operand::Integer(2)],
                 },
@@ -232,7 +260,7 @@ mod tests {
         assert_eq!(
             instruction().parse("ldxb r2, [r1+12]"),
             Ok((
-                Instruction {
+                Statement::Instruction {
                     name: "ldxb".to_string(),
                     operands: vec![Operand::Register(2), Operand::Memory(1, 12)],
                 },
@@ -243,7 +271,7 @@ mod tests {
         assert_eq!(
             instruction().parse("lsh r3, 0x8"),
             Ok((
-                Instruction {
+                Statement::Instruction {
                     name: "lsh".to_string(),
                     operands: vec![Operand::Register(3), Operand::Integer(8)],
                 },
@@ -254,7 +282,7 @@ mod tests {
         assert_eq!(
             instruction().parse("jne r3, 0x8, +37"),
             Ok((
-                Instruction {
+                Statement::Instruction {
                     name: "jne".to_string(),
                     operands: vec![
                         Operand::Register(3),
@@ -270,7 +298,7 @@ mod tests {
         assert_eq!(
             instruction().parse("jne r3,0x8,+37"),
             Ok((
-                Instruction {
+                Statement::Instruction {
                     name: "jne".to_string(),
                     operands: vec![
                         Operand::Register(3),
@@ -295,7 +323,7 @@ mod tests {
         // No operands.
         assert_eq!(
             parse("exit"),
-            Ok(vec![Instruction {
+            Ok(vec![Statement::Instruction {
                 name: "exit".to_string(),
                 operands: vec![],
             }])
@@ -307,7 +335,7 @@ mod tests {
         // Register and immediate operands.
         assert_eq!(
             parse("lsh r3, 0x20"),
-            Ok(vec![Instruction {
+            Ok(vec![Statement::Instruction {
                 name: "lsh".to_string(),
                 operands: vec![Operand::Register(3), Operand::Integer(0x20)],
             }])
@@ -319,7 +347,7 @@ mod tests {
         // Jump offset operand.
         assert_eq!(
             parse("ja +1"),
-            Ok(vec![Instruction {
+            Ok(vec![Statement::Instruction {
                 name: "ja".to_string(),
                 operands: vec![Operand::Integer(1)],
             }])
@@ -331,7 +359,7 @@ mod tests {
         // Register and memory operands.
         assert_eq!(
             parse("ldxh r4, [r1+12]"),
-            Ok(vec![Instruction {
+            Ok(vec![Statement::Instruction {
                 name: "ldxh".to_string(),
                 operands: vec![Operand::Register(4), Operand::Memory(1, 12)],
             }])
@@ -393,27 +421,27 @@ exit
         assert_eq!(
             parse(src),
             Ok(vec![
-                Instruction {
+                Statement::Instruction {
                     name: "ldxb".to_string(),
                     operands: vec![Operand::Register(2), Operand::Memory(1, 12)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "ldxb".to_string(),
                     operands: vec![Operand::Register(3), Operand::Memory(1, 13)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "lsh".to_string(),
                     operands: vec![Operand::Register(3), Operand::Integer(8)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "or".to_string(),
                     operands: vec![Operand::Register(3), Operand::Register(2)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "mov".to_string(),
                     operands: vec![Operand::Register(0), Operand::Integer(0)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "jne".to_string(),
                     operands: vec![
                         Operand::Register(3),
@@ -421,11 +449,11 @@ exit
                         Operand::Integer(37)
                     ],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "ldxb".to_string(),
                     operands: vec![Operand::Register(2), Operand::Memory(1, 23)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "jne".to_string(),
                     operands: vec![
                         Operand::Register(2),
@@ -433,63 +461,63 @@ exit
                         Operand::Integer(35)
                     ],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "ldxb".to_string(),
                     operands: vec![Operand::Register(2), Operand::Memory(1, 14)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "add".to_string(),
                     operands: vec![Operand::Register(1), Operand::Integer(14)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "and".to_string(),
                     operands: vec![Operand::Register(2), Operand::Integer(15)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "lsh".to_string(),
                     operands: vec![Operand::Register(2), Operand::Integer(2)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "add".to_string(),
                     operands: vec![Operand::Register(1), Operand::Register(2)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "mov".to_string(),
                     operands: vec![Operand::Register(0), Operand::Integer(0)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "ldxh".to_string(),
                     operands: vec![Operand::Register(4), Operand::Memory(1, 12)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "add".to_string(),
                     operands: vec![Operand::Register(1), Operand::Integer(20)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "rsh".to_string(),
                     operands: vec![Operand::Register(4), Operand::Integer(2)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "and".to_string(),
                     operands: vec![Operand::Register(4), Operand::Integer(60)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "mov".to_string(),
                     operands: vec![Operand::Register(2), Operand::Register(4)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "add".to_string(),
                     operands: vec![Operand::Register(2), Operand::Integer(4294967276)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "mov".to_string(),
                     operands: vec![Operand::Register(5), Operand::Integer(21)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "mov".to_string(),
                     operands: vec![Operand::Register(3), Operand::Integer(0)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "jgt".to_string(),
                     operands: vec![
                         Operand::Register(5),
@@ -497,31 +525,31 @@ exit
                         Operand::Integer(20)
                     ],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "mov".to_string(),
                     operands: vec![Operand::Register(5), Operand::Register(3)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "lsh".to_string(),
                     operands: vec![Operand::Register(5), Operand::Integer(32)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "arsh".to_string(),
                     operands: vec![Operand::Register(5), Operand::Integer(32)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "mov".to_string(),
                     operands: vec![Operand::Register(4), Operand::Register(1)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "add".to_string(),
                     operands: vec![Operand::Register(4), Operand::Register(5)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "ldxb".to_string(),
                     operands: vec![Operand::Register(5), Operand::Memory(4, 0)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "jeq".to_string(),
                     operands: vec![
                         Operand::Register(5),
@@ -529,7 +557,7 @@ exit
                         Operand::Integer(4)
                     ],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "jeq".to_string(),
                     operands: vec![
                         Operand::Register(5),
@@ -537,11 +565,11 @@ exit
                         Operand::Integer(12)
                     ],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "mov".to_string(),
                     operands: vec![Operand::Register(6), Operand::Register(3)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "jeq".to_string(),
                     operands: vec![
                         Operand::Register(5),
@@ -549,35 +577,35 @@ exit
                         Operand::Integer(9)
                     ],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "ja".to_string(),
                     operands: vec![Operand::Integer(2)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "add".to_string(),
                     operands: vec![Operand::Register(3), Operand::Integer(1)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "mov".to_string(),
                     operands: vec![Operand::Register(6), Operand::Register(3)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "ldxb".to_string(),
                     operands: vec![Operand::Register(3), Operand::Memory(4, 1)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "add".to_string(),
                     operands: vec![Operand::Register(3), Operand::Register(6)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "lsh".to_string(),
                     operands: vec![Operand::Register(3), Operand::Integer(32)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "arsh".to_string(),
                     operands: vec![Operand::Register(3), Operand::Integer(32)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "jsgt".to_string(),
                     operands: vec![
                         Operand::Register(2),
@@ -585,15 +613,15 @@ exit
                         Operand::Integer(-18)
                     ],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "ja".to_string(),
                     operands: vec![Operand::Integer(1)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "mov".to_string(),
                     operands: vec![Operand::Register(0), Operand::Integer(1)],
                 },
-                Instruction {
+                Statement::Instruction {
                     name: "exit".to_string(),
                     operands: vec![],
                 }
@@ -619,7 +647,7 @@ exit
         assert_eq!(
             parse("exit\n^"),
             Err(
-                "Parse error at line 2 column 1: unexpected '^', expected letter or digit, expected whitespaces, expected end of input".to_string()
+                "Parse error at line 2 column 1: unexpected '^', expected letter or digit, expected \'_\', expected whitespaces, expected end of input".to_string()
             )
         );
     }
@@ -631,7 +659,7 @@ exit
                 "
                           exit"
             ),
-            Ok(vec![Instruction {
+            Ok(vec![Statement::Instruction {
                 name: "exit".to_string(),
                 operands: vec![],
             }])

@@ -139,14 +139,15 @@ fn main() {
         } else {
             None
         };
-    let executable = match matches.value_of("assembler") {
+    let mut executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(&Path::new(asm_file_name)).unwrap();
             let mut source = Vec::new();
             file.read_to_end(&mut source).unwrap();
-            let program = assemble(std::str::from_utf8(source.as_slice()).unwrap()).unwrap();
-            Executable::<UserError, TestInstructionMeter>::from_text_bytes(
-                &program, verifier, config,
+            assemble::<UserError, TestInstructionMeter>(
+                std::str::from_utf8(source.as_slice()).unwrap(),
+                verifier,
+                config,
             )
         }
         None => {
@@ -154,15 +155,10 @@ fn main() {
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
             Executable::<UserError, TestInstructionMeter>::from_elf(&elf, verifier, config)
+                .map_err(|err| format!("Executable constructor failed: {:?}", err))
         }
-    };
-    let mut executable = match executable {
-        Ok(executable) => executable,
-        Err(err) => {
-            println!("Executable constructor failed: {:?}", err);
-            return;
-        }
-    };
+    }
+    .unwrap();
 
     let (syscalls, _functions) = executable.get_symbols();
     let mut syscall_registry = SyscallRegistry::default();
@@ -254,10 +250,8 @@ fn main() {
             return;
         }
         Some("disassembler") => {
-            for insn in analysis.instructions.iter() {
-                print_label_at(&analysis, insn.ptr);
-                println!("    {}", disassemble_instruction(&insn, &analysis));
-            }
+            let stdout = std::io::stdout();
+            analysis.disassemble(&mut stdout.lock()).unwrap();
             return;
         }
         _ => {}

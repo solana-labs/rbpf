@@ -66,13 +66,8 @@ fn bench_jit_vs_interpreter(
     instruction_meter: u64,
     mem: &mut [u8],
 ) {
-    let program = assemble(assembly).unwrap();
-    let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
-        &program,
-        None,
-        Config::default(),
-    )
-    .unwrap();
+    let mut executable =
+        assemble::<UserError, TestInstructionMeter>(assembly, None, Config::default()).unwrap();
     executable.jit_compile().unwrap();
     let mut vm = EbpfVm::new(executable.as_ref(), mem, &[]).unwrap();
     let interpreter_summary = bencher

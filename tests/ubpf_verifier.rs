@@ -42,19 +42,15 @@ impl UserDefinedError for VerifierTestError {}
 
 #[test]
 fn test_verifier_success() {
-    let prog = assemble(
+    let executable = assemble::<VerifierTestError, DefaultInstructionMeter>(
         "
         mov32 r0, 0xBEE
         exit",
-    )
-    .unwrap();
-    let executable = <dyn Executable<VerifierTestError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
         Some(|_prog: &[u8]| Ok(())),
         Config::default(),
     )
     .unwrap();
-    let _ = EbpfVm::<VerifierTestError, DefaultInstructionMeter>::new(
+    let _vm = EbpfVm::<VerifierTestError, DefaultInstructionMeter>::new(
         executable.as_ref(),
         &mut [],
         &[],
@@ -68,14 +64,10 @@ fn test_verifier_fail() {
     fn verifier_fail(_prog: &[u8]) -> Result<(), VerifierTestError> {
         Err(VerifierTestError::Rejected("Gaggablaghblagh!".to_string()))
     }
-    let prog = assemble(
+    let _executable = assemble::<VerifierTestError, DefaultInstructionMeter>(
         "
         mov32 r0, 0xBEE
         exit",
-    )
-    .unwrap();
-    let _ = <dyn Executable<VerifierTestError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
         Some(verifier_fail),
         Config::default(),
     )
@@ -85,15 +77,11 @@ fn test_verifier_fail() {
 #[test]
 #[should_panic(expected = "DivisionByZero(1)")]
 fn test_verifier_err_div_by_zero_imm() {
-    let prog = assemble(
+    let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
         mov32 r0, 1
         div32 r0, 0
         exit",
-    )
-    .unwrap();
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
         Some(check),
         Config::default(),
     )
@@ -135,14 +123,10 @@ fn test_verifier_err_incomplete_lddw() {
 #[test]
 #[should_panic(expected = "InfiniteLoop(0)")]
 fn test_verifier_err_infinite_loop() {
-    let prog = assemble(
+    let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
         ja -1
         exit",
-    )
-    .unwrap();
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
         Some(check),
         Config::default(),
     )
@@ -152,14 +136,10 @@ fn test_verifier_err_infinite_loop() {
 #[test]
 #[should_panic(expected = "InvalidDestinationRegister(0)")]
 fn test_verifier_err_invalid_reg_dst() {
-    let prog = assemble(
+    let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
         mov r11, 1
         exit",
-    )
-    .unwrap();
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
         Some(check),
         Config::default(),
     )
@@ -169,14 +149,10 @@ fn test_verifier_err_invalid_reg_dst() {
 #[test]
 #[should_panic(expected = "InvalidSourceRegister(0)")]
 fn test_verifier_err_invalid_reg_src() {
-    let prog = assemble(
+    let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
         mov r0, r11
         exit",
-    )
-    .unwrap();
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
         Some(check),
         Config::default(),
     )
@@ -186,15 +162,11 @@ fn test_verifier_err_invalid_reg_src() {
 #[test]
 #[should_panic(expected = "JumpToMiddleOfLddw(2, 0)")]
 fn test_verifier_err_jmp_lddw() {
-    let prog = assemble(
+    let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
         ja +1
         lddw r0, 0x1122334455667788
         exit",
-    )
-    .unwrap();
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
         Some(check),
         Config::default(),
     )
@@ -204,14 +176,10 @@ fn test_verifier_err_jmp_lddw() {
 #[test]
 #[should_panic(expected = "JumpOutOfCode(3, 0)")]
 fn test_verifier_err_jmp_out() {
-    let prog = assemble(
+    let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
         ja +2
         exit",
-    )
-    .unwrap();
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
         Some(check),
         Config::default(),
     )
@@ -221,13 +189,9 @@ fn test_verifier_err_jmp_out() {
 #[test]
 #[should_panic(expected = "InvalidLastInstruction")]
 fn test_verifier_err_no_exit() {
-    let prog = assemble(
+    let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
         mov32 r0, 0",
-    )
-    .unwrap();
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
         Some(check),
         Config::default(),
     )
@@ -272,14 +236,10 @@ fn test_verifier_err_unknown_opcode() {
 #[test]
 #[should_panic(expected = "CannotWriteR10(0)")]
 fn test_verifier_err_write_r10() {
-    let prog = assemble(
+    let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
         mov r10, 1
         exit",
-    )
-    .unwrap();
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
         Some(check),
         Config::default(),
     )
