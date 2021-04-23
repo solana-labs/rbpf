@@ -181,10 +181,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 ebpf::CALL_IMM => {
                     if let Some(syscall_name) = self.syscalls.get(&(insn.imm as u32)) {
                         if syscall_name == "abort" {
-                            cfg_edges.insert(insn.ptr, (insn.opc, Vec::new()));
                             self.cfg_nodes
                                 .entry(insn.ptr + 1)
                                 .or_insert_with(CfgNode::default);
+                            cfg_edges.insert(insn.ptr, (insn.opc, Vec::new()));
                         }
                     } else if let Some(target_pc) =
                         self.executable.lookup_bpf_function(insn.imm as u32)
@@ -192,37 +192,46 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                         self.functions
                             .entry(*target_pc)
                             .or_insert((format!("function_{}", *target_pc), 0));
-                        if flatten_call_graph {
-                            cfg_edges.insert(insn.ptr, (insn.opc, vec![*target_pc]));
-                            self.cfg_nodes
-                                .entry(insn.ptr + 1)
-                                .or_insert_with(CfgNode::default);
-                        }
+                        self.cfg_nodes
+                            .entry(insn.ptr + 1)
+                            .or_insert_with(CfgNode::default);
                         self.cfg_nodes
                             .entry(*target_pc)
                             .or_insert_with(CfgNode::default);
+                        cfg_edges.insert(
+                            insn.ptr,
+                            (
+                                insn.opc,
+                                if flatten_call_graph {
+                                    vec![insn.ptr + 1, *target_pc]
+                                } else {
+                                    vec![insn.ptr + 1]
+                                },
+                            ),
+                        );
                     }
                 }
                 ebpf::CALL_REG => {
-                    cfg_edges.insert(insn.ptr, (insn.opc, vec![insn.ptr + 1])); // Abnormal CFG edge
+                    // Abnormal CFG edge
                     self.cfg_nodes
                         .entry(insn.ptr + 1)
                         .or_insert_with(CfgNode::default);
+                    cfg_edges.insert(insn.ptr, (insn.opc, vec![insn.ptr + 1]));
                 }
                 ebpf::EXIT => {
-                    cfg_edges.insert(insn.ptr, (insn.opc, Vec::new()));
                     self.cfg_nodes
                         .entry(insn.ptr + 1)
                         .or_insert_with(CfgNode::default);
+                    cfg_edges.insert(insn.ptr, (insn.opc, Vec::new()));
                 }
                 ebpf::JA => {
-                    cfg_edges.insert(insn.ptr, (insn.opc, vec![target_pc]));
                     self.cfg_nodes
                         .entry(insn.ptr + 1)
                         .or_insert_with(CfgNode::default);
                     self.cfg_nodes
                         .entry(target_pc)
                         .or_insert_with(CfgNode::default);
+                    cfg_edges.insert(insn.ptr, (insn.opc, vec![target_pc]));
                 }
                 ebpf::JEQ_IMM
                 | ebpf::JGT_IMM
@@ -246,13 +255,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 | ebpf::JSGE_REG
                 | ebpf::JSLT_REG
                 | ebpf::JSLE_REG => {
-                    cfg_edges.insert(insn.ptr, (insn.opc, vec![insn.ptr + 1, target_pc]));
                     self.cfg_nodes
                         .entry(insn.ptr + 1)
                         .or_insert_with(CfgNode::default);
                     self.cfg_nodes
                         .entry(target_pc)
                         .or_insert_with(CfgNode::default);
+                    cfg_edges.insert(insn.ptr, (insn.opc, vec![insn.ptr + 1, target_pc]));
                 }
                 _ => {}
             }
@@ -278,6 +287,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                     .1
                     .retain(|destination| self.cfg_nodes.contains_key(destination));
             }
+            let mut functions = BTreeMap::new();
+            std::mem::swap(&mut self.functions, &mut functions);
+            let mut functions = functions
+                .into_iter()
+                .filter(|(function_start, _function_body)| {
+                    self.cfg_nodes.contains_key(function_start)
+                })
+                .collect();
+            std::mem::swap(&mut self.functions, &mut functions);
         }
         {
             let mut instruction_index = 0;
@@ -355,33 +373,139 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         }
     }
 
-    /// Returns Some(label) of the basic block starting at pc or None
-    pub fn get_label(&self, pc: usize) -> Option<&str> {
-        self.cfg_nodes
-            .get(&pc)
-            .map(|cfg_node| cfg_node.label.as_str())
+    /// Generates labels for assembler code
+    pub fn disassemble_label<W: std::io::Write>(
+        &self,
+        output: &mut W,
+        suppress_extra_newlines: bool,
+        pc: usize,
+        last_basic_block: &mut usize,
+    ) -> std::io::Result<()> {
+        if let Some(cfg_node) = self.cfg_nodes.get(&pc) {
+            let is_function = self.functions.contains_key(&pc);
+            if is_function || cfg_node.sources != vec![*last_basic_block] {
+                if is_function && !suppress_extra_newlines {
+                    writeln!(output)?;
+                }
+                writeln!(output, "{}:", cfg_node.label)?;
+            }
+            let last_insn = &self.instructions[cfg_node.instructions.end - 1];
+            *last_basic_block = if last_insn.opc == ebpf::JA {
+                usize::MAX
+            } else {
+                pc
+            };
+        }
+        Ok(())
     }
 
-    /// Returns the assembler code of the analyzed executable
+    /// Generates assembler code for the analyzed executable
     pub fn disassemble<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         let mut last_basic_block = usize::MAX;
         for insn in self.instructions.iter() {
-            if let Some(cfg_node) = self.cfg_nodes.get(&insn.ptr) {
-                let is_function = self.functions.contains_key(&insn.ptr);
-                if is_function || cfg_node.sources != vec![last_basic_block] {
-                    if is_function && Some(insn) != self.instructions.first() {
-                        writeln!(output)?;
-                    }
-                    writeln!(output, "{}:", cfg_node.label)?;
-                }
-                last_basic_block = if cfg_node.destinations.len() == 1 {
-                    usize::MAX
-                } else {
-                    insn.ptr
-                };
-            }
+            self.disassemble_label(
+                output,
+                Some(insn) == self.instructions.first(),
+                insn.ptr,
+                &mut last_basic_block,
+            )?;
             writeln!(output, "    {}", disassemble_instruction(&insn, self))?;
         }
+        Ok(())
+    }
+
+    /// Generates a graphviz DOT of the analyzed executable
+    pub fn visualize_graphically<W: std::io::Write>(
+        &self,
+        output: &mut W,
+        _profile: Option<&BTreeMap<usize, BTreeMap<usize, usize>>>,
+    ) -> std::io::Result<()> {
+        fn html_escape(string: &str) -> String {
+            string
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+        }
+        fn emit_cfg_node<W: std::io::Write, E: UserDefinedError, I: InstructionMeter>(
+            output: &mut W,
+            analysis: &Analysis<E, I>,
+            cfg_node_start: usize,
+        ) -> std::io::Result<()> {
+            let cfg_node = &analysis.cfg_nodes[&cfg_node_start];
+            writeln!(output, "    lbb_{} [label=<<table border=\"0\" cellborder=\"0\" cellpadding=\"3\">{}</table>>];",
+                cfg_node_start,
+                analysis.instructions[cfg_node.instructions.clone()].iter()
+                .map(|insn| {
+                    let desc = disassemble_instruction(&insn, &analysis);
+                    if let Some(split_index) = desc.find(' ') {
+                        let mut rest = desc[split_index+1..].to_string();
+                        if rest.len() > MAX_CELL_CONTENT_LENGTH + 1 {
+                            rest.truncate(MAX_CELL_CONTENT_LENGTH);
+                            rest = format!("{}…", rest);
+                        }
+                        format!("<tr><td align=\"left\">{}</td><td align=\"left\">{}</td></tr>", html_escape(&desc[..split_index]), html_escape(&rest))
+                    } else {
+                        format!("<tr><td align=\"left\">{}</td></tr>", html_escape(&desc))
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join("")
+            )?;
+            for child in &cfg_node.dominated_children {
+                emit_cfg_node(output, analysis, *child)?;
+            }
+            Ok(())
+        }
+        writeln!(
+            output,
+            "digraph {{
+  graph [
+    rankdir=LR;
+    concentrate=True;
+    style=filled;
+    color=lightgrey;
+  ];
+  node [
+    shape=rect;
+    style=filled;
+    fillcolor=white;
+    fontname=\"Courier New\";
+  ];
+  edge [
+    fontname=\"Courier New\";
+  ];"
+        )?;
+        const MAX_CELL_CONTENT_LENGTH: usize = 15;
+        for (function, (name, _length)) in self.functions.iter() {
+            writeln!(output, "  subgraph cluster_{} {{", *function)?;
+            writeln!(output, "    label={:?};", html_escape(name))?;
+            emit_cfg_node(output, &self, *function)?;
+            writeln!(output, "  }}")?;
+        }
+        for (cfg_node_start, cfg_node) in self.cfg_nodes.iter() {
+            if *cfg_node_start != cfg_node.dominator_parent {
+                writeln!(
+                    output,
+                    "  lbb_{} -> lbb_{} [style=dotted; arrowhead=none];",
+                    *cfg_node_start, cfg_node.dominator_parent,
+                )?;
+            }
+            if !cfg_node.destinations.is_empty() {
+                writeln!(
+                    output,
+                    "  lbb_{} -> {{{}}};",
+                    *cfg_node_start,
+                    cfg_node
+                        .destinations
+                        .iter()
+                        .map(|destination| format!("lbb_{}", *destination))
+                        .collect::<Vec<String>>()
+                        .join(" ")
+                )?;
+            }
+        }
+        writeln!(output, "}}")?;
         Ok(())
     }
 

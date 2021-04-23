@@ -40,7 +40,7 @@ fn test_exit() {
 #[test]
 fn test_add64() {
     disasm!("entrypoint:\n    add64 r1, r3\n");
-    disasm!("entrypoint:\n    add64 r1, 0x5\n");
+    disasm!("entrypoint:\n    add64 r1, 5\n");
 }
 
 // Example for InstructionType::AluUnary.
@@ -58,7 +58,7 @@ fn test_ldxw() {
 // Example for InstructionType::StoreImm.
 #[test]
 fn test_stw() {
-    disasm!("entrypoint:\n    stw [r2+0x5], 0x7\n");
+    disasm!("entrypoint:\n    stw [r2+0x5], 7\n");
 }
 
 // Example for InstructionType::StoreReg.
@@ -84,7 +84,7 @@ lbb_1:
 fn test_jeq() {
     disasm!(
         "entrypoint:
-    jeq r1, 0x4, lbb_1
+    jeq r1, 4, lbb_1
 lbb_1:
     exit
 "
@@ -127,13 +127,13 @@ fn test_lddw() {
 // Example for InstructionType::LoadAbs.
 #[test]
 fn test_ldabsw() {
-    disasm!("entrypoint:\n    ldabsw 0x1\n");
+    disasm!("entrypoint:\n    ldabsw 1\n");
 }
 
 // Example for InstructionType::LoadInd.
 #[test]
 fn test_ldindw() {
-    disasm!("entrypoint:\n    ldindw r1, 0x2\n");
+    disasm!("entrypoint:\n    ldindw r1, 2\n");
 }
 
 // Example for InstructionType::LoadReg.
@@ -145,7 +145,7 @@ fn test_ldxdw() {
 // Example for InstructionType::StoreImm.
 #[test]
 fn test_sth() {
-    disasm!("entrypoint:\n    sth [r1+0x2], 0x3\n");
+    disasm!("entrypoint:\n    sth [r1+0x2], 3\n");
 }
 
 // Example for InstructionType::StoreReg.
@@ -176,18 +176,18 @@ fn test_alu_binary() {
 
     disasm!(
         "entrypoint:
-    add64 r1, 0x2
-    sub64 r1, 0x2
-    mul64 r1, 0x2
-    div64 r1, 0x2
-    or64 r1, 0x2
-    and64 r1, 0x2
-    lsh64 r1, 0x2
-    rsh64 r1, 0x2
-    mod64 r1, 0x2
-    xor64 r1, 0x2
-    mov64 r1, 0x2
-    arsh64 r1, 0x2
+    add64 r1, 2
+    sub64 r1, 2
+    mul64 r1, 2
+    div64 r1, 2
+    or64 r1, 2
+    and64 r1, 2
+    lsh64 r1, 2
+    rsh64 r1, 2
+    mod64 r1, 2
+    xor64 r1, 2
+    mov64 r1, 2
+    arsh64 r1, 2
 "
     );
 
@@ -210,18 +210,18 @@ fn test_alu_binary() {
 
     disasm!(
         "entrypoint:
-    add32 r1, 0x2
-    sub32 r1, 0x2
-    mul32 r1, 0x2
-    div32 r1, 0x2
-    or32 r1, 0x2
-    and32 r1, 0x2
-    lsh32 r1, 0x2
-    rsh32 r1, 0x2
-    mod32 r1, 0x2
-    xor32 r1, 0x2
-    mov32 r1, 0x2
-    arsh32 r1, 0x2
+    add32 r1, 2
+    sub32 r1, 2
+    mul32 r1, 2
+    div32 r1, 2
+    or32 r1, 2
+    and32 r1, 2
+    lsh32 r1, 2
+    rsh32 r1, 2
+    mod32 r1, 2
+    xor32 r1, 2
+    mov32 r1, 2
+    arsh32 r1, 2
 "
     );
 }
@@ -242,10 +242,10 @@ fn test_alu_unary() {
 fn test_load_abs() {
     disasm!(
         "entrypoint:
-    ldabsw 0x1
-    ldabsh 0x1
-    ldabsb 0x1
-    ldabsdw 0x1
+    ldabsw 1
+    ldabsh 1
+    ldabsb 1
+    ldabsdw 1
 "
     );
 }
@@ -255,10 +255,10 @@ fn test_load_abs() {
 fn test_load_ind() {
     disasm!(
         "entrypoint:
-    ldindw r1, 0x2
-    ldindh r1, 0x2
-    ldindb r1, 0x2
-    ldinddw r1, 0x2
+    ldindw r1, 2
+    ldindh r1, 2
+    ldindb r1, 2
+    ldinddw r1, 2
 "
     );
 }
@@ -281,10 +281,10 @@ fn test_load_reg() {
 fn test_store_imm() {
     disasm!(
         "entrypoint:
-    stw [r1+0x2], 0x3
-    sth [r1+0x2], 0x3
-    stb [r1+0x2], 0x3
-    stdw [r1+0x2], 0x3
+    stw [r1+0x2], 3
+    sth [r1+0x2], 3
+    stb [r1+0x2], 3
+    stdw [r1+0x2], 3
 "
     );
 }
@@ -325,17 +325,17 @@ lbb_11:
 
     disasm!(
         "entrypoint:
-    jeq r1, 0x2, lbb_11
-    jgt r1, 0x2, lbb_11
-    jge r1, 0x2, lbb_11
-    jlt r1, 0x2, lbb_11
-    jle r1, 0x2, lbb_11
-    jset r1, 0x2, lbb_11
-    jne r1, 0x2, lbb_11
-    jsgt r1, 0x2, lbb_11
-    jsge r1, 0x2, lbb_11
-    jslt r1, 0x2, lbb_11
-    jsle r1, 0x2, lbb_11
+    jeq r1, 2, lbb_11
+    jgt r1, 2, lbb_11
+    jge r1, 2, lbb_11
+    jlt r1, 2, lbb_11
+    jle r1, 2, lbb_11
+    jset r1, 2, lbb_11
+    jne r1, 2, lbb_11
+    jsgt r1, 2, lbb_11
+    jsge r1, 2, lbb_11
+    jslt r1, 2, lbb_11
+    jsle r1, 2, lbb_11
 lbb_11:
     exit
 "
@@ -359,6 +359,6 @@ fn test_endian() {
 
 #[test]
 fn test_large_immediate() {
-    disasm!("entrypoint:\n    add64 r1, 0x7fffffff\n");
-    disasm!("entrypoint:\n    add64 r1, 0x7fffffff\n");
+    disasm!("entrypoint:\n    add64 r1, -1\n");
+    disasm!("entrypoint:\n    add64 r1, -1\n");
 }

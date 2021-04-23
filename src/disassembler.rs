@@ -12,9 +12,20 @@ use crate::error::UserDefinedError;
 use crate::static_analysis::Analysis;
 use crate::vm::InstructionMeter;
 
+fn resolve_label<'a, E: UserDefinedError, I: InstructionMeter>(
+    analysis: &'a Analysis<E, I>,
+    pc: usize,
+) -> &'a str {
+    analysis
+        .cfg_nodes
+        .get(&pc)
+        .map(|cfg_node| cfg_node.label.as_str())
+        .unwrap_or("[invalid]")
+}
+
 #[inline]
 fn alu_imm_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} r{}, {:#x}", name, insn.dst, insn.imm)
+    format!("{} r{}, {}", name, insn.dst, insn.imm)
 }
 
 #[inline]
@@ -36,7 +47,7 @@ fn byteswap_str(name: &str, insn: &ebpf::Insn) -> String {
 
 #[inline]
 fn ld_st_imm_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} [r{}+{:#x}], {:#x}", name, insn.dst, insn.off, insn.imm)
+    format!("{} [r{}+{:#x}], {}", name, insn.dst, insn.off, insn.imm)
 }
 
 #[inline]
@@ -51,12 +62,12 @@ fn st_reg_str(name: &str, insn: &ebpf::Insn) -> String {
 
 #[inline]
 fn ldabs_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} {:#x}", name, insn.imm)
+    format!("{} {}", name, insn.imm)
 }
 
 #[inline]
 fn ldind_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} r{}, {:#x}", name, insn.src, insn.imm)
+    format!("{} r{}, {}", name, insn.src, insn.imm)
 }
 
 #[inline]
@@ -67,11 +78,11 @@ fn jmp_imm_str<E: UserDefinedError, I: InstructionMeter>(
 ) -> String {
     let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
     format!(
-        "{} r{}, {:#x}, {}",
+        "{} r{}, {}, {}",
         name,
         insn.dst,
         insn.imm,
-        analysis.get_label(target_pc).unwrap_or("[invalid]")
+        resolve_label(analysis, target_pc)
     )
 }
 
@@ -87,7 +98,7 @@ fn jmp_reg_str<E: UserDefinedError, I: InstructionMeter>(
         name,
         insn.dst,
         insn.src,
-        analysis.get_label(target_pc).unwrap_or("[invalid]")
+        resolve_label(analysis, target_pc)
     )
 }
 
@@ -146,7 +157,7 @@ pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &
         ebpf::LSH32_REG  => { name = "lsh32";  desc = alu_reg_str(name, &insn);  },
         ebpf::RSH32_IMM  => { name = "rsh32";  desc = alu_imm_str(name, &insn);  },
         ebpf::RSH32_REG  => { name = "rsh32";  desc = alu_reg_str(name, &insn);  },
-        ebpf::NEG32      => { name = "neg32";  desc = format!("{} r{:}", name, insn.dst); },
+        ebpf::NEG32      => { name = "neg32";  desc = format!("{} r{}", name, insn.dst); },
         ebpf::MOD32_IMM  => { name = "mod32";  desc = alu_imm_str(name, &insn);  },
         ebpf::MOD32_REG  => { name = "mod32";  desc = alu_reg_str(name, &insn);  },
         ebpf::XOR32_IMM  => { name = "xor32";  desc = alu_imm_str(name, &insn);  },
@@ -175,7 +186,7 @@ pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &
         ebpf::LSH64_REG  => { name = "lsh64";  desc = alu_reg_str(name, &insn); },
         ebpf::RSH64_IMM  => { name = "rsh64";  desc = alu_imm_str(name, &insn); },
         ebpf::RSH64_REG  => { name = "rsh64";  desc = alu_reg_str(name, &insn); },
-        ebpf::NEG64      => { name = "neg64";  desc = format!("{} r{:}", name, insn.dst); },
+        ebpf::NEG64      => { name = "neg64";  desc = format!("{} r{}", name, insn.dst); },
         ebpf::MOD64_IMM  => { name = "mod64";  desc = alu_imm_str(name, &insn); },
         ebpf::MOD64_REG  => { name = "mod64";  desc = alu_reg_str(name, &insn); },
         ebpf::XOR64_IMM  => { name = "xor64";  desc = alu_imm_str(name, &insn); },
@@ -189,7 +200,7 @@ pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &
         ebpf::JA         => {
             name = "ja";
             let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
-            desc = format!("{} {}", name, analysis.get_label(target_pc).unwrap_or("[invalid]"));
+            desc = format!("{} {}", name, resolve_label(analysis, target_pc));
         },
         ebpf::JEQ_IMM    => { name = "jeq";  desc = jmp_imm_str(name, &insn, analysis); },
         ebpf::JEQ_REG    => { name = "jeq";  desc = jmp_reg_str(name, &insn, analysis); },
@@ -220,15 +231,15 @@ pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &
             } else {
                 name = "call";
                 format!("{} {}", name,
-                    analysis
-                    .executable
-                    .lookup_bpf_function(insn.imm as u32)
-                    .and_then(|target_pc| analysis.get_label(*target_pc))
-                    .unwrap_or("[invalid]"),
+                    resolve_label(analysis,
+                        *analysis
+                        .executable
+                        .lookup_bpf_function(insn.imm as u32)
+                        .unwrap()),
                 )
             };
         },
-        ebpf::CALL_REG   => { name = "callx"; desc = format!("{} {:#x}", name, insn.imm); },
+        ebpf::CALL_REG   => { name = "callx"; desc = format!("{} {}", name, insn.imm); },
         ebpf::EXIT       => { name = "exit"; desc = name.to_string(); },
 
         _                => { name = "unknown"; desc = format!("{} opcode={:#x}", name, insn.opc); },

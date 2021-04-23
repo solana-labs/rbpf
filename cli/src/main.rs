@@ -1,32 +1,15 @@
 use clap::{App, Arg};
 use solana_rbpf::{
     assembler::assemble,
-    disassembler::disassemble_instruction,
     ebpf,
-    error::UserDefinedError,
     memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
     user_error::UserError,
     verifier::check,
-    vm::{Config, EbpfVm, Executable, InstructionMeter, SyscallObject, SyscallRegistry},
+    vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
-use std::{collections::HashMap, fs::File, io::Read, path::Path};
+use std::{fs::File, io::Read, path::Path};
 use test_utils::{Result, TestInstructionMeter};
-
-fn print_label_at<E: UserDefinedError, I: InstructionMeter>(
-    analysis: &Analysis<E, I>,
-    pc: usize,
-) -> bool {
-    if let Some(cfg_node) = analysis.cfg_nodes.get(&pc) {
-        if analysis.functions.contains_key(&pc) {
-            println!();
-        }
-        println!("{}:", cfg_node.label);
-        true
-    } else {
-        false
-    }
-}
 
 struct MockSyscall {
     name: String,
@@ -171,82 +154,10 @@ fn main() {
 
     match matches.value_of("use") {
         Some("cfg") => {
-            fn html_escape(string: &str) -> String {
-                string
-                    .replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
-                    .replace("\"", "&quot;")
-            }
-            fn emit_cfg_node<E: UserDefinedError, I: InstructionMeter>(
-                analysis: &Analysis<E, I>,
-                start_pc: usize,
-            ) {
-                let cfg_node = &analysis.cfg_nodes[&start_pc];
-                println!("    lbb_{} [label=<<table border=\"0\" cellborder=\"0\" cellpadding=\"3\">{}</table>>];",
-                start_pc,
-                    analysis.instructions[cfg_node.instructions.clone()].iter()
-                    .map(|insn| {
-                        let desc = disassemble_instruction(&insn, &analysis);
-                        if let Some(split_index) = desc.find(' ') {
-                            let mut rest = desc[split_index+1..].to_string();
-                            if rest.len() > MAX_CELL_CONTENT_LENGTH + 1 {
-                                rest.truncate(MAX_CELL_CONTENT_LENGTH);
-                                rest = format!("{}…", rest);
-                            }
-                            format!("<tr><td align=\"left\">{}</td><td align=\"left\">{}</td></tr>", html_escape(&desc[..split_index]), html_escape(&rest))
-                        } else {
-                            format!("<tr><td align=\"left\">{}</td></tr>", html_escape(&desc))
-                        }
-                    })
-                    .collect::<Vec<String>>()
-                    .join("")
-                );
-                for child in &cfg_node.dominated_children {
-                    emit_cfg_node(analysis, *child);
-                }
-            }
-            println!("digraph {{");
-            println!("  graph [");
-            println!("    rankdir=LR;");
-            println!("    concentrate=True;");
-            println!("    style=filled;");
-            println!("    color=lightgrey;");
-            println!("  ];");
-            println!("  node [");
-            println!("    shape=rect;");
-            println!("    style=filled;");
-            println!("    fillcolor=white;");
-            println!("    fontname=\"Courier New\";");
-            println!("  ];");
-            const MAX_CELL_CONTENT_LENGTH: usize = 15;
-            for (function, (name, _length)) in analysis.functions.iter() {
-                println!("  subgraph cluster_{} {{", *function);
-                println!("    label={:?};", html_escape(name));
-                emit_cfg_node(&analysis, *function);
-                println!("  }}");
-            }
-            for (cfg_node_start, cfg_node) in analysis.cfg_nodes.iter() {
-                if *cfg_node_start != cfg_node.dominator_parent {
-                    println!(
-                        "  lbb_{} -> lbb_{} [style=dotted; arrowhead=none];",
-                        *cfg_node_start, cfg_node.dominator_parent,
-                    );
-                }
-                if !cfg_node.destinations.is_empty() {
-                    println!(
-                        "  lbb_{} -> {{{}}};",
-                        *cfg_node_start,
-                        cfg_node
-                            .destinations
-                            .iter()
-                            .map(|destination| format!("lbb_{}", *destination))
-                            .collect::<Vec<String>>()
-                            .join(" ")
-                    );
-                }
-            }
-            println!("}}");
+            let stdout = std::io::stdout();
+            analysis
+                .visualize_graphically(&mut stdout.lock(), None)
+                .unwrap();
             return;
         }
         Some("disassembler") => {
@@ -295,63 +206,19 @@ fn main() {
     println!("Result: {:?}", result);
     println!("Instruction Count: {}", vm.get_total_instruction_count());
     if matches.is_present("trace") {
-        let mut tracer_display = String::new();
+        println!("Trace:\n");
+        let analysis = Analysis::from_executable(executable.as_ref());
+        let stdout = std::io::stdout();
         vm.get_tracer()
-            .write(&mut tracer_display, executable.as_ref())
+            .write(&mut stdout.lock(), &analysis)
             .unwrap();
-        println!("Trace:\n{}", tracer_display);
     }
     if matches.is_present("profile") {
-        let mut cfg_node_counters = HashMap::new();
-        let mut cfg_edge_counters = HashMap::new();
-        for (cfg_node_start, cfg_node) in analysis.cfg_nodes.iter() {
-            cfg_node_counters.insert(*cfg_node_start, 0usize);
-            if cfg_node.destinations.len() == 2 {
-                cfg_edge_counters.insert(
-                    analysis.instructions[cfg_node.instructions.end].ptr,
-                    (*cfg_node_start, vec![0usize; cfg_node.destinations.len()]),
-                );
-            }
-        }
-        let trace = &vm.get_tracer().log;
-        for (index, traced_instruction) in trace.iter().enumerate() {
-            if let Some(cfg_node_counter) =
-                cfg_node_counters.get_mut(&(traced_instruction[11] as usize))
-            {
-                *cfg_node_counter += 1;
-            }
-            if let Some(edge_counter) =
-                cfg_edge_counters.get_mut(&(traced_instruction[11] as usize))
-            {
-                let next_traced_instruction = trace[index + 1];
-                let destinations = &analysis
-                    .cfg_nodes
-                    .get(&edge_counter.0)
-                    .unwrap()
-                    .destinations;
-                if let Some(destination_index) = destinations
-                    .iter()
-                    .position(|&ptr| ptr == next_traced_instruction[11] as usize)
-                {
-                    edge_counter.1[destination_index] += 1;
-                }
-            }
-        }
-        println!("Profile:");
-        for insn in analysis.instructions.iter() {
-            if print_label_at(&analysis, insn.ptr) {
-                println!(
-                    "    # Basic block executed: {}",
-                    cfg_node_counters[&insn.ptr]
-                );
-            }
-            println!("    {}", disassemble_instruction(&insn, &analysis));
-            if let Some(edge_counter) = cfg_edge_counters.get(&insn.ptr) {
-                println!(
-                    "    # Branch: {} fall through, {} jump",
-                    edge_counter.1[0], edge_counter.1[1]
-                );
-            }
-        }
+        let tracer = &vm.get_tracer();
+        let profile = tracer.profile(&analysis);
+        let stdout = std::io::stdout();
+        analysis
+            .visualize_graphically(&mut stdout.lock(), Some(&profile))
+            .unwrap();
     }
 }

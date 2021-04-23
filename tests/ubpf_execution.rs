@@ -18,6 +18,7 @@ use solana_rbpf::{
     elf::ElfError,
     error::EbpfError,
     memory_region::AccessType,
+    static_analysis::Analysis,
     syscalls,
     user_error::UserError,
     verifier::check,
@@ -62,12 +63,10 @@ macro_rules! test_interpreter_and_jit {
                     let result = vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count });
                     let tracer_jit = vm.get_tracer();
                     if !check_closure(&vm, result) || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
-                        let mut tracer_display = String::new();
-                        _tracer_interpreter.write(&mut tracer_display, $executable.as_ref()).unwrap();
-                        println!("{}", tracer_display);
-                        let mut tracer_display = String::new();
-                        tracer_jit.write(&mut tracer_display, $executable.as_ref()).unwrap();
-                        println!("{}", tracer_display);
+                        let analysis = Analysis::from_executable($executable.as_ref());
+                        let stdout = std::io::stdout();
+                        _tracer_interpreter.write(&mut stdout.lock(), &analysis).unwrap();
+                        tracer_jit.write(&mut stdout.lock(), &analysis).unwrap();
                         panic!();
                     }
                     if $executable.get_config().enable_instruction_meter {
@@ -3328,18 +3327,14 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     if result_interpreter != result_jit
         || !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit)
     {
+        let analysis = Analysis::from_executable(executable.as_ref());
         println!("result_interpreter={:?}", result_interpreter);
         println!("result_jit={:?}", result_jit);
-        let mut tracer_display = String::new();
+        let stdout = std::io::stdout();
         tracer_interpreter
-            .write(&mut tracer_display, executable.as_ref())
+            .write(&mut stdout.lock(), &analysis)
             .unwrap();
-        println!("{}", tracer_display);
-        let mut tracer_display = String::new();
-        tracer_jit
-            .write(&mut tracer_display, executable.as_ref())
-            .unwrap();
-        println!("{}", tracer_display);
+        tracer_jit.write(&mut stdout.lock(), &analysis).unwrap();
         panic!();
     }
     if executable.get_config().enable_instruction_meter {

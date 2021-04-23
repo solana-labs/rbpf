@@ -282,12 +282,11 @@ impl Tracer {
     }
 
     /// Use this method to print the log of this tracer
-    pub fn write<W: std::fmt::Write, E: UserDefinedError, I: InstructionMeter>(
+    pub fn write<W: std::io::Write, E: UserDefinedError, I: InstructionMeter>(
         &self,
-        out: &mut W,
-        executable: &dyn Executable<E, I>,
-    ) -> Result<(), std::fmt::Error> {
-        let analysis = Analysis::from_executable(executable);
+        output: &mut W,
+        analysis: &Analysis<E, I>,
+    ) -> Result<(), std::io::Error> {
         let mut pc_to_insn_index = vec![
             0usize;
             analysis
@@ -300,15 +299,18 @@ impl Tracer {
             pc_to_insn_index[insn.ptr] = index;
             pc_to_insn_index[insn.ptr + 1] = index;
         }
+        let mut last_basic_block = usize::MAX;
         for index in 0..self.log.len() {
             let entry = &self.log[index];
-            let insn = &analysis.instructions[pc_to_insn_index[entry[11] as usize]];
+            let pc = entry[11] as usize;
+            let insn = &analysis.instructions[pc_to_insn_index[pc]];
+            analysis.disassemble_label(output, true, pc, &mut last_basic_block)?;
             writeln!(
-                out,
+                output,
                 "{:5?} {:016X?} {:5?}: {}",
                 index,
                 &entry[0..11],
-                entry[11] as usize + ebpf::ELF_INSN_DUMP_OFFSET,
+                pc + ebpf::ELF_INSN_DUMP_OFFSET,
                 disassemble_instruction(&insn, &analysis),
             )?;
         }
@@ -316,6 +318,7 @@ impl Tracer {
     }
 
     /// Compares an interpreter trace and a JIT trace.
+    ///
     /// The log of the JIT can be longer because it only validates the instruction meter at branches.
     pub fn compare(interpreter: &Self, jit: &Self) -> bool {
         let interpreter = interpreter.log.as_slice();
@@ -324,6 +327,29 @@ impl Tracer {
             jit = &jit[0..interpreter.len()];
         }
         interpreter == jit
+    }
+
+    /// Accumulates the trace into a statistic of taken branches.
+    ///
+    /// The resulting nested map represents: (src_node, dst_node, edge_counter)
+    pub fn profile<E: UserDefinedError, I: InstructionMeter>(
+        &self,
+        analysis: &Analysis<E, I>,
+    ) -> BTreeMap<usize, BTreeMap<usize, usize>> {
+        let mut result = BTreeMap::new();
+        let mut last_basic_block = std::usize::MAX;
+        for traced_instruction in self.log.iter() {
+            let pc = traced_instruction[11] as usize;
+            if analysis.cfg_nodes.contains_key(&pc) {
+                *result
+                    .entry(last_basic_block)
+                    .or_insert_with(BTreeMap::new)
+                    .entry(pc)
+                    .or_insert(0) += 1;
+                last_basic_block = pc;
+            }
+        }
+        result
     }
 }
 
