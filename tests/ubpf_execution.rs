@@ -18,7 +18,6 @@ use solana_rbpf::{
     elf::ElfError,
     error::EbpfError,
     memory_region::AccessType,
-    static_analysis::Analysis,
     syscalls,
     user_error::UserError,
     verifier::check,
@@ -63,7 +62,7 @@ macro_rules! test_interpreter_and_jit {
                     let result = vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count });
                     let tracer_jit = vm.get_tracer();
                     if !check_closure(&vm, result) || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
-                        let analysis = Analysis::from_executable($executable.as_ref());
+                        let analysis = solana_rbpf::static_analysis::Analysis::from_executable($executable.as_ref());
                         let stdout = std::io::stdout();
                         _tracer_interpreter.write(&mut stdout.lock(), &analysis).unwrap();
                         tracer_jit.write(&mut stdout.lock(), &analysis).unwrap();
@@ -3327,7 +3326,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     if result_interpreter != result_jit
         || !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit)
     {
-        let analysis = Analysis::from_executable(executable.as_ref());
+        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(executable.as_ref());
         println!("result_interpreter={:?}", result_interpreter);
         println!("result_jit={:?}", result_jit);
         let stdout = std::io::stdout();

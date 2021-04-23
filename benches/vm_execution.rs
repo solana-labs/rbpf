@@ -10,13 +10,11 @@ extern crate solana_rbpf;
 extern crate test;
 
 use solana_rbpf::{
-    assembler::assemble,
     user_error::UserError,
     vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
-use test_utils::TestInstructionMeter;
 
 #[bench]
 fn bench_init_interpreter_execution(bencher: &mut Bencher) {
@@ -60,22 +58,27 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     });
 }
 
+#[cfg(not(windows))]
 fn bench_jit_vs_interpreter(
     bencher: &mut Bencher,
     assembly: &str,
     instruction_meter: u64,
     mem: &mut [u8],
 ) {
-    let mut executable =
-        assemble::<UserError, TestInstructionMeter>(assembly, None, Config::default()).unwrap();
+    let mut executable = solana_rbpf::assembler::assemble::<
+        UserError,
+        test_utils::TestInstructionMeter,
+    >(assembly, None, Config::default())
+    .unwrap();
     executable.jit_compile().unwrap();
     let mut vm = EbpfVm::new(executable.as_ref(), mem, &[]).unwrap();
     let interpreter_summary = bencher
         .bench(|bencher| {
             bencher.iter(|| {
-                let result = vm.execute_program_interpreted(&mut TestInstructionMeter {
-                    remaining: instruction_meter,
-                });
+                let result =
+                    vm.execute_program_interpreted(&mut test_utils::TestInstructionMeter {
+                        remaining: instruction_meter,
+                    });
                 assert!(result.is_ok());
                 assert_eq!(vm.get_total_instruction_count(), instruction_meter);
             });
@@ -84,7 +87,7 @@ fn bench_jit_vs_interpreter(
     let jit_summary = bencher
         .bench(|bencher| {
             bencher.iter(|| {
-                let result = vm.execute_program_jit(&mut TestInstructionMeter {
+                let result = vm.execute_program_jit(&mut test_utils::TestInstructionMeter {
                     remaining: instruction_meter,
                 });
                 assert!(result.is_ok());
