@@ -219,7 +219,7 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Report information on a symbol that failed to be resolved
     fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>>;
     /// Get syscalls and BPF functions (if debug symbols are not stripped)
-    fn get_symbols(&self) -> (BTreeMap<u32, String>, BTreeMap<usize, (String, usize)>);
+    fn get_symbols(&self) -> (BTreeMap<u32, String>, BTreeMap<usize, String>);
 }
 
 /// Static constructors for Executable
@@ -299,12 +299,10 @@ impl Tracer {
             pc_to_insn_index[insn.ptr] = index;
             pc_to_insn_index[insn.ptr + 1] = index;
         }
-        let mut last_basic_block = usize::MAX;
         for index in 0..self.log.len() {
             let entry = &self.log[index];
             let pc = entry[11] as usize;
             let insn = &analysis.instructions[pc_to_insn_index[pc]];
-            analysis.disassemble_label(output, true, pc, &mut last_basic_block)?;
             writeln!(
                 output,
                 "{:5?} {:016X?} {:5?}: {}",

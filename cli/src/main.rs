@@ -154,10 +154,8 @@ fn main() {
 
     match matches.value_of("use") {
         Some("cfg") => {
-            let stdout = std::io::stdout();
-            analysis
-                .visualize_graphically(&mut stdout.lock(), None)
-                .unwrap();
+            let mut file = File::create("cfg.dot").unwrap();
+            analysis.visualize_graphically(&mut file, None).unwrap();
             return;
         }
         Some("disassembler") => {
@@ -216,9 +214,9 @@ fn main() {
     if matches.is_present("profile") {
         let tracer = &vm.get_tracer();
         let profile = tracer.profile(&analysis);
-        let stdout = std::io::stdout();
+        let mut file = File::create("profile.dot").unwrap();
         analysis
-            .visualize_graphically(&mut stdout.lock(), Some(&profile))
+            .visualize_graphically(&mut file, Some(&profile))
             .unwrap();
     }
 }

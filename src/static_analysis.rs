@@ -3,7 +3,7 @@
 use crate::disassembler::disassemble_instruction;
 use crate::{ebpf, error::UserDefinedError, vm::Executable, vm::InstructionMeter};
 use rustc_demangle::demangle;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// A node of the control-flow graph
 #[derive(Debug)]
@@ -92,7 +92,7 @@ pub struct Analysis<'a, E: UserDefinedError, I: InstructionMeter> {
     /// Syscalls used by the executable (available if debug symbols are not stripped)
     pub syscalls: BTreeMap<u32, String>,
     /// Functions in the executable (available if debug symbols are not stripped)
-    pub functions: BTreeMap<usize, (String, usize)>,
+    pub functions: BTreeMap<usize, String>,
     /// Nodes of the control-flow graph
     pub cfg_nodes: BTreeMap<usize, CfgNode>,
     /// Topological order of cfg_nodes
@@ -169,7 +169,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         {
             self.functions
                 .entry(self.entrypoint)
-                .or_insert(("entrypoint".to_string(), 0));
+                .or_insert_with(|| "entrypoint".to_string());
             for pc in self.functions.keys() {
                 self.cfg_nodes.entry(*pc).or_insert_with(CfgNode::default);
             }
@@ -191,7 +191,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                     {
                         self.functions
                             .entry(*target_pc)
-                            .or_insert((format!("function_{}", *target_pc), 0));
+                            .or_insert(format!("function_{}", *target_pc));
                         self.cfg_nodes
                             .entry(insn.ptr + 1)
                             .or_insert_with(CfgNode::default);
@@ -365,7 +365,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     /// Gives the basic blocks names
     pub fn label_basic_blocks(&mut self) {
         for (pc, cfg_node) in self.cfg_nodes.iter_mut() {
-            cfg_node.label = if let Some((name, _length)) = self.functions.get(&pc) {
+            cfg_node.label = if let Some(name) = self.functions.get(&pc) {
                 demangle(&name).to_string()
             } else {
                 format!("lbb_{}", pc)
@@ -418,7 +418,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     pub fn visualize_graphically<W: std::io::Write>(
         &self,
         output: &mut W,
-        _profile: Option<&BTreeMap<usize, BTreeMap<usize, usize>>>,
+        profile: Option<&BTreeMap<usize, BTreeMap<usize, usize>>>,
     ) -> std::io::Result<()> {
         fn html_escape(string: &str) -> String {
             string
@@ -429,7 +429,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         }
         fn emit_cfg_node<W: std::io::Write, E: UserDefinedError, I: InstructionMeter>(
             output: &mut W,
+            profile: Option<&BTreeMap<usize, BTreeMap<usize, usize>>>,
             analysis: &Analysis<E, I>,
+            function_range: std::ops::Range<usize>,
+            alias_nodes: &mut HashSet<usize>,
             cfg_node_start: usize,
         ) -> std::io::Result<()> {
             let cfg_node = &analysis.cfg_nodes[&cfg_node_start];
@@ -452,8 +455,24 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 .collect::<Vec<String>>()
                 .join("")
             )?;
+            if let Some(profile) = profile {
+                if let Some(recorded_edges) = profile.get(&cfg_node_start) {
+                    for destination in recorded_edges.keys() {
+                        if !function_range.contains(destination) {
+                            alias_nodes.insert(*destination);
+                        }
+                    }
+                }
+            }
             for child in &cfg_node.dominated_children {
-                emit_cfg_node(output, analysis, *child)?;
+                emit_cfg_node(
+                    output,
+                    profile,
+                    analysis,
+                    function_range.clone(),
+                    alias_nodes,
+                    *child,
+                )?;
             }
             Ok(())
         }
@@ -477,13 +496,44 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
   ];"
         )?;
         const MAX_CELL_CONTENT_LENGTH: usize = 15;
-        for (function, (name, _length)) in self.functions.iter() {
-            writeln!(output, "  subgraph cluster_{} {{", *function)?;
+        let mut function_iter = self.functions.iter().peekable();
+        while let Some((function_start, name)) = function_iter.next() {
+            let function_end = if let Some(next_function) = function_iter.peek() {
+                *next_function.0
+            } else {
+                self.instructions.last().unwrap().ptr + 1
+            };
+            let mut alias_nodes = HashSet::new();
+            writeln!(output, "  subgraph cluster_{} {{", *function_start)?;
             writeln!(output, "    label={:?};", html_escape(name))?;
-            emit_cfg_node(output, &self, *function)?;
+            emit_cfg_node(
+                output,
+                profile,
+                &self,
+                *function_start..function_end,
+                &mut alias_nodes,
+                *function_start,
+            )?;
+            for alias_node in alias_nodes.iter() {
+                writeln!(
+                    output,
+                    "    alias_{0}_lbb_{1} [label=lbb_{1}];",
+                    *function_start, *alias_node
+                )?;
+            }
             writeln!(output, "  }}")?;
         }
+        let mut function_iter = self.functions.iter().peekable();
+        let mut function_start = *function_iter.next().unwrap().0;
         for (cfg_node_start, cfg_node) in self.cfg_nodes.iter() {
+            if function_iter.peek().unwrap().0 == cfg_node_start {
+                function_start = *function_iter.next().unwrap().0;
+            }
+            let function_end = if let Some(next_function) = function_iter.peek() {
+                *next_function.0
+            } else {
+                self.instructions.last().unwrap().ptr + 1
+            };
             if *cfg_node_start != cfg_node.dominator_parent {
                 writeln!(
                     output,
@@ -491,18 +541,50 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                     *cfg_node_start, cfg_node.dominator_parent,
                 )?;
             }
-            if !cfg_node.destinations.is_empty() {
+            let mut edges: BTreeMap<usize, usize> = cfg_node
+                .destinations
+                .iter()
+                .map(|destination| (*destination, 0))
+                .collect();
+            if let Some(profile) = profile {
+                if let Some(recorded_edges) = profile.get(cfg_node_start) {
+                    for (destination, recorded_counter) in recorded_edges.iter() {
+                        edges
+                            .entry(*destination)
+                            .and_modify(|counter| {
+                                *counter = *recorded_counter;
+                            })
+                            .or_insert(*recorded_counter);
+                    }
+                }
+            }
+            let counter_sum: usize = edges.values().sum();
+            if counter_sum == 0 && !edges.is_empty() {
                 writeln!(
                     output,
                     "  lbb_{} -> {{{}}};",
                     *cfg_node_start,
-                    cfg_node
-                        .destinations
-                        .iter()
+                    edges
+                        .keys()
                         .map(|destination| format!("lbb_{}", *destination))
                         .collect::<Vec<String>>()
                         .join(" ")
                 )?;
+            } else {
+                for (destination, counter) in edges {
+                    write!(output, "  lbb_{} -> ", *cfg_node_start,)?;
+                    if (function_start..function_end).contains(&destination) {
+                        write!(output, "lbb_{}", destination,)?;
+                    } else {
+                        write!(output, "alias_{0}_lbb_{1}", function_start, destination)?;
+                    }
+                    writeln!(
+                        output,
+                        " [label=\"{}\";color=\"{} 1.0 1.0\"];",
+                        counter,
+                        counter as f32 / (counter_sum as f32 * 3.0) + 2.0 / 3.0,
+                    )?;
+                }
             }
         }
         writeln!(output, "}}")?;
