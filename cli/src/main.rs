@@ -6,7 +6,7 @@ use solana_rbpf::{
     static_analysis::Analysis,
     user_error::UserError,
     verifier::check,
-    vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry},
+    vm::{Config, DynamicAnalysis, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
 use std::{fs::File, io::Read, path::Path};
 use test_utils::{Result, TestInstructionMeter};
@@ -213,10 +213,10 @@ fn main() {
     }
     if matches.is_present("profile") {
         let tracer = &vm.get_tracer();
-        let profile = tracer.profile(&analysis);
+        let dynamic_analysis = DynamicAnalysis::new(&tracer, &analysis);
         let mut file = File::create("profile.dot").unwrap();
         analysis
-            .visualize_graphically(&mut file, Some(&profile))
+            .visualize_graphically(&mut file, Some(&dynamic_analysis))
             .unwrap();
     }
 }

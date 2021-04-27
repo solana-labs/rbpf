@@ -1,7 +1,12 @@
 //! Static Byte Code Analysis
 
 use crate::disassembler::disassemble_instruction;
-use crate::{ebpf, error::UserDefinedError, vm::Executable, vm::InstructionMeter};
+use crate::{
+    ebpf,
+    error::UserDefinedError,
+    vm::InstructionMeter,
+    vm::{DynamicAnalysis, Executable},
+};
 use rustc_demangle::demangle;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -418,7 +423,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     pub fn visualize_graphically<W: std::io::Write>(
         &self,
         output: &mut W,
-        profile: Option<&BTreeMap<usize, BTreeMap<usize, usize>>>,
+        dynamic_analysis: Option<&DynamicAnalysis>,
     ) -> std::io::Result<()> {
         fn html_escape(string: &str) -> String {
             string
@@ -429,7 +434,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         }
         fn emit_cfg_node<W: std::io::Write, E: UserDefinedError, I: InstructionMeter>(
             output: &mut W,
-            profile: Option<&BTreeMap<usize, BTreeMap<usize, usize>>>,
+            dynamic_analysis: Option<&DynamicAnalysis>,
             analysis: &Analysis<E, I>,
             function_range: std::ops::Range<usize>,
             alias_nodes: &mut HashSet<usize>,
@@ -455,8 +460,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 .collect::<Vec<String>>()
                 .join("")
             )?;
-            if let Some(profile) = profile {
-                if let Some(recorded_edges) = profile.get(&cfg_node_start) {
+            if let Some(dynamic_analysis) = dynamic_analysis {
+                if let Some(recorded_edges) = dynamic_analysis.edges.get(&cfg_node_start) {
                     for destination in recorded_edges.keys() {
                         if !function_range.contains(destination) {
                             alias_nodes.insert(*destination);
@@ -467,7 +472,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             for child in &cfg_node.dominated_children {
                 emit_cfg_node(
                     output,
-                    profile,
+                    dynamic_analysis,
                     analysis,
                     function_range.clone(),
                     alias_nodes,
@@ -506,9 +511,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             let mut alias_nodes = HashSet::new();
             writeln!(output, "  subgraph cluster_{} {{", *function_start)?;
             writeln!(output, "    label={:?};", html_escape(name))?;
+            writeln!(output, "    tooltip=lbb_{};", *function_start)?;
             emit_cfg_node(
                 output,
-                profile,
+                dynamic_analysis,
                 &self,
                 *function_start..function_end,
                 &mut alias_nodes,
@@ -517,9 +523,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             for alias_node in alias_nodes.iter() {
                 writeln!(
                     output,
-                    "    alias_{0}_lbb_{1} [label=lbb_{1}];",
+                    "    alias_{}_lbb_{} [",
                     *function_start, *alias_node
                 )?;
+                writeln!(output, "        label=lbb_{:?};", *alias_node)?;
+                writeln!(output, "        tooltip=lbb_{:?};", *alias_node)?;
+                writeln!(output, "        URL=\"#lbb_{:?}\";", *alias_node)?;
+                writeln!(output, "    ];")?;
             }
             writeln!(output, "  }}")?;
         }
@@ -546,8 +556,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 .iter()
                 .map(|destination| (*destination, 0))
                 .collect();
-            if let Some(profile) = profile {
-                if let Some(recorded_edges) = profile.get(cfg_node_start) {
+            if let Some(dynamic_analysis) = dynamic_analysis {
+                if let Some(recorded_edges) = dynamic_analysis.edges.get(cfg_node_start) {
                     for (destination, recorded_counter) in recorded_edges.iter() {
                         edges
                             .entry(*destination)
@@ -571,6 +581,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                         .join(" ")
                 )?;
             } else {
+                let dynamic_analysis = dynamic_analysis.unwrap();
                 for (destination, counter) in edges {
                     write!(output, "  lbb_{} -> ", *cfg_node_start,)?;
                     if (function_start..function_end).contains(&destination) {
@@ -580,9 +591,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                     }
                     writeln!(
                         output,
-                        " [label=\"{}\";color=\"{} 1.0 1.0\"];",
+                        " [label=\"{}\";color=\"{} 1.0 {}.0\"];",
                         counter,
-                        counter as f32 / (counter_sum as f32 * 3.0) + 2.0 / 3.0,
+                        counter as f32 / (dynamic_analysis.edge_counter_max as f32 * 3.0)
+                            + 2.0 / 3.0,
+                        if counter == 0 { 0 } else { 1 }
                     )?;
                 }
             }

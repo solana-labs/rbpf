@@ -268,6 +268,43 @@ impl InstructionMeter for DefaultInstructionMeter {
     }
 }
 
+/// Statistic of taken branches (from a recorded trace)
+pub struct DynamicAnalysis {
+    /// Maximal edge counter value
+    pub edge_counter_max: usize,
+    /// src_node, dst_node, edge_counter
+    pub edges: BTreeMap<usize, BTreeMap<usize, usize>>,
+}
+
+impl DynamicAnalysis {
+    /// Accumulates a trace
+    pub fn new<E: UserDefinedError, I: InstructionMeter>(
+        tracer: &Tracer,
+        analysis: &Analysis<E, I>,
+    ) -> Self {
+        let mut result = Self {
+            edge_counter_max: 0,
+            edges: BTreeMap::new(),
+        };
+        let mut last_basic_block = std::usize::MAX;
+        for traced_instruction in tracer.log.iter() {
+            let pc = traced_instruction[11] as usize;
+            if analysis.cfg_nodes.contains_key(&pc) {
+                let counter = result
+                    .edges
+                    .entry(last_basic_block)
+                    .or_insert_with(BTreeMap::new)
+                    .entry(pc)
+                    .or_insert(0);
+                *counter += 1;
+                result.edge_counter_max = result.edge_counter_max.max(*counter);
+                last_basic_block = pc;
+            }
+        }
+        result
+    }
+}
+
 /// Used for instruction tracing
 #[derive(Default, Clone)]
 pub struct Tracer {
@@ -325,29 +362,6 @@ impl Tracer {
             jit = &jit[0..interpreter.len()];
         }
         interpreter == jit
-    }
-
-    /// Accumulates the trace into a statistic of taken branches.
-    ///
-    /// The resulting nested map represents: (src_node, dst_node, edge_counter)
-    pub fn profile<E: UserDefinedError, I: InstructionMeter>(
-        &self,
-        analysis: &Analysis<E, I>,
-    ) -> BTreeMap<usize, BTreeMap<usize, usize>> {
-        let mut result = BTreeMap::new();
-        let mut last_basic_block = std::usize::MAX;
-        for traced_instruction in self.log.iter() {
-            let pc = traced_instruction[11] as usize;
-            if analysis.cfg_nodes.contains_key(&pc) {
-                *result
-                    .entry(last_basic_block)
-                    .or_insert_with(BTreeMap::new)
-                    .entry(pc)
-                    .or_insert(0) += 1;
-                last_basic_block = pc;
-            }
-        }
-        result
     }
 }
 
