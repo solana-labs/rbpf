@@ -31,7 +31,7 @@ pub struct CfgNode {
     pub dominated_children: Vec<usize>,
 }
 
-/// A node of the data-flow graph
+/// An instruction or Φ node of the data-flow graph
 #[derive(PartialOrd, Ord, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum DfgNode {
     /// Points to a single instruction
@@ -65,7 +65,9 @@ pub enum DfgEdgeKind {
 /// An edge of the data-flow graph
 #[derive(PartialOrd, Ord, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DfgEdge {
-    /// An instruction or Φ node that depends on the source (key in dfg_nodes)
+    /// The DfgNode that the destination depends on
+    pub source: DfgNode,
+    /// The DfgNode that depends on the source
     pub destination: DfgNode,
     /// Write-read or write-write
     pub kind: DfgEdgeKind,
@@ -104,8 +106,10 @@ pub struct Analysis<'a, E: UserDefinedError, I: InstructionMeter> {
     pub topological_order: Vec<usize>,
     /// CfgNode where the execution starts
     pub entrypoint: usize,
-    /// Data flow nodes (the keys are DfgEdge sources)
-    pub dfg_nodes: BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
+    /// Data flow edges (the keys are DfgEdge sources)
+    pub dfg_forward_edges: BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
+    /// Data flow edges (the keys are DfgEdge destinations)
+    pub dfg_reverse_edges: BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
 }
 
 impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
@@ -141,7 +145,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             cfg_nodes: BTreeMap::new(),
             topological_order: Vec::new(),
             entrypoint: executable.get_entrypoint_instruction_offset().unwrap(),
-            dfg_nodes: BTreeMap::new(),
+            dfg_forward_edges: BTreeMap::new(),
+            dfg_reverse_edges: BTreeMap::new(),
         };
         result.split_into_basic_blocks(false);
         result.label_basic_blocks();
@@ -802,9 +807,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             let destination = DfgNode::InstructionNode(insn.ptr);
             state
                 .1
-                .entry(source)
+                .entry(source.clone())
                 .or_insert_with(BTreeSet::new)
                 .insert(DfgEdge {
+                    source,
                     destination,
                     kind,
                     resource: resource.clone(),
@@ -968,7 +974,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 (*basic_block_start, deps)
             })
             .collect();
-        self.dfg_nodes = state.1;
+        self.dfg_forward_edges = state.1;
         data_dependencies
     }
 
@@ -982,7 +988,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             continue_propagation = false;
             for basic_block_start in self.topological_order.iter().rev() {
                 if !self
-                    .dfg_nodes
+                    .dfg_forward_edges
                     .contains_key(&DfgNode::PhiNode(*basic_block_start))
                 {
                     continue;
@@ -990,7 +996,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 let basic_block = &self.cfg_nodes[basic_block_start];
                 let mut edges = BTreeSet::new();
                 std::mem::swap(
-                    self.dfg_nodes
+                    self.dfg_forward_edges
                         .get_mut(&DfgNode::PhiNode(*basic_block_start))
                         .unwrap(),
                     &mut edges,
@@ -1010,7 +1016,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                             edge.destination = DfgNode::PhiNode(*basic_block_start);
                         }
                         if self
-                            .dfg_nodes
+                            .dfg_forward_edges
                             .entry(source.clone())
                             .or_insert_with(BTreeSet::new)
                             .insert(edge.clone())
@@ -1022,7 +1028,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                     }
                 }
                 let reflective_edges = self
-                    .dfg_nodes
+                    .dfg_forward_edges
                     .get_mut(&DfgNode::PhiNode(*basic_block_start))
                     .unwrap();
                 for edge in reflective_edges.iter() {
@@ -1035,7 +1041,16 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         }
         for (basic_block_start, basic_block) in self.cfg_nodes.iter() {
             if basic_block.sources.len() == 1 {
-                self.dfg_nodes.remove(&DfgNode::PhiNode(*basic_block_start));
+                self.dfg_forward_edges
+                    .remove(&DfgNode::PhiNode(*basic_block_start));
+            }
+        }
+        for dfg_edges in self.dfg_forward_edges.values() {
+            for dfg_edge in dfg_edges.iter() {
+                self.dfg_reverse_edges
+                    .entry(dfg_edge.destination.clone())
+                    .or_insert_with(BTreeSet::new)
+                    .insert(dfg_edge.clone());
             }
         }
     }
