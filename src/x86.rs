@@ -441,6 +441,16 @@ impl X86Instruction {
         }
     }
 
+    /// No operation
+    pub fn noop() -> Self {
+        Self {
+            size: OperandSize::S32,
+            opcode: 0x90,
+            modrm: false,
+            ..Self::default()
+        }
+    }
+
     /// Trap / software interrupt
     #[allow(dead_code)]
     pub fn interrupt(immediate: u8) -> Self {

@@ -183,6 +183,8 @@ pub struct Config {
     pub enable_instruction_meter: bool,
     /// Enable instruction tracing
     pub enable_instruction_tracing: bool,
+    /// Enable randomization in the JIT code emitter
+    pub enable_code_randomization: bool,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -191,6 +193,7 @@ impl Default for Config {
             stack_frame_size: 4_096,
             enable_instruction_meter: true,
             enable_instruction_tracing: false,
+            enable_code_randomization: true,
         }
     }
 }
