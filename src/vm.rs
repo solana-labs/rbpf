@@ -405,7 +405,7 @@ pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 6;
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
+/// use solana_rbpf::{ebpf, vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -415,7 +415,8 @@ pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 6;
 /// ];
 ///
 /// // Instantiate a VM.
-/// let executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+/// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+/// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
 /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
 ///
 /// // Provide a reference to the packet data.
@@ -442,14 +443,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
+    /// use solana_rbpf::{ebpf, vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+    /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// ```
     pub fn new(
@@ -532,7 +534,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::{Config, Executable, EbpfVm, SyscallObject, SyscallRegistry, DefaultInstructionMeter}, syscalls::BpfTracePrintf, user_error::UserError};
+    /// use solana_rbpf::{ebpf, vm::{Config, Executable, EbpfVm, SyscallObject, SyscallRegistry, DefaultInstructionMeter}, syscalls::BpfTracePrintf, user_error::UserError};
     ///
     /// // This program was compiled with clang, from a C program containing the following single
     /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
@@ -556,6 +558,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// syscall_registry.register_syscall_by_hash(6, BpfTracePrintf::call).unwrap();
     /// // Instantiate an Executable and VM
     /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
     /// executable.set_syscall_registry(syscall_registry);
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// // Bind a context object instance to the previously registered syscall
@@ -608,7 +611,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
+    /// use solana_rbpf::{ebpf, vm::{Config, Executable, EbpfVm, DefaultInstructionMeter}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -618,7 +621,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// ];
     ///
     /// // Instantiate a VM.
-    /// let executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+    /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
+    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
     ///
     /// // Provide a reference to the packet data.

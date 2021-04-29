@@ -183,8 +183,6 @@ pub struct EBpfElf<E: UserDefinedError, I: InstructionMeter> {
     config: Config,
     /// Loaded and executable elf
     elf_bytes: AlignedMemory,
-    /// Entrypoint instruction offset
-    entrypoint: usize,
     /// Text section info
     text_section_info: SectionInfo,
     /// Read-only section info
@@ -233,7 +231,10 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
 
     /// Get the entry point offset into the text section
     fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>> {
-        Ok(self.entrypoint)
+        self.calls
+            .get(&ebpf::hash_symbol_name(b"entrypoint"))
+            .cloned()
+            .ok_or(EbpfError::ElfError(ElfError::InvalidEntrypoint))
     }
 
     /// Set a symbol's instruction offset
@@ -337,7 +338,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         Self {
             config,
             elf_bytes,
-            entrypoint: 0,
             text_section_info: SectionInfo {
                 name: ".text".to_string(),
                 vaddr: ebpf::MM_PROGRAM_START,
@@ -372,6 +372,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             return Err(ElfError::InvalidEntrypoint);
         }
         let entrypoint = offset as usize / ebpf::INSN_SIZE;
+        calls.insert(ebpf::hash_symbol_name(b"entrypoint"), entrypoint);
 
         // calculate the text section info
         let text_section_info = SectionInfo {
@@ -416,7 +417,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         Ok(Self {
             config,
             elf_bytes,
-            entrypoint,
             text_section_info,
             ro_section_infos,
             calls,

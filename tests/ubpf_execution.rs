@@ -3255,6 +3255,7 @@ fn test_large_program() {
             config,
         )
         .unwrap();
+        executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
         test_interpreter_and_jit!(
             executable,
             [],
@@ -3296,10 +3297,12 @@ fn execute_generated_program(prog: &[u8]) -> bool {
             ..Config::default()
         },
     );
-    if executable.is_err() {
+    let mut executable = if let Ok(executable) = executable {
+        executable
+    } else {
         return false;
-    }
-    let mut executable = executable.unwrap();
+    };
+    executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
     executable.set_syscall_registry(SyscallRegistry::default());
     if executable.jit_compile().is_err() {
         return false;

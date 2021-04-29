@@ -230,6 +230,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
     let instruction_map = make_instruction_map();
     let mut insn_ptr = 0;
     let mut labels = HashMap::new();
+    labels.insert("entrypoint", 0);
     for statement in statements.iter() {
         match statement {
             Statement::Label { name } => {
@@ -241,7 +242,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
         }
     }
     insn_ptr = 0;
-    let mut functions = HashSet::new();
+    let mut functions: HashSet<&str> = HashSet::new();
     let mut instructions: Vec<Insn> = Vec::new();
     for statement in statements.iter() {
         if let Statement::Instruction { name, operands } = statement {
@@ -340,11 +341,12 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
         .collect::<Vec<_>>();
     let mut executable =
         <dyn Executable<E, I>>::from_text_bytes(&program, verifier, config).unwrap();
+    functions.insert("entrypoint");
     for label in functions {
         executable.register_bpf_function(
             ebpf::hash_symbol_name(label.as_bytes()),
             *labels
-                .get(label.as_str())
+                .get(label)
                 .ok_or_else(|| format!("Label not found {}", label))?,
         );
     }
