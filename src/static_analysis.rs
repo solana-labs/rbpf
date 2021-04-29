@@ -98,8 +98,8 @@ pub struct Analysis<'a, E: UserDefinedError, I: InstructionMeter> {
     pub instructions: Vec<ebpf::Insn>,
     /// Syscalls used by the executable (available if debug symbols are not stripped)
     pub syscalls: BTreeMap<u32, String>,
-    /// Functions in the executable (available if debug symbols are not stripped)
-    pub functions: BTreeMap<usize, String>,
+    /// Functions in the executable
+    pub functions: BTreeMap<usize, (u32, String)>,
     /// Nodes of the control-flow graph
     pub cfg_nodes: BTreeMap<usize, CfgNode>,
     /// Topological order of cfg_nodes
@@ -176,12 +176,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     ///
     /// Also links the control-flow graph edges between the basic blocks.
     pub fn split_into_basic_blocks(&mut self, flatten_call_graph: bool) {
-        {
-            self.functions
-                .entry(self.entrypoint)
-                .or_insert_with(|| "entrypoint".to_string());
-            for pc in self.functions.keys() {
-                self.cfg_nodes.entry(*pc).or_insert_with(CfgNode::default);
+        for (pc, (_hash, name)) in self.functions.iter_mut() {
+            self.cfg_nodes.entry(*pc).or_insert_with(CfgNode::default);
+            if name.is_empty() {
+                *name = format!("function_{}", *pc);
             }
         }
         let mut cfg_edges = BTreeMap::new();
@@ -199,21 +197,18 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                     } else if let Some(target_pc) =
                         self.executable.lookup_bpf_function(insn.imm as u32)
                     {
-                        self.functions
-                            .entry(*target_pc)
-                            .or_insert(format!("function_{}", *target_pc));
                         self.cfg_nodes
                             .entry(insn.ptr + 1)
                             .or_insert_with(CfgNode::default);
                         self.cfg_nodes
-                            .entry(*target_pc)
+                            .entry(target_pc)
                             .or_insert_with(CfgNode::default);
                         cfg_edges.insert(
                             insn.ptr,
                             (
                                 insn.opc,
                                 if flatten_call_graph {
-                                    vec![insn.ptr + 1, *target_pc]
+                                    vec![insn.ptr + 1, target_pc]
                                 } else {
                                     vec![insn.ptr + 1]
                                 },
@@ -301,9 +296,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             std::mem::swap(&mut self.functions, &mut functions);
             let mut functions = functions
                 .into_iter()
-                .filter(|(function_start, _function_body)| {
-                    self.cfg_nodes.contains_key(function_start)
-                })
+                .filter(|(function_start, _)| self.cfg_nodes.contains_key(function_start))
                 .collect();
             std::mem::swap(&mut self.functions, &mut functions);
         }
@@ -375,8 +368,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     /// Gives the basic blocks names
     pub fn label_basic_blocks(&mut self) {
         for (pc, cfg_node) in self.cfg_nodes.iter_mut() {
-            cfg_node.label = if let Some(name) = self.functions.get(&pc) {
-                demangle(&name).to_string()
+            cfg_node.label = if let Some(function) = self.functions.get(&pc) {
+                demangle(&function.1).to_string()
             } else {
                 format!("lbb_{}", pc)
             };
@@ -507,7 +500,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         )?;
         const MAX_CELL_CONTENT_LENGTH: usize = 15;
         let mut function_iter = self.functions.iter().peekable();
-        while let Some((function_start, name)) = function_iter.next() {
+        while let Some((function_start, (_hash, name))) = function_iter.next() {
             let function_end = if let Some(next_function) = function_iter.peek() {
                 *next_function.0
             } else {

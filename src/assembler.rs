@@ -343,12 +343,15 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
         <dyn Executable<E, I>>::from_text_bytes(&program, verifier, config).unwrap();
     functions.insert("entrypoint");
     for label in functions {
-        executable.register_bpf_function(
-            ebpf::hash_symbol_name(label.as_bytes()),
-            *labels
-                .get(label)
-                .ok_or_else(|| format!("Label not found {}", label))?,
-        );
+        executable
+            .register_bpf_function(
+                ebpf::hash_symbol_name(label.as_bytes()),
+                *labels
+                    .get(label)
+                    .ok_or_else(|| format!("Label not found {}", label))?,
+                label,
+            )
+            .map_err(|_| format!("Label hash collision {}", label))?;
     }
     Ok(executable)
 }

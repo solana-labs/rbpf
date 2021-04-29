@@ -21,13 +21,7 @@ use goblin::{
     elf::{header::*, reloc::*, section_header::*, Elf},
     error::Error as GoblinError,
 };
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt::Debug,
-    mem,
-    ops::Range,
-    str,
-};
+use std::{collections::BTreeMap, fmt::Debug, mem, ops::Range, str};
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -53,9 +47,9 @@ pub enum ElfError {
     /// Relative jump out of bounds
     #[error("Relative jump out of bounds at instruction #{0}")]
     RelativeJumpOutOfBounds(usize),
-    /// Relocation hash collision
-    #[error("Relocation hash collision while encoding instruction #{0}")]
-    RelocationHashCollision(usize),
+    /// Symbol hash collision
+    #[error("Symbol hash collision {0:#x}")]
+    SymbolHashCollision(u32),
     /// Incompatible ELF: wrong endianess
     #[error("Incompatible ELF: wrong endianess")]
     WrongEndianess,
@@ -187,8 +181,8 @@ pub struct EBpfElf<E: UserDefinedError, I: InstructionMeter> {
     text_section_info: SectionInfo,
     /// Read-only section info
     ro_section_infos: Vec<SectionInfo>,
-    /// Call resolution map
-    calls: HashMap<u32, usize>,
+    /// Call resolution map (pc, hash, name)
+    bpf_functions: BTreeMap<u32, (usize, String)>,
     /// Syscall resolution map
     syscall_registry: SyscallRegistry,
     /// Compiled program and argument
@@ -231,20 +225,33 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
 
     /// Get the entry point offset into the text section
     fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>> {
-        self.calls
+        self.bpf_functions
             .get(&ebpf::hash_symbol_name(b"entrypoint"))
-            .cloned()
+            .map(|(pc, _name)| *pc)
             .ok_or(EbpfError::ElfError(ElfError::InvalidEntrypoint))
     }
 
     /// Set a symbol's instruction offset
-    fn register_bpf_function(&mut self, hash: u32, pc: usize) {
-        self.calls.insert(hash, pc);
+    fn register_bpf_function(
+        &mut self,
+        hash: u32,
+        pc: usize,
+        name: &str,
+    ) -> Result<(), EbpfError<E>> {
+        if self
+            .bpf_functions
+            .insert(hash, (pc, name.to_string()))
+            .is_none()
+        {
+            Ok(())
+        } else {
+            Err(EbpfError::ElfError(ElfError::SymbolHashCollision(hash)))
+        }
     }
 
     /// Get a symbol's instruction offset
-    fn lookup_bpf_function(&self, hash: u32) -> Option<&usize> {
-        self.calls.get(&hash)
+    fn lookup_bpf_function(&self, hash: u32) -> Option<usize> {
+        self.bpf_functions.get(&hash).map(|(pc, _name)| *pc)
     }
 
     /// Get the syscall registry
@@ -303,7 +310,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     }
 
     /// Get syscalls and BPF functions (if debug symbols are not stripped)
-    fn get_symbols(&self) -> (BTreeMap<u32, String>, BTreeMap<usize, String>) {
+    fn get_symbols(&self) -> (BTreeMap<u32, String>, BTreeMap<usize, (u32, String)>) {
         let mut syscalls = BTreeMap::new();
         let mut bpf_functions = BTreeMap::new();
         if let Ok(elf) = Elf::parse(self.elf_bytes.as_slice()) {
@@ -315,16 +322,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
                 let hash = ebpf::hash_symbol_name(&name.as_bytes());
                 syscalls.insert(hash, name.to_string());
             }
-            for symbol in &elf.syms {
-                if symbol.st_info & 0xEF != 0x02 {
-                    continue;
-                }
-                let name = elf.strtab.get(symbol.st_name).unwrap().unwrap();
-                bpf_functions.insert(
-                    symbol.st_value as usize / ebpf::INSN_SIZE - ebpf::ELF_INSN_DUMP_OFFSET,
-                    name.to_string(),
-                );
-            }
+        }
+        for (hash, (pc, name)) in self.bpf_functions.iter() {
+            bpf_functions.insert(*pc, (*hash, name.clone()));
         }
         (syscalls, bpf_functions)
     }
@@ -347,7 +347,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 },
             },
             ro_section_infos: vec![],
-            calls: HashMap::default(),
+            bpf_functions: BTreeMap::default(),
             syscall_registry: SyscallRegistry::default(),
             compiled_program: None,
         }
@@ -361,8 +361,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
         Self::validate(&elf, &elf_bytes.as_slice())?;
 
-        let mut calls = HashMap::default();
-        Self::relocate(&elf, elf_bytes.as_slice_mut(), &mut calls)?;
+        let mut bpf_functions = BTreeMap::default();
+        Self::relocate(&elf, elf_bytes.as_slice_mut(), &mut bpf_functions)?;
 
         let text_section = Self::get_section(&elf, ".text")?;
 
@@ -372,7 +372,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             return Err(ElfError::InvalidEntrypoint);
         }
         let entrypoint = offset as usize / ebpf::INSN_SIZE;
-        calls.insert(ebpf::hash_symbol_name(b"entrypoint"), entrypoint);
+        bpf_functions.insert(
+            ebpf::hash_symbol_name(b"entrypoint"),
+            (entrypoint, "entrypoint".to_string()),
+        );
 
         // calculate the text section info
         let text_section_info = SectionInfo {
@@ -419,7 +422,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             elf_bytes,
             text_section_info,
             ro_section_infos,
-            calls,
+            bpf_functions,
             syscall_registry: SyscallRegistry::default(),
             compiled_program: None,
         })
@@ -429,12 +432,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
     /// Fix-ups relative calls
     pub fn fixup_relative_calls(
-        calls: &mut HashMap<u32, usize>,
+        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
         for i in 0..elf_bytes.len() / ebpf::INSN_SIZE {
             let mut insn = ebpf::get_insn(elf_bytes, i);
-            if insn.opc == 0x85 && insn.imm != -1 {
+            if insn.opc == ebpf::CALL_IMM && insn.imm != -1 {
                 let insn_idx = i as isize + 1 + insn.imm as isize;
                 if insn_idx < 0 || insn_idx >= (elf_bytes.len() / ebpf::INSN_SIZE) as isize {
                     return Err(ElfError::RelativeJumpOutOfBounds(
@@ -442,13 +445,14 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     ));
                 }
                 // use the instruction index as the key
-                let mut key = [0u8; mem::size_of::<i64>()];
+                let mut key = [0u8; mem::size_of::<u64>()];
                 LittleEndian::write_u64(&mut key, i as u64);
                 let hash = ebpf::hash_symbol_name(&key);
-                if calls.insert(hash, insn_idx as usize).is_some() {
-                    return Err(ElfError::RelocationHashCollision(
-                        i + ebpf::ELF_INSN_DUMP_OFFSET,
-                    ));
+                if bpf_functions
+                    .insert(hash, (insn_idx as usize, "".to_string()))
+                    .is_some()
+                {
+                    return Err(ElfError::SymbolHashCollision(hash));
                 }
 
                 insn.imm = hash as i64;
@@ -537,13 +541,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     fn relocate(
         elf: &Elf,
         elf_bytes: &mut [u8],
-        calls: &mut HashMap<u32, usize>,
+        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
     ) -> Result<(), ElfError> {
         let text_section = Self::get_section(elf, ".text")?;
 
         // Fixup all program counter relative call instructions
         Self::fixup_relative_calls(
-            calls,
+            bpf_functions,
             &mut elf_bytes
                 .get_mut(text_section.file_range())
                 .ok_or(ElfError::OutOfBounds)?,
@@ -629,9 +633,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         if !text_section.vm_range().contains(&(sym.st_value as usize)) {
                             return Err(ElfError::OutOfBounds);
                         }
-                        calls.insert(
+                        bpf_functions.insert(
                             hash,
-                            (sym.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE,
+                            (
+                                (sym.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE,
+                                name.to_string(),
+                            ),
                         );
                     }
                 }
@@ -664,7 +671,7 @@ mod test {
         ebpf, elf::scroll::Pwrite, fuzz::fuzz, user_error::UserError, vm::DefaultInstructionMeter,
     };
     use rand::{distributions::Uniform, Rng};
-    use std::{collections::HashMap, fs::File, io::Read};
+    use std::{fs::File, io::Read};
     type ElfExecutable = EBpfElf<UserError, DefaultInstructionMeter>;
 
     #[test]
@@ -777,7 +784,7 @@ mod test {
     #[test]
     fn test_fixup_relative_calls_back() {
         // call -2
-        let mut calls: HashMap<u32, usize> = HashMap::new();
+        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
         #[rustfmt::skip]
         let mut prog = vec![
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -787,7 +794,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x10, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff];
 
-        ElfExecutable::fixup_relative_calls(&mut calls, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[5, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -797,12 +804,12 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*calls.get(&key).unwrap(), 4);
+        assert_eq!(*bpf_functions.get(&key).unwrap(), (4, "".to_string()));
 
         // // call +6
-        let mut calls: HashMap<u32, usize> = HashMap::new();
+        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
-        ElfExecutable::fixup_relative_calls(&mut calls, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[5, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -812,13 +819,13 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*calls.get(&key).unwrap(), 0);
+        assert_eq!(*bpf_functions.get(&key).unwrap(), (0, "".to_string()));
     }
 
     #[test]
     fn test_fixup_relative_calls_forward() {
         // call +0
-        let mut calls: HashMap<u32, usize> = HashMap::new();
+        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
         #[rustfmt::skip]
         let mut prog = vec![
             0x85, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -828,7 +835,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        ElfExecutable::fixup_relative_calls(&mut calls, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[0, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -838,12 +845,12 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*calls.get(&key).unwrap(), 1);
+        assert_eq!(*bpf_functions.get(&key).unwrap(), (1, "".to_string()));
 
         // call +4
-        let mut calls: HashMap<u32, usize> = HashMap::new();
+        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
-        ElfExecutable::fixup_relative_calls(&mut calls, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[0, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -853,7 +860,7 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*calls.get(&key).unwrap(), 5);
+        assert_eq!(*bpf_functions.get(&key).unwrap(), (5, "".to_string()));
     }
 
     #[test]
@@ -861,7 +868,7 @@ mod test {
         expected = "called `Result::unwrap()` on an `Err` value: RelativeJumpOutOfBounds(29)"
     )]
     fn test_fixup_relative_calls_out_of_bounds_forward() {
-        let mut calls: HashMap<u32, usize> = HashMap::new();
+        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
         // call +5
         #[rustfmt::skip]
         let mut prog = vec![
@@ -872,7 +879,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        ElfExecutable::fixup_relative_calls(&mut calls, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[0]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -882,7 +889,7 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*calls.get(&key).unwrap(), 1);
+        assert_eq!(*bpf_functions.get(&key).unwrap(), (1, "".to_string()));
     }
 
     #[test]
@@ -890,7 +897,7 @@ mod test {
         expected = "called `Result::unwrap()` on an `Err` value: RelativeJumpOutOfBounds(34)"
     )]
     fn test_fixup_relative_calls_out_of_bounds_back() {
-        let mut calls: HashMap<u32, usize> = HashMap::new();
+        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
         // call -7
         #[rustfmt::skip]
         let mut prog = vec![
@@ -901,7 +908,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x10, 0x00, 0x00, 0xf9, 0xff, 0xff, 0xff];
 
-        ElfExecutable::fixup_relative_calls(&mut calls, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let key = ebpf::hash_symbol_name(&[5]);
         let insn = ebpf::Insn {
             opc: 0x85,
@@ -911,7 +918,7 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*calls.get(&key).unwrap(), 4);
+        assert_eq!(*bpf_functions.get(&key).unwrap(), (4, "".to_string()));
     }
 
     #[test]

@@ -232,7 +232,7 @@ pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &
                 name = "call";
                 format!("{} {}", name,
                     resolve_label(analysis,
-                        *analysis
+                        analysis
                         .executable
                         .lookup_bpf_function(insn.imm as u32)
                         .unwrap()),

@@ -1058,7 +1058,7 @@ impl JitCompiler {
                     } else {
                         match executable.lookup_bpf_function(insn.imm as u32) {
                             Some(target_pc) => {
-                                emit_bpf_call(self, Value::Constant64(*target_pc as i64), self.result.pc_section.len() - 1)?;
+                                emit_bpf_call(self, Value::Constant64(target_pc as i64), self.result.pc_section.len() - 1)?;
                             },
                             None => {
                                 // executable.report_unresolved_symbol(self.pc)?;

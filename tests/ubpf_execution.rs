@@ -2410,7 +2410,9 @@ fn test_err_call_lddw() {
             config,
         )
         .unwrap();
-        executable.register_bpf_function(2, 2);
+        executable
+            .register_bpf_function(2, 2, "in_the_middle_of_lddw")
+            .unwrap();
         test_interpreter_and_jit!(
             executable,
             [],
@@ -3255,7 +3257,9 @@ fn test_large_program() {
             config,
         )
         .unwrap();
-        executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
+        executable
+            .register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint")
+            .unwrap();
         test_interpreter_and_jit!(
             executable,
             [],
@@ -3302,7 +3306,9 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     } else {
         return false;
     };
-    executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
+    executable
+        .register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint")
+        .unwrap();
     executable.set_syscall_registry(SyscallRegistry::default());
     if executable.jit_compile().is_err() {
         return false;

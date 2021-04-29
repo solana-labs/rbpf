@@ -205,9 +205,14 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Get the entry point offset into the text section
     fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>>;
     /// Set a symbol's instruction offset
-    fn register_bpf_function(&mut self, hash: u32, pc: usize);
+    fn register_bpf_function(
+        &mut self,
+        hash: u32,
+        pc: usize,
+        name: &str,
+    ) -> Result<(), EbpfError<E>>;
     /// Get a symbol's instruction offset
-    fn lookup_bpf_function(&self, hash: u32) -> Option<&usize>;
+    fn lookup_bpf_function(&self, hash: u32) -> Option<usize>;
     /// Get the syscall registry
     fn get_syscall_registry(&self) -> &SyscallRegistry;
     /// Set (overwrite) the syscall registry
@@ -219,7 +224,7 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Report information on a symbol that failed to be resolved
     fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>>;
     /// Get syscalls and BPF functions (if debug symbols are not stripped)
-    fn get_symbols(&self) -> (BTreeMap<u32, String>, BTreeMap<usize, String>);
+    fn get_symbols(&self) -> (BTreeMap<u32, String>, BTreeMap<usize, (u32, String)>);
 }
 
 /// Static constructors for Executable
@@ -416,7 +421,7 @@ pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 6;
 ///
 /// // Instantiate a VM.
 /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
-/// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
+/// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint").unwrap();
 /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
 ///
 /// // Provide a reference to the packet data.
@@ -451,7 +456,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     ///
     /// // Instantiate a VM.
     /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
-    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
+    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint").unwrap();
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// ```
     pub fn new(
@@ -558,7 +563,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// syscall_registry.register_syscall_by_hash(6, BpfTracePrintf::call).unwrap();
     /// // Instantiate an Executable and VM
     /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
-    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
+    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint").unwrap();
     /// executable.set_syscall_registry(syscall_registry);
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// // Bind a context object instance to the previously registered syscall
@@ -622,7 +627,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     ///
     /// // Instantiate a VM.
     /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
-    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0);
+    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint").unwrap();
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
     ///
     /// // Provide a reference to the packet data.
@@ -961,7 +966,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
                             next_pc,
                         )?;
-                        next_pc = self.check_pc(pc, *target_pc)?;
+                        next_pc = self.check_pc(pc, target_pc)?;
                     } else {
                         self.executable.report_unresolved_symbol(pc)?;
                     }
