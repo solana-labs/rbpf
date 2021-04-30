@@ -238,15 +238,12 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
         pc: usize,
         name: &str,
     ) -> Result<(), EbpfError<E>> {
-        if self
-            .bpf_functions
-            .insert(hash, (pc, name.to_string()))
-            .is_none()
-        {
-            Ok(())
-        } else {
-            Err(EbpfError::ElfError(ElfError::SymbolHashCollision(hash)))
+        if let Some(entry) = self.bpf_functions.insert(hash, (pc, name.to_string())) {
+            if entry.0 != pc {
+                return Err(EbpfError::ElfError(ElfError::SymbolHashCollision(hash)));
+            }
         }
+        Ok(())
     }
 
     /// Get a symbol's instruction offset
@@ -438,23 +435,23 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         for i in 0..elf_bytes.len() / ebpf::INSN_SIZE {
             let mut insn = ebpf::get_insn(elf_bytes, i);
             if insn.opc == ebpf::CALL_IMM && insn.imm != -1 {
-                let insn_idx = i as isize + 1 + insn.imm as isize;
-                if insn_idx < 0 || insn_idx >= (elf_bytes.len() / ebpf::INSN_SIZE) as isize {
+                let target_pc = i as isize + 1 + insn.imm as isize;
+                if target_pc < 0 || target_pc >= (elf_bytes.len() / ebpf::INSN_SIZE) as isize {
                     return Err(ElfError::RelativeJumpOutOfBounds(
                         i + ebpf::ELF_INSN_DUMP_OFFSET,
                     ));
                 }
-                // use the instruction index as the key
-                let mut key = [0u8; mem::size_of::<u64>()];
-                LittleEndian::write_u64(&mut key, i as u64);
-                let hash = ebpf::hash_symbol_name(&key);
-                if bpf_functions
-                    .insert(hash, (insn_idx as usize, "".to_string()))
-                    .is_some()
-                {
-                    return Err(ElfError::SymbolHashCollision(hash));
+                let mut name = [0u8; mem::size_of::<u64>()];
+                LittleEndian::write_u64(&mut name, target_pc as u64);
+                let hash = ebpf::hash_symbol_name(&name);
+                if let Some(entry) = bpf_functions.insert(
+                    hash,
+                    (target_pc as usize, format!("function_{}", target_pc)),
+                ) {
+                    if entry.0 != target_pc as usize {
+                        return Err(ElfError::SymbolHashCollision(hash));
+                    }
                 }
-
                 insn.imm = hash as i64;
                 let checked_slice = elf_bytes
                     .get_mut(i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE)
@@ -633,13 +630,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         if !text_section.vm_range().contains(&(sym.st_value as usize)) {
                             return Err(ElfError::OutOfBounds);
                         }
-                        bpf_functions.insert(
-                            hash,
-                            (
-                                (sym.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE,
-                                name.to_string(),
-                            ),
-                        );
+                        let target_pc =
+                            (sym.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
+                        if let Some(entry) =
+                            bpf_functions.insert(hash, (target_pc, name.to_string()))
+                        {
+                            if entry.0 != target_pc {
+                                return Err(ElfError::SymbolHashCollision(hash));
+                            }
+                        }
                     }
                 }
                 _ => return Err(ElfError::UnknownRelocation(relocation.r_type)),
@@ -795,7 +794,7 @@ mod test {
             0x85, 0x10, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff];
 
         ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
-        let key = ebpf::hash_symbol_name(&[5, 0, 0, 0, 0, 0, 0, 0]);
+        let key = ebpf::hash_symbol_name(&[4, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -804,13 +803,16 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*bpf_functions.get(&key).unwrap(), (4, "".to_string()));
+        assert_eq!(
+            *bpf_functions.get(&key).unwrap(),
+            (4, "function_4".to_string())
+        );
 
         // // call +6
         let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
         ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
-        let key = ebpf::hash_symbol_name(&[5, 0, 0, 0, 0, 0, 0, 0]);
+        let key = ebpf::hash_symbol_name(&[0, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -819,7 +821,10 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*bpf_functions.get(&key).unwrap(), (0, "".to_string()));
+        assert_eq!(
+            *bpf_functions.get(&key).unwrap(),
+            (0, "function_0".to_string())
+        );
     }
 
     #[test]
@@ -836,7 +841,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
         ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
-        let key = ebpf::hash_symbol_name(&[0, 0, 0, 0, 0, 0, 0, 0]);
+        let key = ebpf::hash_symbol_name(&[1, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -845,13 +850,16 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*bpf_functions.get(&key).unwrap(), (1, "".to_string()));
+        assert_eq!(
+            *bpf_functions.get(&key).unwrap(),
+            (1, "function_1".to_string())
+        );
 
         // call +4
         let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
         ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
-        let key = ebpf::hash_symbol_name(&[0, 0, 0, 0, 0, 0, 0, 0]);
+        let key = ebpf::hash_symbol_name(&[5, 0, 0, 0, 0, 0, 0, 0]);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -860,7 +868,10 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*bpf_functions.get(&key).unwrap(), (5, "".to_string()));
+        assert_eq!(
+            *bpf_functions.get(&key).unwrap(),
+            (5, "function_5".to_string())
+        );
     }
 
     #[test]
