@@ -176,11 +176,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     ///
     /// Also links the control-flow graph edges between the basic blocks.
     pub fn split_into_basic_blocks(&mut self, flatten_call_graph: bool) {
-        for (pc, (_hash, name)) in self.functions.iter_mut() {
+        for pc in self.functions.keys() {
             self.cfg_nodes.entry(*pc).or_insert_with(CfgNode::default);
-            if name.is_empty() {
-                *name = format!("function_{}", *pc);
-            }
         }
         let mut cfg_edges = BTreeMap::new();
         for insn in self.instructions.iter() {
