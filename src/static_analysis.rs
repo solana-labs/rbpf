@@ -496,16 +496,20 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
   ];"
         )?;
         const MAX_CELL_CONTENT_LENGTH: usize = 15;
-        let mut function_iter = self.functions.iter().peekable();
-        while let Some((function_start, (_hash, name))) = function_iter.next() {
+        let mut function_iter = self.functions.keys().peekable();
+        while let Some(function_start) = function_iter.next() {
             let function_end = if let Some(next_function) = function_iter.peek() {
-                *next_function.0
+                **next_function
             } else {
                 self.instructions.last().unwrap().ptr + 1
             };
             let mut alias_nodes = HashSet::new();
             writeln!(output, "  subgraph cluster_{} {{", *function_start)?;
-            writeln!(output, "    label={:?};", html_escape(name))?;
+            writeln!(
+                output,
+                "    label={:?};",
+                html_escape(&self.cfg_nodes[&function_start].label)
+            )?;
             writeln!(output, "    tooltip=lbb_{};", *function_start)?;
             emit_cfg_node(
                 output,

@@ -641,6 +641,20 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             }
         }
 
+        for symbol in &elf.syms {
+            if symbol.st_info & 0xEF != 0x02 {
+                continue;
+            }
+            let target_pc = symbol.st_value as usize / ebpf::INSN_SIZE - ebpf::ELF_INSN_DUMP_OFFSET;
+            let name = elf.strtab.get(symbol.st_name).unwrap().unwrap();
+            let hash = ebpf::hash_symbol_name(format!("function_{}", target_pc).as_bytes());
+            if let Some(entry) = bpf_functions.insert(hash, (target_pc, name.to_string())) {
+                if entry.0 != target_pc {
+                    return Err(ElfError::SymbolHashCollision(hash));
+                }
+            }
+        }
+
         Ok(())
     }
 
