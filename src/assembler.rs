@@ -345,7 +345,6 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
     for label in functions {
         executable
             .register_bpf_function(
-                ebpf::hash_symbol_name(label.as_bytes()),
                 *labels
                     .get(label)
                     .ok_or_else(|| format!("Label not found {}", label))?,

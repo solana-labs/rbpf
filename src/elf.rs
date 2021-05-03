@@ -232,18 +232,8 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     }
 
     /// Set a symbol's instruction offset
-    fn register_bpf_function(
-        &mut self,
-        hash: u32,
-        pc: usize,
-        name: &str,
-    ) -> Result<(), EbpfError<E>> {
-        if let Some(entry) = self.bpf_functions.insert(hash, (pc, name.to_string())) {
-            if entry.0 != pc {
-                return Err(EbpfError::ElfError(ElfError::SymbolHashCollision(hash)));
-            }
-        }
-        Ok(())
+    fn register_bpf_function(&mut self, pc: usize, name: &str) -> Result<u32, EbpfError<E>> {
+        Self::register_bpf_function(&mut self.bpf_functions, pc, name).map_err(EbpfError::ElfError)
     }
 
     /// Get a symbol's instruction offset
@@ -358,23 +348,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
         Self::validate(&elf, &elf_bytes.as_slice())?;
 
-        let mut bpf_functions = BTreeMap::default();
-        Self::relocate(&elf, elf_bytes.as_slice_mut(), &mut bpf_functions)?;
-
-        let text_section = Self::get_section(&elf, ".text")?;
-
-        // calculate entrypoint offset into the text section
-        let offset = elf.header.e_entry - text_section.sh_addr;
-        if offset % ebpf::INSN_SIZE as u64 != 0 {
-            return Err(ElfError::InvalidEntrypoint);
-        }
-        let entrypoint = offset as usize / ebpf::INSN_SIZE;
-        bpf_functions.insert(
-            ebpf::hash_symbol_name(b"entrypoint"),
-            (entrypoint, "entrypoint".to_string()),
-        );
-
         // calculate the text section info
+        let text_section = Self::get_section(&elf, ".text")?;
         let text_section_info = SectionInfo {
             name: elf
                 .shdr_strtab
@@ -388,6 +363,18 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         if text_section_info.vaddr > ebpf::MM_STACK_START {
             return Err(ElfError::OutOfBounds);
         }
+
+        // relocate symbols
+        let mut bpf_functions = BTreeMap::default();
+        Self::relocate(&mut bpf_functions, &elf, elf_bytes.as_slice_mut())?;
+
+        // calculate entrypoint offset into the text section
+        let offset = elf.header.e_entry - text_section.sh_addr;
+        if offset % ebpf::INSN_SIZE as u64 != 0 {
+            return Err(ElfError::InvalidEntrypoint);
+        }
+        let entrypoint = offset as usize / ebpf::INSN_SIZE;
+        Self::register_bpf_function(&mut bpf_functions, entrypoint, "entrypoint")?;
 
         // calculate the read-only section infos
         let ro_section_infos = elf
@@ -442,12 +429,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     ));
                 }
                 let name = format!("function_{}", target_pc);
-                let hash = ebpf::hash_symbol_name(name.as_bytes());
-                if let Some(entry) = bpf_functions.insert(hash, (target_pc as usize, name)) {
-                    if entry.0 != target_pc as usize {
-                        return Err(ElfError::SymbolHashCollision(hash));
-                    }
-                }
+                let hash = Self::register_bpf_function(bpf_functions, target_pc as usize, &name)?;
                 insn.imm = hash as i64;
                 let checked_slice = elf_bytes
                     .get_mut(i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE)
@@ -517,6 +499,27 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
     // Private functions
 
+    /// Set a symbol's instruction offset
+    fn register_bpf_function(
+        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+        pc: usize,
+        name: &str,
+    ) -> Result<u32, ElfError> {
+        let hash;
+        if name == "entrypoint" {
+            hash = ebpf::hash_symbol_name(b"entrypoint");
+            bpf_functions.insert(hash, (pc, name.to_string()));
+        } else {
+            hash = ebpf::hash_symbol_name(format!("function_{}", pc).as_bytes());
+            if let Some(entry) = bpf_functions.insert(hash, (pc, name.to_string())) {
+                if entry.0 != pc {
+                    return Err(ElfError::SymbolHashCollision(hash));
+                }
+            }
+        };
+        Ok(hash)
+    }
+
     /// Get a section by name
     fn get_section(elf: &Elf, name: &str) -> Result<SectionHeader, ElfError> {
         match elf.section_headers.iter().find(|section_header| {
@@ -532,11 +535,21 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
     /// Relocates the ELF in-place
     fn relocate(
+        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
         elf: &Elf,
         elf_bytes: &mut [u8],
-        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
     ) -> Result<(), ElfError> {
         let text_section = Self::get_section(elf, ".text")?;
+
+        // Register all known function names from the symbol table
+        for symbol in &elf.syms {
+            if symbol.st_info & 0xEF != 0x02 {
+                continue;
+            }
+            let target_pc = symbol.st_value as usize / ebpf::INSN_SIZE - ebpf::ELF_INSN_DUMP_OFFSET;
+            let name = elf.strtab.get(symbol.st_name).unwrap().unwrap();
+            Self::register_bpf_function(bpf_functions, target_pc, &name)?;
+        }
 
         // Fixup all program counter relative call instructions
         Self::fixup_relative_calls(
@@ -616,42 +629,25 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         .get(sym.st_name)
                         .ok_or(ElfError::UnknownSymbol(sym.st_name))?
                         .map_err(|_| ElfError::UnknownSymbol(sym.st_name))?;
-                    let hash = ebpf::hash_symbol_name(&name.as_bytes());
-                    let mut checked_slice = elf_bytes
-                        .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
-                        .ok_or(ElfError::OutOfBounds)?;
-                    LittleEndian::write_u32(&mut checked_slice, hash);
                     let text_section = Self::get_section(elf, ".text")?;
-                    if sym.is_function() && sym.st_value != 0 {
+                    let hash = if sym.is_function() && sym.st_value != 0 {
+                        // bpf call
                         if !text_section.vm_range().contains(&(sym.st_value as usize)) {
                             return Err(ElfError::OutOfBounds);
                         }
                         let target_pc =
                             (sym.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
-                        if let Some(entry) =
-                            bpf_functions.insert(hash, (target_pc, name.to_string()))
-                        {
-                            if entry.0 != target_pc {
-                                return Err(ElfError::SymbolHashCollision(hash));
-                            }
-                        }
-                    }
+                        Self::register_bpf_function(bpf_functions, target_pc, &name)?
+                    } else {
+                        // syscall
+                        ebpf::hash_symbol_name(&name.as_bytes())
+                    };
+                    let mut checked_slice = elf_bytes
+                        .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
+                        .ok_or(ElfError::OutOfBounds)?;
+                    LittleEndian::write_u32(&mut checked_slice, hash);
                 }
                 _ => return Err(ElfError::UnknownRelocation(relocation.r_type)),
-            }
-        }
-
-        for symbol in &elf.syms {
-            if symbol.st_info & 0xEF != 0x02 {
-                continue;
-            }
-            let target_pc = symbol.st_value as usize / ebpf::INSN_SIZE - ebpf::ELF_INSN_DUMP_OFFSET;
-            let name = elf.strtab.get(symbol.st_name).unwrap().unwrap();
-            let hash = ebpf::hash_symbol_name(format!("function_{}", target_pc).as_bytes());
-            if let Some(entry) = bpf_functions.insert(hash, (target_pc, name.to_string())) {
-                if entry.0 != target_pc {
-                    return Err(ElfError::SymbolHashCollision(hash));
-                }
             }
         }
 

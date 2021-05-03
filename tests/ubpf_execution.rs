@@ -2403,7 +2403,7 @@ fn test_err_call_lddw() {
         };
         let mut executable = assemble(
             "
-            call 2
+            call 0x63210A6D
             lddw r0, 0x1122334455667788
             exit",
             None,
@@ -2411,7 +2411,7 @@ fn test_err_call_lddw() {
         )
         .unwrap();
         executable
-            .register_bpf_function(2, 2, "in_the_middle_of_lddw")
+            .register_bpf_function(2, "in_the_middle_of_lddw")
             .unwrap();
         test_interpreter_and_jit!(
             executable,
@@ -2777,9 +2777,9 @@ fn test_tight_infinite_loop_unconditional() {
 fn test_tight_infinite_recursion() {
     test_interpreter_and_jit_asm!(
         "
-        loop:
+        entrypoint:
         mov64 r3, 0x41414141
-        call loop
+        call entrypoint
         exit",
         [],
         (),
@@ -3257,9 +3257,7 @@ fn test_large_program() {
             config,
         )
         .unwrap();
-        executable
-            .register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint")
-            .unwrap();
+        executable.register_bpf_function(0, "entrypoint").unwrap();
         test_interpreter_and_jit!(
             executable,
             [],
@@ -3306,9 +3304,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     } else {
         return false;
     };
-    executable
-        .register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint")
-        .unwrap();
+    executable.register_bpf_function(0, "entrypoint").unwrap();
     executable.set_syscall_registry(SyscallRegistry::default());
     if executable.jit_compile().is_err() {
         return false;

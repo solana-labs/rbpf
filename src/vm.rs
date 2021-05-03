@@ -205,12 +205,7 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Get the entry point offset into the text section
     fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>>;
     /// Set a symbol's instruction offset
-    fn register_bpf_function(
-        &mut self,
-        hash: u32,
-        pc: usize,
-        name: &str,
-    ) -> Result<(), EbpfError<E>>;
+    fn register_bpf_function(&mut self, pc: usize, name: &str) -> Result<u32, EbpfError<E>>;
     /// Get a symbol's instruction offset
     fn lookup_bpf_function(&self, hash: u32) -> Option<usize>;
     /// Get the syscall registry
@@ -421,7 +416,7 @@ pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 6;
 ///
 /// // Instantiate a VM.
 /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
-/// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint").unwrap();
+/// executable.register_bpf_function(0, "entrypoint").unwrap();
 /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
 ///
 /// // Provide a reference to the packet data.
@@ -456,7 +451,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     ///
     /// // Instantiate a VM.
     /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
-    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint").unwrap();
+    /// executable.register_bpf_function(0, "entrypoint").unwrap();
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// ```
     pub fn new(
@@ -563,7 +558,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// syscall_registry.register_syscall_by_hash(6, BpfTracePrintf::call).unwrap();
     /// // Instantiate an Executable and VM
     /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
-    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint").unwrap();
+    /// executable.register_bpf_function(0, "entrypoint").unwrap();
     /// executable.set_syscall_registry(syscall_registry);
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// // Bind a context object instance to the previously registered syscall
@@ -627,7 +622,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     ///
     /// // Instantiate a VM.
     /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, None, Config::default()).unwrap();
-    /// executable.register_bpf_function(ebpf::hash_symbol_name(b"entrypoint"), 0, "entrypoint").unwrap();
+    /// executable.register_bpf_function(0, "entrypoint").unwrap();
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
     ///
     /// // Provide a reference to the packet data.
