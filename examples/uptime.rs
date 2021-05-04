@@ -10,6 +10,7 @@ use solana_rbpf::{
     user_error::UserError,
     vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
+use std::collections::BTreeMap;
 
 // The main objectives of this example is to show:
 //
@@ -44,6 +45,7 @@ fn main() {
     // Create a VM: this one takes no data. Load prog1 in it.
     let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog1,
+        BTreeMap::new(),
         None,
         Config::default(),
     )
@@ -67,6 +69,7 @@ fn main() {
 
     let mut executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog2,
+        BTreeMap::new(),
         None,
         Config::default(),
     )

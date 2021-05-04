@@ -230,13 +230,13 @@ pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &
                 format!("{} {}", name, syscall_name)
             } else {
                 name = "call";
-                format!("{} {}", name,
-                    resolve_label(analysis,
-                        analysis
-                        .executable
-                        .lookup_bpf_function(insn.imm as u32)
-                        .unwrap()),
-                )
+                if let Some(target_pc) = analysis
+                    .executable
+                    .lookup_bpf_function(insn.imm as u32) {
+                    format!("{} {}", name, resolve_label(analysis, target_pc))
+                } else {
+                    format!("{} [invalid]", name)
+                }
             };
         },
         ebpf::CALL_REG   => { name = "callx"; desc = format!("{} {}", name, insn.imm); },

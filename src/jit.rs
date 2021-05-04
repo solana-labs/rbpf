@@ -1064,7 +1064,7 @@ impl JitCompiler {
                                 // executable.report_unresolved_symbol(self.pc)?;
                                 // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
                                 let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(executable) };
-                                emit_rust_call(self, fat_ptr.vtable.methods[10], &[
+                                emit_rust_call(self, fat_ptr.vtable.methods[9], &[
                                     Argument { index: 0, value: Value::RegisterIndirect(RBP, -8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32) }, // Pointer to optional typed return value
                                     Argument { index: 1, value: Value::Constant64(fat_ptr.data as i64) },
                                     Argument { index: 2, value: Value::Constant64(self.pc as i64) },

@@ -17,11 +17,11 @@ use crate::{
         Statement,
     },
     ebpf::{self, Insn},
+    elf::register_bpf_function,
     error::UserDefinedError,
     vm::{Config, Executable, InstructionMeter, Verifier},
 };
-
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum InstructionType {
@@ -173,17 +173,6 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
     })
 }
 
-fn resolve_label(
-    insn_ptr: usize,
-    labels: &HashMap<&str, usize>,
-    label: &str,
-) -> Result<i64, String> {
-    labels
-        .get(label)
-        .map(|target_pc| *target_pc as i64 - insn_ptr as i64 - 1)
-        .ok_or_else(|| format!("Label not found {}", label))
-}
-
 /// Parse assembly source and translate to binary.
 ///
 /// # Examples
@@ -226,6 +215,35 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
     verifier: Option<Verifier<E>>,
     config: Config,
 ) -> Result<Box<dyn Executable<E, I>>, String> {
+    fn resolve_label(
+        insn_ptr: usize,
+        labels: &HashMap<&str, usize>,
+        label: &str,
+    ) -> Result<i64, String> {
+        labels
+            .get(label)
+            .map(|target_pc| *target_pc as i64 - insn_ptr as i64 - 1)
+            .ok_or_else(|| format!("Label not found {}", label))
+    }
+
+    fn resolve_call(
+        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+        labels: &HashMap<&str, usize>,
+        label: &str,
+        target_pc: Option<usize>,
+    ) -> Result<i64, String> {
+        let target_pc = if let Some(target_pc) = target_pc {
+            target_pc
+        } else {
+            *labels
+                .get(label)
+                .ok_or_else(|| format!("Label not found {}", label))?
+        };
+        let hash = register_bpf_function(bpf_functions, target_pc, label)
+            .map_err(|_| format!("Label hash collision {}", label))?;
+        Ok(hash as i32 as i64)
+    }
+
     let statements = parse(src)?;
     let instruction_map = make_instruction_map();
     let mut insn_ptr = 0;
@@ -242,7 +260,8 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
         }
     }
     insn_ptr = 0;
-    let mut functions: HashSet<&str> = HashSet::new();
+    let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
+    resolve_call(&mut bpf_functions, &labels, "entrypoint", None)?;
     let mut instructions: Vec<Insn> = Vec::new();
     for statement in statements.iter() {
         if let Statement::Instruction { name, operands } = statement {
@@ -277,7 +296,13 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
                         (JumpUnconditional, [Label(label)]) => {
                             insn(opc, 0, 0, resolve_label(insn_ptr, &labels, label)?, 0)
                         }
-                        (CallImm, [Integer(imm)]) => insn(opc, 0, 0, 0, *imm),
+                        (CallImm, [Integer(imm)]) => {
+                            let target_pc = (*imm + insn_ptr as i64 + 1) as usize;
+                            let label = format!("function_{}", target_pc);
+                            let hash =
+                                resolve_call(&mut bpf_functions, &labels, &label, Some(target_pc))?;
+                            insn(opc, 0, 0, 0, hash as i32 as i64)
+                        }
                         (CallReg, [Integer(imm)]) => insn(opc, 0, 0, 0, *imm),
                         (JumpConditional, [Register(dst), Register(src), Label(label)]) => insn(
                             opc | ebpf::BPF_X,
@@ -298,17 +323,11 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
                             0,
                             0,
                             0,
-                            ebpf::hash_symbol_name(label.as_bytes()) as i64,
+                            ebpf::hash_symbol_name(label.as_bytes()) as i32 as i64,
                         ),
                         (CallImm, [Label(label)]) => {
-                            functions.insert(label);
-                            insn(
-                                opc,
-                                0,
-                                0,
-                                0,
-                                ebpf::hash_symbol_name(label.as_bytes()) as i32 as i64,
-                            )
+                            let hash = resolve_call(&mut bpf_functions, &labels, label, None)?;
+                            insn(opc, 0, 0, 0, hash as i32 as i64)
                         }
                         (Endian(size), [Register(dst)]) => insn(opc, *dst, 0, 0, size),
                         (LoadImm, [Register(dst), Integer(imm)]) => {
@@ -339,18 +358,6 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
         .map(|insn| insn.to_vec())
         .flatten()
         .collect::<Vec<_>>();
-    let mut executable =
-        <dyn Executable<E, I>>::from_text_bytes(&program, verifier, config).unwrap();
-    functions.insert("entrypoint");
-    for label in functions {
-        executable
-            .register_bpf_function(
-                *labels
-                    .get(label)
-                    .ok_or_else(|| format!("Label not found {}", label))?,
-                label,
-            )
-            .map_err(|_| format!("Label hash collision {}", label))?;
-    }
-    Ok(executable)
+    <dyn Executable<E, I>>::from_text_bytes(&program, bpf_functions, verifier, config)
+        .map_err(|err| format!("Executable constructor {:?}", err))
 }

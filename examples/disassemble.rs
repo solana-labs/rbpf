@@ -10,6 +10,7 @@ use solana_rbpf::{
     user_error::UserError,
     vm::{Config, DefaultInstructionMeter, Executable},
 };
+use std::collections::BTreeMap;
 
 // Simply disassemble a program into human-readable instructions.
 fn main() {
@@ -31,6 +32,7 @@ fn main() {
     ];
     let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         &program,
+        BTreeMap::new(),
         None,
         Config::default(),
     )

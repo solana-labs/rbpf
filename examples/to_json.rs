@@ -17,6 +17,7 @@ use solana_rbpf::{
     user_error::UserError,
     vm::{Config, DefaultInstructionMeter, Executable},
 };
+use std::collections::BTreeMap;
 // Turn a program into a JSON string.
 //
 // Relies on `json` crate.
@@ -29,6 +30,7 @@ use solana_rbpf::{
 fn to_json(program: &[u8]) -> String {
     let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         &program,
+        BTreeMap::new(),
         None,
         Config::default(),
     )

@@ -30,6 +30,7 @@ use solana_rbpf::{
     verifier::check,
     vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
 };
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 /// Error definitions
@@ -98,6 +99,7 @@ fn test_verifier_err_endian_size() {
     ];
     let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog,
+        BTreeMap::new(),
         Some(check),
         Config::default(),
     )
@@ -114,6 +116,7 @@ fn test_verifier_err_incomplete_lddw() {
     ];
     let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog,
+        BTreeMap::new(),
         Some(check),
         Config::default(),
     )
@@ -212,6 +215,7 @@ fn test_verifier_err_too_many_instructions() {
 
     let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         &prog,
+        BTreeMap::new(),
         Some(check),
         Config::default(),
     )
@@ -227,6 +231,7 @@ fn test_verifier_err_unknown_opcode() {
     ];
     let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog,
+        BTreeMap::new(),
         Some(check),
         Config::default(),
     )
