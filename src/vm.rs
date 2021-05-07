@@ -196,7 +196,7 @@ impl Default for Config {
             enable_instruction_meter: true,
             enable_instruction_tracing: false,
             instructions_noop_salting_ratio: 128,
-            sanitize_user_provided_values: false,
+            sanitize_user_provided_values: true,
         }
     }
 }
