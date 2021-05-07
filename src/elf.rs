@@ -107,25 +107,28 @@ impl<E: UserDefinedError> From<GoblinError> for EbpfError<E> {
 }
 
 /// Generates the hash by which a symbol can be called
+pub fn hash_bpf_function(pc: usize, name: &str) -> u32 {
+    if name == "entrypoint" {
+        ebpf::hash_symbol_name(b"entrypoint")
+    } else {
+        let mut key = [0u8; mem::size_of::<u64>()];
+        LittleEndian::write_u64(&mut key, pc as u64);
+        ebpf::hash_symbol_name(&key)
+    }
+}
+
+/// Register a symbol or throw ElfError::SymbolHashCollision
 pub fn register_bpf_function(
     bpf_functions: &mut BTreeMap<u32, (usize, String)>,
     pc: usize,
     name: &str,
 ) -> Result<u32, ElfError> {
-    let hash;
-    if name == "entrypoint" {
-        hash = ebpf::hash_symbol_name(b"entrypoint");
-        bpf_functions.insert(hash, (pc, name.to_string()));
-    } else {
-        let mut key = [0u8; mem::size_of::<u64>()];
-        LittleEndian::write_u64(&mut key, pc as u64);
-        hash = ebpf::hash_symbol_name(&key);
-        if let Some(entry) = bpf_functions.insert(hash, (pc, name.to_string())) {
-            if entry.0 != pc {
-                return Err(ElfError::SymbolHashCollision(hash));
-            }
+    let hash = hash_bpf_function(pc, name);
+    if let Some(entry) = bpf_functions.insert(hash, (pc, name.to_string())) {
+        if entry.0 != pc {
+            return Err(ElfError::SymbolHashCollision(hash));
         }
-    };
+    }
     Ok(hash)
 }
 
@@ -396,6 +399,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             return Err(ElfError::InvalidEntrypoint);
         }
         let entrypoint = offset as usize / ebpf::INSN_SIZE;
+        bpf_functions.remove(&ebpf::hash_symbol_name(b"entrypoint"));
         register_bpf_function(&mut bpf_functions, entrypoint, "entrypoint")?;
 
         // calculate the read-only section infos
@@ -802,7 +806,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let name = "function_4".to_string();
-        let hash = register_bpf_function(&mut bpf_functions, 4, &name).unwrap();
+        let hash = hash_bpf_function(4, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -818,7 +822,7 @@ mod test {
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
         ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let name = "function_0".to_string();
-        let hash = register_bpf_function(&mut bpf_functions, 0, &name).unwrap();
+        let hash = hash_bpf_function(0, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -845,7 +849,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let name = "function_1".to_string();
-        let hash = register_bpf_function(&mut bpf_functions, 1, &name).unwrap();
+        let hash = hash_bpf_function(1, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -861,7 +865,7 @@ mod test {
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
         ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let name = "function_5".to_string();
-        let hash = register_bpf_function(&mut bpf_functions, 5, &name).unwrap();
+        let hash = hash_bpf_function(5, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -891,7 +895,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let name = "function_1".to_string();
-        let hash = register_bpf_function(&mut bpf_functions, 1, &name).unwrap();
+        let hash = hash_bpf_function(1, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -921,7 +925,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
         let name = "function_4".to_string();
-        let hash = register_bpf_function(&mut bpf_functions, 4, &name).unwrap();
+        let hash = hash_bpf_function(4, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,

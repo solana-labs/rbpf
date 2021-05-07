@@ -2,7 +2,7 @@
 
 use crate::disassembler::disassemble_instruction;
 use crate::{
-    ebpf,
+    ebpf, elf,
     error::UserDefinedError,
     vm::InstructionMeter,
     vm::{DynamicAnalysis, Executable},
@@ -148,7 +148,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             dfg_forward_edges: BTreeMap::new(),
             dfg_reverse_edges: BTreeMap::new(),
         };
-        result.split_into_basic_blocks(false);
+        result.split_into_basic_blocks(false, false);
         result.label_basic_blocks();
         result.control_flow_graph_tarjan();
         result.control_flow_graph_dominance_hierarchy();
@@ -175,7 +175,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     /// Splits the sequence of instructions into basic blocks
     ///
     /// Also links the control-flow graph edges between the basic blocks.
-    pub fn split_into_basic_blocks(&mut self, flatten_call_graph: bool) {
+    pub fn split_into_basic_blocks(
+        &mut self,
+        flatten_call_graph: bool,
+        assume_unreachable_to_be_a_function: bool,
+    ) {
         for pc in self.functions.keys() {
             self.cfg_nodes.entry(*pc).or_insert_with(CfgNode::default);
         }
@@ -337,6 +341,17 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 .collect::<Vec<(usize, Vec<usize>)>>(),
             false,
         );
+        if assume_unreachable_to_be_a_function {
+            for (cfg_node_start, cfg_node) in self.cfg_nodes.iter() {
+                if cfg_node.sources.is_empty() {
+                    self.functions.entry(*cfg_node_start).or_insert_with(|| {
+                        let name = format!("function_{}", *cfg_node_start);
+                        let hash = elf::hash_bpf_function(*cfg_node_start, &name);
+                        (hash, name)
+                    });
+                }
+            }
+        }
         if flatten_call_graph {
             let mut destinations = Vec::new();
             let mut cfg_edges = Vec::new();
@@ -412,6 +427,27 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             writeln!(output, "    {}", disassemble_instruction(&insn, self))?;
         }
         Ok(())
+    }
+
+    /// Iterates over the cfg_nodes while providing the PC range of the function they belong to.
+    pub fn iter_cfg_by_function(
+        &self,
+    ) -> impl Iterator<Item = (std::ops::Range<usize>, usize, &CfgNode)> + '_ {
+        let mut function_iter = self.functions.keys().peekable();
+        let mut function_start = *function_iter.next().unwrap();
+        self.cfg_nodes
+            .iter()
+            .map(move |(cfg_node_start, cfg_node)| {
+                if Some(&cfg_node_start) == function_iter.peek() {
+                    function_start = *function_iter.next().unwrap();
+                }
+                let function_end = if let Some(next_function) = function_iter.peek() {
+                    **next_function
+                } else {
+                    self.instructions.last().unwrap().ptr + 1
+                };
+                (function_start..function_end, *cfg_node_start, cfg_node)
+            })
     }
 
     /// Generates a graphviz DOT of the analyzed executable
@@ -532,22 +568,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             }
             writeln!(output, "  }}")?;
         }
-        let mut function_iter = self.functions.iter().peekable();
-        let mut function_start = *function_iter.next().unwrap().0;
-        for (cfg_node_start, cfg_node) in self.cfg_nodes.iter() {
-            if function_iter.peek().unwrap().0 == cfg_node_start {
-                function_start = *function_iter.next().unwrap().0;
-            }
-            let function_end = if let Some(next_function) = function_iter.peek() {
-                *next_function.0
-            } else {
-                self.instructions.last().unwrap().ptr + 1
-            };
-            if *cfg_node_start != cfg_node.dominator_parent {
+        for (function_range, cfg_node_start, cfg_node) in self.iter_cfg_by_function() {
+            if cfg_node_start != cfg_node.dominator_parent {
                 writeln!(
                     output,
                     "  lbb_{} -> lbb_{} [style=dotted; arrowhead=none];",
-                    *cfg_node_start, cfg_node.dominator_parent,
+                    cfg_node_start, cfg_node.dominator_parent,
                 )?;
             }
             let mut edges: BTreeMap<usize, usize> = cfg_node
@@ -556,7 +582,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 .map(|destination| (*destination, 0))
                 .collect();
             if let Some(dynamic_analysis) = dynamic_analysis {
-                if let Some(recorded_edges) = dynamic_analysis.edges.get(cfg_node_start) {
+                if let Some(recorded_edges) = dynamic_analysis.edges.get(&cfg_node_start) {
                     for (destination, recorded_counter) in recorded_edges.iter() {
                         edges
                             .entry(*destination)
@@ -572,7 +598,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 writeln!(
                     output,
                     "  lbb_{} -> {{{}}};",
-                    *cfg_node_start,
+                    cfg_node_start,
                     edges
                         .keys()
                         .map(|destination| format!("lbb_{}", *destination))
@@ -582,11 +608,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             } else {
                 let dynamic_analysis = dynamic_analysis.unwrap();
                 for (destination, counter) in edges {
-                    write!(output, "  lbb_{} -> ", *cfg_node_start,)?;
-                    if (function_start..function_end).contains(&destination) {
-                        write!(output, "lbb_{}", destination,)?;
+                    write!(output, "  lbb_{} -> ", cfg_node_start)?;
+                    if function_range.contains(&destination) {
+                        write!(output, "lbb_{}", destination)?;
                     } else {
-                        write!(output, "alias_{0}_lbb_{1}", function_start, destination)?;
+                        write!(
+                            output,
+                            "alias_{0}_lbb_{1}",
+                            function_range.start, destination
+                        )?;
                     }
                     writeln!(
                         output,
