@@ -220,6 +220,7 @@ fn emit_sanitized_load_immediate<E: UserDefinedError>(jit: &mut JitCompiler, siz
         _ => {
             #[cfg(debug_assertions)]
             unreachable!();
+            Ok(())
         }
     }
 }
