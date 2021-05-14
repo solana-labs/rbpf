@@ -183,10 +183,12 @@ pub struct Config {
     pub enable_instruction_meter: bool,
     /// Enable instruction tracing
     pub enable_instruction_tracing: bool,
-    /// Ratio of instructions per no-op for randomization in the JIT code emitter
-    pub instructions_noop_salting_ratio: usize,
+    /// Ratio of instructions per no-op for randomization in the JIT code emitter (0 = OFF)
+    pub instructions_noop_ratio: usize,
     /// Enable disinfection of immediate values and offsets provided by the user in the JIT code emitter
     pub sanitize_user_provided_values: bool,
+    /// Encrypt the environment registers in the JIT code emitter
+    pub encrypt_environment_registers: bool,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -195,8 +197,9 @@ impl Default for Config {
             stack_frame_size: 4_096,
             enable_instruction_meter: true,
             enable_instruction_tracing: false,
-            instructions_noop_salting_ratio: 128,
+            instructions_noop_ratio: 128,
             sanitize_user_provided_values: true,
+            encrypt_environment_registers: true,
         }
     }
 }
