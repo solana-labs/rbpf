@@ -180,6 +180,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         flatten_call_graph: bool,
         assume_unreachable_to_be_a_function: bool,
     ) {
+        self.cfg_nodes.insert(0, CfgNode::default());
         for pc in self.functions.keys() {
             self.cfg_nodes.entry(*pc).or_insert_with(CfgNode::default);
         }
