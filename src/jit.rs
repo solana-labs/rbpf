@@ -56,7 +56,7 @@ impl JitProgramSections {
         }
         #[cfg(not(windows))]
         unsafe {
-            let mut raw: *mut libc::c_void = std::mem::MaybeUninit::uninit().assume_init();
+            let mut raw: *mut libc::c_void = std::ptr::null_mut();
             libc::posix_memalign(&mut raw, PAGE_SIZE, _pc_loc_table_size + _code_size);
             std::ptr::write_bytes(raw, 0x00, _pc_loc_table_size);
             std::ptr::write_bytes(raw.add(_pc_loc_table_size), 0xcc, _code_size); // Populate with debugger traps
