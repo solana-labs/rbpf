@@ -345,8 +345,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         text_bytes: &[u8],
         bpf_functions: BTreeMap<u32, (usize, String)>,
     ) -> Self {
-        let mut elf_bytes = AlignedMemory::new(text_bytes.len(), ebpf::HOST_ALIGN);
-        elf_bytes.as_slice_mut().copy_from_slice(text_bytes);
+        let elf_bytes = AlignedMemory::new_with_data(text_bytes, ebpf::HOST_ALIGN);
         Self {
             config,
             elf_bytes,
@@ -368,8 +367,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     /// Fully loads an ELF, including validation and relocation
     pub fn load(config: Config, bytes: &[u8]) -> Result<Self, ElfError> {
         let elf = Elf::parse(bytes)?;
-        let mut elf_bytes = AlignedMemory::new(bytes.len(), ebpf::HOST_ALIGN);
-        elf_bytes.as_slice_mut().copy_from_slice(bytes);
+        let mut elf_bytes = AlignedMemory::new_with_data(bytes, ebpf::HOST_ALIGN);
 
         Self::validate(&elf, &elf_bytes.as_slice())?;
 

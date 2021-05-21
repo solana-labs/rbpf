@@ -29,7 +29,8 @@ pub struct CallFrames {
 impl CallFrames {
     /// New call frame, depth indicates maximum call depth
     pub fn new(depth: usize, frame_size: usize) -> Self {
-        let stack = AlignedMemory::new(depth * frame_size, HOST_ALIGN);
+        let mut stack = AlignedMemory::new(depth * frame_size, HOST_ALIGN);
+        stack.resize(depth * frame_size, 0).unwrap();
         let region =
             MemoryRegion::new_from_slice(stack.as_slice(), MM_STACK_START, frame_size as u64, true);
         let mut frames = CallFrames {
