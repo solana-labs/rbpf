@@ -40,7 +40,7 @@ should be as simple as putting this inside your `Cargo.toml`:
 
 ```toml
 [dependencies]
-solana_rbpf = { git = "https://github.com/solana-labs/rbpf" }
+solana_rbpf = { git = "https://github.com/solana-labs/rbpf", branch = "main" }
 ```
 
 Of course, if you prefer, you can clone it locally, possibly hack the crate,
