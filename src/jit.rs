@@ -733,6 +733,11 @@ impl JitCompiler {
             panic!("JIT not supported on windows");
         }
 
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            panic!("JIT is only supported on x86_64");
+        }
+
         // Scan through program to find actual number of instructions
         let mut pc = 0;
         while pc * ebpf::INSN_SIZE < _program.len() {
