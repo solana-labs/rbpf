@@ -650,8 +650,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 continue;
             }
             let target_pc = symbol.st_value as usize / ebpf::INSN_SIZE - ebpf::ELF_INSN_DUMP_OFFSET;
-            let name = elf.strtab.get(symbol.st_name).unwrap().unwrap();
-            register_bpf_function(bpf_functions, target_pc, &name)?;
+            if let Some(Ok(name)) = elf.strtab.get(symbol.st_name) {
+                register_bpf_function(bpf_functions, target_pc, &name)?;
+            }
         }
 
         Ok(())
