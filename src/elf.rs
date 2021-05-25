@@ -649,6 +649,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             if symbol.st_info & 0xEF != 0x02 {
                 continue;
             }
+            if !text_section
+                .vm_range()
+                .contains(&(symbol.st_value as usize))
+            {
+                return Err(ElfError::OutOfBounds);
+            }
             let target_pc = symbol.st_value as usize / ebpf::INSN_SIZE - ebpf::ELF_INSN_DUMP_OFFSET;
             if let Some(Ok(name)) = elf.strtab.get(symbol.st_name) {
                 register_bpf_function(bpf_functions, target_pc, &name)?;
