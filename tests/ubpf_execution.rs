@@ -14,16 +14,14 @@ extern crate thiserror;
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
-    ebpf,
-    elf::{register_bpf_function, ElfError},
+    elf::ElfError,
     error::EbpfError,
     memory_region::AccessType,
     syscalls,
     user_error::UserError,
-    verifier::check,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject, SyscallRegistry},
+    vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
-use std::{collections::BTreeMap, fs::File, io::Read};
+use std::{fs::File, io::Read};
 use test_utils::{
     BpfSyscallString, BpfSyscallU64, BpfTracePrintf, Result, SyscallWithContext,
     TestInstructionMeter, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH,
@@ -2414,6 +2412,24 @@ fn test_err_static_jmp_lddw() {
     );
     test_interpreter_and_jit_asm!(
         "
+        mov r0, 0
+        mov r1, 0
+        mov r2, 0
+        lddw r0, 0x1
+        ja +2
+        lddw r1, 0x1
+        lddw r2, 0x1
+        add r1, r2
+        add r0, r1
+        exit
+        ",
+        [],
+        (),
+        { |_vm, res: Result| { res.unwrap() == 0x2 } },
+        9
+    );
+    test_interpreter_and_jit_asm!(
+        "
         jeq r0, 0, 1
         lddw r0, 0x1122334455667788
         exit
@@ -3247,70 +3263,13 @@ fn test_tcp_sack_nomatch() {
     );
 }
 
-#[test]
-fn test_large_program() {
-    let mut insns = vec![ebpf::Insn::default(); ebpf::PROG_MAX_INSNS * 2 - 1];
-    for index in (0..(ebpf::PROG_MAX_INSNS * 2 - 1)).step_by(2) {
-        insns[index].opc = ebpf::LD_DW_IMM;
-    }
-    insns[ebpf::PROG_MAX_INSNS - 4].opc = ebpf::JA;
-    insns[ebpf::PROG_MAX_INSNS - 4].off = 9;
-    insns[ebpf::PROG_MAX_INSNS - 3].opc = ebpf::MOV64_IMM;
-    insns[ebpf::PROG_MAX_INSNS * 2 - 2].opc = ebpf::EXIT;
-
-    let config = Config {
-        enable_instruction_tracing: true,
-        ..Config::default()
-    };
-
-    let mut program = insns
-        .iter()
-        .map(|insn| insn.to_vec())
-        .flatten()
-        .collect::<Vec<_>>();
-    #[allow(unused_mut)]
-    {
-        let mut bpf_functions = BTreeMap::new();
-        register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-        let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
-            program.as_slice(),
-            bpf_functions,
-            None,
-            config,
-        )
-        .unwrap();
-        test_interpreter_and_jit!(
-            executable,
-            [],
-            (),
-            { |_vm, res: Result| res.unwrap() == 0x0 },
-            ebpf::PROG_MAX_INSNS as u64 - 4
-        );
-    }
-
-    {
-        // Test program that is too large
-        let exit_insn = program[(ebpf::PROG_MAX_INSNS * 2 - 2) * ebpf::INSN_SIZE
-            ..(ebpf::PROG_MAX_INSNS * 2 - 1) * ebpf::INSN_SIZE]
-            .to_vec();
-        program.extend_from_slice(exit_insn.as_slice());
-
-        assert!(
-            <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(
-                program.as_slice(),
-                BTreeMap::new(),
-                Some(check),
-                config,
-            )
-            .is_err()
-        );
-    }
-}
-
 // Fuzzy
 
 #[cfg(not(windows))]
 fn execute_generated_program(prog: &[u8]) -> bool {
+    use solana_rbpf::{elf::register_bpf_function, verifier::check};
+    use std::collections::BTreeMap;
+
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
     let mut bpf_functions = BTreeMap::new();
@@ -3375,6 +3334,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
 #[cfg(not(windows))]
 #[test]
 fn test_total_chaos() {
+    use solana_rbpf::ebpf;
     let instruction_count = 6;
     let iteration_count = 1000000;
     let mut program = vec![0; instruction_count * ebpf::INSN_SIZE];

@@ -17,7 +17,7 @@
 //! <https://www.kernel.org/doc/Documentation/networking/filter.txt>, or for a shorter version of
 //! the list of the operation codes: <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md>
 
-use crate::{elf::ElfError, memory_region::AccessType};
+use crate::{elf::ElfError, memory_region::AccessType, verifier::VerifierError};
 
 /// User defined errors must implement this trait
 pub trait UserDefinedError: 'static + std::error::Error {}
@@ -86,4 +86,7 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Compilation is too big to fit
     #[error("Compilation exhaused text segment at instruction {0}")]
     ExhausedTextSegment(usize),
+    /// ELF error
+    #[error("Verifier error: {0}")]
+    VerifierError(#[from] VerifierError),
 }

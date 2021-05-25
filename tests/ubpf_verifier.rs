@@ -24,10 +24,9 @@ extern crate thiserror;
 
 use solana_rbpf::{
     assembler::assemble,
-    ebpf,
     error::UserDefinedError,
     user_error::UserError,
-    verifier::check,
+    verifier::{check, VerifierError},
     vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
 };
 use std::collections::BTreeMap;
@@ -43,7 +42,7 @@ impl UserDefinedError for VerifierTestError {}
 
 #[test]
 fn test_verifier_success() {
-    let executable = assemble::<VerifierTestError, DefaultInstructionMeter>(
+    let executable = assemble::<UserError, DefaultInstructionMeter>(
         "
         mov32 r0, 0xBEE
         exit",
@@ -51,21 +50,17 @@ fn test_verifier_success() {
         Config::default(),
     )
     .unwrap();
-    let _vm = EbpfVm::<VerifierTestError, DefaultInstructionMeter>::new(
-        executable.as_ref(),
-        &mut [],
-        &[],
-    )
-    .unwrap();
+    let _vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
+        .unwrap();
 }
 
 #[test]
-#[should_panic(expected = "Gaggablaghblagh!")]
+#[should_panic(expected = "NoProgram")]
 fn test_verifier_fail() {
-    fn verifier_fail(_prog: &[u8]) -> Result<(), VerifierTestError> {
-        Err(VerifierTestError::Rejected("Gaggablaghblagh!".to_string()))
+    fn verifier_fail(_prog: &[u8]) -> Result<(), VerifierError> {
+        Err(VerifierError::NoProgram)
     }
-    let _executable = assemble::<VerifierTestError, DefaultInstructionMeter>(
+    let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
         mov32 r0, 0xBEE
         exit",
@@ -76,7 +71,7 @@ fn test_verifier_fail() {
 }
 
 #[test]
-#[should_panic(expected = "DivisionByZero(1)")]
+#[should_panic(expected = "DivisionByZero(30)")]
 fn test_verifier_err_div_by_zero_imm() {
     let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
@@ -90,7 +85,7 @@ fn test_verifier_err_div_by_zero_imm() {
 }
 
 #[test]
-#[should_panic(expected = "UnsupportedLeBeArgument(0)")]
+#[should_panic(expected = "UnsupportedLEBEArgument(29)")]
 fn test_verifier_err_endian_size() {
     let prog = &[
         0xdc, 0x01, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, //
@@ -107,7 +102,7 @@ fn test_verifier_err_endian_size() {
 }
 
 #[test]
-#[should_panic(expected = "IncompleteLddw(0)")]
+#[should_panic(expected = "IncompleteLDDW(29)")]
 fn test_verifier_err_incomplete_lddw() {
     // Note: ubpf has test-err-incomplete-lddw2, which is the same
     let prog = &[
@@ -124,20 +119,7 @@ fn test_verifier_err_incomplete_lddw() {
 }
 
 #[test]
-#[should_panic(expected = "InfiniteLoop(0)")]
-fn test_verifier_err_infinite_loop() {
-    let _executable = assemble::<UserError, DefaultInstructionMeter>(
-        "
-        ja -1
-        exit",
-        Some(check),
-        Config::default(),
-    )
-    .unwrap();
-}
-
-#[test]
-#[should_panic(expected = "InvalidDestinationRegister(0)")]
+#[should_panic(expected = "InvalidDestinationRegister(29)")]
 fn test_verifier_err_invalid_reg_dst() {
     let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
@@ -150,7 +132,7 @@ fn test_verifier_err_invalid_reg_dst() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidSourceRegister(0)")]
+#[should_panic(expected = "InvalidSourceRegister(29)")]
 fn test_verifier_err_invalid_reg_src() {
     let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
@@ -163,7 +145,7 @@ fn test_verifier_err_invalid_reg_src() {
 }
 
 #[test]
-#[should_panic(expected = "JumpToMiddleOfLddw(2, 0)")]
+#[should_panic(expected = "JumpToMiddleOfLDDW(2, 29)")]
 fn test_verifier_err_jmp_lddw() {
     let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
@@ -177,7 +159,7 @@ fn test_verifier_err_jmp_lddw() {
 }
 
 #[test]
-#[should_panic(expected = "JumpOutOfCode(3, 0)")]
+#[should_panic(expected = "JumpOutOfCode(3, 29)")]
 fn test_verifier_err_jmp_out() {
     let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "
@@ -190,40 +172,7 @@ fn test_verifier_err_jmp_out() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidLastInstruction")]
-fn test_verifier_err_no_exit() {
-    let _executable = assemble::<UserError, DefaultInstructionMeter>(
-        "
-        mov32 r0, 0",
-        Some(check),
-        Config::default(),
-    )
-    .unwrap();
-}
-
-#[test]
-#[should_panic(expected = "ProgramTooLarge(65537)")]
-fn test_verifier_err_too_many_instructions() {
-    let mut prog = (0..(65536 * ebpf::INSN_SIZE))
-        .map(|x| match x % 8 {
-            0 => 0xb7,
-            1 => 0x01,
-            _ => 0,
-        })
-        .collect::<Vec<u8>>();
-    prog.append(&mut vec![0x95, 0, 0, 0, 0, 0, 0, 0]);
-
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
-        &prog,
-        BTreeMap::new(),
-        Some(check),
-        Config::default(),
-    )
-    .unwrap();
-}
-
-#[test]
-#[should_panic(expected = "UnknownOpCode(6, 0)")]
+#[should_panic(expected = "UnknownOpCode(6, 29)")]
 fn test_verifier_err_unknown_opcode() {
     let prog = &[
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
@@ -239,7 +188,7 @@ fn test_verifier_err_unknown_opcode() {
 }
 
 #[test]
-#[should_panic(expected = "CannotWriteR10(0)")]
+#[should_panic(expected = "CannotWriteR10(29)")]
 fn test_verifier_err_write_r10() {
     let _executable = assemble::<UserError, DefaultInstructionMeter>(
         "

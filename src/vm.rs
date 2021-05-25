@@ -20,6 +20,7 @@ use crate::{
     jit::{JitProgram, JitProgramArgument},
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     user_error::UserError,
+    verifier::VerifierError,
 };
 use log::debug;
 use std::{
@@ -36,7 +37,7 @@ use std::{
 ///   - Unknown instructions.
 ///   - Bad formed instruction.
 ///   - Unknown eBPF syscall index.
-pub type Verifier<E> = fn(prog: &[u8]) -> Result<(), E>;
+pub type Verifier = fn(prog: &[u8]) -> Result<(), VerifierError>;
 
 /// Return value of programs and syscalls
 pub type ProgramResult<E> = Result<u64, EbpfError<E>>;
@@ -225,7 +226,7 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> dyn Executable<E, I> {
     /// Creates a post relocaiton/fixup executable from an ELF file
     pub fn from_elf(
         elf_bytes: &[u8],
-        verifier: Option<Verifier<E>>,
+        verifier: Option<Verifier>,
         config: Config,
     ) -> Result<Box<Self>, EbpfError<E>> {
         let ebpf_elf = EBpfElf::load(config, elf_bytes)?;
@@ -239,11 +240,11 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> dyn Executable<E, I> {
     pub fn from_text_bytes(
         text_bytes: &[u8],
         bpf_functions: BTreeMap<u32, (usize, String)>,
-        verifier: Option<Verifier<E>>,
+        verifier: Option<Verifier>,
         config: Config,
     ) -> Result<Box<Self>, EbpfError<E>> {
         if let Some(verifier) = verifier {
-            verifier(text_bytes)?;
+            verifier(text_bytes).map_err(EbpfError::VerifierError)?;
         }
         Ok(Box::new(EBpfElf::new_from_text_bytes(
             config,

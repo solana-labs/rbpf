@@ -212,7 +212,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 /// ```
 pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
     src: &str,
-    verifier: Option<Verifier<E>>,
+    verifier: Option<Verifier>,
     config: Config,
 ) -> Result<Box<dyn Executable<E, I>>, String> {
     fn resolve_label(

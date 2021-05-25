@@ -21,44 +21,42 @@
 //!
 //! Contrary to the verifier of the Linux kernel, this one does not modify the bytecode at all.
 
-use crate::{ebpf, error::UserDefinedError, user_error::UserError};
+use crate::ebpf;
+use thiserror::Error;
 
 /// Error definitions
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, Error, Eq, PartialEq)]
 pub enum VerifierError {
     /// ProgramLengthNotMultiple
     #[error("program length must be a multiple of {} octets", ebpf::INSN_SIZE)]
     ProgramLengthNotMultiple,
-    /// ProgramTooLarge
-    #[error("program too big, max {}, is {}", ebpf::PROG_MAX_INSNS, .0)]
+    /// Deprecated
+    #[error("Deprecated")]
     ProgramTooLarge(usize),
     /// NoProgram
     #[error("no program set, call prog_set() to load one")]
     NoProgram,
-    ///InvalidLastInstruction
-    #[error("program does not end with “EXIT” instruction")]
-    InvalidLastInstruction,
-    /// DivisionByZero
+    /// Division by zero
     #[error("division by 0 (insn #{0})")]
     DivisionByZero(usize),
-    /// UnsupportedLeBeArgument
+    /// UnsupportedLEBEArgument
     #[error("unsupported argument for LE/BE (insn #{0})")]
-    UnsupportedLeBeArgument(usize),
-    /// LddwCannotBeLast
+    UnsupportedLEBEArgument(usize),
+    /// LDDWCannotBeLast
     #[error("LD_DW instruction cannot be last in program")]
-    LddwCannotBeLast,
-    /// IncompleteLddw
+    LDDWCannotBeLast,
+    /// IncompleteLDDW
     #[error("incomplete LD_DW instruction (insn #{0})")]
-    IncompleteLddw(usize),
+    IncompleteLDDW(usize),
     /// InfiniteLoop
     #[error("infinite loop (insn #{0})")]
     InfiniteLoop(usize),
     /// JumpOutOfCode
     #[error("jump out of code to #{0} (insn #{1})")]
     JumpOutOfCode(usize, usize),
-    /// JumpToMiddleOfLddw
+    /// JumpToMiddleOfLDDW
     #[error("jump to middle of LD_DW at #{0} (insn #{1})")]
-    JumpToMiddleOfLddw(usize, usize),
+    JumpToMiddleOfLDDW(usize, usize),
     /// InvalidSourceRegister
     #[error("invalid source register (insn #{0})")]
     InvalidSourceRegister(usize),
@@ -78,35 +76,24 @@ pub enum VerifierError {
     #[error("Invalid register specified at instruction {0}")]
     InvalidRegister(usize),
 }
-impl UserDefinedError for VerifierError {}
-impl From<VerifierError> for UserError {
-    fn from(error: VerifierError) -> Self {
-        UserError::VerifierError(error)
-    }
+
+fn adj_insn_ptr(insn_ptr: usize) -> usize {
+    insn_ptr + ebpf::ELF_INSN_DUMP_OFFSET
 }
 
 fn check_prog_len(prog: &[u8]) -> Result<(), VerifierError> {
     if prog.len() % ebpf::INSN_SIZE != 0 {
         return Err(VerifierError::ProgramLengthNotMultiple);
     }
-    if prog.len() > ebpf::PROG_MAX_SIZE {
-        return Err(VerifierError::ProgramTooLarge(prog.len() / ebpf::INSN_SIZE));
-    }
-
     if prog.is_empty() {
         return Err(VerifierError::NoProgram);
     }
-    let last_insn = ebpf::get_insn(prog, (prog.len() / ebpf::INSN_SIZE) - 1);
-    if last_insn.opc != ebpf::EXIT {
-        return Err(VerifierError::InvalidLastInstruction);
-    }
-
     Ok(())
 }
 
 fn check_imm_nonzero(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
     if insn.imm == 0 {
-        return Err(VerifierError::DivisionByZero(insn_ptr));
+        return Err(VerifierError::DivisionByZero(adj_insn_ptr(insn_ptr)));
     }
     Ok(())
 }
@@ -114,38 +101,42 @@ fn check_imm_nonzero(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierE
 fn check_imm_endian(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
     match insn.imm {
         16 | 32 | 64 => Ok(()),
-        _ => Err(VerifierError::UnsupportedLeBeArgument(insn_ptr)),
+        _ => Err(VerifierError::UnsupportedLEBEArgument(adj_insn_ptr(
+            insn_ptr,
+        ))),
     }
 }
 
 fn check_load_dw(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
-    // We know we can reach next insn since we enforce an EXIT insn at the end of program, while
-    // this function should be called only for LD_DW insn, that cannot be last in program.
+    if insn_ptr + 1 >= (prog.len() / ebpf::INSN_SIZE) {
+        // Last instruction cannot be LD_DW because there would be no 2nd DW
+        return Err(VerifierError::LDDWCannotBeLast);
+    }
     let next_insn = ebpf::get_insn(prog, insn_ptr + 1);
     if next_insn.opc != 0 {
-        return Err(VerifierError::IncompleteLddw(insn_ptr));
+        return Err(VerifierError::IncompleteLDDW(adj_insn_ptr(insn_ptr)));
     }
     Ok(())
 }
 
 fn check_jmp_offset(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
     let insn = ebpf::get_insn(prog, insn_ptr);
-    if insn.off == -1 {
-        return Err(VerifierError::InfiniteLoop(insn_ptr));
-    }
+    // if insn.off == -1 {
+    //     return Err(VerifierError::InfiniteLoop(adj_insn_ptr(insn_ptr)).into());
+    // }
 
     let dst_insn_ptr = insn_ptr as isize + 1 + insn.off as isize;
     if dst_insn_ptr < 0 || dst_insn_ptr as usize >= (prog.len() / ebpf::INSN_SIZE) {
         return Err(VerifierError::JumpOutOfCode(
             dst_insn_ptr as usize,
-            insn_ptr,
+            adj_insn_ptr(insn_ptr),
         ));
     }
     let dst_insn = ebpf::get_insn(prog, dst_insn_ptr as usize);
     if dst_insn.opc == 0 {
-        return Err(VerifierError::JumpToMiddleOfLddw(
+        return Err(VerifierError::JumpToMiddleOfLDDW(
             dst_insn_ptr as usize,
-            insn_ptr,
+            adj_insn_ptr(insn_ptr),
         ));
     }
     Ok(())
@@ -153,19 +144,21 @@ fn check_jmp_offset(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
 
 fn check_registers(insn: &ebpf::Insn, store: bool, insn_ptr: usize) -> Result<(), VerifierError> {
     if insn.src > 10 {
-        return Err(VerifierError::InvalidSourceRegister(insn_ptr));
+        return Err(VerifierError::InvalidSourceRegister(adj_insn_ptr(insn_ptr)));
     }
     match (insn.dst, store) {
         (0..=9, _) | (10, true) => Ok(()),
-        (10, false) => Err(VerifierError::CannotWriteR10(insn_ptr)),
-        (_, _) => Err(VerifierError::InvalidDestinationRegister(insn_ptr)),
+        (10, false) => Err(VerifierError::CannotWriteR10(adj_insn_ptr(insn_ptr))),
+        (_, _) => Err(VerifierError::InvalidDestinationRegister(adj_insn_ptr(
+            insn_ptr,
+        ))),
     }
 }
 
 /// Check that the imm is a valid shift operand
 fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
     if insn.imm < 0 || insn.imm as u64 >= 64 {
-        return Err(VerifierError::ShiftWithOverflow(insn_ptr));
+        return Err(VerifierError::ShiftWithOverflow(adj_insn_ptr(insn_ptr)));
     }
     Ok(())
 }
@@ -173,14 +166,14 @@ fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierErr
 /// Check that the imm is a valid register number
 fn check_imm_register(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
     if insn.imm < 0 || insn.imm > 10 {
-        return Err(VerifierError::InvalidRegister(insn_ptr));
+        return Err(VerifierError::InvalidRegister(adj_insn_ptr(insn_ptr)));
     }
     Ok(())
 }
 
-/// Default eBPF verifier
+/// Check the program against the verifier's rules
 #[rustfmt::skip]
-pub fn check(prog: &[u8]) -> Result<(), UserError> {
+pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
     check_prog_len(prog)?;
 
     let mut insn_ptr: usize = 0;
@@ -201,7 +194,6 @@ pub fn check(prog: &[u8]) -> Result<(), UserError> {
             ebpf::LD_IND_DW  => {},
 
             ebpf::LD_DW_IMM  => {
-                store = true;
                 check_load_dw(prog, insn_ptr)?;
                 insn_ptr += 1;
             },
@@ -258,7 +250,7 @@ pub fn check(prog: &[u8]) -> Result<(), UserError> {
             ebpf::ADD64_REG  => {},
             ebpf::SUB64_IMM  => {},
             ebpf::SUB64_REG  => {},
-            ebpf::MUL64_IMM  => {},
+            ebpf::MUL64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
             ebpf::MUL64_REG  => {},
             ebpf::DIV64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
             ebpf::DIV64_REG  => {},
@@ -309,7 +301,7 @@ pub fn check(prog: &[u8]) -> Result<(), UserError> {
             ebpf::EXIT       => {},
 
             _                => {
-                return Err(VerifierError::UnknownOpCode(insn.opc, insn_ptr).into());
+                return Err(VerifierError::UnknownOpCode(insn.opc, adj_insn_ptr(insn_ptr)));
             }
         }
 
@@ -320,7 +312,7 @@ pub fn check(prog: &[u8]) -> Result<(), UserError> {
 
     // insn_ptr should now be equal to number of instructions.
     if insn_ptr != prog.len() / ebpf::INSN_SIZE {
-        return Err(VerifierError::JumpOutOfCode(insn_ptr, insn_ptr).into());
+        return Err(VerifierError::JumpOutOfCode(adj_insn_ptr(insn_ptr), adj_insn_ptr(insn_ptr)));
     }
 
     Ok(())

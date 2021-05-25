@@ -25,8 +25,6 @@ use std::fmt;
 pub const PROG_MAX_INSNS: usize = 65_536;
 /// Size of an eBPF instructions, in bytes.
 pub const INSN_SIZE: usize = 8;
-/// Maximum size of an eBPF program, in bytes.
-pub const PROG_MAX_SIZE: usize = PROG_MAX_INSNS * INSN_SIZE;
 /// Stack register
 pub const STACK_REG: usize = 10;
 /// First scratch register
