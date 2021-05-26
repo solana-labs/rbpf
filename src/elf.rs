@@ -655,7 +655,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             {
                 return Err(ElfError::OutOfBounds);
             }
-            let target_pc = symbol.st_value as usize / ebpf::INSN_SIZE - ebpf::ELF_INSN_DUMP_OFFSET;
+            let target_pc = (symbol.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
             let name = elf
                 .strtab
                 .get(symbol.st_name)
