@@ -336,17 +336,27 @@ fn emit_profile_instruction_count_of_exception<E: UserDefinedError>(jit: &mut Ji
 }
 
 #[inline]
-fn emit_conditional_branch_reg<E: UserDefinedError>(jit: &mut JitCompiler, op: u8, src: u8, dst: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
+fn emit_conditional_branch_reg<E: UserDefinedError>(jit: &mut JitCompiler, op: u8, bitwise: bool, src: u8, dst: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
     emit_validate_and_profile_instruction_count(jit, false, Some(target_pc))?;
-    X86Instruction::cmp(OperandSize::S64, src, dst, None).emit(jit)?;
+    if bitwise { // Logical
+        X86Instruction::test(OperandSize::S64, src, dst, None).emit(jit)?;
+    } else { // Arithmetic
+        X86Instruction::cmp(OperandSize::S64, src, dst, None).emit(jit)?;
+    }
+    X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64).emit(jit)?;
     emit_jcc(jit, op, target_pc)?;
     emit_undo_profile_instruction_count(jit, target_pc)
 }
 
 #[inline]
-fn emit_conditional_branch_imm<E: UserDefinedError>(jit: &mut JitCompiler, op: u8, imm: i64, dst: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
+fn emit_conditional_branch_imm<E: UserDefinedError>(jit: &mut JitCompiler, op: u8, bitwise: bool, imm: i64, dst: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
     emit_validate_and_profile_instruction_count(jit, false, Some(target_pc))?;
-    X86Instruction::cmp_immediate(OperandSize::S64, dst, imm, None).emit(jit)?;
+    if bitwise { // Logical
+        X86Instruction::test_immediate(OperandSize::S64, dst, imm, None).emit(jit)?;
+    } else { // Arithmetic
+        X86Instruction::cmp_immediate(OperandSize::S64, dst, imm, None).emit(jit)?;
+    }
+    X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64).emit(jit)?;
     emit_jcc(jit, op, target_pc)?;
     emit_undo_profile_instruction_count(jit, target_pc)
 }
@@ -984,38 +994,28 @@ impl JitCompiler {
                     X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64).emit(self)?;
                     emit_jmp(self, target_pc)?;
                 },
-                ebpf::JEQ_IMM    => emit_conditional_branch_imm(self, 0x84, insn.imm, dst, target_pc)?,
-                ebpf::JEQ_REG    => emit_conditional_branch_reg(self, 0x84, src, dst, target_pc)?,
-                ebpf::JGT_IMM    => emit_conditional_branch_imm(self, 0x87, insn.imm, dst, target_pc)?,
-                ebpf::JGT_REG    => emit_conditional_branch_reg(self, 0x87, src, dst, target_pc)?,
-                ebpf::JGE_IMM    => emit_conditional_branch_imm(self, 0x83, insn.imm, dst, target_pc)?,
-                ebpf::JGE_REG    => emit_conditional_branch_reg(self, 0x83, src, dst, target_pc)?,
-                ebpf::JLT_IMM    => emit_conditional_branch_imm(self, 0x82, insn.imm, dst, target_pc)?,
-                ebpf::JLT_REG    => emit_conditional_branch_reg(self, 0x82, src, dst, target_pc)?,
-                ebpf::JLE_IMM    => emit_conditional_branch_imm(self, 0x86, insn.imm, dst, target_pc)?,
-                ebpf::JLE_REG    => emit_conditional_branch_reg(self, 0x86, src, dst, target_pc)?,
-                ebpf::JSET_IMM   => {
-                    emit_validate_and_profile_instruction_count(self, false, Some(target_pc))?;
-                    emit_alu(self, OperandSize::S64, 0xf7, 0, dst, insn.imm, None)?;
-                    emit_jcc(self, 0x85, target_pc)?;
-                    emit_undo_profile_instruction_count(self, target_pc)?;
-                },
-                ebpf::JSET_REG   => {
-                    emit_validate_and_profile_instruction_count(self, false, Some(target_pc))?;
-                    emit_alu(self, OperandSize::S64, 0x85, src, dst, 0, None)?;
-                    emit_jcc(self, 0x85, target_pc)?;
-                    emit_undo_profile_instruction_count(self, target_pc)?;
-                },
-                ebpf::JNE_IMM    => emit_conditional_branch_imm(self, 0x85, insn.imm, dst, target_pc)?,
-                ebpf::JNE_REG    => emit_conditional_branch_reg(self, 0x85, src, dst, target_pc)?,
-                ebpf::JSGT_IMM   => emit_conditional_branch_imm(self, 0x8f, insn.imm, dst, target_pc)?,
-                ebpf::JSGT_REG   => emit_conditional_branch_reg(self, 0x8f, src, dst, target_pc)?,
-                ebpf::JSGE_IMM   => emit_conditional_branch_imm(self, 0x8d, insn.imm, dst, target_pc)?,
-                ebpf::JSGE_REG   => emit_conditional_branch_reg(self, 0x8d, src, dst, target_pc)?,
-                ebpf::JSLT_IMM   => emit_conditional_branch_imm(self, 0x8c, insn.imm, dst, target_pc)?,
-                ebpf::JSLT_REG   => emit_conditional_branch_reg(self, 0x8c, src, dst, target_pc)?,
-                ebpf::JSLE_IMM   => emit_conditional_branch_imm(self, 0x8e, insn.imm, dst, target_pc)?,
-                ebpf::JSLE_REG   => emit_conditional_branch_reg(self, 0x8e, src, dst, target_pc)?,
+                ebpf::JEQ_IMM    => emit_conditional_branch_imm(self, 0x84, false, insn.imm, dst, target_pc)?,
+                ebpf::JEQ_REG    => emit_conditional_branch_reg(self, 0x84, false, src, dst, target_pc)?,
+                ebpf::JGT_IMM    => emit_conditional_branch_imm(self, 0x87, false, insn.imm, dst, target_pc)?,
+                ebpf::JGT_REG    => emit_conditional_branch_reg(self, 0x87, false, src, dst, target_pc)?,
+                ebpf::JGE_IMM    => emit_conditional_branch_imm(self, 0x83, false, insn.imm, dst, target_pc)?,
+                ebpf::JGE_REG    => emit_conditional_branch_reg(self, 0x83, false, src, dst, target_pc)?,
+                ebpf::JLT_IMM    => emit_conditional_branch_imm(self, 0x82, false, insn.imm, dst, target_pc)?,
+                ebpf::JLT_REG    => emit_conditional_branch_reg(self, 0x82, false, src, dst, target_pc)?,
+                ebpf::JLE_IMM    => emit_conditional_branch_imm(self, 0x86, false, insn.imm, dst, target_pc)?,
+                ebpf::JLE_REG    => emit_conditional_branch_reg(self, 0x86, false, src, dst, target_pc)?,
+                ebpf::JSET_IMM   => emit_conditional_branch_imm(self, 0x85, true, insn.imm, dst, target_pc)?,
+                ebpf::JSET_REG   => emit_conditional_branch_reg(self, 0x85, true, src, dst, target_pc)?,
+                ebpf::JNE_IMM    => emit_conditional_branch_imm(self, 0x85, false, insn.imm, dst, target_pc)?,
+                ebpf::JNE_REG    => emit_conditional_branch_reg(self, 0x85, false, src, dst, target_pc)?,
+                ebpf::JSGT_IMM   => emit_conditional_branch_imm(self, 0x8f, false, insn.imm, dst, target_pc)?,
+                ebpf::JSGT_REG   => emit_conditional_branch_reg(self, 0x8f, false, src, dst, target_pc)?,
+                ebpf::JSGE_IMM   => emit_conditional_branch_imm(self, 0x8d, false, insn.imm, dst, target_pc)?,
+                ebpf::JSGE_REG   => emit_conditional_branch_reg(self, 0x8d, false, src, dst, target_pc)?,
+                ebpf::JSLT_IMM   => emit_conditional_branch_imm(self, 0x8c, false, insn.imm, dst, target_pc)?,
+                ebpf::JSLT_REG   => emit_conditional_branch_reg(self, 0x8c, false, src, dst, target_pc)?,
+                ebpf::JSLE_IMM   => emit_conditional_branch_imm(self, 0x8e, false, insn.imm, dst, target_pc)?,
+                ebpf::JSLE_REG   => emit_conditional_branch_reg(self, 0x8e, false, src, dst, target_pc)?,
                 ebpf::CALL_IMM   => {
                     // For JIT, syscalls MUST be registered at compile time. They can be
                     // updated later, but not created after compiling (we need the address of the

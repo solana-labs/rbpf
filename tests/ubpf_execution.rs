@@ -2394,7 +2394,7 @@ fn test_err_callx_oob_high() {
 }
 
 #[test]
-fn test_err_ja_lddw() {
+fn test_err_static_jmp_lddw() {
     test_interpreter_and_jit_asm!(
         "
         ja 1
@@ -2412,10 +2412,23 @@ fn test_err_ja_lddw() {
         },
         2
     );
-}
-
-#[test]
-fn test_err_call_lddw() {
+    test_interpreter_and_jit_asm!(
+        "
+        jeq r0, 0, 1
+        lddw r0, 0x1122334455667788
+        exit
+        ",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::UnsupportedInstruction(pc) if pc == 31
+                )
+            }
+        },
+        2
+    );
     test_interpreter_and_jit_asm!(
         "
         call 1
@@ -2436,7 +2449,7 @@ fn test_err_call_lddw() {
 }
 
 #[test]
-fn test_err_callx_lddw() {
+fn test_err_dynamic_jmp_lddw() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r8, 0x1

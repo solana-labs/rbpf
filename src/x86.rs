@@ -214,6 +214,42 @@ impl X86Instruction {
         }
     }
 
+    /// Test source and destination
+    pub fn test(
+        size: OperandSize,
+        source: u8,
+        destination: u8,
+        indirect: Option<X86IndirectAccess>,
+    ) -> Self {
+        Self {
+            size,
+            opcode: 0x85,
+            first_operand: source,
+            second_operand: destination,
+            indirect,
+            ..Self::default()
+        }
+    }
+
+    /// Test immediate and destination
+    pub fn test_immediate(
+        size: OperandSize,
+        destination: u8,
+        immediate: i64,
+        indirect: Option<X86IndirectAccess>,
+    ) -> Self {
+        Self {
+            size,
+            opcode: 0xf7,
+            first_operand: RAX,
+            second_operand: destination,
+            immediate_size: OperandSize::S32,
+            immediate,
+            indirect,
+            ..Self::default()
+        }
+    }
+
     /// Compare source and destination
     pub fn cmp(
         size: OperandSize,
@@ -231,7 +267,7 @@ impl X86Instruction {
         }
     }
 
-    /// Compare source and destination
+    /// Compare immediate and destination
     pub fn cmp_immediate(
         size: OperandSize,
         destination: u8,
