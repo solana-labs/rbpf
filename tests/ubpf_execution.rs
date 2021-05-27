@@ -2394,36 +2394,45 @@ fn test_err_callx_oob_high() {
 }
 
 #[test]
+fn test_err_ja_lddw() {
+    test_interpreter_and_jit_asm!(
+        "
+        ja 1
+        lddw r0, 0x1122334455667788
+        exit
+        ",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::UnsupportedInstruction(pc) if pc == 31
+                )
+            }
+        },
+        2
+    );
+}
+
+#[test]
 fn test_err_call_lddw() {
-    #[allow(unused_mut)]
-    {
-        let config = Config {
-            enable_instruction_tracing: true,
-            ..Config::default()
-        };
-        let mut executable = assemble(
-            "
-            call 1
-            lddw r0, 0x1122334455667788
-            exit",
-            None,
-            config,
-        )
-        .unwrap();
-        test_interpreter_and_jit!(
-            executable,
-            [],
-            (),
-            {
-                |_vm, res: Result| {
-                    matches!(res.unwrap_err(),
-                        EbpfError::UnsupportedInstruction(pc) if pc == 31
-                    )
-                }
-            },
-            2
-        );
-    }
+    test_interpreter_and_jit_asm!(
+        "
+        call 1
+        lddw r0, 0x1122334455667788
+        exit
+        ",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::UnsupportedInstruction(pc) if pc == 31
+                )
+            }
+        },
+        2
+    );
 }
 
 #[test]

@@ -981,6 +981,7 @@ impl JitCompiler {
                 // BPF_JMP class
                 ebpf::JA         => {
                     emit_validate_and_profile_instruction_count(self, false, Some(target_pc))?;
+                    X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64).emit(self)?;
                     emit_jmp(self, target_pc)?;
                 },
                 ebpf::JEQ_IMM    => emit_conditional_branch_imm(self, 0x84, insn.imm, dst, target_pc)?,
