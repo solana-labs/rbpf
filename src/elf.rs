@@ -66,7 +66,7 @@ pub enum ElfError {
     #[error("Multiple text sections, consider removing llc option: -function-sections")]
     MultipleTextSections,
     /// Read-write data not supported
-    #[error(".bss section not supported")]
+    #[error("Found .bss section in ELF, read-write data not supported")]
     BssNotSupported,
     /// Relocation failed, no loadable section contains virtual address
     #[error("Relocation failed, no loadable section contains virtual address {0:#x}")]
@@ -496,7 +496,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
         for section_header in elf.section_headers.iter() {
             if let Some(Ok(this_name)) = elf.shdr_strtab.get(section_header.sh_name) {
-                if this_name == ".bss" {
+                if this_name.starts_with(".bss") {
                     return Err(ElfError::BssNotSupported);
                 }
             }
