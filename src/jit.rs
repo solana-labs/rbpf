@@ -195,14 +195,32 @@ pub enum OperandSize {
 }
 
 #[inline]
-fn _emit_sanitize_user_provided_value<E: UserDefinedError>(jit: &mut JitCompiler, destination: u8, value: i64) -> Result<(), EbpfError<E>> {
-    if jit.config.sanitize_user_provided_values {
-        let key = jit.rng.gen();
-        X86Instruction::load_immediate(OperandSize::S64, destination, value ^ key).emit(jit)?;
-        X86Instruction::load_immediate(OperandSize::S64, R11, key).emit(jit)?;
-        emit_alu(jit, OperandSize::S64, 0x31, R11, destination, 0, None)
-    } else {
-        X86Instruction::load_immediate(OperandSize::S64, destination, value).emit(jit)
+fn emit_sanitize_user_provided_value<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, destination: u8, value: i64) -> Result<(), EbpfError<E>> {
+    match size {
+        OperandSize::S32 => {
+            let key: i32 = jit.rng.gen();
+            X86Instruction::load_immediate(size, destination, (value as i32).wrapping_sub(key) as i64).emit(jit)?;
+            emit_alu(jit, size, 0x81, 0, destination, key as i64, None)
+        },
+        OperandSize::S64 if destination == R11 => {
+            let key: i64 = jit.rng.gen();
+            let lower_key = key as i32 as i64;
+            let upper_key = (key >> 32) as i32 as i64;
+            X86Instruction::load_immediate(size, destination, value.wrapping_sub(lower_key).rotate_right(32).wrapping_sub(upper_key)).emit(jit)?;
+            emit_alu(jit, size, 0x81, 0, destination, upper_key, None)?; // wrapping_add(upper_key)
+            emit_alu(jit, size, 0xc1, 1, destination, 32, None)?; // rotate_right(32)
+            emit_alu(jit, size, 0x81, 0, destination, lower_key, None) // wrapping_add(lower_key)
+        },
+        OperandSize::S64 => {
+            let key: i64 = jit.rng.gen();
+            X86Instruction::load_immediate(size, destination, value.wrapping_sub(key)).emit(jit)?;
+            X86Instruction::load_immediate(size, R11, key).emit(jit)?;
+            emit_alu(jit, size, 0x01, R11, destination, 0, None)
+        },
+        _ => {
+            #[cfg(debug_assertions)]
+            unreachable!();
+        }
     }
 }
 
@@ -215,7 +233,7 @@ fn emit_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcod
         second_operand: destination,
         immediate_size: match opcode {
             0xc1 => OperandSize::S8,
-            0x81 | 0xc7 => OperandSize::S32,
+            0x81 => OperandSize::S32,
             0xf7 if source == 0 => OperandSize::S32,
             _ => OperandSize::S0,
         },
@@ -223,6 +241,16 @@ fn emit_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcod
         indirect,
         ..X86Instruction::default()
     }.emit(jit)
+}
+
+#[inline]
+fn emit_sanitized_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcode: u8, opcode_extension: u8, destination: u8, immediate: i64) -> Result<(), EbpfError<E>> {
+    if jit.config.sanitize_user_provided_values {
+        emit_sanitize_user_provided_value(jit, size, R11, immediate)?;
+        emit_alu(jit, size, opcode, R11, destination, immediate, None)
+    } else {
+        emit_alu(jit, size, 0x81, opcode_extension, destination, immediate, None)
+    }
 }
 
 #[inline]
@@ -349,12 +377,12 @@ fn emit_profile_instruction_count_of_exception<E: UserDefinedError>(jit: &mut Ji
 }
 
 #[inline]
-fn emit_conditional_branch_reg<E: UserDefinedError>(jit: &mut JitCompiler, op: u8, bitwise: bool, src: u8, dst: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
+fn emit_conditional_branch_reg<E: UserDefinedError>(jit: &mut JitCompiler, op: u8, bitwise: bool, first_operand: u8, second_operand: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
     emit_validate_and_profile_instruction_count(jit, false, Some(target_pc))?;
     if bitwise { // Logical
-        X86Instruction::test(OperandSize::S64, src, dst, None).emit(jit)?;
+        X86Instruction::test(OperandSize::S64, first_operand, second_operand, None).emit(jit)?;
     } else { // Arithmetic
-        X86Instruction::cmp(OperandSize::S64, src, dst, None).emit(jit)?;
+        X86Instruction::cmp(OperandSize::S64, first_operand, second_operand, None).emit(jit)?;
     }
     X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64).emit(jit)?;
     emit_jcc(jit, op, target_pc)?;
@@ -362,12 +390,19 @@ fn emit_conditional_branch_reg<E: UserDefinedError>(jit: &mut JitCompiler, op: u
 }
 
 #[inline]
-fn emit_conditional_branch_imm<E: UserDefinedError>(jit: &mut JitCompiler, op: u8, bitwise: bool, imm: i64, dst: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
+fn emit_conditional_branch_imm<E: UserDefinedError>(jit: &mut JitCompiler, op: u8, bitwise: bool, imm: i64, second_operand: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
     emit_validate_and_profile_instruction_count(jit, false, Some(target_pc))?;
-    if bitwise { // Logical
-        X86Instruction::test_immediate(OperandSize::S64, dst, imm, None).emit(jit)?;
+    if jit.config.sanitize_user_provided_values {
+        emit_sanitize_user_provided_value(jit, OperandSize::S64, R11, imm)?;
+        if bitwise { // Logical
+            X86Instruction::test(OperandSize::S64, R11, second_operand, None).emit(jit)?;
+        } else { // Arithmetic
+            X86Instruction::cmp(OperandSize::S64, R11, second_operand, None).emit(jit)?;
+        }
+    } else if bitwise { // Logical
+        X86Instruction::test_immediate(OperandSize::S64, second_operand, imm, None).emit(jit)?;
     } else { // Arithmetic
-        X86Instruction::cmp_immediate(OperandSize::S64, dst, imm, None).emit(jit)?;
+        X86Instruction::cmp_immediate(OperandSize::S64, second_operand, imm, None).emit(jit)?;
     }
     X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64).emit(jit)?;
     emit_jcc(jit, op, target_pc)?;
@@ -591,29 +626,41 @@ fn emit_address_translation<E: UserDefinedError>(jit: &mut JitCompiler, host_add
     X86Instruction::load(OperandSize::S64, R11, host_addr, X86IndirectAccess::Offset(8)).emit(jit)
 }
 
-fn emit_shift<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opc: u8, src: u8, dst: u8) -> Result<(), EbpfError<E>> {
-    if size == OperandSize::S32 {
-        emit_alu(jit, OperandSize::S32, 0x81, 4, dst, -1, None)?; // Mask to 32 bit
-    }
-    if src == RCX {
-        if dst == RCX {
-            emit_alu(jit, size, 0xd3, opc, dst, 0, None)
+fn emit_shift<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcode_extension: u8, source: u8, destination: u8, immediate: Option<i64>) -> Result<(), EbpfError<E>> {
+    if let Some(immediate) = immediate {
+        if jit.config.sanitize_user_provided_values {
+            emit_sanitize_user_provided_value(jit, OperandSize::S32, source, immediate)?;
         } else {
-            X86Instruction::mov(OperandSize::S64, RCX, R11).emit(jit)?;
-            emit_alu(jit, size, 0xd3, opc, dst, 0, None)?;
-            X86Instruction::mov(OperandSize::S64, R11, RCX).emit(jit)
+            return emit_alu(jit, size, 0xc1, opcode_extension, destination, immediate, None);
         }
-    } else if dst == RCX {
-        X86Instruction::mov(OperandSize::S64, src, R11).emit(jit)?;
-        X86Instruction::xchg(OperandSize::S64, src, RCX).emit(jit)?;
-        emit_alu(jit, size, 0xd3, opc, src, 0, None)?;
-        X86Instruction::mov(OperandSize::S64, src, RCX).emit(jit)?;
-        X86Instruction::mov(OperandSize::S64, R11, src).emit(jit)
+    }
+    if size == OperandSize::S32 {
+        emit_alu(jit, OperandSize::S32, 0x81, 4, destination, -1, None)?; // Mask to 32 bit
+    }
+    if source == RCX {
+        if destination == RCX {
+            emit_alu(jit, size, 0xd3, opcode_extension, destination, 0, None)
+        } else {
+            X86Instruction::push(RCX).emit(jit)?;
+            emit_alu(jit, size, 0xd3, opcode_extension, destination, 0, None)?;
+            X86Instruction::pop(RCX).emit(jit)
+        }
+    } else if destination == RCX {
+        if source != R11 {
+            X86Instruction::push(source).emit(jit)?;
+        }
+        X86Instruction::xchg(OperandSize::S64, source, RCX).emit(jit)?;
+        emit_alu(jit, size, 0xd3, opcode_extension, source, 0, None)?;
+        X86Instruction::mov(OperandSize::S64, source, RCX).emit(jit)?;
+        if source != R11 {
+            X86Instruction::pop(source).emit(jit)?;
+        }
+        Ok(())
     } else {
-        X86Instruction::mov(OperandSize::S64, RCX, R11).emit(jit)?;
-        X86Instruction::mov(OperandSize::S64, src, RCX).emit(jit)?;
-        emit_alu(jit, size, 0xd3, opc, dst, 0, None)?;
-        X86Instruction::mov(OperandSize::S64, R11, RCX).emit(jit)
+        X86Instruction::push(RCX).emit(jit)?;
+        X86Instruction::mov(OperandSize::S64, source, RCX).emit(jit)?;
+        emit_alu(jit, size, 0xd3, opcode_extension, destination, 0, None)?;
+        X86Instruction::pop(RCX).emit(jit)
     }
 }
 
@@ -642,7 +689,11 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
     }
 
     if let Some(imm) = imm {
-        X86Instruction::load_immediate(OperandSize::S64, R11, imm).emit(jit)?;
+        if jit.config.sanitize_user_provided_values {
+            emit_sanitize_user_provided_value(jit, OperandSize::S64, R11, imm)?;
+        } else {
+            X86Instruction::load_immediate(OperandSize::S64, R11, imm).emit(jit)?;
+        }
     } else {
         X86Instruction::mov(OperandSize::S64, src, R11).emit(jit)?;
     }
@@ -861,7 +912,11 @@ impl JitCompiler {
                     self.pc += 1;
                     self.pc_section_jumps.push(Jump { location: self.pc, target_pc: TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION });
                     ebpf::augment_lddw_unchecked(program, &mut insn);
-                    X86Instruction::load_immediate(OperandSize::S64, dst, insn.imm).emit(self)?;
+                    if self.config.sanitize_user_provided_values {
+                        emit_sanitize_user_provided_value(self, OperandSize::S64, dst, insn.imm)?;
+                    } else {
+                        X86Instruction::load_immediate(OperandSize::S64, dst, insn.imm).emit(self)?;
+                    }
                 },
 
                 // BPF_LDX class
@@ -920,7 +975,7 @@ impl JitCompiler {
 
                 // BPF_ALU class
                 ebpf::ADD32_IMM  => {
-                    emit_alu(self, OperandSize::S32, 0x81, 0, dst, insn.imm, None)?;
+                    emit_sanitized_alu(self, OperandSize::S32, 0x01, 0, dst, insn.imm)?;
                     X86Instruction::sign_extend_i32_to_i64(dst, dst).emit(self)?;
                 },
                 ebpf::ADD32_REG  => {
@@ -928,7 +983,7 @@ impl JitCompiler {
                     X86Instruction::sign_extend_i32_to_i64(dst, dst).emit(self)?;
                 },
                 ebpf::SUB32_IMM  => {
-                    emit_alu(self, OperandSize::S32, 0x81, 5, dst, insn.imm, None)?;
+                    emit_sanitized_alu(self, OperandSize::S32, 0x29, 5, dst, insn.imm)?;
                     X86Instruction::sign_extend_i32_to_i64(dst, dst).emit(self)?;
                 },
                 ebpf::SUB32_REG  => {
@@ -939,21 +994,27 @@ impl JitCompiler {
                     emit_muldivmod(self, insn.opc, dst, dst, Some(insn.imm))?,
                 ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::MOD32_REG  =>
                     emit_muldivmod(self, insn.opc, src, dst, None)?,
-                ebpf::OR32_IMM   => emit_alu(self, OperandSize::S32, 0x81, 1, dst, insn.imm, None)?,
+                ebpf::OR32_IMM   => emit_sanitized_alu(self, OperandSize::S32, 0x09, 1, dst, insn.imm)?,
                 ebpf::OR32_REG   => emit_alu(self, OperandSize::S32, 0x09, src, dst, 0, None)?,
-                ebpf::AND32_IMM  => emit_alu(self, OperandSize::S32, 0x81, 4, dst, insn.imm, None)?,
+                ebpf::AND32_IMM  => emit_sanitized_alu(self, OperandSize::S32, 0x21, 4, dst, insn.imm)?,
                 ebpf::AND32_REG  => emit_alu(self, OperandSize::S32, 0x21, src, dst, 0, None)?,
-                ebpf::LSH32_IMM  => emit_alu(self, OperandSize::S32, 0xc1, 4, dst, insn.imm, None)?,
-                ebpf::LSH32_REG  => emit_shift(self, OperandSize::S32, 4, src, dst)?,
-                ebpf::RSH32_IMM  => emit_alu(self, OperandSize::S32, 0xc1, 5, dst, insn.imm, None)?,
-                ebpf::RSH32_REG  => emit_shift(self, OperandSize::S32, 5, src, dst)?,
+                ebpf::LSH32_IMM  => emit_shift(self, OperandSize::S32, 4, R11, dst, Some(insn.imm))?,
+                ebpf::LSH32_REG  => emit_shift(self, OperandSize::S32, 4, src, dst, None)?,
+                ebpf::RSH32_IMM  => emit_shift(self, OperandSize::S32, 5, R11, dst, Some(insn.imm))?,
+                ebpf::RSH32_REG  => emit_shift(self, OperandSize::S32, 5, src, dst, None)?,
                 ebpf::NEG32      => emit_alu(self, OperandSize::S32, 0xf7, 3, dst, 0, None)?,
-                ebpf::XOR32_IMM  => emit_alu(self, OperandSize::S32, 0x81, 6, dst, insn.imm, None)?,
+                ebpf::XOR32_IMM  => emit_sanitized_alu(self, OperandSize::S32, 0x31, 6, dst, insn.imm)?,
                 ebpf::XOR32_REG  => emit_alu(self, OperandSize::S32, 0x31, src, dst, 0, None)?,
-                ebpf::MOV32_IMM  => emit_alu(self, OperandSize::S32, 0xc7, 0, dst, insn.imm, None)?,
+                ebpf::MOV32_IMM  => {
+                    if self.config.sanitize_user_provided_values {
+                        emit_sanitize_user_provided_value(self, OperandSize::S32, dst, insn.imm)?;
+                    } else {
+                        X86Instruction::load_immediate(OperandSize::S32, dst, insn.imm).emit(self)?;
+                    }
+                }
                 ebpf::MOV32_REG  => X86Instruction::mov(OperandSize::S32, src, dst).emit(self)?,
-                ebpf::ARSH32_IMM => emit_alu(self, OperandSize::S32, 0xc1, 7, dst, insn.imm, None)?,
-                ebpf::ARSH32_REG => emit_shift(self, OperandSize::S32, 7, src, dst)?,
+                ebpf::ARSH32_IMM => emit_shift(self, OperandSize::S32, 7, R11, dst, Some(insn.imm))?,
+                ebpf::ARSH32_REG => emit_shift(self, OperandSize::S32, 7, src, dst, None)?,
                 ebpf::LE         => {
                     match insn.imm {
                         16 => {
@@ -983,29 +1044,35 @@ impl JitCompiler {
                 },
 
                 // BPF_ALU64 class
-                ebpf::ADD64_IMM  => emit_alu(self, OperandSize::S64, 0x81, 0, dst, insn.imm, None)?,
+                ebpf::ADD64_IMM  => emit_sanitized_alu(self, OperandSize::S64, 0x01, 0, dst, insn.imm)?,
                 ebpf::ADD64_REG  => emit_alu(self, OperandSize::S64, 0x01, src, dst, 0, None)?,
-                ebpf::SUB64_IMM  => emit_alu(self, OperandSize::S64, 0x81, 5, dst, insn.imm, None)?,
+                ebpf::SUB64_IMM  => emit_sanitized_alu(self, OperandSize::S64, 0x29, 5, dst, insn.imm)?,
                 ebpf::SUB64_REG  => emit_alu(self, OperandSize::S64, 0x29, src, dst, 0, None)?,
                 ebpf::MUL64_IMM | ebpf::DIV64_IMM | ebpf::MOD64_IMM  =>
                     emit_muldivmod(self, insn.opc, dst, dst, Some(insn.imm))?,
                 ebpf::MUL64_REG | ebpf::DIV64_REG | ebpf::MOD64_REG  =>
                     emit_muldivmod(self, insn.opc, src, dst, None)?,
-                ebpf::OR64_IMM   => emit_alu(self, OperandSize::S64, 0x81, 1, dst, insn.imm, None)?,
+                ebpf::OR64_IMM   => emit_sanitized_alu(self, OperandSize::S64, 0x09, 1, dst, insn.imm)?,
                 ebpf::OR64_REG   => emit_alu(self, OperandSize::S64, 0x09, src, dst, 0, None)?,
-                ebpf::AND64_IMM  => emit_alu(self, OperandSize::S64, 0x81, 4, dst, insn.imm, None)?,
+                ebpf::AND64_IMM  => emit_sanitized_alu(self, OperandSize::S64, 0x21, 4, dst, insn.imm)?,
                 ebpf::AND64_REG  => emit_alu(self, OperandSize::S64, 0x21, src, dst, 0, None)?,
-                ebpf::LSH64_IMM  => emit_alu(self, OperandSize::S64, 0xc1, 4, dst, insn.imm, None)?,
-                ebpf::LSH64_REG  => emit_shift(self, OperandSize::S64, 4, src, dst)?,
-                ebpf::RSH64_IMM  => emit_alu(self, OperandSize::S64, 0xc1, 5, dst, insn.imm, None)?,
-                ebpf::RSH64_REG  => emit_shift(self, OperandSize::S64, 5, src, dst)?,
+                ebpf::LSH64_IMM  => emit_shift(self, OperandSize::S64, 4, R11, dst, Some(insn.imm))?,
+                ebpf::LSH64_REG  => emit_shift(self, OperandSize::S64, 4, src, dst, None)?,
+                ebpf::RSH64_IMM  => emit_shift(self, OperandSize::S64, 5, R11, dst, Some(insn.imm))?,
+                ebpf::RSH64_REG  => emit_shift(self, OperandSize::S64, 5, src, dst, None)?,
                 ebpf::NEG64      => emit_alu(self, OperandSize::S64, 0xf7, 3, dst, 0, None)?,
-                ebpf::XOR64_IMM  => emit_alu(self, OperandSize::S64, 0x81, 6, dst, insn.imm, None)?,
+                ebpf::XOR64_IMM  => emit_sanitized_alu(self, OperandSize::S64, 0x31, 6, dst, insn.imm)?,
                 ebpf::XOR64_REG  => emit_alu(self, OperandSize::S64, 0x31, src, dst, 0, None)?,
-                ebpf::MOV64_IMM  => X86Instruction::load_immediate(OperandSize::S64, dst, insn.imm as i64).emit(self)?,
+                ebpf::MOV64_IMM  => {
+                    if self.config.sanitize_user_provided_values {
+                        emit_sanitize_user_provided_value(self, OperandSize::S64, dst, insn.imm)?;
+                    } else {
+                        X86Instruction::load_immediate(OperandSize::S64, dst, insn.imm).emit(self)?;
+                    }
+                }
                 ebpf::MOV64_REG  => X86Instruction::mov(OperandSize::S64, src, dst).emit(self)?,
-                ebpf::ARSH64_IMM => emit_alu(self, OperandSize::S64, 0xc1, 7, dst, insn.imm, None)?,
-                ebpf::ARSH64_REG => emit_shift(self, OperandSize::S64, 7, src, dst)?,
+                ebpf::ARSH64_IMM => emit_shift(self, OperandSize::S64, 7, R11, dst, Some(insn.imm))?,
+                ebpf::ARSH64_REG => emit_shift(self, OperandSize::S64, 7, src, dst, None)?,
 
                 // BPF_JMP class
                 ebpf::JA         => {
