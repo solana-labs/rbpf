@@ -157,8 +157,8 @@ const REGISTER_MAP: [u8; 11] = [
 // Special registers:
 //     ARGUMENT_REGISTERS[0]  RDI  BPF program counter limit (used by instruction meter)
 // CALLER_SAVED_REGISTERS[8]  R11  Scratch register
-// CALLER_SAVED_REGISTERS[7]  R10  Constant pointer to JitProgramArgument
-// CALLEE_SAVED_REGISTERS[0]  RBP  Constant pointer to inital RSP-8
+// CALLER_SAVED_REGISTERS[7]  R10  Constant pointer to JitProgramArgument (also scratch register for exception handling)
+// CALLEE_SAVED_REGISTERS[0]  RBP  Constant pointer to inital RSP - 8
 
 #[inline]
 pub fn emit<T, E: UserDefinedError>(jit: &mut JitCompiler, data: T) -> Result<(), EbpfError<E>> {
@@ -210,6 +210,11 @@ fn emit_sanitized_load_immediate<E: UserDefinedError>(jit: &mut JitCompiler, siz
             emit_alu(jit, size, 0x81, 0, destination, upper_key, None)?; // wrapping_add(upper_key)
             emit_alu(jit, size, 0xc1, 1, destination, 32, None)?; // rotate_right(32)
             emit_alu(jit, size, 0x81, 0, destination, lower_key, None) // wrapping_add(lower_key)
+        },
+        OperandSize::S64 if value >= std::i32::MIN as i64 && value <= std::i32::MAX as i64 => {
+            let key = jit.rng.gen::<i32>() as i64;
+            X86Instruction::load_immediate(size, destination, value.wrapping_sub(key)).emit(jit)?;
+            emit_alu(jit, size, 0x81, 0, destination, key, None)
         },
         OperandSize::S64 => {
             let key: i64 = jit.rng.gen();
@@ -440,6 +445,7 @@ fn emit_conditional_branch_imm<E: UserDefinedError>(jit: &mut JitCompiler, op: u
 enum Value {
     Register(u8),
     RegisterIndirect(u8, i32, bool),
+    RegisterPlusConstant32(u8, i32, bool),
     RegisterPlusConstant64(u8, i64, bool),
     Constant64(i64, bool),
 }
@@ -489,7 +495,7 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, number_
             emit_alu(jit, OperandSize::S64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None)?; // RAX += jit.result.pc_section;
             X86Instruction::load(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], X86IndirectAccess::Offset(0)).emit(jit)?; // RAX = jit.result.pc_section[RAX / 8];
         },
-        Value::Constant64(_target_pc, _user_provided) => {},
+        Value::Constant64(_target_pc, user_provided) => debug_assert!(!user_provided),
         _ => {
             #[cfg(debug_assertions)]
             unreachable!();
@@ -545,60 +551,27 @@ struct Argument {
     value: Value,
 }
 
-#[inline]
-fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u8, arguments: &[Argument], return_reg: Option<u8>, check_exception: bool) -> Result<(), EbpfError<E>> {
-    let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
-    if let Some(reg) = return_reg {
-        let dst = saved_registers.iter().position(|x| *x == reg);
-        debug_assert!(dst.is_some());
-        if let Some(dst) = dst {
-            saved_registers.remove(dst);
-        }
+impl Argument {
+    fn is_stack_argument(&self) -> bool {
+        self.index >= ARGUMENT_REGISTERS.len()
     }
 
-    // Pass arguments via stack
-    for argument in arguments {
-        if argument.index < ARGUMENT_REGISTERS.len() {
-            continue;
-        }
-        match argument.value {
+    fn get_argument_register(&self) -> u8 {
+        ARGUMENT_REGISTERS[self.index]
+    }
+
+    fn emit_pass<E: UserDefinedError>(&self, jit: &mut JitCompiler) -> Result<(), EbpfError<E>> {
+        let is_stack_argument = self.is_stack_argument();
+        let dst = if is_stack_argument {
+            R11
+        } else {
+            self.get_argument_register()
+        };
+        match self.value {
             Value::Register(reg) => {
-                let src = saved_registers.iter().position(|x| *x == reg);
-                debug_assert!(src.is_some());
-                if let Some(src) = src {
-                    saved_registers.remove(src);
-                }
-                let dst = saved_registers.len() - (argument.index - ARGUMENT_REGISTERS.len());
-                saved_registers.insert(dst, reg);
-            },
-            Value::RegisterIndirect(reg, offset, user_provided) => {
-                if user_provided && jit.config.sanitize_user_provided_values {
-                    emit_sanitized_load(jit, OperandSize::S64, reg, R11, offset)?;
-                } else {
-                    X86Instruction::load(OperandSize::S64, reg, R11, X86IndirectAccess::Offset(offset)).emit(jit)?;
-                }
-            },
-            _ => {
-                #[cfg(debug_assertions)]
-                unreachable!();
-            }
-        }
-    }
-
-    // Save registers on stack
-    for reg in saved_registers.iter() {
-        X86Instruction::push(*reg).emit(jit)?;
-    }
-
-    // Pass arguments via registers
-    for argument in arguments {
-        if argument.index >= ARGUMENT_REGISTERS.len() {
-            continue;
-        }
-        let dst = ARGUMENT_REGISTERS[argument.index];
-        match argument.value {
-            Value::Register(reg) => {
-                if reg != dst {
+                if is_stack_argument {
+                    return X86Instruction::push(reg).emit(jit);
+                } else if reg != dst {
                     X86Instruction::mov(OperandSize::S64, reg, dst).emit(jit)?;
                 }
             },
@@ -607,6 +580,14 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u
                     emit_sanitized_load(jit, OperandSize::S64, reg, dst, offset)?;
                 } else {
                     X86Instruction::load(OperandSize::S64, reg, dst, X86IndirectAccess::Offset(offset)).emit(jit)?;
+                }
+            },
+            Value::RegisterPlusConstant32(reg, offset, user_provided) => {
+                if user_provided && jit.config.sanitize_user_provided_values {
+                    emit_sanitized_load_immediate(jit, OperandSize::S64, dst, offset as i64)?;
+                    emit_alu(jit, OperandSize::S64, 0x01, reg, dst, 0, None)?;
+                } else {
+                    X86Instruction::lea(OperandSize::S64, reg, dst, Some(X86IndirectAccess::Offset(offset))).emit(jit)?;
                 }
             },
             Value::RegisterPlusConstant64(reg, offset, user_provided) => {
@@ -626,6 +607,37 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u
                 }
             },
         }
+        if is_stack_argument {
+            X86Instruction::push(dst).emit(jit)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[inline]
+fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u8, arguments: &[Argument], result_reg: Option<u8>, check_exception: bool) -> Result<(), EbpfError<E>> {
+    let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
+    if let Some(reg) = result_reg {
+        let dst = saved_registers.iter().position(|x| *x == reg);
+        debug_assert!(dst.is_some());
+        if let Some(dst) = dst {
+            saved_registers.remove(dst);
+        }
+    }
+
+    // Save registers on stack
+    for reg in saved_registers.iter() {
+        X86Instruction::push(*reg).emit(jit)?;
+    }
+
+    // Pass arguments
+    let mut stack_arguments = 0;
+    for argument in arguments {
+        if argument.is_stack_argument() {
+            stack_arguments += 1;
+        }
+        argument.emit_pass(jit)?;
     }
 
     // TODO use direct call when possible
@@ -634,11 +646,13 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u
     emit::<u8, E>(jit, 0xff)?;
     emit::<u8, E>(jit, 0xd0)?;
 
-    if let Some(reg) = return_reg {
+    // Save returned value in result register
+    if let Some(reg) = result_reg {
         X86Instruction::mov(OperandSize::S64, RAX, reg).emit(jit)?;
     }
 
     // Restore registers from stack
+    emit_alu(jit, OperandSize::S64, 0x81, 0, RSP, stack_arguments * 8, None)?;
     for reg in saved_registers.iter().rev() {
         X86Instruction::pop(*reg).emit(jit)?;
     }
@@ -655,10 +669,10 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u
 fn emit_address_translation<E: UserDefinedError>(jit: &mut JitCompiler, host_addr: u8, vm_addr: Value, len: u64, access_type: AccessType) -> Result<(), EbpfError<E>> {
     emit_rust_call(jit, MemoryMapping::map::<UserError> as *const u8, &[
         Argument { index: 3, value: vm_addr }, // Specify first as the src register could be overwritten by other arguments
-        Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(jit, EnvironmentStackSlot::OptRetValPtr), false) },
-        Argument { index: 1, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
-        Argument { index: 2, value: Value::Constant64(access_type as i64, false) },
         Argument { index: 4, value: Value::Constant64(len as i64, false) },
+        Argument { index: 2, value: Value::Constant64(access_type as i64, false) },
+        Argument { index: 1, value: Value::RegisterPlusConstant32(R10, jit.program_argument_key, false) }, // JitProgramArgument::memory_mapping
+        Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(jit, EnvironmentStackSlot::OptRetValPtr), false) },
     ], None, true)?;
 
     // Throw error if the result indicates one
@@ -810,6 +824,7 @@ pub struct JitCompiler {
     config: Config,
     rng: ThreadRng,
     environment_stack_key: i32,
+    program_argument_key: i32,
 }
 
 impl Index<usize> for JitCompiler {
@@ -869,7 +884,10 @@ impl JitCompiler {
         }
 
         let mut rng = rand::thread_rng();
-        let environment_stack_key = if _config.encrypt_environment_registers { rng.gen::<i32>() / 8 } else { 0 };
+        let (environment_stack_key, program_argument_key) =
+            if _config.encrypt_environment_registers {
+                (rng.gen::<i32>() / 8, rng.gen())
+            } else { (0, 0) };
         JitCompiler {
             result: JitProgramSections::new(pc + 1, pc * 256 + 512),
             pc_section_jumps: vec![],
@@ -881,6 +899,7 @@ impl JitCompiler {
             config: *_config,
             rng,
             environment_stack_key,
+            program_argument_key,
         }
     }
 
@@ -1167,16 +1186,16 @@ impl JitCompiler {
                             ], None, false)?;
                         }
 
-                        X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset((SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8)).emit(self)?;
+                        X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset((SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8 + self.program_argument_key)).emit(self)?;
                         emit_rust_call(self, syscall.function as *const u8, &[
-                            Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the SyscallObject
-                            Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
-                            Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
-                            Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
-                            Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
-                            Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
-                            Argument { index: 6, value: Value::Register(R10) }, // JitProgramArgument::memory_mapping
                             Argument { index: 7, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
+                            Argument { index: 6, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // JitProgramArgument::memory_mapping
+                            Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
+                            Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
+                            Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
+                            Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
+                            Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
+                            Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the SyscallObject
                         ], None, true)?;
 
                         // Throw error if the result indicates one
@@ -1205,9 +1224,9 @@ impl JitCompiler {
                                 // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
                                 let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(executable) };
                                 emit_rust_call(self, fat_ptr.vtable.methods[9], &[
-                                    Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
-                                    Argument { index: 1, value: Value::Constant64(fat_ptr.data as i64, false) },
                                     Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
+                                    Argument { index: 1, value: Value::Constant64(fat_ptr.data as i64, false) },
+                                    Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
                                 ], None, true)?;
                                 X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
                                 emit_jmp(self, TARGET_PC_SYSCALL_EXCEPTION)?;
@@ -1254,6 +1273,10 @@ impl JitCompiler {
         self.resolve_jumps();
         self.result.seal();
 
+        // Delete secrets
+        self.environment_stack_key = 0;
+        self.program_argument_key = 0;
+
         Ok(())
     }
 
@@ -1269,8 +1292,8 @@ impl JitCompiler {
             X86Instruction::mov(OperandSize::S64, RSP, REGISTER_MAP[0]).emit(self)?;
             emit_alu(self, OperandSize::S64, 0x81, 0, RSP, - 8 * 3, None)?; // RSP -= 8 * 3;
             emit_rust_call(self, Tracer::trace as *const u8, &[
-                Argument { index: 0, value: Value::RegisterIndirect(R10, std::mem::size_of::<MemoryMapping>() as i32, false) }, // jit.tracer
                 Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
+                Argument { index: 0, value: Value::RegisterIndirect(R10, std::mem::size_of::<MemoryMapping>() as i32 + self.program_argument_key, false) }, // jit.tracer
             ], None, false)?;
             // Pop stack and return
             emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8 * 3, None)?; // RSP += 8 * 3;
@@ -1380,7 +1403,7 @@ impl JitCompiler {
         emit_alu(self, OperandSize::S64, 0x81, 0, RBP, 8 * (EnvironmentStackSlot::SlotCount as i64 - 1 + self.environment_stack_key as i64), None)?;
         
         // Save JitProgramArgument
-        X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[2], R10).emit(self)?;
+        X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], R10, Some(X86IndirectAccess::Offset(-self.program_argument_key))).emit(self)?;
 
         // Zero BPF registers
         for reg in REGISTER_MAP.iter() {
