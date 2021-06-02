@@ -520,7 +520,7 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, number_
 
             X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(jit)?;
             X86Instruction::pop(REGISTER_MAP[0]).emit(jit)?;
-            X86Instruction::call_reg(OperandSize::S64, R11).emit(jit)?; // callq *%r11
+            X86Instruction::call_reg(OperandSize::S64, R11, None).emit(jit)?; // callq *%r11
         },
         Value::Constant64(target_pc, _user_provided) => {
             emit_validate_and_profile_instruction_count(jit, false, Some(target_pc as usize))?;
@@ -638,7 +638,7 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u
 
     // TODO use direct call when possible
     X86Instruction::load_immediate(OperandSize::S64, RAX, function as i64).emit(jit)?;
-    X86Instruction::call_reg(OperandSize::S64, RAX).emit(jit)?; // callq *%rax
+    X86Instruction::call_reg(OperandSize::S64, RAX, None).emit(jit)?; // callq *%rax
 
     // Save returned value in result register
     if let Some(reg) = result_reg {

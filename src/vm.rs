@@ -183,11 +183,11 @@ pub struct Config {
     pub enable_instruction_meter: bool,
     /// Enable instruction tracing
     pub enable_instruction_tracing: bool,
-    /// Ratio of random no-ops per instruction in the JIT code emitter (0.0 = OFF)
+    /// Ratio of random no-ops per instruction in JIT (0.0 = OFF)
     pub noop_instruction_ratio: f64,
-    /// Enable disinfection of immediate values and offsets provided by the user in the JIT code emitter
+    /// Enable disinfection of immediate values and offsets provided by the user in JIT
     pub sanitize_user_provided_values: bool,
-    /// Encrypt the environment registers in the JIT code emitter
+    /// Encrypt the environment registers in JIT
     pub encrypt_environment_registers: bool,
 }
 impl Default for Config {
@@ -430,7 +430,7 @@ pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 6;
 /// // Instantiate a VM.
 /// let mut bpf_functions = std::collections::BTreeMap::new();
 /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-/// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
+/// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
 /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
 ///
 /// // Provide a reference to the packet data.
@@ -466,7 +466,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// // Instantiate a VM.
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-    /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
+    /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// ```
     pub fn new(
@@ -574,7 +574,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// // Instantiate an Executable and VM
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-    /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
+    /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
     /// executable.set_syscall_registry(syscall_registry);
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// // Bind a context object instance to the previously registered syscall
@@ -639,7 +639,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// // Instantiate a VM.
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-    /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
+    /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
     ///
     /// // Provide a reference to the packet data.

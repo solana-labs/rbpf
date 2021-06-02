@@ -433,12 +433,17 @@ impl X86Instruction {
     }
 
     /// Push RIP and jump to destination
-    pub fn call_reg(size: OperandSize, destination: u8) -> Self {
+    pub fn call_reg(
+        size: OperandSize,
+        destination: u8,
+        indirect: Option<X86IndirectAccess>,
+    ) -> Self {
         Self {
             size,
             opcode: 0xff,
             first_operand: 2,
             second_operand: destination,
+            indirect,
             ..Self::default()
         }
     }
