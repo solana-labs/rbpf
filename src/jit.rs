@@ -520,11 +520,7 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, number_
 
             X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(jit)?;
             X86Instruction::pop(REGISTER_MAP[0]).emit(jit)?;
-
-            // callq *%r11
-            emit::<u8, E>(jit, 0x41)?;
-            emit::<u8, E>(jit, 0xff)?;
-            emit::<u8, E>(jit, 0xd3)?;
+            X86Instruction::call_reg(OperandSize::S64, R11).emit(jit)?; // callq *%r11
         },
         Value::Constant64(target_pc, _user_provided) => {
             emit_validate_and_profile_instruction_count(jit, false, Some(target_pc as usize))?;
@@ -642,9 +638,7 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u
 
     // TODO use direct call when possible
     X86Instruction::load_immediate(OperandSize::S64, RAX, function as i64).emit(jit)?;
-    // callq *%rax
-    emit::<u8, E>(jit, 0xff)?;
-    emit::<u8, E>(jit, 0xd0)?;
+    X86Instruction::call_reg(OperandSize::S64, RAX).emit(jit)?; // callq *%rax
 
     // Save returned value in result register
     if let Some(reg) = result_reg {
@@ -883,13 +877,16 @@ impl JitCompiler {
             };
         }
 
+        let mut code_length_estimate = pc * 256 + 512;
+        code_length_estimate += (code_length_estimate as f64 * _config.noop_instruction_ratio) as usize;
         let mut rng = rand::thread_rng();
         let (environment_stack_key, program_argument_key) =
             if _config.encrypt_environment_registers {
                 (rng.gen::<i32>() / 8, rng.gen())
             } else { (0, 0) };
+
         JitCompiler {
-            result: JitProgramSections::new(pc + 1, pc * 256 + 512),
+            result: JitProgramSections::new(pc + 1, code_length_estimate),
             pc_section_jumps: vec![],
             text_section_jumps: vec![],
             offset_in_text_section: 0,
@@ -924,10 +921,6 @@ impl JitCompiler {
             let mut insn = ebpf::get_insn(program, self.pc);
 
             self.result.pc_section[self.pc] = self.offset_in_text_section as u64;
-
-            if self.config.instructions_noop_ratio != 0 && self.rng.gen_bool(1.0 / self.config.instructions_noop_ratio as f64) {
-                X86Instruction::noop().emit(self)?;
-            }
 
             if self.config.enable_instruction_tracing {
                 X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
@@ -1438,6 +1431,15 @@ impl JitCompiler {
         }
 
         X86Instruction::return_near().emit(self)
+    }
+
+    pub fn emit_random_noop<E: UserDefinedError>(&mut self) -> Result<(), EbpfError<E>> {
+        if self.config.noop_instruction_ratio != 0.0 && self.rng.gen_bool(self.config.noop_instruction_ratio) {
+            // X86Instruction::noop().emit(self)
+            emit::<u8, E>(self, 0x90)
+        } else {
+            Ok(())
+        }
     }
 
     fn resolve_jumps(&mut self) {

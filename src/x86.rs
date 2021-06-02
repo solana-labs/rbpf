@@ -133,6 +133,7 @@ impl X86Instruction {
                 }
             }
         }
+        jit.emit_random_noop()?;
         if self.size == OperandSize::S16 {
             emit::<u8, E>(jit, 0x66)?;
         }
@@ -431,7 +432,18 @@ impl X86Instruction {
         }
     }
 
-    /// Pop into RIP
+    /// Push RIP and jump to destination
+    pub fn call_reg(size: OperandSize, destination: u8) -> Self {
+        Self {
+            size,
+            opcode: 0xff,
+            first_operand: 2,
+            second_operand: destination,
+            ..Self::default()
+        }
+    }
+
+    /// Pop RIP
     pub fn return_near() -> Self {
         Self {
             size: OperandSize::S32,
@@ -442,6 +454,7 @@ impl X86Instruction {
     }
 
     /// No operation
+    #[allow(dead_code)]
     pub fn noop() -> Self {
         Self {
             size: OperandSize::S32,
