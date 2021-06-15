@@ -86,6 +86,9 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Compilation is too big to fit
     #[error("Compilation exhaused text segment at instruction {0}")]
     ExhausedTextSegment(usize),
+    /// Libc function call returned an error
+    #[error("Libc calling {0} {1:?} returned error code {2}")]
+    LibcInvocationFailed(&'static str, Vec<String>, i32),
     /// ELF error
     #[error("Verifier error: {0}")]
     VerifierError(#[from] VerifierError),

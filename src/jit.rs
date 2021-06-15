@@ -43,44 +43,64 @@ struct JitProgramSections {
     text_section: &'static mut [u8],
 }
 
-impl JitProgramSections {
-    fn new(pc: usize, code_size: usize) -> Self {
-        let _pc_loc_table_size = round_to_page_size(pc * 8);
-        let _code_size = round_to_page_size(code_size);
-        #[cfg(windows)]
-        {
-            Self {
-                pc_section: &mut [],
-                text_section: &mut [],
+#[cfg(not(target_os = "windows"))]
+macro_rules! libc_error_guard {
+    ($function:ident, $($arg:expr),*) => {{
+        const RETRY_COUNT: usize = 3;
+        for i in 0..RETRY_COUNT {
+            if libc::$function($($arg),*) == 0 {
+                break;
+            } else if i + 1 == RETRY_COUNT {
+                let args = vec![$(format!("{:?}", $arg)),*];
+                #[cfg(any(target_os = "freebsd", target_os = "ios", target_os = "macos"))]
+                let errno = *libc::__error();
+                #[cfg(target_os = "linux")]
+                let errno = *libc::__errno_location();
+                return Err(EbpfError::LibcInvocationFailed(stringify!($function), args, errno));
             }
         }
-        #[cfg(not(windows))]
+    }}
+}
+
+impl JitProgramSections {
+    fn new<E: UserDefinedError>(pc: usize, code_size: usize) -> Result<Self, EbpfError<E>> {
+        let _pc_loc_table_size = round_to_page_size(pc * 8);
+        let _code_size = round_to_page_size(code_size);
+        #[cfg(target_os = "windows")]
+        {
+            Ok(Self {
+                pc_section: &mut [],
+                text_section: &mut [],
+            })
+        }
+        #[cfg(not(target_os = "windows"))]
         unsafe {
             let mut raw: *mut libc::c_void = std::ptr::null_mut();
-            libc::posix_memalign(&mut raw, PAGE_SIZE, _pc_loc_table_size + _code_size);
+            libc_error_guard!(posix_memalign, &mut raw, PAGE_SIZE, _pc_loc_table_size + _code_size);
             std::ptr::write_bytes(raw, 0x00, _pc_loc_table_size);
             std::ptr::write_bytes(raw.add(_pc_loc_table_size), 0xcc, _code_size); // Populate with debugger traps
-            Self {
+            Ok(Self {
                 pc_section: std::slice::from_raw_parts_mut(raw as *mut u64, pc),
                 text_section: std::slice::from_raw_parts_mut(raw.add(_pc_loc_table_size) as *mut u8, _code_size),
-            }
+            })
         }
     }
 
-    fn seal(&mut self) {
-        #[cfg(not(windows))]
+    fn seal<E: UserDefinedError>(&mut self) -> Result<(), EbpfError<E>> {
+        #[cfg(not(target_os = "windows"))]
         if !self.pc_section.is_empty() {
             unsafe {
-                libc::mprotect(self.pc_section.as_mut_ptr() as *mut _, round_to_page_size(self.pc_section.len()), libc::PROT_READ);
-                libc::mprotect(self.text_section.as_mut_ptr() as *mut _, round_to_page_size(self.text_section.len()), libc::PROT_EXEC | libc::PROT_READ);
+                libc_error_guard!(mprotect, self.pc_section.as_mut_ptr() as *mut _, self.pc_section.len(), libc::PROT_READ);
+                libc_error_guard!(mprotect, self.text_section.as_mut_ptr() as *mut _, self.text_section.len(), libc::PROT_EXEC | libc::PROT_READ);
             }
         }
+        Ok(())
     }
 }
 
 impl Drop for JitProgramSections {
     fn drop(&mut self) {
-        #[cfg(not(windows))]
+        #[cfg(not(target_os = "windows"))]
         if !self.pc_section.is_empty() {
             unsafe {
                 libc::mprotect(self.pc_section.as_mut_ptr() as *mut _, round_to_page_size(self.pc_section.len()), libc::PROT_READ | libc::PROT_WRITE);
@@ -114,7 +134,7 @@ impl<E: UserDefinedError, I: InstructionMeter> PartialEq for JitProgram<E, I> {
 impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
     pub fn new(executable: &dyn Executable<E, I>) -> Result<Self, EbpfError<E>> {
         let program = executable.get_text_bytes()?.1;
-        let mut jit = JitCompiler::new(program, executable.get_config());
+        let mut jit = JitCompiler::new::<E>(program, executable.get_config())?;
         jit.compile::<E, I>(executable)?;
         let main = unsafe { mem::transmute(jit.result.text_section.as_ptr()) };
         Ok(Self {
@@ -737,8 +757,8 @@ impl std::fmt::Debug for JitCompiler {
 
 impl JitCompiler {
     // Arguments are unused on windows
-    fn new(_program: &[u8], _config: &Config) -> JitCompiler {
-        #[cfg(windows)]
+    fn new<E: UserDefinedError>(_program: &[u8], _config: &Config) -> Result<Self, EbpfError<E>> {
+        #[cfg(target_os = "windows")]
         {
             panic!("JIT not supported on windows");
         }
@@ -758,8 +778,8 @@ impl JitCompiler {
             };
         }
 
-        JitCompiler {
-            result: JitProgramSections::new(pc + 1, pc * 256 + 512),
+        Ok(Self {
+            result: JitProgramSections::new::<E>(pc + 1, pc * 256 + 512)?,
             pc_section_jumps: vec![],
             text_section_jumps: vec![],
             offset_in_text_section: 0,
@@ -767,7 +787,7 @@ impl JitCompiler {
             program_vm_addr: 0,
             handler_anchors: HashMap::new(),
             config: *_config,
-        }
+        })
     }
 
     fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self,
@@ -1118,7 +1138,7 @@ impl JitCompiler {
 
         self.generate_epilogue::<E>()?;
         self.resolve_jumps();
-        self.result.seal();
+        self.result.seal()?;
 
         Ok(())
     }
