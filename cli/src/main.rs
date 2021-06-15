@@ -137,7 +137,7 @@ fn main() {
             let mut file = File::open(&Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            Executable::<UserError, TestInstructionMeter>::from_elf(&elf, verifier, config)
+            <dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, verifier, config)
                 .map_err(|err| format!("Executable constructor failed: {:?}", err))
         }
     }

@@ -21,13 +21,7 @@ use goblin::{
     elf::{header::*, reloc::*, section_header::*, Elf},
     error::Error as GoblinError,
 };
-use std::{
-    collections::BTreeMap,
-    fmt::Debug,
-    mem,
-    ops::Range,
-    str,
-};
+use std::{collections::BTreeMap, fmt::Debug, mem, ops::Range, str};
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -307,9 +301,8 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
                             .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
                         name = elf
                             .dynstrtab
-                            .get(sym.st_name)
-                            .ok_or(ElfError::UnknownSymbol(sym.st_name))?
-                            .map_err(|_| ElfError::UnknownSymbol(sym.st_name))?;
+                            .get_at(sym.st_name)
+                            .ok_or(ElfError::UnknownSymbol(sym.st_name))?;
                     }
                 }
             }
@@ -331,7 +324,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
                 if symbol.st_info != 0x10 {
                     continue;
                 }
-                let name = elf.dynstrtab.get(symbol.st_name).unwrap().unwrap();
+                let name = elf.dynstrtab.get_at(symbol.st_name).unwrap();
                 let hash = ebpf::hash_symbol_name(name.as_bytes());
                 syscalls.insert(hash, name.to_string());
             }
@@ -381,12 +374,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         let text_section_info = SectionInfo {
             name: elf
                 .shdr_strtab
-                .get(text_section.sh_name)
-                .unwrap()
+                .get_at(text_section.sh_name)
                 .unwrap()
                 .to_string(),
             vaddr: text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START),
-            offset_range: text_section.file_range(),
+            offset_range: text_section.file_range().unwrap_or_default(),
         };
         if text_section_info.vaddr > ebpf::MM_STACK_START {
             return Err(ElfError::OutOfBounds);
@@ -410,14 +402,14 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             .section_headers
             .iter()
             .filter_map(|section_header| {
-                if let Some(Ok(name)) = elf.shdr_strtab.get(section_header.sh_name) {
+                if let Some(name) = elf.shdr_strtab.get_at(section_header.sh_name) {
                     if name == ".rodata" || name == ".data.rel.ro" || name == ".eh_frame" {
                         return Some(SectionInfo {
                             name: name.to_string(),
                             vaddr: section_header
                                 .sh_addr
                                 .saturating_add(ebpf::MM_PROGRAM_START),
-                            offset_range: section_header.file_range(),
+                            offset_range: section_header.file_range().unwrap_or_default(),
                         });
                     }
                 }
@@ -488,7 +480,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         }
 
         let num_text_sections = elf.section_headers.iter().fold(0, |count, section_header| {
-            if let Some(Ok(this_name)) = elf.shdr_strtab.get(section_header.sh_name) {
+            if let Some(this_name) = elf.shdr_strtab.get_at(section_header.sh_name) {
                 if this_name == ".text" {
                     return count + 1;
                 }
@@ -500,7 +492,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         }
 
         for section_header in elf.section_headers.iter() {
-            if let Some(Ok(this_name)) = elf.shdr_strtab.get(section_header.sh_name) {
+            if let Some(this_name) = elf.shdr_strtab.get_at(section_header.sh_name) {
                 if this_name.starts_with(".bss") {
                     return Err(ElfError::BssNotSupported);
                 }
@@ -531,7 +523,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     /// Get a section by name
     fn get_section(elf: &Elf, name: &str) -> Result<SectionHeader, ElfError> {
         match elf.section_headers.iter().find(|section_header| {
-            if let Some(Ok(this_name)) = elf.shdr_strtab.get(section_header.sh_name) {
+            if let Some(this_name) = elf.shdr_strtab.get_at(section_header.sh_name) {
                 return this_name == name;
             }
             false
@@ -553,7 +545,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         Self::fixup_relative_calls(
             bpf_functions,
             &mut elf_bytes
-                .get_mut(text_section.file_range())
+                .get_mut(text_section.file_range().unwrap_or_default())
                 .ok_or(ElfError::OutOfBounds)?,
         )?;
 
@@ -587,7 +579,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     let refd_pa = ebpf::MM_PROGRAM_START.saturating_add(refd_va);
 
                     // Write the physical address back into the target location
-                    if text_section.file_range().contains(&r_offset) {
+                    if text_section
+                        .file_range()
+                        .unwrap_or_default()
+                        .contains(&r_offset)
+                    {
                         // Instruction lddw spans two instruction slots, split the
                         // physical address into a high and low and write into both slot's imm field
 
@@ -622,9 +618,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
                     let name = elf
                         .dynstrtab
-                        .get(sym.st_name)
-                        .ok_or(ElfError::UnknownSymbol(sym.st_name))?
-                        .map_err(|_| ElfError::UnknownSymbol(sym.st_name))?;
+                        .get_at(sym.st_name)
+                        .ok_or(ElfError::UnknownSymbol(sym.st_name))?;
                     let hash = if sym.is_function() && sym.st_value != 0 {
                         // bpf call
                         if !text_section.vm_range().contains(&(sym.st_value as usize)) {
@@ -662,9 +657,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             let target_pc = (symbol.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
             let name = elf
                 .strtab
-                .get(symbol.st_name)
-                .ok_or(ElfError::UnknownSymbol(symbol.st_name))?
-                .map_err(|_| ElfError::UnknownSymbol(symbol.st_name))?;
+                .get_at(symbol.st_name)
+                .ok_or(ElfError::UnknownSymbol(symbol.st_name))?;
             register_bpf_function(bpf_functions, target_pc, name)?;
         }
 
