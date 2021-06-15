@@ -21,7 +21,13 @@ use goblin::{
     elf::{header::*, reloc::*, section_header::*, Elf},
     error::Error as GoblinError,
 };
-use std::{collections::BTreeMap, fmt::Debug, mem, ops::Range, str};
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    mem,
+    ops::Range,
+    str,
+};
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -551,6 +557,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 .ok_or(ElfError::OutOfBounds)?,
         )?;
 
+        let mut syscall_cache = BTreeMap::new();
+        let text_section = Self::get_section(elf, ".text")?;
+
         // Fixup all the relocations in the relocation section if exists
         for relocation in &elf.dynrels {
             let r_offset = relocation.r_offset as usize;
@@ -576,11 +585,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
                     // final "physical address" from the VM's perspetive is rooted at `MM_PROGRAM_START`
                     let refd_pa = ebpf::MM_PROGRAM_START.saturating_add(refd_va);
-
-                    // trace!(
-                    //     "Relocation section va {:#x} off {:#x} va {:#x} pa {:#x} va {:#x} pa {:#x}",
-                    //     section_infos[target_section].va, target_offset, relocation.addr, section_infos[target_section].bytes.as_ptr() as usize + target_offset, refd_va, refd_pa
-                    // );
 
                     // Write the physical address back into the target location
                     if text_section.file_range().contains(&r_offset) {
@@ -621,7 +625,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         .get(sym.st_name)
                         .ok_or(ElfError::UnknownSymbol(sym.st_name))?
                         .map_err(|_| ElfError::UnknownSymbol(sym.st_name))?;
-                    let text_section = Self::get_section(elf, ".text")?;
                     let hash = if sym.is_function() && sym.st_value != 0 {
                         // bpf call
                         if !text_section.vm_range().contains(&(sym.st_value as usize)) {
@@ -632,7 +635,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         register_bpf_function(bpf_functions, target_pc, name)?
                     } else {
                         // syscall
-                        ebpf::hash_symbol_name(name.as_bytes())
+                        *syscall_cache
+                            .entry(sym.st_name)
+                            .or_insert_with(|| ebpf::hash_symbol_name(name.as_bytes()))
                     };
                     let mut checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
