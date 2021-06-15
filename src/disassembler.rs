@@ -225,7 +225,7 @@ pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &
         ebpf::JSLE_IMM   => { name = "jsle"; desc = jmp_imm_str(name, insn, analysis); },
         ebpf::JSLE_REG   => { name = "jsle"; desc = jmp_reg_str(name, insn, analysis); },
         ebpf::CALL_IMM   => {
-            desc = if let Some(syscall_name) = analysis.syscalls.get(&(insn.imm as u32)) {
+            desc = if let Some(syscall_name) = analysis.executable.get_syscall_symbols().get(&(insn.imm as u32)) {
                 name = "syscall";
                 format!("{} {}", name, syscall_name)
             } else {

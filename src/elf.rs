@@ -207,8 +207,10 @@ pub struct EBpfElf<E: UserDefinedError, I: InstructionMeter> {
     text_section_info: SectionInfo,
     /// Read-only section info
     ro_section_infos: Vec<SectionInfo>,
-    /// Call resolution map (pc, hash, name)
+    /// Call resolution map (hash, pc, name)
     bpf_functions: BTreeMap<u32, (usize, String)>,
+    /// Syscall symbol map (hash, name)
+    syscall_symbols: BTreeMap<u32, String>,
     /// Syscall resolution map
     syscall_registry: SyscallRegistry,
     /// Compiled program and argument
@@ -316,23 +318,17 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     }
 
     /// Get syscalls and BPF functions (if debug symbols are not stripped)
-    fn get_symbols(&self) -> (BTreeMap<u32, String>, BTreeMap<usize, (u32, String)>) {
-        let mut syscalls = BTreeMap::new();
+    fn get_function_symbols(&self) -> BTreeMap<usize, (u32, String)> {
         let mut bpf_functions = BTreeMap::new();
-        if let Ok(elf) = Elf::parse(self.elf_bytes.as_slice()) {
-            for symbol in &elf.dynsyms {
-                if symbol.st_info != 0x10 {
-                    continue;
-                }
-                let name = elf.dynstrtab.get_at(symbol.st_name).unwrap();
-                let hash = ebpf::hash_symbol_name(name.as_bytes());
-                syscalls.insert(hash, name.to_string());
-            }
-        }
         for (hash, (pc, name)) in self.bpf_functions.iter() {
             bpf_functions.insert(*pc, (*hash, name.clone()));
         }
-        (syscalls, bpf_functions)
+        bpf_functions
+    }
+
+    /// Get syscalls symbols
+    fn get_syscall_symbols(&self) -> &BTreeMap<u32, String> {
+        &self.syscall_symbols
     }
 }
 
@@ -357,6 +353,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             },
             ro_section_infos: vec![],
             bpf_functions,
+            syscall_symbols: BTreeMap::default(),
             syscall_registry: SyscallRegistry::default(),
             compiled_program: None,
         }
@@ -386,7 +383,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
         // relocate symbols
         let mut bpf_functions = BTreeMap::default();
-        Self::relocate(&mut bpf_functions, &elf, elf_bytes.as_slice_mut())?;
+        let mut syscall_symbols = BTreeMap::default();
+        Self::relocate(
+            &mut bpf_functions,
+            &mut syscall_symbols,
+            &elf,
+            elf_bytes.as_slice_mut(),
+        )?;
 
         // calculate entrypoint offset into the text section
         let offset = elf.header.e_entry - text_section.sh_addr;
@@ -428,6 +431,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             text_section_info,
             ro_section_infos,
             bpf_functions,
+            syscall_symbols,
             syscall_registry: SyscallRegistry::default(),
             compiled_program: None,
         })
@@ -536,6 +540,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     /// Relocates the ELF in-place
     fn relocate(
         bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+        syscall_symbols: &mut BTreeMap<u32, String>,
         elf: &Elf,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
@@ -630,9 +635,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         register_bpf_function(bpf_functions, target_pc, name)?
                     } else {
                         // syscall
-                        *syscall_cache
+                        syscall_cache
                             .entry(sym.st_name)
-                            .or_insert_with(|| ebpf::hash_symbol_name(name.as_bytes()))
+                            .or_insert_with(|| (ebpf::hash_symbol_name(name.as_bytes()), name))
+                            .0
                     };
                     let mut checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
@@ -642,6 +648,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 _ => return Err(ElfError::UnknownRelocation(relocation.r_type)),
             }
         }
+
+        // Save hashed syscall names for debugging
+        *syscall_symbols = syscall_cache
+            .values()
+            .map(|(hash, name)| (*hash, name.to_string()))
+            .collect();
 
         // Register all known function names from the symbol table
         for symbol in &elf.syms {

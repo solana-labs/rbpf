@@ -137,13 +137,13 @@ fn main() {
             let mut file = File::open(&Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            <dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, verifier, config)
+            <dyn Executable<UserError, TestInstructionMeter>>::from_elf(&elf, verifier, config)
                 .map_err(|err| format!("Executable constructor failed: {:?}", err))
         }
     }
     .unwrap();
 
-    let (syscalls, _functions) = executable.get_symbols();
+    let syscalls = executable.get_syscall_symbols();
     let mut syscall_registry = SyscallRegistry::default();
     for hash in syscalls.keys() {
         let _ = syscall_registry.register_syscall_by_hash(*hash, MockSyscall::call);
@@ -192,7 +192,7 @@ fn main() {
     ];
     let heap_region = MemoryRegion::new_from_slice(&heap, ebpf::MM_HEAP_START, 0, true);
     let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[heap_region]).unwrap();
-    for (hash, name) in &analysis.syscalls {
+    for (hash, name) in analysis.executable.get_syscall_symbols() {
         vm.bind_syscall_context_object(Box::new(MockSyscall { name: name.clone() }), Some(*hash))
             .unwrap();
     }

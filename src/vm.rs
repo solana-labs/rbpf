@@ -226,8 +226,10 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     fn jit_compile(&mut self) -> Result<(), EbpfError<E>>;
     /// Report information on a symbol that failed to be resolved
     fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>>;
-    /// Get syscalls and BPF functions (if debug symbols are not stripped)
-    fn get_symbols(&self) -> (BTreeMap<u32, String>, BTreeMap<usize, (u32, String)>);
+    /// Get BPF functions
+    fn get_function_symbols(&self) -> BTreeMap<usize, (u32, String)>;
+    /// Get syscalls symbols
+    fn get_syscall_symbols(&self) -> &BTreeMap<u32, String>;
 }
 
 /// Static constructors for Executable

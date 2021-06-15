@@ -96,8 +96,6 @@ pub struct Analysis<'a, E: UserDefinedError, I: InstructionMeter> {
     pub executable: &'a dyn Executable<E, I>,
     /// Plain list of instructions as they occur in the executable
     pub instructions: Vec<ebpf::Insn>,
-    /// Syscalls used by the executable (available if debug symbols are not stripped)
-    pub syscalls: BTreeMap<u32, String>,
     /// Functions in the executable
     pub functions: BTreeMap<usize, (u32, String)>,
     /// Nodes of the control-flow graph
@@ -116,7 +114,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     /// Analyze an executable statically
     pub fn from_executable(executable: &'a dyn Executable<E, I>) -> Self {
         let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
-        let (syscalls, functions) = executable.get_symbols();
+        let functions = executable.get_function_symbols();
         debug_assert!(
             program.len() % ebpf::INSN_SIZE == 0,
             "eBPF program length must be a multiple of {:?} octets is {:?}",
@@ -140,7 +138,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         let mut result = Self {
             executable,
             instructions,
-            syscalls,
             functions,
             cfg_nodes: BTreeMap::new(),
             topological_order: Vec::new(),
@@ -189,7 +186,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
             match insn.opc {
                 ebpf::CALL_IMM => {
-                    if let Some(syscall_name) = self.syscalls.get(&(insn.imm as u32)) {
+                    if let Some(syscall_name) = self
+                        .executable
+                        .get_syscall_symbols()
+                        .get(&(insn.imm as u32))
+                    {
                         if syscall_name == "abort" {
                             self.cfg_nodes
                                 .entry(insn.ptr + 1)
