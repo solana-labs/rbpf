@@ -164,7 +164,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             }
             for destination in &destinations {
                 self.cfg_nodes
-                    .get_mut(&destination)
+                    .get_mut(destination)
                     .unwrap()
                     .sources
                     .push(source);
@@ -281,7 +281,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 .filter(|(cfg_node_start, _cfg_node)| {
                     match self
                         .instructions
-                        .binary_search_by(|insn| insn.ptr.cmp(&cfg_node_start))
+                        .binary_search_by(|insn| insn.ptr.cmp(cfg_node_start))
                     {
                         Ok(_) => true,
                         Err(_index) => false,
@@ -381,7 +381,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     /// Gives the basic blocks names
     pub fn label_basic_blocks(&mut self) {
         for (pc, cfg_node) in self.cfg_nodes.iter_mut() {
-            cfg_node.label = if let Some(function) = self.functions.get(&pc) {
+            cfg_node.label = if let Some(function) = self.functions.get(pc) {
                 demangle(&function.1).to_string()
             } else {
                 format!("lbb_{}", pc)
@@ -425,7 +425,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 insn.ptr,
                 &mut last_basic_block,
             )?;
-            writeln!(output, "    {}", disassemble_instruction(&insn, self))?;
+            writeln!(output, "    {}", disassemble_instruction(insn, self))?;
         }
         Ok(())
     }
@@ -477,7 +477,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 cfg_node_start,
                 analysis.instructions[cfg_node.instructions.clone()].iter()
                 .map(|insn| {
-                    let desc = disassemble_instruction(&insn, &analysis);
+                    let desc = disassemble_instruction(insn, analysis);
                     if let Some(split_index) = desc.find(' ') {
                         let mut rest = desc[split_index+1..].to_string();
                         if rest.len() > MAX_CELL_CONTENT_LENGTH + 1 {
@@ -545,13 +545,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             writeln!(
                 output,
                 "    label={:?};",
-                html_escape(&self.cfg_nodes[&function_start].label)
+                html_escape(&self.cfg_nodes[function_start].label)
             )?;
             writeln!(output, "    tooltip=lbb_{};", *function_start)?;
             emit_cfg_node(
                 output,
                 dynamic_analysis,
-                &self,
+                self,
                 *function_start..function_end,
                 &mut alias_nodes,
                 *function_start,

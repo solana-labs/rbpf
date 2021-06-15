@@ -113,7 +113,7 @@ fn test_fuzz_execute() {
         |bytes: &mut [u8]| {
             if let Ok(mut executable) =
                 <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
-                    &bytes,
+                    bytes,
                     Some(check),
                     Config::default(),
                 )

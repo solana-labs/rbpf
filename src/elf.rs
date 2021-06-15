@@ -225,8 +225,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     fn get_text_bytes(&self) -> Result<(u64, &[u8]), EbpfError<E>> {
         Ok((
             self.text_section_info.vaddr,
-            &self
-                .elf_bytes
+            self.elf_bytes
                 .as_slice()
                 .get(self.text_section_info.offset_range.clone())
                 .ok_or(ElfError::OutOfBounds)?,
@@ -327,7 +326,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
                     continue;
                 }
                 let name = elf.dynstrtab.get(symbol.st_name).unwrap().unwrap();
-                let hash = ebpf::hash_symbol_name(&name.as_bytes());
+                let hash = ebpf::hash_symbol_name(name.as_bytes());
                 syscalls.insert(hash, name.to_string());
             }
         }
@@ -369,7 +368,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         let elf = Elf::parse(bytes)?;
         let mut elf_bytes = AlignedMemory::new_with_data(bytes, ebpf::HOST_ALIGN);
 
-        Self::validate(&elf, &elf_bytes.as_slice())?;
+        Self::validate(&elf, elf_bytes.as_slice())?;
 
         // calculate the text section info
         let text_section = Self::get_section(&elf, ".text")?;
@@ -569,7 +568,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     let checked_slice = elf_bytes
                         .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                         .ok_or(ElfError::OutOfBounds)?;
-                    let refd_va = LittleEndian::read_u32(&checked_slice) as u64;
+                    let refd_va = LittleEndian::read_u32(checked_slice) as u64;
 
                     if refd_va == 0 {
                         return Err(ElfError::InvalidVirtualAddress(refd_va));
@@ -630,10 +629,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         }
                         let target_pc =
                             (sym.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
-                        register_bpf_function(bpf_functions, target_pc, &name)?
+                        register_bpf_function(bpf_functions, target_pc, name)?
                     } else {
                         // syscall
-                        ebpf::hash_symbol_name(&name.as_bytes())
+                        ebpf::hash_symbol_name(name.as_bytes())
                     };
                     let mut checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
@@ -661,7 +660,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 .get(symbol.st_name)
                 .ok_or(ElfError::UnknownSymbol(symbol.st_name))?
                 .map_err(|_| ElfError::UnknownSymbol(symbol.st_name))?;
-            register_bpf_function(bpf_functions, target_pc, &name)?;
+            register_bpf_function(bpf_functions, target_pc, name)?;
         }
 
         Ok(())

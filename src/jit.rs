@@ -1301,10 +1301,10 @@ impl JitCompiler {
 
     fn resolve_jumps(&mut self) {
         for jump in &self.pc_section_jumps {
-            self.result.pc_section[jump.location] = jump.get_target_offset(&self);
+            self.result.pc_section[jump.location] = jump.get_target_offset(self);
         }
         for jump in &self.text_section_jumps {
-            let offset_value = jump.get_target_offset(&self) as i32
+            let offset_value = jump.get_target_offset(self) as i32
                 - jump.location as i32 // Relative jump
                 - std::mem::size_of::<i32>() as i32; // Jump from end of instruction
             unsafe {

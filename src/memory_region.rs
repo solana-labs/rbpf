@@ -75,7 +75,7 @@ impl fmt::Debug for MemoryRegion {
 }
 impl std::cmp::PartialOrd for MemoryRegion {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 impl std::cmp::Ord for MemoryRegion {

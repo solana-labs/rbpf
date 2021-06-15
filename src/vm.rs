@@ -350,7 +350,7 @@ impl Tracer {
                 index,
                 &entry[0..11],
                 pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                disassemble_instruction(&insn, &analysis),
+                disassemble_instruction(insn, analysis),
             )?;
         }
         Ok(())
@@ -421,7 +421,7 @@ pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 6;
 /// // Instantiate a VM.
 /// let mut bpf_functions = std::collections::BTreeMap::new();
 /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-/// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
+/// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
 /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
 ///
 /// // Provide a reference to the packet data.
@@ -457,7 +457,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// // Instantiate a VM.
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-    /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
+    /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// ```
     pub fn new(
@@ -482,7 +482,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         regions.push(frames.get_region().clone());
         regions.extend(const_data_regions);
         regions.push(MemoryRegion::new_from_slice(
-            &mem,
+            mem,
             ebpf::MM_INPUT_START,
             0,
             true,
@@ -499,7 +499,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             executable,
             program,
             program_vm_addr,
-            memory_mapping: MemoryMapping::new(regions, &config)?,
+            memory_mapping: MemoryMapping::new(regions, config)?,
             tracer: Tracer::default(),
             syscall_context_objects: vec![
                 std::ptr::null_mut();
@@ -527,7 +527,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
 
     /// Returns the program
     pub fn get_program(&self) -> &[u8] {
-        &self.program
+        self.program
     }
 
     /// Returns the tracer
@@ -565,7 +565,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// // Instantiate an Executable and VM
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-    /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
+    /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
     /// executable.set_syscall_registry(syscall_registry);
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// // Bind a context object instance to the previously registered syscall
@@ -630,7 +630,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// // Instantiate a VM.
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-    /// let mut executable = Executable::<UserError, DefaultInstructionMeter>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
+    /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, bpf_functions, None, Config::default()).unwrap();
     /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
     ///
     /// // Provide a reference to the packet data.

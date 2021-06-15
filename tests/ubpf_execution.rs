@@ -3275,7 +3275,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let mut bpf_functions = BTreeMap::new();
     register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
     let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
-        &prog,
+        prog,
         bpf_functions,
         Some(check),
         Config {
