@@ -3054,16 +3054,17 @@ fn test_err_call_unresolved() {
 
 #[test]
 fn test_err_unresolved_elf() {
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/unresolved_syscall.so",
-        [],
-        (
-            b"log" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
-        ),
-        {
-            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "log_64" && pc == 550 && offset == 4168)
-        },
-        9
+    let mut syscall_registry = SyscallRegistry::default();
+    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {});
+    let mut file = File::open("tests/elfs/unresolved_syscall.so").unwrap();
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+    let config = Config {
+        reject_unresolved_syscalls: true,
+        ..Default::default()
+    };
+    assert!(
+        matches!(<dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, None, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
     );
 }
 

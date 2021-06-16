@@ -183,6 +183,8 @@ pub struct Config {
     pub enable_instruction_meter: bool,
     /// Enable instruction tracing
     pub enable_instruction_tracing: bool,
+    /// Reject ELF files containing syscalls which are not in the SyscallRegistry
+    pub reject_unresolved_syscalls: bool,
     /// Ratio of random no-ops per instruction in JIT (0.0 = OFF)
     pub noop_instruction_ratio: f64,
     /// Enable disinfection of immediate values and offsets provided by the user in JIT
@@ -197,6 +199,7 @@ impl Default for Config {
             stack_frame_size: 4_096,
             enable_instruction_meter: true,
             enable_instruction_tracing: false,
+            reject_unresolved_syscalls: false,
             noop_instruction_ratio: 1.0 / 256.0,
             sanitize_user_provided_values: true,
             encrypt_environment_registers: true,

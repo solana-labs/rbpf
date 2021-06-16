@@ -359,7 +359,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     pub fn load(
         config: Config,
         bytes: &[u8],
-        syscall_registry: SyscallRegistry,
+        mut syscall_registry: SyscallRegistry,
     ) -> Result<Self, ElfError> {
         let elf = Elf::parse(bytes)?;
         let mut elf_bytes = AlignedMemory::new_with_data(bytes, ebpf::HOST_ALIGN);
@@ -385,8 +385,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         let mut bpf_functions = BTreeMap::default();
         let mut syscall_symbols = BTreeMap::default();
         Self::relocate(
+            &config,
             &mut bpf_functions,
             &mut syscall_symbols,
+            &mut syscall_registry,
             &elf,
             elf_bytes.as_slice_mut(),
         )?;
@@ -539,8 +541,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
     /// Relocates the ELF in-place
     fn relocate(
+        config: &Config,
         bpf_functions: &mut BTreeMap<u32, (usize, String)>,
         syscall_symbols: &mut BTreeMap<u32, String>,
+        syscall_registry: &mut SyscallRegistry,
         elf: &Elf,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
@@ -635,10 +639,20 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         register_bpf_function(bpf_functions, target_pc, name)?
                     } else {
                         // syscall
-                        syscall_cache
+                        let hash = syscall_cache
                             .entry(sym.st_name)
                             .or_insert_with(|| (ebpf::hash_symbol_name(name.as_bytes()), name))
-                            .0
+                            .0;
+                        if config.reject_unresolved_syscalls
+                            && syscall_registry.lookup_syscall(hash).is_none()
+                        {
+                            return Err(ElfError::UnresolvedSymbol(
+                                name.to_string(),
+                                r_offset / ebpf::INSN_SIZE + ebpf::ELF_INSN_DUMP_OFFSET,
+                                r_offset,
+                            ));
+                        }
+                        hash
                     };
                     let mut checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
