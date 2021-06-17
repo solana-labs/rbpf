@@ -43,12 +43,24 @@ struct JitProgramSections {
     text_section: &'static mut [u8],
 }
 
+const PAGE_SIZE: usize = 4096;
+fn round_to_page_size(value: usize) -> usize {
+    (value + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE
+}
+
 #[cfg(not(target_os = "windows"))]
 macro_rules! libc_error_guard {
+    (succeeded?, mmap, $addr:expr, $($arg:expr),*) => {{
+        *$addr = libc::mmap(*$addr, $($arg),*);
+        *$addr != libc::MAP_FAILED
+    }};
+    (succeeded?, $function:ident, $($arg:expr),*) => {
+        libc::$function($($arg),*) == 0
+    };
     ($function:ident, $($arg:expr),*) => {{
         const RETRY_COUNT: usize = 3;
         for i in 0..RETRY_COUNT {
-            if libc::$function($($arg),*) == 0 {
+            if libc_error_guard!(succeeded?, $function, $($arg),*) {
                 break;
             } else if i + 1 == RETRY_COUNT {
                 let args = vec![$(format!("{:?}", $arg)),*];
@@ -59,11 +71,12 @@ macro_rules! libc_error_guard {
                 return Err(EbpfError::LibcInvocationFailed(stringify!($function), args, errno));
             }
         }
-    }}
+    }};
 }
 
 impl JitProgramSections {
     fn new<E: UserDefinedError>(pc: usize, code_size: usize) -> Result<Self, EbpfError<E>> {
+        debug_assert_eq!(PAGE_SIZE, unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize);
         let _pc_loc_table_size = round_to_page_size(pc * 8);
         let _code_size = round_to_page_size(code_size);
         #[cfg(target_os = "windows")]
@@ -76,7 +89,7 @@ impl JitProgramSections {
         #[cfg(not(target_os = "windows"))]
         unsafe {
             let mut raw: *mut libc::c_void = std::ptr::null_mut();
-            libc_error_guard!(posix_memalign, &mut raw, PAGE_SIZE, _pc_loc_table_size + _code_size);
+            libc_error_guard!(mmap, &mut raw, _pc_loc_table_size + _code_size, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_ANONYMOUS | libc::MAP_PRIVATE, 0, 0);
             std::ptr::write_bytes(raw, 0x00, _pc_loc_table_size);
             std::ptr::write_bytes(raw.add(_pc_loc_table_size), 0xcc, _code_size); // Populate with debugger traps
             Ok(Self {
@@ -103,9 +116,7 @@ impl Drop for JitProgramSections {
         #[cfg(not(target_os = "windows"))]
         if !self.pc_section.is_empty() {
             unsafe {
-                libc::mprotect(self.pc_section.as_mut_ptr() as *mut _, round_to_page_size(self.pc_section.len()), libc::PROT_READ | libc::PROT_WRITE);
-                libc::mprotect(self.text_section.as_mut_ptr() as *mut _, round_to_page_size(self.text_section.len()), libc::PROT_READ | libc::PROT_WRITE);
-                libc::free(self.pc_section.as_ptr() as *mut _);
+                libc::munmap(self.pc_section.as_ptr() as *mut _, round_to_page_size(self.pc_section.len()) + round_to_page_size(self.text_section.len()));
             }
         }
     }
@@ -690,11 +701,6 @@ fn emit_set_exception_kind<E: UserDefinedError>(jit: &mut JitCompiler, err: Ebpf
     let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
     X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(-8 * (CALLEE_SAVED_REGISTERS.len() + 1) as i32)).emit(jit)?;
     X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(8), err_kind as i64).emit(jit)
-}
-
-const PAGE_SIZE: usize = 4096;
-fn round_to_page_size(value: usize) -> usize {
-    (value + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE
 }
 
 #[derive(Debug)]
