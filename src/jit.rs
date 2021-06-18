@@ -41,11 +41,11 @@ pub struct JitProgramArgument<'a> {
 struct JitProgramSections {
     pc_section: &'static mut [u64],
     text_section: &'static mut [u8],
+    total_allocation_size: usize,
 }
 
-const PAGE_SIZE: usize = 4096;
-fn round_to_page_size(value: usize) -> usize {
-    (value + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE
+fn round_to_page_size(value: usize, page_size: usize) -> usize {
+    (value + page_size - 1) / page_size * page_size
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -76,32 +76,34 @@ macro_rules! libc_error_guard {
 
 impl JitProgramSections {
     fn new<E: UserDefinedError>(pc: usize, code_size: usize) -> Result<Self, EbpfError<E>> {
-        debug_assert_eq!(PAGE_SIZE, unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize);
-        let _pc_loc_table_size = round_to_page_size(pc * 8);
-        let _code_size = round_to_page_size(code_size);
         #[cfg(target_os = "windows")]
         {
             Ok(Self {
                 pc_section: &mut [],
                 text_section: &mut [],
+                total_allocation_size: 0,
             })
         }
         #[cfg(not(target_os = "windows"))]
         unsafe {
+            let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
+            let pc_loc_table_size = round_to_page_size(pc * 8, page_size);
+            let code_size = round_to_page_size(code_size, page_size);
             let mut raw: *mut libc::c_void = std::ptr::null_mut();
-            libc_error_guard!(mmap, &mut raw, _pc_loc_table_size + _code_size, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_ANONYMOUS | libc::MAP_PRIVATE, 0, 0);
-            std::ptr::write_bytes(raw, 0x00, _pc_loc_table_size);
-            std::ptr::write_bytes(raw.add(_pc_loc_table_size), 0xcc, _code_size); // Populate with debugger traps
+            libc_error_guard!(mmap, &mut raw, pc_loc_table_size + code_size, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_ANONYMOUS | libc::MAP_PRIVATE, 0, 0);
+            std::ptr::write_bytes(raw, 0x00, pc_loc_table_size);
+            std::ptr::write_bytes(raw.add(pc_loc_table_size), 0xcc, code_size); // Populate with debugger traps
             Ok(Self {
                 pc_section: std::slice::from_raw_parts_mut(raw as *mut u64, pc),
-                text_section: std::slice::from_raw_parts_mut(raw.add(_pc_loc_table_size) as *mut u8, _code_size),
+                text_section: std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size) as *mut u8, code_size),
+                total_allocation_size: pc_loc_table_size + code_size,
             })
         }
     }
 
     fn seal<E: UserDefinedError>(&mut self) -> Result<(), EbpfError<E>> {
         #[cfg(not(target_os = "windows"))]
-        if !self.pc_section.is_empty() {
+        if self.total_allocation_size > 0 {
             unsafe {
                 libc_error_guard!(mprotect, self.pc_section.as_mut_ptr() as *mut _, self.pc_section.len(), libc::PROT_READ);
                 libc_error_guard!(mprotect, self.text_section.as_mut_ptr() as *mut _, self.text_section.len(), libc::PROT_EXEC | libc::PROT_READ);
@@ -114,9 +116,9 @@ impl JitProgramSections {
 impl Drop for JitProgramSections {
     fn drop(&mut self) {
         #[cfg(not(target_os = "windows"))]
-        if !self.pc_section.is_empty() {
+        if self.total_allocation_size > 0 {
             unsafe {
-                libc::munmap(self.pc_section.as_ptr() as *mut _, round_to_page_size(self.pc_section.len()) + round_to_page_size(self.text_section.len()));
+                libc::munmap(self.pc_section.as_ptr() as *mut _, self.total_allocation_size);
             }
         }
     }
