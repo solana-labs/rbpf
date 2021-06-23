@@ -28,6 +28,7 @@ fn bench_load_elf(bencher: &mut Bencher) {
             &elf,
             None,
             Config::default(),
+            SyscallRegistry::default(),
         )
         .unwrap()
     });
@@ -43,6 +44,7 @@ fn bench_load_elf_without_syscall(bencher: &mut Bencher) {
             &elf,
             None,
             Config::default(),
+            SyscallRegistry::default(),
         )
         .unwrap();
         executable
@@ -55,17 +57,17 @@ fn bench_load_elf_with_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        let mut executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
-            &elf,
-            None,
-            Config::default(),
-        )
-        .unwrap();
         let mut syscall_registry = SyscallRegistry::default();
         syscall_registry
             .register_syscall_by_name::<UserError, _>(b"log_64", BpfSyscallU64::call)
             .unwrap();
-        executable.set_syscall_registry(syscall_registry);
+        let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
+            &elf,
+            None,
+            Config::default(),
+            syscall_registry,
+        )
+        .unwrap();
         executable
     });
 }

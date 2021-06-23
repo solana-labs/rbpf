@@ -7,11 +7,21 @@
 extern crate solana_rbpf;
 extern crate test_utils;
 
-use solana_rbpf::{assembler::assemble, ebpf, user_error::UserError, vm::Config};
+use solana_rbpf::{
+    assembler::assemble,
+    ebpf,
+    user_error::UserError,
+    vm::{Config, SyscallRegistry},
+};
 use test_utils::{TestInstructionMeter, TCP_SACK_ASM, TCP_SACK_BIN};
 
 fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
-    let executable = assemble::<UserError, TestInstructionMeter>(src, None, Config::default())?;
+    let executable = assemble::<UserError, TestInstructionMeter>(
+        src,
+        None,
+        Config::default(),
+        SyscallRegistry::default(),
+    )?;
     let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
     Ok((0..program.len() / ebpf::INSN_SIZE)
         .map(|insn_ptr| ebpf::get_insn(program, insn_ptr))
@@ -564,8 +574,13 @@ fn test_large_immediate() {
 
 #[test]
 fn test_tcp_sack() {
-    let executable =
-        assemble::<UserError, TestInstructionMeter>(TCP_SACK_ASM, None, Config::default()).unwrap();
+    let executable = assemble::<UserError, TestInstructionMeter>(
+        TCP_SACK_ASM,
+        None,
+        Config::default(),
+        SyscallRegistry::default(),
+    )
+    .unwrap();
     let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
     assert_eq!(program, TCP_SACK_BIN.to_vec());
 }

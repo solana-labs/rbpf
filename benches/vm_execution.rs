@@ -11,7 +11,7 @@ extern crate test;
 
 use solana_rbpf::{
     user_error::UserError,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallRegistry},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
@@ -25,6 +25,7 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
         &elf,
         None,
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
     let mut vm =
@@ -46,6 +47,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
         &elf,
         None,
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
     executable.jit_compile().unwrap();
@@ -65,11 +67,14 @@ fn bench_jit_vs_interpreter(
     instruction_meter: u64,
     mem: &mut [u8],
 ) {
-    let mut executable = solana_rbpf::assembler::assemble::<
-        UserError,
-        test_utils::TestInstructionMeter,
-    >(assembly, None, Config::default())
-    .unwrap();
+    let mut executable =
+        solana_rbpf::assembler::assemble::<UserError, test_utils::TestInstructionMeter>(
+            assembly,
+            None,
+            Config::default(),
+            SyscallRegistry::default(),
+        )
+        .unwrap();
     executable.jit_compile().unwrap();
     let mut vm = EbpfVm::new(executable.as_ref(), mem, &[]).unwrap();
     let interpreter_summary = bencher

@@ -11,7 +11,7 @@ extern crate test;
 
 use solana_rbpf::{
     user_error::UserError,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallRegistry},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
@@ -25,6 +25,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
         &elf,
         None,
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
     bencher.iter(|| {
@@ -43,6 +44,7 @@ fn bench_jit_compile(bencher: &mut Bencher) {
         &elf,
         None,
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
     bencher.iter(|| executable.jit_compile().unwrap());

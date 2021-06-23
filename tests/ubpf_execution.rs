@@ -28,7 +28,7 @@ use test_utils::{
 };
 
 macro_rules! test_interpreter_and_jit {
-    (register, $executable:expr, $syscall_registry:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
+    (register, $syscall_registry:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
         $syscall_registry.register_syscall_by_name::<UserError, _>($location, $syscall_function).unwrap();
     };
     (bind, $vm:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
@@ -36,9 +36,6 @@ macro_rules! test_interpreter_and_jit {
     };
     ($executable:expr, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
         let check_closure = $check;
-        let mut syscall_registry = SyscallRegistry::default();
-        $(test_interpreter_and_jit!(register, $executable, syscall_registry, $location => $syscall_function; $syscall_context_object);)*
-        $executable.set_syscall_registry(syscall_registry);
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
@@ -87,7 +84,9 @@ macro_rules! test_interpreter_and_jit_asm {
                 enable_instruction_tracing: true,
                 ..Config::default()
             };
-            let mut executable = assemble($source, None, config).unwrap();
+            let mut syscall_registry = SyscallRegistry::default();
+            $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function; $syscall_context_object);)*
+            let mut executable = assemble($source, None, config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }
     };
@@ -104,7 +103,9 @@ macro_rules! test_interpreter_and_jit_elf {
                 enable_instruction_tracing: true,
                 ..Config::default()
             };
-            let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, None, config).unwrap();
+            let mut syscall_registry = SyscallRegistry::default();
+            $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function; $syscall_context_object);)*
+            let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, None, config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }
     };
@@ -2751,9 +2752,20 @@ fn test_custom_entrypoint() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     elf[24] = 80; // Move entrypoint to later in the text section
-    let mut executable =
-        <dyn Executable<UserError, TestInstructionMeter>>::from_elf(&elf, None, Config::default())
-            .unwrap();
+    let config = Config {
+        enable_instruction_tracing: true,
+        ..Config::default()
+    };
+    let mut syscall_registry = SyscallRegistry::default();
+    test_interpreter_and_jit!(register, syscall_registry, b"log" => BpfSyscallString::call; BpfSyscallString {});
+    test_interpreter_and_jit!(register, syscall_registry, b"log_64" => BpfSyscallU64::call; BpfSyscallU64 {});
+    let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
+        &elf,
+        None,
+        config,
+        syscall_registry,
+    )
+    .unwrap();
     test_interpreter_and_jit!(
         executable,
         [],
@@ -3276,19 +3288,19 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
     let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
         prog,
-        bpf_functions,
         Some(check),
         Config {
             enable_instruction_tracing: true,
             ..Config::default()
         },
+        SyscallRegistry::default(),
+        bpf_functions,
     );
     let mut executable = if let Ok(executable) = executable {
         executable
     } else {
         return false;
     };
-    executable.set_syscall_registry(SyscallRegistry::default());
     if executable.jit_compile().is_err() {
         return false;
     }

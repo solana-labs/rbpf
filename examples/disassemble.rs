@@ -8,7 +8,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     static_analysis::Analysis,
     user_error::UserError,
-    vm::{Config, DefaultInstructionMeter, Executable},
+    vm::{Config, DefaultInstructionMeter, Executable, SyscallRegistry},
 };
 use std::collections::BTreeMap;
 
@@ -32,9 +32,10 @@ fn main() {
     ];
     let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         &program,
-        BTreeMap::new(),
         None,
         Config::default(),
+        SyscallRegistry::default(),
+        BTreeMap::default(),
     )
     .unwrap();
     let analysis = Analysis::from_executable(executable.as_ref());

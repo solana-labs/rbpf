@@ -27,7 +27,7 @@ use solana_rbpf::{
     error::UserDefinedError,
     user_error::UserError,
     verifier::{check, VerifierError},
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable},
+    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallRegistry},
 };
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -48,6 +48,7 @@ fn test_verifier_success() {
         exit",
         Some(|_prog: &[u8]| Ok(())),
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
     let _vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
@@ -66,6 +67,7 @@ fn test_verifier_fail() {
         exit",
         Some(verifier_fail),
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
 }
@@ -80,6 +82,7 @@ fn test_verifier_err_div_by_zero_imm() {
         exit",
         Some(check),
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
 }
@@ -94,9 +97,10 @@ fn test_verifier_err_endian_size() {
     ];
     let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog,
-        BTreeMap::new(),
         Some(check),
         Config::default(),
+        SyscallRegistry::default(),
+        BTreeMap::default(),
     )
     .unwrap();
 }
@@ -111,9 +115,10 @@ fn test_verifier_err_incomplete_lddw() {
     ];
     let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog,
-        BTreeMap::new(),
         Some(check),
         Config::default(),
+        SyscallRegistry::default(),
+        BTreeMap::default(),
     )
     .unwrap();
 }
@@ -127,6 +132,7 @@ fn test_verifier_err_invalid_reg_dst() {
         exit",
         Some(check),
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
 }
@@ -140,6 +146,7 @@ fn test_verifier_err_invalid_reg_src() {
         exit",
         Some(check),
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
 }
@@ -154,6 +161,7 @@ fn test_verifier_err_jmp_lddw() {
         exit",
         Some(check),
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
 }
@@ -167,6 +175,7 @@ fn test_verifier_err_jmp_out() {
         exit",
         Some(check),
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
 }
@@ -180,9 +189,10 @@ fn test_verifier_err_unknown_opcode() {
     ];
     let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog,
-        BTreeMap::new(),
         Some(check),
         Config::default(),
+        SyscallRegistry::default(),
+        BTreeMap::default(),
     )
     .unwrap();
 }
@@ -196,6 +206,7 @@ fn test_verifier_err_write_r10() {
         exit",
         Some(check),
         Config::default(),
+        SyscallRegistry::default(),
     )
     .unwrap();
 }

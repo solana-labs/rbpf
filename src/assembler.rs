@@ -19,7 +19,7 @@ use crate::{
     ebpf::{self, Insn},
     elf::register_bpf_function,
     error::UserDefinedError,
-    vm::{Config, Executable, InstructionMeter, Verifier},
+    vm::{Config, Executable, InstructionMeter, SyscallRegistry, Verifier},
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -178,7 +178,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{assembler::assemble, user_error::UserError, vm::{Config, DefaultInstructionMeter}};
+/// use solana_rbpf::{assembler::assemble, user_error::UserError, vm::{Config, DefaultInstructionMeter, SyscallRegistry}};
 /// let executable = assemble::<UserError, DefaultInstructionMeter>(
 ///    "add64 r1, 0x605
 ///     mov64 r2, 0x32
@@ -187,7 +187,8 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///     neg64 r2
 ///     exit",
 ///     None,
-///     Config::default()
+///     Config::default(),
+///     SyscallRegistry::default(),
 /// ).unwrap();
 /// let program = executable.get_text_bytes().unwrap().1;
 /// println!("{:?}", program);
@@ -214,6 +215,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
     src: &str,
     verifier: Option<Verifier>,
     config: Config,
+    syscall_registry: SyscallRegistry,
 ) -> Result<Box<dyn Executable<E, I>>, String> {
     fn resolve_label(
         insn_ptr: usize,
@@ -358,6 +360,12 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
         .map(|insn| insn.to_vec())
         .flatten()
         .collect::<Vec<_>>();
-    <dyn Executable<E, I>>::from_text_bytes(&program, bpf_functions, verifier, config)
-        .map_err(|err| format!("Executable constructor {:?}", err))
+    <dyn Executable<E, I>>::from_text_bytes(
+        &program,
+        verifier,
+        config,
+        syscall_registry,
+        bpf_functions,
+    )
+    .map_err(|err| format!("Executable constructor {:?}", err))
 }

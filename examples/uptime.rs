@@ -45,9 +45,10 @@ fn main() {
     // Create a VM: this one takes no data. Load prog1 in it.
     let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         prog1,
-        BTreeMap::new(),
         None,
         Config::default(),
+        SyscallRegistry::default(),
+        BTreeMap::default(),
     )
     .unwrap();
     let mut vm =
@@ -67,13 +68,6 @@ fn main() {
     // In the following example we use a syscall to get the elapsed time since boot time: we
     // reimplement uptime in eBPF, in Rust. Because why not.
 
-    let mut executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
-        prog2,
-        BTreeMap::new(),
-        None,
-        Config::default(),
-    )
-    .unwrap();
     let mut syscall_registry = SyscallRegistry::default();
     syscall_registry
         .register_syscall_by_hash::<UserError, _>(
@@ -81,7 +75,15 @@ fn main() {
             syscalls::BpfTimeGetNs::call,
         )
         .unwrap();
-    executable.set_syscall_registry(syscall_registry);
+    #[allow(unused_mut)]
+    let mut executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
+        prog2,
+        None,
+        Config::default(),
+        syscall_registry,
+        BTreeMap::default(),
+    )
+    .unwrap();
     #[cfg(not(windows))]
     {
         executable.jit_compile().unwrap();

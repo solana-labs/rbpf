@@ -23,7 +23,7 @@ use std::ops::{Index, IndexMut};
 use rand::{rngs::ThreadRng, Rng};
 
 use crate::{
-    vm::{Config, Executable, ProgramResult, InstructionMeter, Tracer, DynTraitFatPointer, SYSCALL_CONTEXT_OBJECTS_OFFSET},
+    vm::{Config, Executable, ProgramResult, InstructionMeter, Tracer, DynTraitFatPointer, SYSCALL_CONTEXT_OBJECTS_OFFSET, REPORT_UNRESOLVED_SYMBOL_INDEX},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, STACK_REG, MM_STACK_START},
     error::{UserDefinedError, EbpfError},
     memory_region::{AccessType, MemoryMapping},
@@ -1243,7 +1243,7 @@ impl JitCompiler {
                                 // executable.report_unresolved_symbol(self.pc)?;
                                 // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
                                 let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(executable) };
-                                emit_rust_call(self, fat_ptr.vtable.methods[9], &[
+                                emit_rust_call(self, fat_ptr.vtable.methods[REPORT_UNRESOLVED_SYMBOL_INDEX], &[
                                     Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
                                     Argument { index: 1, value: Value::Constant64(fat_ptr.data as i64, false) },
                                     Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },

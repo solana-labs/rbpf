@@ -15,7 +15,7 @@ use solana_rbpf::{
     disassembler::disassemble_instruction,
     static_analysis::Analysis,
     user_error::UserError,
-    vm::{Config, DefaultInstructionMeter, Executable},
+    vm::{Config, DefaultInstructionMeter, Executable, SyscallRegistry},
 };
 use std::collections::BTreeMap;
 // Turn a program into a JSON string.
@@ -30,9 +30,10 @@ use std::collections::BTreeMap;
 fn to_json(program: &[u8]) -> String {
     let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
         &program,
-        BTreeMap::new(),
         None,
         Config::default(),
+        SyscallRegistry::default(),
+        BTreeMap::default(),
     )
     .unwrap();
     let analysis = Analysis::from_executable(executable.as_ref());
