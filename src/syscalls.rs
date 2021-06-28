@@ -28,7 +28,8 @@ use crate::{
     user_error::UserError,
     vm::SyscallObject,
 };
-use std::u64;
+use libc::c_char;
+use std::{slice::from_raw_parts, str::from_utf8, u64};
 
 /// Return type of syscalls
 pub type Result = std::result::Result<u64, EbpfError<UserError>>;
@@ -243,27 +244,6 @@ impl SyscallObject<UserError> for BpfMemFrob {
     }
 }
 
-// TODO: Try again when asm!() is available in stable Rust.
-// #![feature(asm)]
-// #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-// #[allow(unused_variables)]
-// pub fn BpfMemFrob (ptr: u64, len: u64, arg3: u64, arg4: u64, arg5: u64) -> Result<u64, Error> {
-//     unsafe {
-//         asm!(
-//                 "mov $0xf0, %rax"
-//             ::: "mov $0xf1, %rcx"
-//             ::: "mov $0xf2, %rdx"
-//             ::: "mov $0xf3, %rsi"
-//             ::: "mov $0xf4, %rdi"
-//             ::: "mov $0xf5, %r8"
-//             ::: "mov $0xf6, %r9"
-//             ::: "mov $0xf7, %r10"
-//             ::: "mov $0xf8, %r11"
-//         );
-//     }
-//     0
-// }
-
 /// Compute and return the square root of argument 1, cast as a float. Arguments 2 to 5 are
 /// unused.
 ///
@@ -407,5 +387,82 @@ impl SyscallObject<UserError> for BpfRand {
             n = n % (max + 1 - min) + min;
         };
         *result = Result::Ok(n);
+    }
+}
+
+/// Prints a NULL-terminated UTF-8 string.
+pub struct BpfSyscallString {}
+impl SyscallObject<UserError> for BpfSyscallString {
+    fn call(
+        &mut self,
+        vm_addr: u64,
+        len: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        memory_mapping: &MemoryMapping,
+        result: &mut Result,
+    ) {
+        let host_addr = question_mark!(memory_mapping.map(AccessType::Load, vm_addr, len), result);
+        let c_buf: *const c_char = host_addr as *const c_char;
+        unsafe {
+            for i in 0..len {
+                let c = std::ptr::read(c_buf.offset(i as isize));
+                if c == 0 {
+                    break;
+                }
+            }
+            let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize))
+                .unwrap_or("Invalid UTF-8 String");
+            println!("log: {}", message);
+        }
+        *result = Result::Ok(0);
+    }
+}
+
+/// Prints the five arguments formated as u64 in decimal.
+pub struct BpfSyscallU64 {}
+impl SyscallObject<UserError> for BpfSyscallU64 {
+    fn call(
+        &mut self,
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        memory_mapping: &MemoryMapping,
+        result: &mut Result,
+    ) {
+        println!(
+            "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
+            arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
+        );
+        *result = Result::Ok(0);
+    }
+}
+
+/// Excample of a syscall with internal state.
+pub struct SyscallWithContext {
+    /// Mutable state
+    pub context: u64,
+}
+impl SyscallObject<UserError> for SyscallWithContext {
+    fn call(
+        &mut self,
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        memory_mapping: &MemoryMapping,
+        result: &mut Result,
+    ) {
+        println!(
+            "SyscallWithContext: {:?}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
+            self as *const _, arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
+        );
+        assert_eq!(self.context, 42);
+        self.context = 84;
+        *result = Result::Ok(0);
     }
 }

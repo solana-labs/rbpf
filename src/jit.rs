@@ -1234,24 +1234,19 @@ impl JitCompiler {
                             X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))).emit(self)?;
                             emit_undo_profile_instruction_count(self, 0)?;
                         }
+                    } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
+                        emit_bpf_call(self, Value::Constant64(target_pc as i64, false), self.result.pc_section.len() - 1)?;
                     } else {
-                        match executable.lookup_bpf_function(insn.imm as u32) {
-                            Some(target_pc) => {
-                                emit_bpf_call(self, Value::Constant64(target_pc as i64, false), self.result.pc_section.len() - 1)?;
-                            },
-                            None => {
-                                // executable.report_unresolved_symbol(self.pc)?;
-                                // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
-                                let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(executable) };
-                                emit_rust_call(self, fat_ptr.vtable.methods[REPORT_UNRESOLVED_SYMBOL_INDEX], &[
-                                    Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
-                                    Argument { index: 1, value: Value::Constant64(fat_ptr.data as i64, false) },
-                                    Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
-                                ], None, true)?;
-                                X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
-                                emit_jmp(self, TARGET_PC_SYSCALL_EXCEPTION)?;
-                            },
-                        }
+                        // executable.report_unresolved_symbol(self.pc)?;
+                        // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
+                        let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(executable) };
+                        emit_rust_call(self, fat_ptr.vtable.methods[REPORT_UNRESOLVED_SYMBOL_INDEX], &[
+                            Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
+                            Argument { index: 1, value: Value::Constant64(fat_ptr.data as i64, false) },
+                            Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
+                        ], None, true)?;
+                        X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
+                        emit_jmp(self, TARGET_PC_SYSCALL_EXCEPTION)?;
                     }
                 },
                 ebpf::CALL_REG  => {

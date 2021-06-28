@@ -696,11 +696,27 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 mod test {
     use super::*;
     use crate::{
-        ebpf, elf::scroll::Pwrite, fuzz::fuzz, user_error::UserError, vm::DefaultInstructionMeter,
+        ebpf,
+        elf::scroll::Pwrite,
+        fuzz::fuzz,
+        syscalls::{BpfSyscallString, BpfSyscallU64},
+        user_error::UserError,
+        vm::{DefaultInstructionMeter, SyscallObject},
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
     type ElfExecutable = EBpfElf<UserError, DefaultInstructionMeter>;
+
+    fn syscall_registry() -> SyscallRegistry {
+        let mut syscall_registry = SyscallRegistry::default();
+        syscall_registry
+            .register_syscall_by_name(b"log", BpfSyscallString::call)
+            .unwrap();
+        syscall_registry
+            .register_syscall_by_name(b"log_64", BpfSyscallU64::call)
+            .unwrap();
+        syscall_registry
+    }
 
     #[test]
     fn test_validate() {
@@ -740,7 +756,7 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        ElfExecutable::load(Config::default(), &elf_bytes, SyscallRegistry::default())
+        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
     }
 
@@ -750,7 +766,7 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        let elf = ElfExecutable::load(Config::default(), &elf_bytes, SyscallRegistry::default())
+        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
         let mut parsed_elf = Elf::parse(&elf_bytes).unwrap();
         let initial_e_entry = parsed_elf.header.e_entry;
@@ -765,7 +781,7 @@ mod test {
         parsed_elf.header.e_entry += 8;
         let mut elf_bytes = elf_bytes.clone();
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
-        let elf = ElfExecutable::load(Config::default(), &elf_bytes, SyscallRegistry::default())
+        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
         let executable: &dyn Executable<UserError, DefaultInstructionMeter> = &elf;
         assert_eq!(
@@ -780,7 +796,7 @@ mod test {
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         assert_eq!(
             Err(ElfError::EntrypointOutOfBounds),
-            ElfExecutable::load(Config::default(), &elf_bytes, SyscallRegistry::default())
+            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
         );
 
         parsed_elf.header.e_entry = std::u64::MAX;
@@ -788,7 +804,7 @@ mod test {
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         assert_eq!(
             Err(ElfError::EntrypointOutOfBounds),
-            ElfExecutable::load(Config::default(), &elf_bytes, SyscallRegistry::default())
+            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
         );
 
         parsed_elf.header.e_entry = initial_e_entry + ebpf::INSN_SIZE as u64 + 1;
@@ -796,13 +812,13 @@ mod test {
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         assert_eq!(
             Err(ElfError::InvalidEntrypoint),
-            ElfExecutable::load(Config::default(), &elf_bytes, SyscallRegistry::default())
+            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
         );
 
         parsed_elf.header.e_entry = initial_e_entry;
         let mut elf_bytes = elf_bytes;
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
-        let elf = ElfExecutable::load(Config::default(), &elf_bytes, SyscallRegistry::default())
+        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
         let executable: &dyn Executable<UserError, DefaultInstructionMeter> = &elf;
         assert_eq!(

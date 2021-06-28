@@ -4,12 +4,13 @@ use solana_rbpf::{
     ebpf,
     memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
+    syscalls::Result,
     user_error::UserError,
     verifier::check,
     vm::{Config, DynamicAnalysis, EbpfVm, Executable, SyscallObject, SyscallRegistry},
 };
 use std::{fs::File, io::Read, path::Path};
-use test_utils::{Result, TestInstructionMeter};
+use test_utils::TestInstructionMeter;
 
 struct MockSyscall {
     name: String,
@@ -122,6 +123,10 @@ fn main() {
         } else {
             None
         };
+    let syscall_registry = SyscallRegistry::default();
+    /*for hash in syscalls.keys() {
+        let _ = syscall_registry.register_syscall_by_hash(*hash, MockSyscall::call);
+    }*/
     let mut executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(&Path::new(asm_file_name)).unwrap();
@@ -131,24 +136,23 @@ fn main() {
                 std::str::from_utf8(source.as_slice()).unwrap(),
                 verifier,
                 config,
+                syscall_registry,
             )
         }
         None => {
             let mut file = File::open(&Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            <dyn Executable<UserError, TestInstructionMeter>>::from_elf(&elf, verifier, config)
-                .map_err(|err| format!("Executable constructor failed: {:?}", err))
+            <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
+                &elf,
+                verifier,
+                config,
+                syscall_registry,
+            )
+            .map_err(|err| format!("Executable constructor failed: {:?}", err))
         }
     }
     .unwrap();
-
-    let syscalls = executable.get_syscall_symbols();
-    let mut syscall_registry = SyscallRegistry::default();
-    for hash in syscalls.keys() {
-        let _ = syscall_registry.register_syscall_by_hash(*hash, MockSyscall::call);
-    }
-    executable.set_syscall_registry(syscall_registry);
     executable.jit_compile().unwrap();
     let analysis = Analysis::from_executable(executable.as_ref());
 
