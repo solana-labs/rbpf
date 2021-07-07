@@ -433,10 +433,16 @@ fn emit_undo_profile_instruction_count<E: UserDefinedError>(jit: &mut JitCompile
 }
 
 #[inline]
-fn emit_profile_instruction_count_of_exception<E: UserDefinedError>(jit: &mut JitCompiler) -> Result<(), EbpfError<E>> {
+fn emit_profile_instruction_count_of_exception<E: UserDefinedError>(jit: &mut JitCompiler, store_pc_in_exception: bool) -> Result<(), EbpfError<E>> {
     emit_alu(jit, OperandSize::S64, 0x81, 0, R11, 1, None)?;
     if jit.config.enable_instruction_meter {
         emit_alu(jit, OperandSize::S64, 0x29, R11, ARGUMENT_REGISTERS[0], 0, None)?; // instruction_meter -= pc + 1;
+    }
+    if store_pc_in_exception {
+        X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::OptRetValPtr))).emit(jit)?;
+        X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(0), 1).emit(jit)?; // is_err = true;
+        emit_alu(jit, OperandSize::S64, 0x81, 0, R11, ebpf::ELF_INSN_DUMP_OFFSET as i64 - 1, None)?;
+        X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset(16)).emit(jit)?; // pc = jit.pc + ebpf::ELF_INSN_DUMP_OFFSET;
     }
     Ok(())
 }
@@ -1339,7 +1345,8 @@ impl JitCompiler {
         set_anchor(self, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], R11).emit(self)?;
         emit_set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0))?;
-        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
+        emit_profile_instruction_count_of_exception(self, true)?;
+        emit_jmp(self, TARGET_PC_EPILOGUE)?;
 
         // Handler for EbpfError::CallDepthExceeded
         set_anchor(self, TARGET_PC_CALL_DEPTH_EXCEEDED);
@@ -1376,16 +1383,17 @@ impl JitCompiler {
 
         // Handler for exceptions which report their pc
         set_anchor(self, TARGET_PC_EXCEPTION_AT);
-        emit_profile_instruction_count_of_exception(self)?;
-        X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
-        X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(0), 1).emit(self)?; // is_err = true;
-        emit_alu(self, OperandSize::S64, 0x81, 0, R11, ebpf::ELF_INSN_DUMP_OFFSET as i64 - 1, None)?;
-        X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset(16)).emit(self)?; // pc = self.pc + ebpf::ELF_INSN_DUMP_OFFSET;
+        // Validate that we did not reach the instruction meter limit before the exception occured
+        if self.config.enable_instruction_meter {
+            X86Instruction::cmp(OperandSize::S64, R11, ARGUMENT_REGISTERS[0], None).emit(self)?;
+            emit_jcc(self, 0x86, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS)?; // Inclusive limit: ARGUMENT_REGISTERS[0] <= R11
+        }
+        emit_profile_instruction_count_of_exception(self, true)?;
         emit_jmp(self, TARGET_PC_EPILOGUE)?;
 
         // Handler for syscall exceptions
         set_anchor(self, TARGET_PC_SYSCALL_EXCEPTION);
-        emit_profile_instruction_count_of_exception(self)?;
+        emit_profile_instruction_count_of_exception(self, false)?;
         emit_jmp(self, TARGET_PC_EPILOGUE)
     }
 

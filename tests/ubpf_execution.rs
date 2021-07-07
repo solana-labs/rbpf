@@ -2995,6 +2995,31 @@ fn test_err_non_terminating_capped() {
     );
 }
 
+#[test]
+fn test_err_capped_before_exception() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r1, 0x0
+        mov64 r2, 0x0
+        add64 r0, 0x0
+        add64 r0, 0x0
+        div64 r1, r2
+        add64 r0, 0x0
+        exit",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                    if pc == 31 && initial_insn_count == 2
+                )
+            }
+        },
+        2
+    );
+}
+
 // Symbols and Relocation
 
 #[test]
