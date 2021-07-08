@@ -398,18 +398,27 @@ fn slot_on_environment_stack(jit: &JitCompiler, slot: EnvironmentStackSlot) -> i
 */
 
 #[inline]
+fn emit_validate_instruction_count<E: UserDefinedError>(jit: &mut JitCompiler, exclusive: bool, pc: Option<usize>) -> Result<(), EbpfError<E>> {
+    if let Some(pc) = pc {
+        jit.last_instruction_meter_validation_pc = pc;
+        X86Instruction::cmp_immediate(OperandSize::S64, ARGUMENT_REGISTERS[0], pc as i64 + 1, None).emit(jit)?;
+    } else {
+        X86Instruction::cmp(OperandSize::S64, R11, ARGUMENT_REGISTERS[0], None).emit(jit)?;
+    }
+    emit_jcc(jit, if exclusive { 0x82 } else { 0x86 }, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS)
+}
+
+#[inline]
 fn emit_profile_instruction_count<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: Option<usize>) -> Result<(), EbpfError<E>> {
-    if jit.config.enable_instruction_meter {
-        match target_pc {
-            Some(target_pc) => {
-                emit_alu(jit, OperandSize::S64, 0x81, 0, ARGUMENT_REGISTERS[0], target_pc as i64 - jit.pc as i64 - 1, None)?; // instruction_meter += target_pc - (jit.pc + 1);
-            },
-            None => { // If no constant target_pc is given, it is expected to be on the stack instead
-                X86Instruction::pop(R11).emit(jit)?;
-                emit_alu(jit, OperandSize::S64, 0x81, 5, ARGUMENT_REGISTERS[0], jit.pc as i64 + 1, None)?; // instruction_meter -= jit.pc + 1;
-                emit_alu(jit, OperandSize::S64, 0x01, R11, ARGUMENT_REGISTERS[0], jit.pc as i64, None)?; // instruction_meter += target_pc;
-            },
-        }
+    match target_pc {
+        Some(target_pc) => {
+            emit_alu(jit, OperandSize::S64, 0x81, 0, ARGUMENT_REGISTERS[0], target_pc as i64 - jit.pc as i64 - 1, None)?; // instruction_meter += target_pc - (jit.pc + 1);
+        },
+        None => { // If no constant target_pc is given, it is expected to be on the stack instead
+            X86Instruction::pop(R11).emit(jit)?;
+            emit_alu(jit, OperandSize::S64, 0x81, 5, ARGUMENT_REGISTERS[0], jit.pc as i64 + 1, None)?; // instruction_meter -= jit.pc + 1;
+            emit_alu(jit, OperandSize::S64, 0x01, R11, ARGUMENT_REGISTERS[0], jit.pc as i64, None)?; // instruction_meter += target_pc;
+        },
     }
     Ok(())
 }
@@ -417,8 +426,7 @@ fn emit_profile_instruction_count<E: UserDefinedError>(jit: &mut JitCompiler, ta
 #[inline]
 fn emit_validate_and_profile_instruction_count<E: UserDefinedError>(jit: &mut JitCompiler, exclusive: bool, target_pc: Option<usize>) -> Result<(), EbpfError<E>> {
     if jit.config.enable_instruction_meter {
-        X86Instruction::cmp_immediate(OperandSize::S64, ARGUMENT_REGISTERS[0], jit.pc as i64 + 1, None).emit(jit)?;
-        emit_jcc(jit, if exclusive { 0x82 } else { 0x86 }, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS)?;
+        emit_validate_instruction_count(jit, exclusive, Some(jit.pc))?;
         emit_profile_instruction_count(jit, target_pc)?;
     }
     Ok(())
@@ -846,6 +854,7 @@ pub struct JitCompiler {
     text_section_jumps: Vec<Jump>,
     offset_in_text_section: usize,
     pc: usize,
+    last_instruction_meter_validation_pc: usize,
     program_vm_addr: u64,
     handler_anchors: HashMap<usize, usize>,
     config: Config,
@@ -924,6 +933,7 @@ impl JitCompiler {
             text_section_jumps: vec![],
             offset_in_text_section: 0,
             pc: 0,
+            last_instruction_meter_validation_pc: 0,
             program_vm_addr: 0,
             handler_anchors: HashMap::new(),
             config: *_config,
@@ -942,7 +952,9 @@ impl JitCompiler {
 
         // Jump to entry point
         let entry = executable.get_entrypoint_instruction_offset().unwrap_or(0);
-        emit_profile_instruction_count(self, Some(entry + 1))?;
+        if self.config.enable_instruction_meter {
+            emit_profile_instruction_count(self, Some(entry + 1))?;
+        }
         X86Instruction::load_immediate(OperandSize::S64, R11, entry as i64).emit(self)?;
         emit_jmp(self, entry)?;
 
@@ -954,6 +966,11 @@ impl JitCompiler {
             let mut insn = ebpf::get_insn(program, self.pc);
 
             self.result.pc_section[self.pc] = self.offset_in_text_section as u64;
+
+            // Regular instruction meter checkpoints to prevent long linear runs from exceeding their budget
+            if self.last_instruction_meter_validation_pc + self.config.instruction_meter_checkpoint_distance <= self.pc {
+                emit_validate_instruction_count(self, true, Some(self.pc))?;
+            }
 
             if self.config.enable_instruction_tracing {
                 X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
@@ -1385,8 +1402,7 @@ impl JitCompiler {
         set_anchor(self, TARGET_PC_EXCEPTION_AT);
         // Validate that we did not reach the instruction meter limit before the exception occured
         if self.config.enable_instruction_meter {
-            X86Instruction::cmp(OperandSize::S64, R11, ARGUMENT_REGISTERS[0], None).emit(self)?;
-            emit_jcc(self, 0x86, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS)?; // Inclusive limit: ARGUMENT_REGISTERS[0] <= R11
+            emit_validate_instruction_count(self, false, None)?;
         }
         emit_profile_instruction_count_of_exception(self, true)?;
         emit_jmp(self, TARGET_PC_EPILOGUE)?;

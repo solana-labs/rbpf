@@ -179,6 +179,8 @@ pub struct Config {
     pub max_call_depth: usize,
     /// Size of a stack frame in bytes, must match the size specified in the LLVM BPF backend
     pub stack_frame_size: usize,
+    /// Maximal pc distance after which a new instruction meter validation is emitted by the JIT
+    pub instruction_meter_checkpoint_distance: usize,
     /// Enable instruction meter and limiting
     pub enable_instruction_meter: bool,
     /// Enable instruction tracing
@@ -197,6 +199,7 @@ impl Default for Config {
         Self {
             max_call_depth: 20,
             stack_frame_size: 4_096,
+            instruction_meter_checkpoint_distance: 10000,
             enable_instruction_meter: true,
             enable_instruction_tracing: false,
             reject_unresolved_syscalls: false,
