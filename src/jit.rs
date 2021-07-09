@@ -158,9 +158,11 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
 }
 
 // Special values for target_pc in struct Jump
-const TARGET_PC_TRACE: usize = std::usize::MAX - 13;
-const TARGET_PC_TRANSLATE_PC: usize = std::usize::MAX - 12;
-const TARGET_PC_TRANSLATE_PC_LOOP: usize = std::usize::MAX - 11;
+const TARGET_PC_TRACE: usize = std::usize::MAX - 29;
+const TARGET_PC_TRANSLATE_PC: usize = std::usize::MAX - 28;
+const TARGET_PC_TRANSLATE_PC_LOOP: usize = std::usize::MAX - 27;
+const TARGET_PC_TRANSLATE_MEMORY_ADDRESS: usize = std::usize::MAX - 26;
+const TARGET_PC_MEMORY_ACCESS_VIOLATION: usize = std::usize::MAX - 18;
 const TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = std::usize::MAX - 10;
 const TARGET_PC_CALL_DEPTH_EXCEEDED: usize = std::usize::MAX - 9;
 const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: usize = std::usize::MAX - 8;
@@ -707,21 +709,29 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u
 
 #[inline]
 fn emit_address_translation<E: UserDefinedError>(jit: &mut JitCompiler, host_addr: u8, vm_addr: Value, len: u64, access_type: AccessType) -> Result<(), EbpfError<E>> {
-    emit_rust_call(jit, MemoryMapping::map::<UserError> as *const u8, &[
-        Argument { index: 3, value: vm_addr }, // Specify first as the src register could be overwritten by other arguments
-        Argument { index: 4, value: Value::Constant64(len as i64, false) },
-        Argument { index: 2, value: Value::Constant64(access_type as i64, false) },
-        Argument { index: 1, value: Value::RegisterPlusConstant32(R10, jit.program_argument_key, false) }, // JitProgramArgument::memory_mapping
-        Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(jit, EnvironmentStackSlot::OptRetValPtr), false) },
-    ], None, true)?;
-
-    // Throw error if the result indicates one
-    X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
-    emit_jcc(jit, 0x85, TARGET_PC_EXCEPTION_AT)?;
-
-    // Store Ok value in result register
-    X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::OptRetValPtr))).emit(jit)?;
-    X86Instruction::load(OperandSize::S64, R11, host_addr, X86IndirectAccess::Offset(8)).emit(jit)
+    match vm_addr {
+        Value::RegisterPlusConstant64(reg, constant, user_provided) => {
+            if user_provided && jit.config.sanitize_user_provided_values {
+                emit_sanitized_load_immediate(jit, OperandSize::S64, R11, constant)?;
+            } else {
+                X86Instruction::load_immediate(OperandSize::S64, R11, constant).emit(jit)?;
+            }
+            emit_alu(jit, OperandSize::S64, 0x01, reg, R11, 0, None)?;
+        },
+        Value::Constant64(constant, user_provided) => {
+            if user_provided && jit.config.sanitize_user_provided_values {
+                emit_sanitized_load_immediate(jit, OperandSize::S64, R11, constant)?;
+            } else {
+                X86Instruction::load_immediate(OperandSize::S64, R11, constant).emit(jit)?;
+            }
+        },
+        _ => {
+            #[cfg(debug_assertions)]
+            unreachable!();
+        },
+    }
+    emit_call(jit, TARGET_PC_TRANSLATE_MEMORY_ADDRESS + len.trailing_zeros() as usize + 4 * (access_type as usize))?;
+    X86Instruction::mov(OperandSize::S64, R11, host_addr).emit(jit)
 }
 
 fn emit_shift<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcode_extension: u8, source: u8, destination: u8, immediate: Option<i64>) -> Result<(), EbpfError<E>> {
@@ -1354,7 +1364,44 @@ impl JitCompiler {
         emit_alu(self, OperandSize::S64, 0x29, REGISTER_MAP[0], R11, 0, None)?; // R11 -= REGISTER_MAP[0];
         emit_alu(self, OperandSize::S64, 0xc1, 5, R11, 3, None)?; // R11 >>= 3;
         X86Instruction::pop(REGISTER_MAP[0]).emit(self)?; // Restore REGISTER_MAP[0]
-        X86Instruction::return_near().emit(self)
+        X86Instruction::return_near().emit(self)?;
+
+        // Translates a vm memory address to a host memory address
+        for (access_type, len) in &[
+            (AccessType::Load, 1i64),
+            (AccessType::Load, 2i64),
+            (AccessType::Load, 4i64),
+            (AccessType::Load, 8i64),
+            (AccessType::Store, 1i64),
+            (AccessType::Store, 2i64),
+            (AccessType::Store, 4i64),
+            (AccessType::Store, 8i64),
+        ] {
+            let target_offset = len.trailing_zeros() as usize + 4 * (*access_type as usize);
+
+            set_anchor(self, TARGET_PC_TRANSLATE_MEMORY_ADDRESS + target_offset);
+            emit_rust_call(self, MemoryMapping::map::<UserError> as *const u8, &[
+                Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
+                Argument { index: 4, value: Value::Constant64(*len, false) },
+                Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
+                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // JitProgramArgument::memory_mapping
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) }, // Pointer to optional typed return value
+            ], None, true)?;
+        
+            // Throw error if the result indicates one
+            emit_jcc(self, 0x85, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
+        
+            // Store Ok value in result register
+            X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
+            X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)).emit(self)?;
+            X86Instruction::return_near().emit(self)?;
+
+            set_anchor(self, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset);
+            X86Instruction::pop(R11).emit(self)?;
+            emit_call(self, TARGET_PC_TRANSLATE_PC)?;
+            emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
+        }
+        Ok(())
     }
 
     fn generate_exception_handlers<E: UserDefinedError>(&mut self) -> Result<(), EbpfError<E>> {

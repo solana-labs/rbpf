@@ -85,7 +85,7 @@ impl std::cmp::Ord for MemoryRegion {
 }
 
 /// Type of memory access
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AccessType {
     /// Read
     Load,
