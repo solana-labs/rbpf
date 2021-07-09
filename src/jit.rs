@@ -1380,6 +1380,7 @@ impl JitCompiler {
             let target_offset = len.trailing_zeros() as usize + 4 * (*access_type as usize);
 
             set_anchor(self, TARGET_PC_TRANSLATE_MEMORY_ADDRESS + target_offset);
+            X86Instruction::push(R11).emit(self)?;
             emit_rust_call(self, MemoryMapping::map::<UserError> as *const u8, &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 4, value: Value::Constant64(*len, false) },
@@ -1394,9 +1395,20 @@ impl JitCompiler {
             // Store Ok value in result register
             X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
             X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)).emit(self)?;
+            emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8, None)?;
             X86Instruction::return_near().emit(self)?;
 
             set_anchor(self, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset);
+            emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 = 0;
+            X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(0, R11, 0)).emit(self)?;
+            emit_rust_call(self, MemoryMapping::generate_access_violation::<UserError> as *const u8, &[
+                Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
+                Argument { index: 4, value: Value::Constant64(*len, false) },
+                Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
+                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // JitProgramArgument::memory_mapping
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) }, // Pointer to optional typed return value
+            ], None, true)?;
+            X86Instruction::pop(R11).emit(self)?;
             X86Instruction::pop(R11).emit(self)?;
             emit_call(self, TARGET_PC_TRANSLATE_PC)?;
             emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;

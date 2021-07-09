@@ -153,7 +153,7 @@ impl<'a> MemoryMapping<'a> {
         }
         index >>= index.trailing_zeros() + 1;
         if index == 0 {
-            return Err(self.generate_access_violation(access_type, vm_addr, len));
+            return self.generate_access_violation(access_type, vm_addr, len);
         }
         let region = &self.regions[index - 1];
         if access_type == AccessType::Load || region.is_writable {
@@ -161,7 +161,42 @@ impl<'a> MemoryMapping<'a> {
                 return Ok(host_addr);
             }
         }
-        Err(self.generate_access_violation(access_type, vm_addr, len))
+        self.generate_access_violation(access_type, vm_addr, len)
+    }
+
+    /// Helper for map to generate errors
+    pub fn generate_access_violation<E: UserDefinedError>(
+        &self,
+        access_type: AccessType,
+        vm_addr: u64,
+        len: u64,
+    ) -> Result<u64, EbpfError<E>> {
+        let stack_frame =
+            (vm_addr as i64 - ebpf::MM_STACK_START as i64) / self.config.stack_frame_size as i64;
+        if (-1..self.config.max_call_depth as i64 + 1).contains(&stack_frame) {
+            Err(EbpfError::StackAccessViolation(
+                0, // Filled out later
+                access_type,
+                vm_addr,
+                len,
+                stack_frame,
+            ))
+        } else {
+            let region_name = match vm_addr & !(ebpf::MM_PROGRAM_START - 1) {
+                ebpf::MM_PROGRAM_START => "program",
+                ebpf::MM_STACK_START => "stack",
+                ebpf::MM_HEAP_START => "heap",
+                ebpf::MM_INPUT_START => "input",
+                _ => "unknown",
+            };
+            Err(EbpfError::AccessViolation(
+                0, // Filled out later
+                access_type,
+                vm_addr,
+                len,
+                region_name,
+            ))
+        }
     }
 
     /// Resize the memory_region at the given index
@@ -179,40 +214,5 @@ impl<'a> MemoryMapping<'a> {
         }
         self.regions[index].len = new_len;
         Ok(())
-    }
-
-    /// Helper for map to generate errors
-    fn generate_access_violation<E: UserDefinedError>(
-        &self,
-        access_type: AccessType,
-        vm_addr: u64,
-        len: u64,
-    ) -> EbpfError<E> {
-        let stack_frame =
-            (vm_addr as i64 - ebpf::MM_STACK_START as i64) / self.config.stack_frame_size as i64;
-        if (-1..self.config.max_call_depth as i64 + 1).contains(&stack_frame) {
-            EbpfError::StackAccessViolation(
-                0, // Filled out later
-                access_type,
-                vm_addr,
-                len,
-                stack_frame,
-            )
-        } else {
-            let region_name = match vm_addr & !(ebpf::MM_PROGRAM_START - 1) {
-                ebpf::MM_PROGRAM_START => "program",
-                ebpf::MM_STACK_START => "stack",
-                ebpf::MM_HEAP_START => "heap",
-                ebpf::MM_INPUT_START => "input",
-                _ => "unknown",
-            };
-            EbpfError::AccessViolation(
-                0, // Filled out later
-                access_type,
-                vm_addr,
-                len,
-                region_name,
-            )
-        }
     }
 }
