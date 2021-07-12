@@ -243,7 +243,7 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
 pub const REPORT_UNRESOLVED_SYMBOL_INDEX: usize = 8;
 
 /// The syscall_context_objects field stores some metadata in the front, thus the entries are shifted
-pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 6;
+pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 4;
 
 /// Static constructors for Executable
 impl<E: UserDefinedError, I: 'static + InstructionMeter> dyn Executable<E, I> {

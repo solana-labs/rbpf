@@ -24,7 +24,7 @@ fn generate_memory_regions(
     mut prng: Option<&mut SmallRng>,
 ) -> (Vec<MemoryRegion>, u64) {
     let mut memory_regions = Vec::with_capacity(entries);
-    let mut offset = 0;
+    let mut offset = 0x100000000;
     for _ in 0..entries {
         let length = match &mut prng {
             Some(prng) => (*prng).gen::<u8>() as u64 + 4,
@@ -37,7 +37,7 @@ fn generate_memory_regions(
             0,
             is_writable,
         ));
-        offset += length;
+        offset += 0x100000000;
     }
     (memory_regions, offset)
 }
@@ -61,7 +61,7 @@ fn bench_gapped_randomized_access_with_1024_entries(bencher: &mut Bencher) {
     let content = vec![0; (frame_size * frame_count * 2) as usize];
     let memory_regions = vec![MemoryRegion::new_from_slice(
         &content[..],
-        0,
+        0x100000000,
         frame_size,
         false,
     )];
@@ -72,7 +72,7 @@ fn bench_gapped_randomized_access_with_1024_entries(bencher: &mut Bencher) {
         assert!(memory_mapping
             .map::<UserError>(
                 AccessType::Load,
-                prng.gen::<u64>() % frame_count * (frame_size * 2),
+                0x100000000 + (prng.gen::<u64>() % frame_count * (frame_size * 2)),
                 1
             )
             .is_ok());
@@ -82,18 +82,21 @@ fn bench_gapped_randomized_access_with_1024_entries(bencher: &mut Bencher) {
 #[bench]
 fn bench_randomized_access_with_0001_entry(bencher: &mut Bencher) {
     let content = vec![0; 1024 * 2];
-    let memory_regions = vec![MemoryRegion::new_from_slice(&content[..], 0, 0, false)];
+    let memory_regions = vec![MemoryRegion::new_from_slice(
+        &content[..],
+        0x100000000,
+        0,
+        false,
+    )];
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     let mut prng = new_prng!();
     bencher.iter(|| {
-        assert!(memory_mapping
-            .map::<UserError>(
-                AccessType::Load,
-                prng.gen::<u64>() % content.len() as u64,
-                1
-            )
-            .is_ok());
+        let _ = memory_mapping.map::<UserError>(
+            AccessType::Load,
+            0x100000000 + (prng.gen::<u64>() % content.len() as u64),
+            1,
+        );
     });
 }
 
@@ -104,9 +107,11 @@ fn bench_randomized_mapping_access_with_0004_entries(bencher: &mut Bencher) {
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     bencher.iter(|| {
-        assert!(memory_mapping
-            .map::<UserError>(AccessType::Load, prng.gen::<u64>() % end_address, 1)
-            .is_ok());
+        let _ = memory_mapping.map::<UserError>(
+            AccessType::Load,
+            0x100000000 + (prng.gen::<u64>() % end_address),
+            1,
+        );
     });
 }
 
@@ -117,9 +122,11 @@ fn bench_randomized_mapping_access_with_0016_entries(bencher: &mut Bencher) {
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     bencher.iter(|| {
-        assert!(memory_mapping
-            .map::<UserError>(AccessType::Load, prng.gen::<u64>() % end_address, 1)
-            .is_ok());
+        let _ = memory_mapping.map::<UserError>(
+            AccessType::Load,
+            0x100000000 + (prng.gen::<u64>() % end_address),
+            1,
+        );
     });
 }
 
@@ -130,9 +137,11 @@ fn bench_randomized_mapping_access_with_0064_entries(bencher: &mut Bencher) {
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     bencher.iter(|| {
-        assert!(memory_mapping
-            .map::<UserError>(AccessType::Load, prng.gen::<u64>() % end_address, 1)
-            .is_ok());
+        let _ = memory_mapping.map::<UserError>(
+            AccessType::Load,
+            0x100000000 + (prng.gen::<u64>() % end_address),
+            1,
+        );
     });
 }
 
@@ -143,9 +152,11 @@ fn bench_randomized_mapping_access_with_0256_entries(bencher: &mut Bencher) {
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     bencher.iter(|| {
-        assert!(memory_mapping
-            .map::<UserError>(AccessType::Load, prng.gen::<u64>() % end_address, 1)
-            .is_ok());
+        let _ = memory_mapping.map::<UserError>(
+            AccessType::Load,
+            0x100000000 + (prng.gen::<u64>() % end_address),
+            1,
+        );
     });
 }
 
@@ -156,9 +167,11 @@ fn bench_randomized_mapping_access_with_1024_entries(bencher: &mut Bencher) {
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     bencher.iter(|| {
-        assert!(memory_mapping
-            .map::<UserError>(AccessType::Load, prng.gen::<u64>() % end_address, 1)
-            .is_ok());
+        let _ = memory_mapping.map::<UserError>(
+            AccessType::Load,
+            0x100000000 + (prng.gen::<u64>() % end_address),
+            1,
+        );
     });
 }
 
@@ -169,9 +182,11 @@ fn bench_randomized_access_with_1024_entries(bencher: &mut Bencher) {
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     bencher.iter(|| {
-        assert!(memory_mapping
-            .map::<UserError>(AccessType::Load, prng.gen::<u64>() % end_address, 1)
-            .is_ok());
+        let _ = memory_mapping.map::<UserError>(
+            AccessType::Load,
+            0x100000000 + (prng.gen::<u64>() % end_address),
+            1,
+        );
     });
 }
 
@@ -182,9 +197,7 @@ fn bench_randomized_mapping_with_1024_entries(bencher: &mut Bencher) {
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     bencher.iter(|| {
-        assert!(memory_mapping
-            .map::<UserError>(AccessType::Load, 0, 1)
-            .is_ok());
+        let _ = memory_mapping.map::<UserError>(AccessType::Load, 0x100000000, 1);
     });
 }
 
@@ -195,7 +208,7 @@ fn bench_mapping_with_1024_entries(bencher: &mut Bencher) {
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     bencher.iter(|| {
         assert!(memory_mapping
-            .map::<UserError>(AccessType::Load, 0, 1)
+            .map::<UserError>(AccessType::Load, 0x100000000, 1)
             .is_ok());
     });
 }
