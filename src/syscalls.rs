@@ -55,7 +55,7 @@ pub const BPF_KTIME_GETNS_IDX: u32 = 5;
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default()], &config).unwrap();
+/// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
 /// BpfTimeGetNs::call(&mut BpfTimeGetNs {}, 0, 0, 0, 0, 0, &memory_mapping, &mut result);
 /// let t = result.unwrap();
 /// let d =  t / 10u64.pow(9)  / 60   / 60  / 24;
@@ -103,7 +103,7 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default()], &config).unwrap();
+/// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
 /// BpfTracePrintf::call(&mut BpfTracePrintf {}, 0, 0, 1, 15, 32, &memory_mapping, &mut result);
 /// assert_eq!(result.unwrap() as usize, "BpfTracePrintf: 0x1, 0xf, 0x20\n".len());
 /// ```
@@ -172,7 +172,7 @@ impl SyscallObject<UserError> for BpfTracePrintf {
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default()], &config).unwrap();
+/// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
 /// BpfGatherBytes::call(&mut BpfGatherBytes {}, 0x11, 0x22, 0x33, 0x44, 0x55, &memory_mapping, &mut result);
 /// assert_eq!(result.unwrap(), 0x1122334455);
 /// ```
@@ -211,7 +211,7 @@ impl SyscallObject<UserError> for BpfGatherBytes {
 /// use solana_rbpf::user_error::UserError;
 ///
 /// let val = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
-/// let val_va = 0x1000;
+/// let val_va = 0x100000000;
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
@@ -257,7 +257,7 @@ impl SyscallObject<UserError> for BpfMemFrob {
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default()], &config).unwrap();
+/// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
 /// BpfSqrtI::call(&mut BpfSqrtI {}, 9, 0, 0, 0, 0, &memory_mapping, &mut result);
 /// assert_eq!(result.unwrap(), 3);
 /// ```
@@ -288,8 +288,8 @@ impl SyscallObject<UserError> for BpfSqrtI {
 ///
 /// let foo = "This is a string.";
 /// let bar = "This is another sting.";
-/// let va_foo = 0x1000;
-/// let va_bar = 0x2000;
+/// let va_foo = 0x100000000;
+/// let va_bar = 0x200000000;
 /// use solana_rbpf::user_error::UserError;
 ///
 /// let mut result: Result = Ok(0);
@@ -365,7 +365,7 @@ impl SyscallObject<UserError> for BpfStrCmp {
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default()], &config).unwrap();
+/// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
 /// BpfRand::call(&mut BpfRand {}, 3, 6, 0, 0, 0, &memory_mapping, &mut result);
 /// let n = result.unwrap();
 /// assert!(3 <= n && n <= 6);

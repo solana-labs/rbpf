@@ -123,19 +123,21 @@ impl<'a> MemoryMapping<'a> {
         mut regions: Vec<MemoryRegion>,
         config: &'a Config,
     ) -> Result<Self, EbpfError<E>> {
+        regions.sort();
+        for (index, region) in regions.iter().enumerate() {
+            if region.vm_addr != (index as u64 + 1) << ebpf::VIRTUAL_ADDRESS_BITS
+                || (region.len > 0
+                    && ((region.vm_addr + region.len - 1) >> ebpf::VIRTUAL_ADDRESS_BITS) as usize
+                        != index + 1)
+            {
+                return Err(EbpfError::InvalidMemoryRegion(index));
+            }
+        }
         let mut result = Self {
             regions: vec![MemoryRegion::default(); regions.len()].into_boxed_slice(),
             dense_keys: vec![0; regions.len()].into_boxed_slice(),
             config,
         };
-        regions.sort();
-        for index in 1..regions.len() {
-            let first = &regions[index - 1];
-            let second = &regions[index];
-            if first.vm_addr.saturating_add(first.len) > second.vm_addr {
-                return Err(EbpfError::VirtualAddressOverlap(second.vm_addr));
-            }
-        }
         result.construct_eytzinger_order(&regions, 0, 0);
         Ok(result)
     }
@@ -205,12 +207,13 @@ impl<'a> MemoryMapping<'a> {
         index: usize,
         new_len: u64,
     ) -> Result<(), EbpfError<E>> {
-        if index < self.regions.len() - 1
-            && self.regions[index].vm_addr.saturating_add(new_len) > self.regions[index + 1].vm_addr
+        if index >= self.regions.len()
+            || (new_len > 0
+                && ((self.regions[index].vm_addr + new_len - 1) >> ebpf::VIRTUAL_ADDRESS_BITS)
+                    as usize
+                    != index + 1)
         {
-            return Err(EbpfError::VirtualAddressOverlap(
-                self.regions[index + 1].vm_addr,
-            ));
+            return Err(EbpfError::InvalidMemoryRegion(index));
         }
         self.regions[index].len = new_len;
         Ok(())
