@@ -113,7 +113,7 @@ pub struct Analysis<'a, E: UserDefinedError, I: InstructionMeter> {
 impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     /// Analyze an executable statically
     pub fn from_executable(executable: &'a dyn Executable<E, I>) -> Self {
-        let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
+        let (_program_vm_addr, program) = executable.get_text_bytes();
         let functions = executable.get_function_symbols();
         debug_assert!(
             program.len() % ebpf::INSN_SIZE == 0,

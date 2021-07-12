@@ -23,7 +23,7 @@ pub struct MemoryRegion {
 }
 impl MemoryRegion {
     /// Creates a new MemoryRegion structure from a slice
-    pub fn new_from_slice(v: &[u8], vm_addr: u64, vm_gap_size: u64, is_writable: bool) -> Self {
+    pub fn new_from_slice(slice: &[u8], vm_addr: u64, vm_gap_size: u64, is_writable: bool) -> Self {
         let vm_gap_shift = if vm_gap_size > 0 {
             let vm_gap_shift =
                 std::mem::size_of::<u64>() as u8 * 8 - vm_gap_size.leading_zeros() as u8 - 1;
@@ -33,9 +33,9 @@ impl MemoryRegion {
             std::mem::size_of::<u64>() as u8 * 8 - 1
         };
         MemoryRegion {
-            host_addr: v.as_ptr() as u64,
+            host_addr: slice.as_ptr() as u64,
             vm_addr,
-            len: v.len() as u64,
+            len: slice.len() as u64,
             vm_gap_shift,
             is_writable,
         }
