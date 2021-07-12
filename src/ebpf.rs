@@ -35,21 +35,13 @@ pub const SCRATCH_REGS: usize = 4;
 /// Instruction numbers typically start at 29 in the ELF dump, use this offset
 /// when reporting so that trace aligns with the dump.
 pub const ELF_INSN_DUMP_OFFSET: usize = 29;
+/// Alignment of the memory regions in host address space in bytes
+pub const HOST_ALIGN: usize = 16;
+/// Upper half of a pointer is the region index, lower half the virtual address inside that region.
+pub const VIRTUAL_ADDRESS_BITS: usize = 32;
 
-// Memory map
-// +-----------------+
-// | Program         |
-// +-----------------+
-// | Stack           |
-// +-----------------+
-// | Heap            |
-// +-----------------+
-// | Input           |
-// +-----------------+
-// The values below providesufficient separations between the map areas. Avoid using
-// 0x0 to distinguish virtual addresses from null pointers.
-// Note: Compiled programs themselves have no direct dependency on these values so
-// they may be modified based on new requirements.
+// Memory map regions virtual addresses need to be (1 << VIRTUAL_ADDRESS_BITS) bytes apart.
+// Also the region at index 0 should be skipped to catch NULL ptr accesses.
 
 /// Start of the program bits (text and ro segments) in the memory map
 pub const MM_PROGRAM_START: u64 = 0x100000000;
@@ -59,9 +51,6 @@ pub const MM_STACK_START: u64 = 0x200000000;
 pub const MM_HEAP_START: u64 = 0x300000000;
 /// Start of the input buffers in the memory map
 pub const MM_INPUT_START: u64 = 0x400000000;
-
-/// Alignment of the memory regions in host address space in bytes
-pub const HOST_ALIGN: usize = 16;
 
 // eBPF op codes.
 // See also https://www.kernel.org/doc/Documentation/networking/filter.txt

@@ -66,9 +66,9 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Invalid virtual address
     #[error("invalid virtual address {0:x?}")]
     InvalidVirtualAddress(u64),
-    /// Virtual address overlap
-    #[error("virtual address overlap {0:x?}")]
-    VirtualAddressOverlap(u64),
+    /// Memory region index or virtual address space is invalid
+    #[error("Invalid memory region at index {0}")]
+    InvalidMemoryRegion(usize),
     /// Access violation (general)
     #[error("Access violation in {4} section at address {2:#x} of size {3:?} by instruction #{0}")]
     AccessViolation(usize, AccessType, u64, u64, &'static str),
