@@ -27,7 +27,7 @@ libc = "0.2"
 log = "0.4.2"
 rand = { version = "0.7.3", features = ["small_rng"]}
 scroll = "0.10.1"
-thiserror = "1.0"
+thiserror = "1.0.26"
 time = "0.1"
 rustc-demangle = "0.1"
 
