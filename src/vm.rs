@@ -468,7 +468,7 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     tracer: Tracer,
     syscall_context_objects: Vec<*mut u8>,
     syscall_context_object_pool: Vec<Box<dyn SyscallObject<E> + 'a>>,
-    frames: CallFrames,
+    stack: CallFrames,
     last_insn_count: u64,
     total_insn_count: u64,
 }
@@ -499,10 +499,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
         let config = executable.get_config();
         let ro_region = executable.get_ro_section();
-        let frames = CallFrames::new(config.max_call_depth, config.stack_frame_size);
+        let stack = CallFrames::new(config.max_call_depth, config.stack_frame_size);
         let regions: Vec<MemoryRegion> = vec![
             MemoryRegion::new_from_slice(ro_region, ebpf::MM_PROGRAM_START, 0, false),
-            frames.get_region().clone(),
+            stack.get_memory_region(),
             MemoryRegion::new_from_slice(heap_region, ebpf::MM_HEAP_START, 0, true),
             MemoryRegion::new_from_slice(input_region, ebpf::MM_INPUT_START, 0, true),
         ];
@@ -519,7 +519,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 SYSCALL_CONTEXT_OBJECTS_OFFSET + number_of_syscalls
             ],
             syscall_context_object_pool: Vec::with_capacity(number_of_syscalls),
-            frames,
+            stack,
             last_insn_count: 0,
             total_insn_count: 0,
         };
@@ -671,7 +671,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         const U32MAX: u64 = u32::MAX as u64;
 
         // R1 points to beginning of input memory, R10 to the stack of the first frame
-        let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.frames.get_stack_top()];
+        let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.stack.get_stack_top()];
 
         if self.memory_mapping.map::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1).is_ok() {
             reg[1] = ebpf::MM_INPUT_START;
@@ -943,7 +943,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 ebpf::CALL_REG   => {
                     let target_address = reg[insn.imm as usize];
                     reg[ebpf::STACK_REG] =
-                        self.frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
+                        self.stack.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
                     if target_address < self.program_vm_addr {
                         return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
                     }
@@ -976,7 +976,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         }
                     } else if let Some(target_pc) = self.executable.lookup_bpf_function(insn.imm as u32) {
                         // make BPF to BPF call
-                        reg[ebpf::STACK_REG] = self.frames.push(
+                        reg[ebpf::STACK_REG] = self.stack.push(
                             &reg[ebpf::FIRST_SCRATCH_REG
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
                             next_pc,
@@ -988,7 +988,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 }
 
                 ebpf::EXIT => {
-                    match self.frames.pop::<E>() {
+                    match self.stack.pop::<E>() {
                         Ok((saved_reg, stack_ptr, ptr)) => {
                             // Return from BPF to BPF call
                             reg[ebpf::FIRST_SCRATCH_REG
@@ -1001,7 +1001,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                             debug!("BPF instructions executed (interp): {:?}", total_insn_count + self.last_insn_count);
                             debug!(
                                 "Max frame depth reached: {:?}",
-                                self.frames.get_max_frame_index()
+                                self.stack.get_max_frame_index()
                             );
                             return Ok(reg[0]);
                         }
