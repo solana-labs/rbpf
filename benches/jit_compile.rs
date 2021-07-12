@@ -29,7 +29,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
     )
     .unwrap();
     bencher.iter(|| {
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
+        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
             .unwrap()
     });
 }

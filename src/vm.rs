@@ -215,9 +215,9 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Get the configuration settings
     fn get_config(&self) -> &Config;
     /// Get the .text section virtual address and bytes
-    fn get_text_bytes(&self) -> Result<(u64, &[u8]), EbpfError<E>>;
-    /// Get a vector of virtual addresses for each read-only section
-    fn get_ro_sections(&self) -> Result<Vec<(u64, &[u8])>, EbpfError<E>>;
+    fn get_text_bytes(&self) -> (u64, &[u8]);
+    /// Get the concatenated read-only sections (including the text section)
+    fn get_ro_section(&self) -> &[u8];
     /// Get the entry point offset into the text section
     fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>>;
     /// Get a symbol's instruction offset
@@ -240,7 +240,7 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
 pub const REPORT_UNRESOLVED_SYMBOL_INDEX: usize = 8;
 
 /// The syscall_context_objects field stores some metadata in the front, thus the entries are shifted
-pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 6;
+pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 4;
 
 /// Static constructors for Executable
 impl<E: UserDefinedError, I: 'static + InstructionMeter> dyn Executable<E, I> {
@@ -252,7 +252,7 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> dyn Executable<E, I> {
         syscall_registry: SyscallRegistry,
     ) -> Result<Box<Self>, EbpfError<E>> {
         let ebpf_elf = EBpfElf::load(config, elf_bytes, syscall_registry)?;
-        let (_, bytes) = ebpf_elf.get_text_bytes()?;
+        let bytes = ebpf_elf.get_text_bytes().1;
         if let Some(verifier) = verifier {
             verifier(bytes)?;
         }
@@ -443,7 +443,7 @@ macro_rules! translate_memory_access {
 /// let mut bpf_functions = std::collections::BTreeMap::new();
 /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
 /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
-/// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
+/// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], mem).unwrap();
 ///
 /// // Provide a reference to the packet data.
 /// let res = vm.execute_program_interpreted(&mut DefaultInstructionMeter {}).unwrap();
@@ -457,7 +457,7 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     tracer: Tracer,
     syscall_context_objects: Vec<*mut u8>,
     syscall_context_object_pool: Vec<Box<dyn SyscallObject<E> + 'a>>,
-    frames: CallFrames,
+    stack: CallFrames,
     last_insn_count: u64,
     total_insn_count: u64,
 }
@@ -479,42 +479,23 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
     /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &mut []).unwrap();
     /// ```
     pub fn new(
         executable: &'a dyn Executable<E, I>,
-        mem: &mut [u8],
-        granted_regions: &[MemoryRegion],
+        heap_region: &mut [u8],
+        input_region: &mut [u8],
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
         let config = executable.get_config();
-        let const_data_regions: Vec<MemoryRegion> =
-            if let Ok(sections) = executable.get_ro_sections() {
-                sections
-                    .iter()
-                    .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr, 0, false))
-                    .collect()
-            } else {
-                Vec::new()
-            };
-        let mut regions: Vec<MemoryRegion> =
-            Vec::with_capacity(granted_regions.len() + const_data_regions.len() + 3);
-        regions.extend(granted_regions.iter().cloned());
-        let frames = CallFrames::new(config.max_call_depth, config.stack_frame_size);
-        regions.push(frames.get_region().clone());
-        regions.extend(const_data_regions);
-        regions.push(MemoryRegion::new_from_slice(
-            mem,
-            ebpf::MM_INPUT_START,
-            0,
-            true,
-        ));
-        let (program_vm_addr, program) = executable.get_text_bytes()?;
-        regions.push(MemoryRegion::new_from_slice(
-            program,
-            program_vm_addr,
-            0,
-            false,
-        ));
+        let ro_region = executable.get_ro_section();
+        let stack = CallFrames::new(config.max_call_depth, config.stack_frame_size);
+        let regions: Vec<MemoryRegion> = vec![
+            MemoryRegion::new_from_slice(ro_region, ebpf::MM_PROGRAM_START, 0, false),
+            stack.get_memory_region(),
+            MemoryRegion::new_from_slice(heap_region, ebpf::MM_HEAP_START, 0, true),
+            MemoryRegion::new_from_slice(input_region, ebpf::MM_INPUT_START, 0, true),
+        ];
+        let (program_vm_addr, program) = executable.get_text_bytes();
         let number_of_syscalls = executable.get_syscall_registry().get_number_of_syscalls();
         let mut vm = EbpfVm {
             executable,
@@ -527,7 +508,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 SYSCALL_CONTEXT_OBJECTS_OFFSET + number_of_syscalls
             ],
             syscall_context_object_pool: Vec::with_capacity(number_of_syscalls),
-            frames,
+            stack,
             last_insn_count: 0,
             total_insn_count: 0,
         };
@@ -587,7 +568,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
     /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, None, Config::default(), syscall_registry, bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &mut []).unwrap();
     /// // Bind a context object instance to the previously registered syscall
     /// vm.bind_syscall_context_object(Box::new(BpfTracePrintf {}), None);
     /// ```
@@ -651,7 +632,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
     /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], mem).unwrap();
     ///
     /// // Provide a reference to the packet data.
     /// let res = vm.execute_program_interpreted(&mut DefaultInstructionMeter {}).unwrap();
@@ -679,7 +660,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         const U32MAX: u64 = u32::MAX as u64;
 
         // R1 points to beginning of input memory, R10 to the stack of the first frame
-        let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.frames.get_stack_top()];
+        let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.stack.get_stack_top()];
 
         if self.memory_mapping.map::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1).is_ok() {
             reg[1] = ebpf::MM_INPUT_START;
@@ -951,7 +932,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 ebpf::CALL_REG   => {
                     let target_address = reg[insn.imm as usize];
                     reg[ebpf::STACK_REG] =
-                        self.frames.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
+                        self.stack.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
                     if target_address < self.program_vm_addr {
                         return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
                     }
@@ -984,7 +965,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         }
                     } else if let Some(target_pc) = self.executable.lookup_bpf_function(insn.imm as u32) {
                         // make BPF to BPF call
-                        reg[ebpf::STACK_REG] = self.frames.push(
+                        reg[ebpf::STACK_REG] = self.stack.push(
                             &reg[ebpf::FIRST_SCRATCH_REG
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
                             next_pc,
@@ -996,7 +977,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 }
 
                 ebpf::EXIT => {
-                    match self.frames.pop::<E>() {
+                    match self.stack.pop::<E>() {
                         Ok((saved_reg, stack_ptr, ptr)) => {
                             // Return from BPF to BPF call
                             reg[ebpf::FIRST_SCRATCH_REG
@@ -1009,7 +990,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                             debug!("BPF instructions executed (interp): {:?}", total_insn_count + self.last_insn_count);
                             debug!(
                                 "Max frame depth reached: {:?}",
-                                self.frames.get_max_frame_index()
+                                self.stack.get_max_frame_index()
                             );
                             return Ok(reg[0]);
                         }

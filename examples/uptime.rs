@@ -52,7 +52,7 @@ fn main() {
     )
     .unwrap();
     let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
+        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
             .unwrap();
     // Execute prog1.
     assert_eq!(
@@ -89,7 +89,7 @@ fn main() {
         executable.jit_compile().unwrap();
     }
     let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
+        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
             .unwrap();
     vm.bind_syscall_context_object(Box::new(syscalls::BpfTimeGetNs {}), None)
         .unwrap();

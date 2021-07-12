@@ -23,7 +23,7 @@ pub struct MemoryRegion {
 }
 impl MemoryRegion {
     /// Creates a new MemoryRegion structure from a slice
-    pub fn new_from_slice(v: &[u8], vm_addr: u64, vm_gap_size: u64, is_writable: bool) -> Self {
+    pub fn new_from_slice(slice: &[u8], vm_addr: u64, vm_gap_size: u64, is_writable: bool) -> Self {
         let vm_gap_shift = if vm_gap_size > 0 {
             let vm_gap_shift =
                 std::mem::size_of::<u64>() as u8 * 8 - vm_gap_size.leading_zeros() as u8 - 1;
@@ -33,9 +33,9 @@ impl MemoryRegion {
             std::mem::size_of::<u64>() as u8 * 8 - 1
         };
         MemoryRegion {
-            host_addr: v.as_ptr() as u64,
+            host_addr: slice.as_ptr() as u64,
             vm_addr,
-            len: v.len() as u64,
+            len: slice.len() as u64,
             vm_gap_shift,
             is_writable,
         }
@@ -95,49 +95,31 @@ pub enum AccessType {
 
 /// Indirection to use instead of a slice to make handling easier
 pub struct MemoryMapping<'a> {
-    /// Mapped (valid) regions
+    /// Mapped memory regions
     regions: Box<[MemoryRegion]>,
-    /// Copy of the regions vm_addr fields to improve cache density
-    dense_keys: Box<[u64]>,
     /// VM configuration
     config: &'a Config,
 }
 impl<'a> MemoryMapping<'a> {
-    fn construct_eytzinger_order(
-        &mut self,
-        ascending_regions: &[MemoryRegion],
-        mut in_index: usize,
-        out_index: usize,
-    ) -> usize {
-        if out_index >= self.regions.len() {
-            return in_index;
-        }
-        in_index = self.construct_eytzinger_order(ascending_regions, in_index, 2 * out_index + 1);
-        self.regions[out_index] = ascending_regions[in_index].clone();
-        self.dense_keys[out_index] = ascending_regions[in_index].vm_addr;
-        self.construct_eytzinger_order(ascending_regions, in_index + 1, 2 * out_index + 2)
-    }
-
     /// Creates a new MemoryMapping structure from the given regions
     pub fn new<E: UserDefinedError>(
         mut regions: Vec<MemoryRegion>,
         config: &'a Config,
     ) -> Result<Self, EbpfError<E>> {
-        let mut result = Self {
-            regions: vec![MemoryRegion::default(); regions.len()].into_boxed_slice(),
-            dense_keys: vec![0; regions.len()].into_boxed_slice(),
-            config,
-        };
         regions.sort();
-        for index in 1..regions.len() {
-            let first = &regions[index - 1];
-            let second = &regions[index];
-            if first.vm_addr.saturating_add(first.len) > second.vm_addr {
-                return Err(EbpfError::VirtualAddressOverlap(second.vm_addr));
+        for (index, region) in regions.iter().enumerate() {
+            if region.vm_addr != (index as u64 + 1) << ebpf::VIRTUAL_ADDRESS_BITS
+                || (region.len > 0
+                    && ((region.vm_addr + region.len - 1) >> ebpf::VIRTUAL_ADDRESS_BITS) as usize
+                        != index + 1)
+            {
+                return Err(EbpfError::InvalidMemoryRegion(index));
             }
         }
-        result.construct_eytzinger_order(&regions, 0, 0);
-        Ok(result)
+        Ok(Self {
+            regions: regions.into_boxed_slice(),
+            config,
+        })
     }
 
     /// Given a list of regions translate from virtual machine to host address
@@ -147,18 +129,13 @@ impl<'a> MemoryMapping<'a> {
         vm_addr: u64,
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
-        let mut index = 1;
-        while index <= self.dense_keys.len() {
-            index = (index << 1) + (self.dense_keys[index - 1] <= vm_addr) as usize;
-        }
-        index >>= index.trailing_zeros() + 1;
-        if index == 0 {
-            return self.generate_access_violation(access_type, vm_addr, len);
-        }
-        let region = &self.regions[index - 1];
-        if access_type == AccessType::Load || region.is_writable {
-            if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
-                return Ok(host_addr);
+        let index = (vm_addr >> ebpf::VIRTUAL_ADDRESS_BITS) as usize;
+        if (1..self.regions.len() + 1).contains(&index) {
+            let region = &self.regions[index - 1];
+            if access_type == AccessType::Load || region.is_writable {
+                if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
+                    return Ok(host_addr);
+                }
             }
         }
         self.generate_access_violation(access_type, vm_addr, len)
@@ -205,12 +182,13 @@ impl<'a> MemoryMapping<'a> {
         index: usize,
         new_len: u64,
     ) -> Result<(), EbpfError<E>> {
-        if index < self.regions.len() - 1
-            && self.regions[index].vm_addr.saturating_add(new_len) > self.regions[index + 1].vm_addr
+        if index >= self.regions.len()
+            || (new_len > 0
+                && ((self.regions[index].vm_addr + new_len - 1) >> ebpf::VIRTUAL_ADDRESS_BITS)
+                    as usize
+                    != index + 1)
         {
-            return Err(EbpfError::VirtualAddressOverlap(
-                self.regions[index + 1].vm_addr,
-            ));
+            return Err(EbpfError::InvalidMemoryRegion(index));
         }
         self.regions[index].len = new_len;
         Ok(())

@@ -37,7 +37,7 @@ macro_rules! test_interpreter_and_jit {
         let check_closure = $check;
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
-            let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
+            let mut vm = EbpfVm::new($executable.as_ref(), &mut [], &mut mem).unwrap();
             $(test_interpreter_and_jit!(bind, vm, $location => $syscall_function; $syscall_context_object);)*
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count });
             assert!(check_closure(&vm, result));
@@ -48,7 +48,7 @@ macro_rules! test_interpreter_and_jit {
             let check_closure = $check;
             let compilation_result = $executable.jit_compile();
             let mut mem = $mem;
-            let mut vm = EbpfVm::new($executable.as_ref(), &mut mem, &[]).unwrap();
+            let mut vm = EbpfVm::new($executable.as_ref(), &mut [], &mut mem).unwrap();
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, Err(err))),
                 Ok(()) => {
@@ -3086,7 +3086,7 @@ fn test_err_unresolved_elf() {
     file.read_to_end(&mut elf).unwrap();
     let config = Config {
         reject_unresolved_syscalls: true,
-        ..Default::default()
+        ..Config::default()
     };
     assert!(
         matches!(<dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, None, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
@@ -3332,7 +3332,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     }
     let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {
         let mut mem = vec![0u8; mem_size];
-        let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[]).unwrap();
+        let mut vm = EbpfVm::new(executable.as_ref(), &mut [], &mut mem).unwrap();
         let result_interpreter = vm.execute_program_interpreted(&mut TestInstructionMeter {
             remaining: max_instruction_count,
         });
@@ -3344,7 +3344,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         )
     };
     let mut mem = vec![0u8; mem_size];
-    let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[]).unwrap();
+    let mut vm = EbpfVm::new(executable.as_ref(), &mut [], &mut mem).unwrap();
     let result_jit = vm.execute_program_jit(&mut TestInstructionMeter {
         remaining: max_instruction_count,
     });

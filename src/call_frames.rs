@@ -21,7 +21,7 @@ struct CallFrame {
 #[derive(Clone, Debug)]
 pub struct CallFrames {
     stack: AlignedMemory,
-    region: MemoryRegion,
+    frame_size: usize,
     frame_index: usize,
     frame_index_max: usize,
     frames: Vec<CallFrame>,
@@ -31,11 +31,9 @@ impl CallFrames {
     pub fn new(depth: usize, frame_size: usize) -> Self {
         let mut stack = AlignedMemory::new(depth * frame_size, HOST_ALIGN);
         stack.resize(depth * frame_size, 0).unwrap();
-        let region =
-            MemoryRegion::new_from_slice(stack.as_slice(), MM_STACK_START, frame_size as u64, true);
         let mut frames = CallFrames {
             stack,
-            region,
+            frame_size,
             frame_index: 0,
             frame_index_max: 0,
             frames: vec![
@@ -55,8 +53,13 @@ impl CallFrames {
     }
 
     /// Get stack memory region
-    pub fn get_region(&self) -> &MemoryRegion {
-        &self.region
+    pub fn get_memory_region(&self) -> MemoryRegion {
+        MemoryRegion::new_from_slice(
+            self.stack.as_slice(),
+            MM_STACK_START,
+            self.frame_size as u64,
+            true,
+        )
     }
 
     /// Get the vm address of the beginning of each stack frame
@@ -66,7 +69,7 @@ impl CallFrames {
 
     /// Get the address of a frame's top of stack
     pub fn get_stack_top(&self) -> u64 {
-        self.frames[self.frame_index].vm_addr + (1 << self.region.vm_gap_shift)
+        self.frames[self.frame_index].vm_addr + self.frame_size as u64
     }
 
     /// Get current call frame index, 0 is the root frame
