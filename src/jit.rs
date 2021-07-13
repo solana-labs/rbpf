@@ -342,12 +342,37 @@ enum EnvironmentStackSlot {
     PrevInsnMeter = 8,
     /// Constant pointer to instruction_meter
     InsnMeterPtr = 9,
+    /// CPU cycles accumulated by the stop watch
+    StopwatchNumerator = 10,
+    /// Number of times the stop watch was used
+    StopwatchDenominator = 11,
     /// Bumper for size_of
-    SlotCount = 10,
+    SlotCount = 12,
 }
 
 fn slot_on_environment_stack(jit: &JitCompiler, slot: EnvironmentStackSlot) -> i32 {
     -8 * (slot as i32 + jit.environment_stack_key)
+}
+
+#[allow(dead_code)]
+#[inline]
+fn emit_stopwatch<E: UserDefinedError>(jit: &mut JitCompiler, begin: bool) -> Result<(), EbpfError<E>> {
+    jit.stopwatch_is_active = true;
+    X86Instruction::push(RDX).emit(jit)?;
+    X86Instruction::push(RAX).emit(jit)?;
+    X86Instruction::fence(FenceType::Load).emit(jit)?; // lfence
+    X86Instruction::cycle_count().emit(jit)?; // rdtsc
+    X86Instruction::fence(FenceType::Load).emit(jit)?; // lfence
+    emit_alu(jit, OperandSize::S64, 0xc1, 4, RDX, 32, None)?; // RDX <<= 32;
+    emit_alu(jit, OperandSize::S64, 0x09, RDX, RAX, 0, None)?; // RAX |= RDX;
+    if begin {
+        emit_alu(jit, OperandSize::S64, 0x29, RAX, RBP, 0, Some(X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::StopwatchNumerator))))?; // *numerator -= RAX;
+    } else {
+        emit_alu(jit, OperandSize::S64, 0x01, RAX, RBP, 0, Some(X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::StopwatchNumerator))))?; // *numerator += RAX;
+        emit_alu(jit, OperandSize::S64, 0x81, 0, RBP, 1, Some(X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::StopwatchDenominator))))?; // *denominator += 1;
+    }
+    X86Instruction::pop(RAX).emit(jit)?;
+    X86Instruction::pop(RDX).emit(jit)
 }
 
 /* Explaination of the Instruction Meter
@@ -869,6 +894,7 @@ pub struct JitCompiler {
     handler_anchors: HashMap<usize, usize>,
     config: Config,
     rng: ThreadRng,
+    stopwatch_is_active: bool,
     environment_stack_key: i32,
     program_argument_key: i32,
 }
@@ -948,6 +974,7 @@ impl JitCompiler {
             handler_anchors: HashMap::new(),
             config: *_config,
             rng,
+            stopwatch_is_active: false,
             environment_stack_key,
             program_argument_key,
         })
@@ -1496,6 +1523,11 @@ impl JitCompiler {
         // Save instruction meter
         X86Instruction::push(ARGUMENT_REGISTERS[3]).emit(self)?;
 
+        // Initialize stop watch
+        emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 ^= R11; 
+        X86Instruction::push(R11).emit(self)?;
+        X86Instruction::push(R11).emit(self)?;
+
         // Initialize frame pointer
         X86Instruction::mov(OperandSize::S64, RSP, RBP).emit(self)?;
         emit_alu(self, OperandSize::S64, 0x81, 0, RBP, 8 * (EnvironmentStackSlot::SlotCount as i64 - 1 + self.environment_stack_key as i64), None)?;
@@ -1523,6 +1555,17 @@ impl JitCompiler {
 
         // Epilogue
         set_anchor(self, TARGET_PC_EPILOGUE);
+
+        // Print stop watch value
+        fn stopwatch_result(numerator: u64, denominator: u64) {
+            println!("Stop watch: {} / {} = {}", numerator, denominator, if denominator == 0 { 0.0 } else { numerator as f64 / denominator as f64 });
+        }
+        if self.stopwatch_is_active {
+            emit_rust_call(self, stopwatch_result as *const u8, &[
+                Argument { index: 1, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::StopwatchDenominator), false) },
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::StopwatchNumerator), false) },
+            ], None, false)?;
+        }
 
         // Store instruction_meter in RAX
         X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], RAX).emit(self)?;

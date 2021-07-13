@@ -50,8 +50,18 @@ pub enum X86IndirectAccess {
     /// [second_operand + offset]
     Offset(i32),
     /// [second_operand + offset + index << shift]
-    #[allow(dead_code)]
     OffsetIndexShift(i32, u8, u8),
+}
+
+#[allow(dead_code)]
+#[derive(PartialEq, Eq, Copy, Clone)]
+pub enum FenceType {
+    /// lfence
+    Load = 5,
+    /// mfence
+    All = 6,
+    /// sfence
+    Store = 7,
 }
 
 #[derive(PartialEq, Eq, Copy, Clone)]
@@ -288,7 +298,6 @@ impl X86Instruction {
     }
 
     /// Load effective address of source into destination
-    #[allow(dead_code)]
     pub fn lea(
         size: OperandSize,
         source: u8,
@@ -488,6 +497,30 @@ impl X86Instruction {
                 immediate: immediate as i64,
                 ..Self::default()
             }
+        }
+    }
+
+    /// rdtsc
+    #[allow(dead_code)]
+    pub fn cycle_count() -> Self {
+        Self {
+            size: OperandSize::S32,
+            opcode_escape_sequence: 1,
+            opcode: 0x31,
+            modrm: false,
+            ..Self::default()
+        }
+    }
+
+    /// lfence / sfence / mfence
+    #[allow(dead_code)]
+    pub fn fence(fence_type: FenceType) -> Self {
+        Self {
+            size: OperandSize::S32,
+            opcode_escape_sequence: 1,
+            opcode: 0xae,
+            first_operand: fence_type as u8,
+            ..Self::default()
         }
     }
 }
