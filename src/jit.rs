@@ -26,7 +26,7 @@ use crate::{
     vm::{Config, Executable, ProgramResult, InstructionMeter, Tracer, DynTraitFatPointer, SYSCALL_CONTEXT_OBJECTS_OFFSET, REPORT_UNRESOLVED_SYMBOL_INDEX},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, STACK_REG, MM_STACK_START},
     error::{UserDefinedError, EbpfError},
-    memory_region::{AccessType, MemoryMapping},
+    memory_region::{AccessType, MemoryMapping, MemoryRegion},
     user_error::UserError,
     x86::*,
 };
@@ -561,7 +561,7 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, number_
                 emit_alu(jit, OperandSize::S64, 0xc1, 5, REGISTER_MAP[STACK_REG], shift_amount as i64, None)?;
                 X86Instruction::push(REGISTER_MAP[STACK_REG]).emit(jit)?;
             }
-            // Load host target_address from JitProgramArgument.instruction_addresses
+            // Load host target_address from jit_program_argument.instruction_addresses
             debug_assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
             X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]).emit(jit)?;
             X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[STACK_REG], jit.result.pc_section.as_ptr() as i64).emit(jit)?;
@@ -806,11 +806,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
     if (div || modrm) && imm.is_none() {
         // Save pc
         X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
-
-        // test src,src
-        emit_alu(jit, size, 0x85, src, src, 0, None)?;
-
-        // Jump if src is zero
+        X86Instruction::test(size, src, src, None).emit(jit)?; // src == 0
         emit_jcc(jit, 0x84, TARGET_PC_DIV_BY_ZERO)?;
     }
 
@@ -955,7 +951,7 @@ impl JitCompiler {
             };
         }
 
-        let mut code_length_estimate = pc * 256 + 512;
+        let mut code_length_estimate = pc * 256 + 512 * 8; // TODO
         code_length_estimate += (code_length_estimate as f64 * _config.noop_instruction_ratio) as usize;
         let mut rng = rand::thread_rng();
         let (environment_stack_key, program_argument_key) =
@@ -1269,7 +1265,7 @@ impl JitCompiler {
                         X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset((SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8 + self.program_argument_key)).emit(self)?;
                         emit_rust_call(self, syscall.function as *const u8, &[
                             Argument { index: 7, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
-                            Argument { index: 6, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // JitProgramArgument::memory_mapping
+                            Argument { index: 6, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // jit_program_argument.memory_mapping
                             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
                             Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
                             Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
@@ -1397,48 +1393,91 @@ impl JitCompiler {
 
         // Translates a vm memory address to a host memory address
         for (access_type, len) in &[
-            (AccessType::Load, 1i64),
-            (AccessType::Load, 2i64),
-            (AccessType::Load, 4i64),
-            (AccessType::Load, 8i64),
-            (AccessType::Store, 1i64),
-            (AccessType::Store, 2i64),
-            (AccessType::Store, 4i64),
-            (AccessType::Store, 8i64),
+            (AccessType::Load, 1i32),
+            (AccessType::Load, 2i32),
+            (AccessType::Load, 4i32),
+            (AccessType::Load, 8i32),
+            (AccessType::Store, 1i32),
+            (AccessType::Store, 2i32),
+            (AccessType::Store, 4i32),
+            (AccessType::Store, 8i32),
         ] {
             let target_offset = len.trailing_zeros() as usize + 4 * (*access_type as usize);
 
             set_anchor(self, TARGET_PC_TRANSLATE_MEMORY_ADDRESS + target_offset);
             X86Instruction::push(R11).emit(self)?;
+            X86Instruction::push(RAX).emit(self)?;
+            X86Instruction::push(RCX).emit(self)?;
+            X86Instruction::push(RDX).emit(self)?;
+            X86Instruction::mov(OperandSize::S64, R11, RAX).emit(self)?; // RAX = vm_addr;
+            emit_alu(self, OperandSize::S64, 0xc1, 5, RAX, ebpf::VIRTUAL_ADDRESS_BITS as i64, None)?; // RAX >>= ebpf::VIRTUAL_ADDRESS_BITS;
+            X86Instruction::cmp(OperandSize::S64, RAX, R10, Some(X86IndirectAccess::Offset(self.program_argument_key + 8))).emit(self)?; // region_index >= jit_program_argument.memory_mapping.regions.len()
+            emit_jcc(self, 0x86, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
+            debug_assert_eq!(1 << 5, std::mem::size_of::<MemoryRegion>());
+            emit_alu(self, OperandSize::S64, 0xc1, 4, RAX, 5, None)?; // RAX *= std::mem::size_of::<MemoryRegion>();
+            emit_alu(self, OperandSize::S64, 0x03, RAX, R10, 0, Some(X86IndirectAccess::Offset(self.program_argument_key)))?; // region = &jit_program_argument.memory_mapping.regions[region_index];
+            if *access_type == AccessType::Store {
+                X86Instruction::cmp_immediate(OperandSize::S8, RAX, 0, Some(X86IndirectAccess::Offset(25))).emit(self)?; // region.is_writable == 0
+                emit_jcc(self, 0x84, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
+            }
+            X86Instruction::load_immediate(OperandSize::S64, RCX, (1i64 << ebpf::VIRTUAL_ADDRESS_BITS) - 1).emit(self)?; // RCX = (1 << ebpf::VIRTUAL_ADDRESS_BITS) - 1;
+            emit_alu(self, OperandSize::S64, 0x21, RCX, R11, 0, None)?; // R11 &= (1 << ebpf::VIRTUAL_ADDRESS_BITS) - 1;
+            X86Instruction::load(OperandSize::S8, RAX, RCX, X86IndirectAccess::Offset(24)).emit(self)?; // RCX = region.vm_gap_shift;
+            X86Instruction::mov(OperandSize::S64, R11, RDX).emit(self)?; // RDX = R11;
+            emit_alu(self, OperandSize::S64, 0xd3, 5, RDX, 0, None)?; // RDX = R11 >> region.vm_gap_shift;
+            X86Instruction::test_immediate(OperandSize::S64, RDX, 1, None).emit(self)?; // (RDX & 1) != 0
+            emit_jcc(self, 0x85, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
+            X86Instruction::load_immediate(OperandSize::S64, RDX, -1).emit(self)?; // RDX = -1;
+            emit_alu(self, OperandSize::S64, 0xd3, 4, RDX, 0, None)?; // gap_mask = -1 << region.vm_gap_shift;
+            X86Instruction::mov(OperandSize::S64, RDX, RCX).emit(self)?; // RCX = RDX;
+            emit_alu(self, OperandSize::S64, 0xf7, 2, RCX, 0, None)?; // inverse_gap_mask = !gap_mask;
+            emit_alu(self, OperandSize::S64, 0x21, R11, RCX, 0, None)?; // below_gap = R11 & inverse_gap_mask;
+            emit_alu(self, OperandSize::S64, 0x21, RDX, R11, 0, None)?; // above_gap = R11 & gap_mask;
+            emit_alu(self, OperandSize::S64, 0xc1, 5, R11, 1, None)?; // above_gap >>= 1;
+            emit_alu(self, OperandSize::S64, 0x09, RCX, R11, 0, None)?; // gapped_offset = above_gap | below_gap;
+            X86Instruction::lea(OperandSize::S64, R11, RCX, Some(X86IndirectAccess::Offset(*len))).emit(self)?; // RCX = R11 + len;
+            X86Instruction::cmp(OperandSize::S8, RCX, RAX, Some(X86IndirectAccess::Offset(16))).emit(self)?; // region.len < R11 + len
+            emit_jcc(self, 0x82, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
+            emit_alu(self, OperandSize::S64, 0x03, R11, RAX, 0, Some(X86IndirectAccess::Offset(0)))?; // R11 += region.host_addr;
+
+            /*
+            emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 = 0;
+            X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(24, R11, 0)).emit(self)?;
+            
             emit_rust_call(self, MemoryMapping::map::<UserError> as *const u8, &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
-                Argument { index: 4, value: Value::Constant64(*len, false) },
+                Argument { index: 4, value: Value::Constant64(*len as i64, false) },
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
-                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // JitProgramArgument::memory_mapping
+                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // jit_program_argument.memory_mapping
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) }, // Pointer to optional typed return value
             ], None, true)?;
         
             // Throw error if the result indicates one
             emit_jcc(self, 0x85, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
+            */
+
+            X86Instruction::pop(RDX).emit(self)?;
+            X86Instruction::pop(RCX).emit(self)?;
+            X86Instruction::pop(RAX).emit(self)?;
         
             // Store Ok value in result register
-            X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
-            X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)).emit(self)?;
+            // X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
+            // X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)).emit(self)?;
             emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8, None)?;
             X86Instruction::return_near().emit(self)?;
 
             set_anchor(self, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset);
             emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 = 0;
-            X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(0, R11, 0)).emit(self)?;
+            X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(24, R11, 0)).emit(self)?;
             emit_rust_call(self, MemoryMapping::generate_access_violation::<UserError> as *const u8, &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
-                Argument { index: 4, value: Value::Constant64(*len, false) },
+                Argument { index: 4, value: Value::Constant64(*len as i64, false) },
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
-                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // JitProgramArgument::memory_mapping
+                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // jit_program_argument.memory_mapping
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) }, // Pointer to optional typed return value
             ], None, true)?;
-            X86Instruction::pop(R11).emit(self)?;
-            X86Instruction::pop(R11).emit(self)?;
+            emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 32, None)?; // Drop R11, RAX, RCX, RDX from stack
+            X86Instruction::pop(R11).emit(self)?; // Put callers PC in R11
             emit_call(self, TARGET_PC_TRANSLATE_PC)?;
             emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
         }

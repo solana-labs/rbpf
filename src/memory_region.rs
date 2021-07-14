@@ -48,13 +48,13 @@ impl MemoryRegion {
         vm_addr: u64,
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
-        let mut begin_offset = vm_addr - self.vm_addr;
+        let begin_offset = vm_addr - self.vm_addr;
         let is_in_gap = ((begin_offset >> self.vm_gap_shift as u32) & 1) == 1;
-        let gap_mask = (1 << self.vm_gap_shift) - 1;
-        begin_offset = (begin_offset & !gap_mask) >> 1 | (begin_offset & gap_mask);
-        if let Some(end_offset) = begin_offset.checked_add(len as u64) {
+        let gap_mask = (-1i64 << self.vm_gap_shift) as u64;
+        let gapped_offset = (begin_offset & gap_mask) >> 1 | (begin_offset & !gap_mask);
+        if let Some(end_offset) = gapped_offset.checked_add(len as u64) {
             if end_offset <= self.len && !is_in_gap {
-                return Ok(self.host_addr + begin_offset);
+                return Ok(self.host_addr + gapped_offset);
             }
         }
         Err(EbpfError::InvalidVirtualAddress(vm_addr))
@@ -130,7 +130,7 @@ impl<'a> MemoryMapping<'a> {
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
         let index = (vm_addr >> ebpf::VIRTUAL_ADDRESS_BITS) as usize;
-        if index > 0 && index < self.regions.len() {
+        if (1..self.regions.len()).contains(&index) {
             let region = &self.regions[index];
             if access_type == AccessType::Load || region.is_writable {
                 if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
