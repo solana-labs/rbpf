@@ -501,6 +501,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         let ro_region = executable.get_ro_section();
         let stack = CallFrames::new(config.max_call_depth, config.stack_frame_size);
         let regions: Vec<MemoryRegion> = vec![
+            MemoryRegion::new_from_slice(&[], 0, 0, false),
             MemoryRegion::new_from_slice(ro_region, ebpf::MM_PROGRAM_START, 0, false),
             stack.get_memory_region(),
             MemoryRegion::new_from_slice(heap_region, ebpf::MM_HEAP_START, 0, true),

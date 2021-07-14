@@ -108,10 +108,10 @@ impl<'a> MemoryMapping<'a> {
     ) -> Result<Self, EbpfError<E>> {
         regions.sort();
         for (index, region) in regions.iter().enumerate() {
-            if region.vm_addr != (index as u64 + 1) << ebpf::VIRTUAL_ADDRESS_BITS
+            if region.vm_addr != (index as u64) << ebpf::VIRTUAL_ADDRESS_BITS
                 || (region.len > 0
                     && ((region.vm_addr + region.len - 1) >> ebpf::VIRTUAL_ADDRESS_BITS) as usize
-                        != index + 1)
+                        != index)
             {
                 return Err(EbpfError::InvalidMemoryRegion(index));
             }
@@ -130,8 +130,8 @@ impl<'a> MemoryMapping<'a> {
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
         let index = (vm_addr >> ebpf::VIRTUAL_ADDRESS_BITS) as usize;
-        if (1..self.regions.len() + 1).contains(&index) {
-            let region = &self.regions[index - 1];
+        if index > 0 && index < self.regions.len() {
+            let region = &self.regions[index];
             if access_type == AccessType::Load || region.is_writable {
                 if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
                     return Ok(host_addr);
@@ -186,7 +186,7 @@ impl<'a> MemoryMapping<'a> {
             || (new_len > 0
                 && ((self.regions[index].vm_addr + new_len - 1) >> ebpf::VIRTUAL_ADDRESS_BITS)
                     as usize
-                    != index + 1)
+                    != index)
         {
             return Err(EbpfError::InvalidMemoryRegion(index));
         }
