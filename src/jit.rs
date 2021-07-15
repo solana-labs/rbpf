@@ -951,7 +951,7 @@ impl JitCompiler {
             };
         }
 
-        let mut code_length_estimate = pc * 256 + 512 * 8; // TODO
+        let mut code_length_estimate = pc * 256 + 4096;
         code_length_estimate += (code_length_estimate as f64 * _config.noop_instruction_ratio) as usize;
         let mut rng = rand::thread_rng();
         let (environment_stack_key, program_argument_key) =
@@ -1440,29 +1440,11 @@ impl JitCompiler {
             emit_jcc(self, 0x82, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
             emit_alu(self, OperandSize::S64, 0x03, R11, RAX, 0, Some(X86IndirectAccess::Offset(0)))?; // R11 += region.host_addr;
 
-            /*
-            emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 = 0;
-            X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(24, R11, 0)).emit(self)?;
-            
-            emit_rust_call(self, MemoryMapping::map::<UserError> as *const u8, &[
-                Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
-                Argument { index: 4, value: Value::Constant64(*len as i64, false) },
-                Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
-                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // jit_program_argument.memory_mapping
-                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) }, // Pointer to optional typed return value
-            ], None, true)?;
-        
-            // Throw error if the result indicates one
-            emit_jcc(self, 0x85, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
-            */
-
             X86Instruction::pop(RDX).emit(self)?;
             X86Instruction::pop(RCX).emit(self)?;
             X86Instruction::pop(RAX).emit(self)?;
         
-            // Store Ok value in result register
-            // X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
-            // X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)).emit(self)?;
+            // Store host_addr in result register
             emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8, None)?;
             X86Instruction::return_near().emit(self)?;
 
