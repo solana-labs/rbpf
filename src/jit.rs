@@ -575,13 +575,13 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, number_
         }
     }
 
+    let stack_frame_size = jit.config.stack_frame_size as i64 * if jit.config.enable_stack_frame_gaps { 2 } else { 1 };
     X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::BpfStackPtr))).emit(jit)?;
-    emit_alu(jit, OperandSize::S64, 0x81, 4, REGISTER_MAP[STACK_REG], !(jit.config.stack_frame_size as i64 * 2 - 1), None)?; // stack_ptr &= !(jit.config.stack_frame_size * 2 - 1);
-    emit_alu(jit, OperandSize::S64, 0x81, 0, REGISTER_MAP[STACK_REG], jit.config.stack_frame_size as i64 * 3, None)?; // stack_ptr += jit.config.stack_frame_size * 3;
+    emit_alu(jit, OperandSize::S64, 0x81, 0, REGISTER_MAP[STACK_REG], stack_frame_size, None)?; // stack_ptr += stack_frame_increment;
     X86Instruction::store(OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::BpfStackPtr))).emit(jit)?;
 
-    // if(stack_ptr >= MM_STACK_START + jit.config.max_call_depth * jit.config.stack_frame_size * 2) throw EbpfError::CallDepthExeeded;
-    X86Instruction::load_immediate(OperandSize::S64, R11, MM_STACK_START as i64 + (jit.config.max_call_depth * jit.config.stack_frame_size * 2) as i64).emit(jit)?;
+    // if(stack_ptr >= MM_STACK_START + jit.config.stack_frame_size + jit.config.max_call_depth * stack_frame_size) throw EbpfError::CallDepthExeeded;
+    X86Instruction::load_immediate(OperandSize::S64, R11, MM_STACK_START as i64 + jit.config.stack_frame_size as i64 + (jit.config.max_call_depth as i64 * stack_frame_size)).emit(jit)?;
     X86Instruction::cmp(OperandSize::S64, R11, REGISTER_MAP[STACK_REG], None).emit(jit)?;
     // Store PC in case the bounds check fails
     X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
@@ -1313,16 +1313,14 @@ impl JitCompiler {
                 ebpf::EXIT      => {
                     emit_validate_and_profile_instruction_count(self, true, Some(0))?;
 
+                    let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
                     X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::BpfStackPtr))).emit(self)?;
-                    emit_alu(self, OperandSize::S64, 0x81, 4, REGISTER_MAP[STACK_REG], !(self.config.stack_frame_size as i64 * 2 - 1), None)?; // stack_ptr &= !(jit.config.stack_frame_size * 2 - 1);
-                    emit_alu(self, OperandSize::S64, 0x81, 5, REGISTER_MAP[STACK_REG], self.config.stack_frame_size as i64 * 2, None)?; // stack_ptr -= jit.config.stack_frame_size * 2;
+                    emit_alu(self, OperandSize::S64, 0x81, 5, REGISTER_MAP[STACK_REG], stack_frame_size, None)?; // stack_ptr -= stack_frame_size;
                     X86Instruction::store(OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::BpfStackPtr))).emit(self)?;
 
-                    // if(stack_ptr < MM_STACK_START) goto exit;
-                    X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(self)?;
-                    X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], MM_STACK_START as i64).emit(self)?;
-                    X86Instruction::cmp(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[STACK_REG], None).emit(self)?;
-                    X86Instruction::mov(OperandSize::S64, R11, REGISTER_MAP[0]).emit(self)?;
+                    // if(stack_ptr < MM_STACK_START + self.config.stack_frame_size) goto exit;
+                    X86Instruction::load_immediate(OperandSize::S64, R11, MM_STACK_START as i64 + self.config.stack_frame_size as i64).emit(self)?;
+                    X86Instruction::cmp(OperandSize::S64, R11, REGISTER_MAP[STACK_REG], None).emit(self)?;
                     emit_jcc(self, 0x82, TARGET_PC_EXIT)?;
 
                     // else return;
@@ -1408,7 +1406,12 @@ impl JitCompiler {
             X86Instruction::push(R11).emit(self)?;
             X86Instruction::push(RAX).emit(self)?;
             X86Instruction::push(RCX).emit(self)?;
-            X86Instruction::push(RDX).emit(self)?;
+            let stack_offset = if self.config.enable_stack_frame_gaps {
+                X86Instruction::push(RDX).emit(self)?;
+                24
+            } else {
+                16
+            };
             X86Instruction::mov(OperandSize::S64, R11, RAX).emit(self)?; // RAX = vm_addr;
             emit_alu(self, OperandSize::S64, 0xc1, 5, RAX, ebpf::VIRTUAL_ADDRESS_BITS as i64, None)?; // RAX >>= ebpf::VIRTUAL_ADDRESS_BITS;
             X86Instruction::cmp(OperandSize::S64, RAX, R10, Some(X86IndirectAccess::Offset(self.program_argument_key + 8))).emit(self)?; // region_index >= jit_program_argument.memory_mapping.regions.len()
@@ -1422,35 +1425,36 @@ impl JitCompiler {
             }
             X86Instruction::load_immediate(OperandSize::S64, RCX, (1i64 << ebpf::VIRTUAL_ADDRESS_BITS) - 1).emit(self)?; // RCX = (1 << ebpf::VIRTUAL_ADDRESS_BITS) - 1;
             emit_alu(self, OperandSize::S64, 0x21, RCX, R11, 0, None)?; // R11 &= (1 << ebpf::VIRTUAL_ADDRESS_BITS) - 1;
-            X86Instruction::load(OperandSize::S8, RAX, RCX, X86IndirectAccess::Offset(24)).emit(self)?; // RCX = region.vm_gap_shift;
-            X86Instruction::mov(OperandSize::S64, R11, RDX).emit(self)?; // RDX = R11;
-            emit_alu(self, OperandSize::S64, 0xd3, 5, RDX, 0, None)?; // RDX = R11 >> region.vm_gap_shift;
-            X86Instruction::test_immediate(OperandSize::S64, RDX, 1, None).emit(self)?; // (RDX & 1) != 0
-            emit_jcc(self, 0x85, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
-            X86Instruction::load_immediate(OperandSize::S64, RDX, -1).emit(self)?; // RDX = -1;
-            emit_alu(self, OperandSize::S64, 0xd3, 4, RDX, 0, None)?; // gap_mask = -1 << region.vm_gap_shift;
-            X86Instruction::mov(OperandSize::S64, RDX, RCX).emit(self)?; // RCX = RDX;
-            emit_alu(self, OperandSize::S64, 0xf7, 2, RCX, 0, None)?; // inverse_gap_mask = !gap_mask;
-            emit_alu(self, OperandSize::S64, 0x21, R11, RCX, 0, None)?; // below_gap = R11 & inverse_gap_mask;
-            emit_alu(self, OperandSize::S64, 0x21, RDX, R11, 0, None)?; // above_gap = R11 & gap_mask;
-            emit_alu(self, OperandSize::S64, 0xc1, 5, R11, 1, None)?; // above_gap >>= 1;
-            emit_alu(self, OperandSize::S64, 0x09, RCX, R11, 0, None)?; // gapped_offset = above_gap | below_gap;
+            if self.config.enable_stack_frame_gaps {
+                X86Instruction::load(OperandSize::S8, RAX, RCX, X86IndirectAccess::Offset(24)).emit(self)?; // RCX = region.vm_gap_shift;
+                X86Instruction::mov(OperandSize::S64, R11, RDX).emit(self)?; // RDX = R11;
+                emit_alu(self, OperandSize::S64, 0xd3, 5, RDX, 0, None)?; // RDX = R11 >> region.vm_gap_shift;
+                X86Instruction::test_immediate(OperandSize::S64, RDX, 1, None).emit(self)?; // (RDX & 1) != 0
+                emit_jcc(self, 0x85, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
+                X86Instruction::load_immediate(OperandSize::S64, RDX, -1).emit(self)?; // RDX = -1;
+                emit_alu(self, OperandSize::S64, 0xd3, 4, RDX, 0, None)?; // gap_mask = -1 << region.vm_gap_shift;
+                X86Instruction::mov(OperandSize::S64, RDX, RCX).emit(self)?; // RCX = RDX;
+                emit_alu(self, OperandSize::S64, 0xf7, 2, RCX, 0, None)?; // inverse_gap_mask = !gap_mask;
+                emit_alu(self, OperandSize::S64, 0x21, R11, RCX, 0, None)?; // below_gap = R11 & inverse_gap_mask;
+                emit_alu(self, OperandSize::S64, 0x21, RDX, R11, 0, None)?; // above_gap = R11 & gap_mask;
+                emit_alu(self, OperandSize::S64, 0xc1, 5, R11, 1, None)?; // above_gap >>= 1;
+                emit_alu(self, OperandSize::S64, 0x09, RCX, R11, 0, None)?; // gapped_offset = above_gap | below_gap;
+            }
             X86Instruction::lea(OperandSize::S64, R11, RCX, Some(X86IndirectAccess::Offset(*len))).emit(self)?; // RCX = R11 + len;
             X86Instruction::cmp(OperandSize::S8, RCX, RAX, Some(X86IndirectAccess::Offset(16))).emit(self)?; // region.len < R11 + len
             emit_jcc(self, 0x82, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
             emit_alu(self, OperandSize::S64, 0x03, R11, RAX, 0, Some(X86IndirectAccess::Offset(0)))?; // R11 += region.host_addr;
-
-            X86Instruction::pop(RDX).emit(self)?;
+            if self.config.enable_stack_frame_gaps {
+                X86Instruction::pop(RDX).emit(self)?;
+            }
             X86Instruction::pop(RCX).emit(self)?;
             X86Instruction::pop(RAX).emit(self)?;
-        
-            // Store host_addr in result register
             emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8, None)?;
             X86Instruction::return_near().emit(self)?;
 
             set_anchor(self, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset);
             emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 = 0;
-            X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(24, R11, 0)).emit(self)?;
+            X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(stack_offset, R11, 0)).emit(self)?;
             emit_rust_call(self, MemoryMapping::generate_access_violation::<UserError> as *const u8, &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
@@ -1458,7 +1462,7 @@ impl JitCompiler {
                 Argument { index: 1, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // jit_program_argument.memory_mapping
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) }, // Pointer to optional typed return value
             ], None, true)?;
-            emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 32, None)?; // Drop R11, RAX, RCX, RDX from stack
+            emit_alu(self, OperandSize::S64, 0x81, 0, RSP, stack_offset as i64 + 8, None)?; // Drop R11, RAX, RCX, RDX from stack
             X86Instruction::pop(R11).emit(self)?; // Put callers PC in R11
             emit_call(self, TARGET_PC_TRANSLATE_PC)?;
             emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;

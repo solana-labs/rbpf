@@ -5,6 +5,7 @@ use crate::{
     ebpf::{ELF_INSN_DUMP_OFFSET, HOST_ALIGN, MM_STACK_START, SCRATCH_REGS},
     error::{EbpfError, UserDefinedError},
     memory_region::MemoryRegion,
+    vm::Config,
 };
 
 /// One call frame
@@ -19,21 +20,24 @@ struct CallFrame {
 /// function to be called in its own frame.  CallFrames manages
 /// call frames
 #[derive(Clone, Debug)]
-pub struct CallFrames {
+pub struct CallFrames<'a> {
+    config: &'a Config,
     stack: AlignedMemory,
-    frame_size: usize,
     frame_index: usize,
     frame_index_max: usize,
     frames: Vec<CallFrame>,
 }
-impl CallFrames {
+impl<'a> CallFrames<'a> {
     /// New call frame, depth indicates maximum call depth
-    pub fn new(depth: usize, frame_size: usize) -> Self {
-        let mut stack = AlignedMemory::new(depth * frame_size, HOST_ALIGN);
-        stack.resize(depth * frame_size, 0).unwrap();
+    pub fn new(config: &'a Config) -> Self {
+        let mut stack =
+            AlignedMemory::new(config.max_call_depth * config.stack_frame_size, HOST_ALIGN);
+        stack
+            .resize(config.max_call_depth * config.stack_frame_size, 0)
+            .unwrap();
         let mut frames = CallFrames {
+            config,
             stack,
-            frame_size,
             frame_index: 0,
             frame_index_max: 0,
             frames: vec![
@@ -42,12 +46,14 @@ impl CallFrames {
                     saved_reg: [0u64; SCRATCH_REGS],
                     return_ptr: 0
                 };
-                depth
+                config.max_call_depth
             ],
         };
-        for i in 0..depth {
-            // Seperate each stack frame's virtual address so that stack over/under-run is caught explicitly
-            frames.frames[i].vm_addr = MM_STACK_START + (i * 2 * frame_size) as u64;
+        // Seperate each stack frame's virtual address so that stack over/under-run is caught explicitly
+        let gap_factor = if config.enable_stack_frame_gaps { 2 } else { 1 };
+        for i in 0..config.max_call_depth {
+            frames.frames[i].vm_addr =
+                MM_STACK_START + (i * gap_factor * config.stack_frame_size) as u64;
         }
         frames
     }
@@ -57,7 +63,11 @@ impl CallFrames {
         MemoryRegion::new_from_slice(
             self.stack.as_slice(),
             MM_STACK_START,
-            self.frame_size as u64,
+            if self.config.enable_stack_frame_gaps {
+                self.config.stack_frame_size as u64
+            } else {
+                0
+            },
             true,
         )
     }
@@ -69,7 +79,7 @@ impl CallFrames {
 
     /// Get the address of a frame's top of stack
     pub fn get_stack_top(&self) -> u64 {
-        self.frames[self.frame_index].vm_addr + self.frame_size as u64
+        self.frames[self.frame_index].vm_addr + self.config.stack_frame_size as u64
     }
 
     /// Get current call frame index, 0 is the root frame
@@ -124,32 +134,41 @@ mod tests {
 
     #[test]
     fn test_frames() {
-        const DEPTH: usize = 10;
-        const FRAME_SIZE: u64 = 8;
-        let mut frames = CallFrames::new(DEPTH, FRAME_SIZE as usize);
+        let config = Config {
+            max_call_depth: 10,
+            stack_frame_size: 8,
+            enable_stack_frame_gaps: true,
+            ..Config::default()
+        };
+        let mut frames = CallFrames::new(&config);
         let mut ptrs: Vec<u64> = Vec::new();
-        for i in 0..DEPTH - 1 {
-            let registers = vec![i as u64; FRAME_SIZE as usize];
+        for i in 0..config.max_call_depth - 1 {
+            let registers = vec![i as u64; config.stack_frame_size];
             assert_eq!(frames.get_frame_index(), i);
             ptrs.push(frames.get_frame_pointers()[i]);
 
             let top = frames.push::<UserError>(&registers[0..4], i).unwrap();
             let new_ptrs = frames.get_frame_pointers();
-            assert_eq!(top, new_ptrs[i + 1] + FRAME_SIZE);
-            assert_ne!(top, ptrs[i] + FRAME_SIZE - 1);
-            assert!(!(ptrs[i] <= new_ptrs[i + 1] && new_ptrs[i + 1] < ptrs[i] + FRAME_SIZE));
+            assert_eq!(top, new_ptrs[i + 1] + config.stack_frame_size as u64);
+            assert_ne!(top, ptrs[i] + config.stack_frame_size as u64 - 1);
+            assert!(
+                !(ptrs[i] <= new_ptrs[i + 1]
+                    && new_ptrs[i + 1] < ptrs[i] + config.stack_frame_size as u64)
+            );
         }
-        let i = DEPTH - 1;
-        let registers = vec![i as u64; FRAME_SIZE as usize];
+        let i = config.max_call_depth - 1;
+        let registers = vec![i as u64; config.stack_frame_size];
         assert_eq!(frames.get_frame_index(), i);
         ptrs.push(frames.get_frame_pointers()[i]);
 
-        assert!(frames.push::<UserError>(&registers, DEPTH - 1).is_err());
+        assert!(frames
+            .push::<UserError>(&registers, config.max_call_depth - 1)
+            .is_err());
 
-        for i in (0..DEPTH - 1).rev() {
+        for i in (0..config.max_call_depth - 1).rev() {
             let (saved_reg, stack_ptr, return_ptr) = frames.pop::<UserError>().unwrap();
             assert_eq!(saved_reg, [i as u64, i as u64, i as u64, i as u64]);
-            assert_eq!(ptrs[i] + FRAME_SIZE, stack_ptr);
+            assert_eq!(ptrs[i] + config.stack_frame_size as u64, stack_ptr);
             assert_eq!(i, return_ptr);
         }
 

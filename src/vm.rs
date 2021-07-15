@@ -179,6 +179,8 @@ pub struct Config {
     pub max_call_depth: usize,
     /// Size of a stack frame in bytes, must match the size specified in the LLVM BPF backend
     pub stack_frame_size: usize,
+    /// Enables gaps in VM address space between the stack frames
+    pub enable_stack_frame_gaps: bool,
     /// Maximal pc distance after which a new instruction meter validation is emitted by the JIT
     pub instruction_meter_checkpoint_distance: usize,
     /// Enable instruction meter and limiting
@@ -201,6 +203,7 @@ impl Default for Config {
         Self {
             max_call_depth: 20,
             stack_frame_size: 4_096,
+            enable_stack_frame_gaps: true,
             instruction_meter_checkpoint_distance: 10000,
             enable_instruction_meter: true,
             enable_instruction_tracing: false,
@@ -468,7 +471,7 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     tracer: Tracer,
     syscall_context_objects: Vec<*mut u8>,
     syscall_context_object_pool: Vec<Box<dyn SyscallObject<E> + 'a>>,
-    stack: CallFrames,
+    stack: CallFrames<'a>,
     last_insn_count: u64,
     total_insn_count: u64,
 }
@@ -499,7 +502,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
         let config = executable.get_config();
         let ro_region = executable.get_ro_section();
-        let stack = CallFrames::new(config.max_call_depth, config.stack_frame_size);
+        let stack = CallFrames::new(config);
         let regions: Vec<MemoryRegion> = vec![
             MemoryRegion::new_from_slice(&[], 0, 0, false),
             MemoryRegion::new_from_slice(ro_region, ebpf::MM_PROGRAM_START, 0, false),
