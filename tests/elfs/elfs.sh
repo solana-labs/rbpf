@@ -31,6 +31,10 @@ rm syscall.o
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o relative_call.so relative_call.o
 rm relative_call.o
 
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o reloc.o -c reloc.c
+"$LLVM_DIR"ld.lld -script elf.ld -z notext -shared --Bdynamic -entry entrypoint -o reloc.so reloc.o
+rm reloc.o
+
 "$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o scratch_registers.o -c scratch_registers.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o scratch_registers.so scratch_registers.o
 rm scratch_registers.o

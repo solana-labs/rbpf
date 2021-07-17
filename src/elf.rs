@@ -158,6 +158,12 @@ const BYTE_LENGTH_IMMEIDATE: usize = 4;
 enum BpfRelocationType {
     /// No relocation, placeholder
     R_Bpf_None = 0,
+    /// R_BPF_64_64 relocation type is used for ld_imm64 instruction.
+    /// The actual to-be-relocated data (0 or section offset) is
+    /// stored at r_offset + 4 and the read/write data bitsize is 32
+    /// (4 bytes). The relocation can be resolved with the symbol
+    /// value plus implicit addend.
+    R_Bpf_64_64 = 1,
     /// 64 bit relocation of a ldxdw instruction.
     /// The ldxdw instruction occupies two instruction slots. The 64-bit address
     /// to load from is split into the 32-bit imm field of each slot. The first
@@ -182,6 +188,7 @@ impl BpfRelocationType {
     fn from_x86_relocation_type(from: u32) -> Option<BpfRelocationType> {
         match from {
             R_X86_64_NONE => Some(BpfRelocationType::R_Bpf_None),
+            R_X86_64_64 => Some(BpfRelocationType::R_Bpf_64_64),
             R_X86_64_RELATIVE => Some(BpfRelocationType::R_Bpf_64_Relative),
             R_X86_64_32 => Some(BpfRelocationType::R_Bpf_64_32),
             _ => None,
@@ -288,19 +295,20 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
         let mut name = "Unknown";
         if let Ok(elf) = Elf::parse(self.elf_bytes.as_slice()) {
             for relocation in &elf.dynrels {
-                if let Some(BpfRelocationType::R_Bpf_64_32) =
-                    BpfRelocationType::from_x86_relocation_type(relocation.r_type)
-                {
-                    if relocation.r_offset as usize == file_offset {
-                        let sym = elf
-                            .dynsyms
-                            .get(relocation.r_sym)
-                            .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
-                        name = elf
-                            .dynstrtab
-                            .get_at(sym.st_name)
-                            .ok_or(ElfError::UnknownSymbol(sym.st_name))?;
+                match BpfRelocationType::from_x86_relocation_type(relocation.r_type) {
+                    Some(BpfRelocationType::R_Bpf_64_32) | Some(BpfRelocationType::R_Bpf_64_64) => {
+                        if relocation.r_offset as usize == file_offset {
+                            let sym = elf
+                                .dynsyms
+                                .get(relocation.r_sym)
+                                .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
+                            name = elf
+                                .dynstrtab
+                                .get_at(sym.st_name)
+                                .ok_or(ElfError::UnknownSymbol(sym.st_name))?;
+                        }
                     }
+                    _ => (),
                 }
             }
         }
@@ -568,6 +576,30 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             // Offset of the immediate field
             let imm_offset = r_offset.saturating_add(BYTE_OFFSET_IMMEDIATE);
             match BpfRelocationType::from_x86_relocation_type(relocation.r_type) {
+                Some(BpfRelocationType::R_Bpf_64_64) => {
+                    // Read the instruction's immediate field which contains virtual
+                    // address to convert to physical
+                    let checked_slice = elf_bytes
+                        .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
+                        .ok_or(ElfError::OutOfBounds)?;
+                    let refd_va = LittleEndian::read_u32(checked_slice) as u64;
+                    // final "physical address" from the VM's perspetive is rooted at `MM_PROGRAM_START`
+                    let refd_pa = ebpf::MM_PROGRAM_START.saturating_add(refd_va);
+
+                    // The .text section has an unresolved load symbol instruction.
+                    let sym = elf
+                        .dynsyms
+                        .get(relocation.r_sym)
+                        .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
+                    if !text_section.vm_range().contains(&(sym.st_value as usize)) {
+                        return Err(ElfError::OutOfBounds);
+                    }
+                    let addr = (sym.st_value + refd_pa) as u32;
+                    let mut checked_slice = elf_bytes
+                        .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
+                        .ok_or(ElfError::OutOfBounds)?;
+                    LittleEndian::write_u32(&mut checked_slice, addr);
+                }
                 Some(BpfRelocationType::R_Bpf_64_Relative) => {
                     // Raw relocation between sections.  The instruction being relocated contains
                     // the virtual address that it needs turned into a physical address.  Read it,
@@ -1047,5 +1079,15 @@ mod test {
                 let _ = ElfExecutable::load(Config::default(), bytes, SyscallRegistry::default());
             },
         );
+    }
+
+    #[test]
+    fn test_relocs() {
+        let mut file = File::open("tests/elfs/reloc.so").expect("file open failed");
+        let mut elf_bytes = Vec::new();
+        file.read_to_end(&mut elf_bytes)
+            .expect("failed to read elf file");
+        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+            .expect("validation failed");
     }
 }
