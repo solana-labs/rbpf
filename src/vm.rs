@@ -193,6 +193,8 @@ pub struct Config {
     pub sanitize_user_provided_values: bool,
     /// Encrypt the environment registers in JIT
     pub encrypt_environment_registers: bool,
+    /// Feature flag for the MUL64_IMM != 0 verification check
+    pub verify_mul64_imm_nonzero: bool,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -206,6 +208,7 @@ impl Default for Config {
             noop_instruction_ratio: 1.0 / 256.0,
             sanitize_user_provided_values: true,
             encrypt_environment_registers: true,
+            verify_mul64_imm_nonzero: false,
         }
     }
 }
