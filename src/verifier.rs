@@ -21,7 +21,7 @@
 //!
 //! Contrary to the verifier of the Linux kernel, this one does not modify the bytecode at all.
 
-use crate::ebpf;
+use crate::{ebpf, vm::Config};
 use thiserror::Error;
 
 /// Error definitions
@@ -173,7 +173,7 @@ fn check_imm_register(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), Verifier
 
 /// Check the program against the verifier's rules
 #[rustfmt::skip]
-pub fn check(prog: &[u8]) -> Result<(), VerifierError> {
+pub fn check(prog: &[u8], _config: &Config) -> Result<(), VerifierError> {
     check_prog_len(prog)?;
 
     let mut insn_ptr: usize = 0;

@@ -46,7 +46,7 @@ fn test_verifier_success() {
         "
         mov32 r0, 0xBEE
         exit",
-        Some(|_prog: &[u8]| Ok(())),
+        Some(|_prog: &[u8], _config: &Config| Ok(())),
         Config::default(),
         SyscallRegistry::default(),
     )
@@ -58,7 +58,7 @@ fn test_verifier_success() {
 #[test]
 #[should_panic(expected = "NoProgram")]
 fn test_verifier_fail() {
-    fn verifier_fail(_prog: &[u8]) -> Result<(), VerifierError> {
+    fn verifier_fail(_prog: &[u8], _config: &Config) -> Result<(), VerifierError> {
         Err(VerifierError::NoProgram)
     }
     let _executable = assemble::<UserError, DefaultInstructionMeter>(
