@@ -17,6 +17,7 @@ use solana_rbpf::{
     elf::ElfError,
     error::EbpfError,
     memory_region::AccessType,
+    memory_region::MemoryMapping,
     syscalls::{self, Result},
     user_error::UserError,
     vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry, TestInstructionMeter},
@@ -2701,6 +2702,84 @@ fn test_syscall_with_context() {
     );
 }
 
+pub struct NestedVmSyscall {}
+impl SyscallObject<UserError> for NestedVmSyscall {
+    fn call(
+        &mut self,
+        depth: u64,
+        throw: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        _memory_mapping: &MemoryMapping,
+        result: &mut Result,
+    ) {
+        #[allow(unused_mut)]
+        if depth > 0 {
+            let mut syscall_registry = SyscallRegistry::default();
+            syscall_registry
+                .register_syscall_by_name::<UserError, _>(b"NestedVmSyscall", NestedVmSyscall::call)
+                .unwrap();
+            let mem = &mut [depth as u8 - 1, throw as u8];
+            let mut executable = assemble::<UserError, TestInstructionMeter>(
+                "
+                ldabsb 0
+                mov64 r1, r0
+                ldabsb 1
+                mov64 r2, r0
+                syscall NestedVmSyscall
+                exit",
+                None,
+                Config::default(),
+                syscall_registry,
+            )
+            .unwrap();
+            #[cfg(not(windows))]
+            {
+                executable.jit_compile().unwrap();
+            }
+            let mut vm = EbpfVm::new(executable.as_ref(), mem, &[]).unwrap();
+            vm.bind_syscall_context_object(Box::new(NestedVmSyscall {}), None)
+                .unwrap();
+            let mut instruction_meter = TestInstructionMeter { remaining: 6 };
+            #[cfg(windows)]
+            {
+                *result = vm.execute_program_interpreted(&mut instruction_meter);
+            }
+            #[cfg(not(windows))]
+            {
+                *result = vm.execute_program_jit(&mut instruction_meter);
+            }
+            assert_eq!(
+                vm.get_total_instruction_count(),
+                if throw == 0 { 6 } else { 5 }
+            );
+        } else {
+            *result = if throw == 0 {
+                Ok(42)
+            } else {
+                Err(EbpfError::CallDepthExceeded(33, 0))
+            };
+        }
+    }
+}
+
+#[test]
+fn test_nested_vm_syscall() {
+    let config = Config::default();
+    let mut nested_vm_syscall = NestedVmSyscall {};
+    let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
+    let mut result = Ok(0);
+    nested_vm_syscall.call(1, 0, 0, 0, 0, &memory_mapping, &mut result);
+    assert!(result.unwrap() == 42);
+    let mut result = Ok(0);
+    nested_vm_syscall.call(1, 1, 0, 0, 0, &memory_mapping, &mut result);
+    assert!(matches!(result.unwrap_err(),
+        EbpfError::CallDepthExceeded(pc, depth)
+        if pc == 33 && depth == 0
+    ));
+}
+
 // Elf
 
 #[test]
@@ -3016,6 +3095,28 @@ fn test_err_capped_before_exception() {
         },
         2
     );
+
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r1, 0x0
+        mov64 r2, 0x0
+        add64 r0, 0x0
+        add64 r0, 0x0
+        syscall Unresolved
+        add64 r0, 0x0
+        exit",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                    if pc == 33 && initial_insn_count == 4
+                )
+            }
+        },
+        4
+    );
 }
 
 // Symbols and Relocation
@@ -3040,22 +3141,6 @@ fn test_symbol_relocation() {
 }
 
 #[test]
-fn test_err_symbol_unresolved() {
-    test_interpreter_and_jit_asm!(
-        "
-        syscall Unresolved
-        mov64 r0, 0x0
-        exit",
-        [],
-        (),
-        {
-            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 29 && offset == 0)
-        },
-        1
-    );
-}
-
-#[test]
 fn test_err_call_unresolved() {
     test_interpreter_and_jit_asm!(
         "
@@ -3065,6 +3150,7 @@ fn test_err_call_unresolved() {
         mov r4, 4
         mov r5, 5
         syscall Unresolved
+        mov64 r0, 0x0
         exit",
         [],
         (),
