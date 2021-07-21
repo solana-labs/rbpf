@@ -11,7 +11,7 @@ extern crate test;
 
 use solana_rbpf::{
     user_error::UserError,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallRegistry},
+    vm::{Config, EbpfVm, Executable, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
@@ -21,7 +21,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
+    let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
         &elf,
         None,
         Config::default(),
@@ -29,8 +29,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
     )
     .unwrap();
     bencher.iter(|| {
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
-            .unwrap()
+        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap()
     });
 }
 
@@ -40,7 +39,7 @@ fn bench_jit_compile(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let mut executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
+    let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
         &elf,
         None,
         Config::default(),

@@ -7,10 +7,9 @@ use solana_rbpf::{
     syscalls::Result,
     user_error::UserError,
     verifier::check,
-    vm::{Config, DynamicAnalysis, EbpfVm, Executable, SyscallObject, SyscallRegistry},
+    vm::{Config, DynamicAnalysis, EbpfVm, Executable, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read, path::Path};
-use test_utils::TestInstructionMeter;
 
 struct MockSyscall {
     name: String,

@@ -26,7 +26,7 @@ use solana_rbpf::{
     syscalls::{BpfSyscallString, BpfSyscallU64},
     user_error::UserError,
     verifier::check,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject, SyscallRegistry},
+    vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read};
 
@@ -118,13 +118,13 @@ fn test_fuzz_execute() {
             syscall_registry
                 .register_syscall_by_name::<UserError, _>(b"log_64", BpfSyscallU64::call)
                 .unwrap();
-            if let Ok(executable) = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
+            if let Ok(executable) = <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
                 bytes,
                 Some(check),
                 Config::default(),
                 syscall_registry,
             ) {
-                let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(
+                let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(
                     executable.as_ref(),
                     &mut [],
                     &[],
@@ -134,7 +134,9 @@ fn test_fuzz_execute() {
                     .unwrap();
                 vm.bind_syscall_context_object(Box::new(BpfSyscallU64 {}), None)
                     .unwrap();
-                let _ = vm.execute_program_interpreted(&mut DefaultInstructionMeter {});
+                let _ = vm.execute_program_interpreted(&mut TestInstructionMeter {
+                    remaining: 1_000_000,
+                });
             }
         },
     );

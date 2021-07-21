@@ -11,9 +11,8 @@ use solana_rbpf::{
     assembler::assemble,
     static_analysis::Analysis,
     user_error::UserError,
-    vm::{Config, SyscallRegistry},
+    vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
-use test_utils::TestInstructionMeter;
 
 // Using a macro to keep actual line numbers in failure output
 macro_rules! disasm {

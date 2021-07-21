@@ -11,21 +11,6 @@
 extern crate libc;
 extern crate solana_rbpf;
 
-use solana_rbpf::vm::InstructionMeter;
-
-pub struct TestInstructionMeter {
-    pub remaining: u64,
-}
-impl InstructionMeter for TestInstructionMeter {
-    fn consume(&mut self, amount: u64) {
-        debug_assert!(amount <= self.remaining, "Execution count exceeded");
-        self.remaining = self.remaining.saturating_sub(amount);
-    }
-    fn get_remaining(&self) -> u64 {
-        self.remaining
-    }
-}
-
 // Assembly code and data for tcp_sack testcases.
 
 pub const PROG_TCP_PORT_80: &str = "

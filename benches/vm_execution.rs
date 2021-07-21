@@ -11,7 +11,7 @@ extern crate test;
 
 use solana_rbpf::{
     user_error::UserError,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallRegistry},
+    vm::{Config, EbpfVm, Executable, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
@@ -21,7 +21,7 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
+    let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
         &elf,
         None,
         Config::default(),
@@ -29,10 +29,9 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     )
     .unwrap();
     let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
-            .unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     bencher.iter(|| {
-        vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
+        vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 29 })
             .unwrap()
     });
 }
@@ -43,7 +42,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let mut executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_elf(
+    let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
         &elf,
         None,
         Config::default(),
@@ -52,10 +51,9 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     .unwrap();
     executable.jit_compile().unwrap();
     let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
-            .unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     bencher.iter(|| {
-        vm.execute_program_jit(&mut DefaultInstructionMeter {})
+        vm.execute_program_jit(&mut TestInstructionMeter { remaining: 29 })
             .unwrap()
     });
 }
@@ -67,23 +65,21 @@ fn bench_jit_vs_interpreter(
     instruction_meter: u64,
     mem: &mut [u8],
 ) {
-    let mut executable =
-        solana_rbpf::assembler::assemble::<UserError, test_utils::TestInstructionMeter>(
-            assembly,
-            None,
-            Config::default(),
-            SyscallRegistry::default(),
-        )
-        .unwrap();
+    let mut executable = solana_rbpf::assembler::assemble::<UserError, TestInstructionMeter>(
+        assembly,
+        None,
+        Config::default(),
+        SyscallRegistry::default(),
+    )
+    .unwrap();
     executable.jit_compile().unwrap();
     let mut vm = EbpfVm::new(executable.as_ref(), mem, &[]).unwrap();
     let interpreter_summary = bencher
         .bench(|bencher| {
             bencher.iter(|| {
-                let result =
-                    vm.execute_program_interpreted(&mut test_utils::TestInstructionMeter {
-                        remaining: instruction_meter,
-                    });
+                let result = vm.execute_program_interpreted(&mut TestInstructionMeter {
+                    remaining: instruction_meter,
+                });
                 assert!(result.is_ok());
                 assert_eq!(vm.get_total_instruction_count(), instruction_meter);
             });
@@ -92,7 +88,7 @@ fn bench_jit_vs_interpreter(
     let jit_summary = bencher
         .bench(|bencher| {
             bencher.iter(|| {
-                let result = vm.execute_program_jit(&mut test_utils::TestInstructionMeter {
+                let result = vm.execute_program_jit(&mut TestInstructionMeter {
                     remaining: instruction_meter,
                 });
                 assert!(result.is_ok());

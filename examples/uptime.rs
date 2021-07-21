@@ -8,7 +8,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     syscalls,
     user_error::UserError,
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallObject, SyscallRegistry},
+    vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
 
@@ -43,7 +43,7 @@ fn main() {
     ];
 
     // Create a VM: this one takes no data. Load prog1 in it.
-    let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
+    let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
         prog1,
         None,
         Config::default(),
@@ -52,11 +52,10 @@ fn main() {
     )
     .unwrap();
     let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
-            .unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     // Execute prog1.
     assert_eq!(
-        vm.execute_program_interpreted(&mut DefaultInstructionMeter {})
+        vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 5 })
             .unwrap(),
         0x3
     );
@@ -76,7 +75,7 @@ fn main() {
         )
         .unwrap();
     #[allow(unused_mut)]
-    let mut executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
+    let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
         prog2,
         None,
         Config::default(),
@@ -89,8 +88,7 @@ fn main() {
         executable.jit_compile().unwrap();
     }
     let mut vm =
-        EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
-            .unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     vm.bind_syscall_context_object(Box::new(syscalls::BpfTimeGetNs {}), None)
         .unwrap();
 
@@ -98,14 +96,14 @@ fn main() {
     #[cfg(not(windows))]
     {
         time = vm
-            .execute_program_jit(&mut DefaultInstructionMeter {})
+            .execute_program_jit(&mut TestInstructionMeter { remaining: 7 })
             .unwrap();
     }
 
     #[cfg(windows)]
     {
         time = vm
-            .execute_program_interpreted(&mut DefaultInstructionMeter {})
+            .execute_program_interpreted(&mut TestInstructionMeter { remaining: 7 })
             .unwrap();
     }
 

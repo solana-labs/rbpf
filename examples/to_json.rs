@@ -15,7 +15,7 @@ use solana_rbpf::{
     disassembler::disassemble_instruction,
     static_analysis::Analysis,
     user_error::UserError,
-    vm::{Config, DefaultInstructionMeter, Executable, SyscallRegistry},
+    vm::{Config, Executable, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
 // Turn a program into a JSON string.
@@ -28,7 +28,7 @@ use std::collections::BTreeMap;
 // * Print integers as integers, and not as strings containing their hexadecimal representation
 //   (just replace the relevant `format!()` calls by the commented values.
 fn to_json(program: &[u8]) -> String {
-    let executable = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
+    let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
         &program,
         None,
         Config::default(),

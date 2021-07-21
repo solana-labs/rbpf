@@ -289,13 +289,21 @@ pub trait InstructionMeter {
     fn get_remaining(&self) -> u64;
 }
 
-/// Instruction meter without a limit
-#[derive(Debug, PartialEq)]
-pub struct DefaultInstructionMeter {}
-impl InstructionMeter for DefaultInstructionMeter {
-    fn consume(&mut self, _amount: u64) {}
+/// Simple instruction meter for testing
+#[derive(Debug, PartialEq, Eq)]
+pub struct TestInstructionMeter {
+    /// Maximal amount of instructions which still can be executed
+    pub remaining: u64,
+}
+
+impl InstructionMeter for TestInstructionMeter {
+    fn consume(&mut self, amount: u64) {
+        debug_assert!(amount <= self.remaining, "Execution count exceeded");
+        self.remaining = self.remaining.saturating_sub(amount);
+    }
+
     fn get_remaining(&self) -> u64 {
-        std::i64::MAX as u64
+        self.remaining
     }
 }
 
@@ -433,7 +441,7 @@ macro_rules! translate_memory_access {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{ebpf, elf::register_bpf_function, vm::{Config, Executable, EbpfVm, DefaultInstructionMeter, SyscallRegistry}, user_error::UserError};
+/// use solana_rbpf::{ebpf, elf::register_bpf_function, vm::{Config, Executable, EbpfVm, TestInstructionMeter, SyscallRegistry}, user_error::UserError};
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -445,11 +453,11 @@ macro_rules! translate_memory_access {
 /// // Instantiate a VM.
 /// let mut bpf_functions = std::collections::BTreeMap::new();
 /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-/// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
-/// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
+/// let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
+/// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
 ///
 /// // Provide a reference to the packet data.
-/// let res = vm.execute_program_interpreted(&mut DefaultInstructionMeter {}).unwrap();
+/// let res = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 }).unwrap();
 /// assert_eq!(res, 0);
 /// ```
 pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
@@ -472,7 +480,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{ebpf, elf::register_bpf_function, vm::{Config, Executable, EbpfVm, DefaultInstructionMeter, SyscallRegistry}, user_error::UserError};
+    /// use solana_rbpf::{ebpf, elf::register_bpf_function, vm::{Config, Executable, EbpfVm, TestInstructionMeter, SyscallRegistry}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -481,8 +489,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// // Instantiate a VM.
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-    /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+    /// let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
+    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// ```
     pub fn new(
         executable: &'a dyn Executable<E, I>,
@@ -564,7 +572,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{ebpf, elf::register_bpf_function, vm::{Config, Executable, EbpfVm, SyscallObject, SyscallRegistry, DefaultInstructionMeter}, syscalls::BpfTracePrintf, user_error::UserError};
+    /// use solana_rbpf::{ebpf, elf::register_bpf_function, vm::{Config, Executable, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter}, syscalls::BpfTracePrintf, user_error::UserError};
     ///
     /// // This program was compiled with clang, from a C program containing the following single
     /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
@@ -589,8 +597,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// // Instantiate an Executable and VM
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-    /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, None, Config::default(), syscall_registry, bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+    /// let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_text_bytes(prog, None, Config::default(), syscall_registry, bpf_functions).unwrap();
+    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
     /// // Bind a context object instance to the previously registered syscall
     /// vm.bind_syscall_context_object(Box::new(BpfTracePrintf {}), None);
     /// ```
@@ -641,7 +649,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{ebpf, elf::register_bpf_function, vm::{Config, Executable, EbpfVm, DefaultInstructionMeter, SyscallRegistry}, user_error::UserError};
+    /// use solana_rbpf::{ebpf, elf::register_bpf_function, vm::{Config, Executable, EbpfVm, TestInstructionMeter, SyscallRegistry}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -653,11 +661,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// // Instantiate a VM.
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-    /// let mut executable = <dyn Executable::<UserError, DefaultInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
+    /// let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
+    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
     ///
     /// // Provide a reference to the packet data.
-    /// let res = vm.execute_program_interpreted(&mut DefaultInstructionMeter {}).unwrap();
+    /// let res = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 }).unwrap();
     /// assert_eq!(res, 0);
     /// ```
     pub fn execute_program_interpreted(&mut self, instruction_meter: &mut I) -> ProgramResult<E> {

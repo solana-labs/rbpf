@@ -19,12 +19,10 @@ use solana_rbpf::{
     memory_region::AccessType,
     syscalls::{self, Result},
     user_error::UserError,
-    vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry},
+    vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read};
-use test_utils::{
-    TestInstructionMeter, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH,
-};
+use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 
 macro_rules! test_interpreter_and_jit {
     (register, $syscall_registry:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {

@@ -11,9 +11,9 @@ use solana_rbpf::{
     assembler::assemble,
     ebpf,
     user_error::UserError,
-    vm::{Config, SyscallRegistry},
+    vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
-use test_utils::{TestInstructionMeter, TCP_SACK_ASM, TCP_SACK_BIN};
+use test_utils::{TCP_SACK_ASM, TCP_SACK_BIN};
 
 fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
     let executable = assemble::<UserError, TestInstructionMeter>(

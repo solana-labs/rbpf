@@ -27,7 +27,7 @@ use solana_rbpf::{
     error::UserDefinedError,
     user_error::UserError,
     verifier::{check, VerifierError},
-    vm::{Config, DefaultInstructionMeter, EbpfVm, Executable, SyscallRegistry},
+    vm::{Config, EbpfVm, Executable, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -42,7 +42,7 @@ impl UserDefinedError for VerifierTestError {}
 
 #[test]
 fn test_verifier_success() {
-    let executable = assemble::<UserError, DefaultInstructionMeter>(
+    let executable = assemble::<UserError, TestInstructionMeter>(
         "
         mov32 r0, 0xBEE
         exit",
@@ -51,8 +51,8 @@ fn test_verifier_success() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let _vm = EbpfVm::<UserError, DefaultInstructionMeter>::new(executable.as_ref(), &mut [], &[])
-        .unwrap();
+    let _vm =
+        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn test_verifier_fail() {
     fn verifier_fail(_prog: &[u8], _config: &Config) -> Result<(), VerifierError> {
         Err(VerifierError::NoProgram)
     }
-    let _executable = assemble::<UserError, DefaultInstructionMeter>(
+    let _executable = assemble::<UserError, TestInstructionMeter>(
         "
         mov32 r0, 0xBEE
         exit",
@@ -75,7 +75,7 @@ fn test_verifier_fail() {
 #[test]
 #[should_panic(expected = "DivisionByZero(30)")]
 fn test_verifier_err_div_by_zero_imm() {
-    let _executable = assemble::<UserError, DefaultInstructionMeter>(
+    let _executable = assemble::<UserError, TestInstructionMeter>(
         "
         mov32 r0, 1
         div32 r0, 0
@@ -95,7 +95,7 @@ fn test_verifier_err_endian_size() {
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
+    let _ = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
         prog,
         Some(check),
         Config::default(),
@@ -113,7 +113,7 @@ fn test_verifier_err_incomplete_lddw() {
         0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
+    let _ = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
         prog,
         Some(check),
         Config::default(),
@@ -126,7 +126,7 @@ fn test_verifier_err_incomplete_lddw() {
 #[test]
 #[should_panic(expected = "InvalidDestinationRegister(29)")]
 fn test_verifier_err_invalid_reg_dst() {
-    let _executable = assemble::<UserError, DefaultInstructionMeter>(
+    let _executable = assemble::<UserError, TestInstructionMeter>(
         "
         mov r11, 1
         exit",
@@ -140,7 +140,7 @@ fn test_verifier_err_invalid_reg_dst() {
 #[test]
 #[should_panic(expected = "InvalidSourceRegister(29)")]
 fn test_verifier_err_invalid_reg_src() {
-    let _executable = assemble::<UserError, DefaultInstructionMeter>(
+    let _executable = assemble::<UserError, TestInstructionMeter>(
         "
         mov r0, r11
         exit",
@@ -154,7 +154,7 @@ fn test_verifier_err_invalid_reg_src() {
 #[test]
 #[should_panic(expected = "JumpToMiddleOfLDDW(2, 29)")]
 fn test_verifier_err_jmp_lddw() {
-    let _executable = assemble::<UserError, DefaultInstructionMeter>(
+    let _executable = assemble::<UserError, TestInstructionMeter>(
         "
         ja +1
         lddw r0, 0x1122334455667788
@@ -169,7 +169,7 @@ fn test_verifier_err_jmp_lddw() {
 #[test]
 #[should_panic(expected = "JumpOutOfCode(3, 29)")]
 fn test_verifier_err_jmp_out() {
-    let _executable = assemble::<UserError, DefaultInstructionMeter>(
+    let _executable = assemble::<UserError, TestInstructionMeter>(
         "
         ja +2
         exit",
@@ -187,7 +187,7 @@ fn test_verifier_err_unknown_opcode() {
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = <dyn Executable<UserError, DefaultInstructionMeter>>::from_text_bytes(
+    let _ = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
         prog,
         Some(check),
         Config::default(),
@@ -200,7 +200,7 @@ fn test_verifier_err_unknown_opcode() {
 #[test]
 #[should_panic(expected = "CannotWriteR10(29)")]
 fn test_verifier_err_write_r10() {
-    let _executable = assemble::<UserError, DefaultInstructionMeter>(
+    let _executable = assemble::<UserError, TestInstructionMeter>(
         "
         mov r10, 1
         exit",

@@ -747,11 +747,11 @@ mod test {
         fuzz::fuzz,
         syscalls::{BpfSyscallString, BpfSyscallU64},
         user_error::UserError,
-        vm::{DefaultInstructionMeter, SyscallObject},
+        vm::{SyscallObject, TestInstructionMeter},
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
-    type ElfExecutable = EBpfElf<UserError, DefaultInstructionMeter>;
+    type ElfExecutable = EBpfElf<UserError, TestInstructionMeter>;
 
     fn syscall_registry() -> SyscallRegistry {
         let mut syscall_registry = SyscallRegistry::default();
@@ -816,7 +816,7 @@ mod test {
             .expect("validation failed");
         let mut parsed_elf = Elf::parse(&elf_bytes).unwrap();
         let initial_e_entry = parsed_elf.header.e_entry;
-        let executable: &dyn Executable<UserError, DefaultInstructionMeter> = &elf;
+        let executable: &dyn Executable<UserError, TestInstructionMeter> = &elf;
         assert_eq!(
             0,
             executable
@@ -829,7 +829,7 @@ mod test {
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
-        let executable: &dyn Executable<UserError, DefaultInstructionMeter> = &elf;
+        let executable: &dyn Executable<UserError, TestInstructionMeter> = &elf;
         assert_eq!(
             1,
             executable
@@ -866,7 +866,7 @@ mod test {
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
-        let executable: &dyn Executable<UserError, DefaultInstructionMeter> = &elf;
+        let executable: &dyn Executable<UserError, TestInstructionMeter> = &elf;
         assert_eq!(
             0,
             executable
