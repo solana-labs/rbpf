@@ -170,7 +170,7 @@ const TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION: usize = std::usize::MAX - 7;
 const TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION: usize = std::usize::MAX - 6;
 const TARGET_PC_DIV_BY_ZERO: usize = std::usize::MAX - 5;
 const TARGET_PC_EXCEPTION_AT: usize = std::usize::MAX - 4;
-const TARGET_PC_SYSCALL_EXCEPTION: usize = std::usize::MAX - 3;
+const TARGET_PC_RUST_EXCEPTION: usize = std::usize::MAX - 3;
 const TARGET_PC_EXIT: usize = std::usize::MAX - 2;
 const TARGET_PC_EPILOGUE: usize = std::usize::MAX - 1;
 
@@ -1276,15 +1276,7 @@ impl JitCompiler {
                             Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
                             Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
                             Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the SyscallObject
-                        ], None, true)?;
-
-                        // Throw error if the result indicates one
-                        X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
-                        emit_jcc(self, 0x85, TARGET_PC_SYSCALL_EXCEPTION)?;
-
-                        // Store Ok value in result register
-                        X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
-                        X86Instruction::load(OperandSize::S64, R11, REGISTER_MAP[0], X86IndirectAccess::Offset(8)).emit(self)?;
+                        ], None, false)?;
 
                         if self.config.enable_instruction_meter {
                             X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr))).emit(self)?;
@@ -1294,6 +1286,15 @@ impl JitCompiler {
                             X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))).emit(self)?;
                             emit_undo_profile_instruction_count(self, 0)?;
                         }
+
+                        // Store Ok value in result register
+                        X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
+                        X86Instruction::load(OperandSize::S64, R11, REGISTER_MAP[0], X86IndirectAccess::Offset(8)).emit(self)?;
+
+                        // Throw error if the result indicates one
+                        X86Instruction::cmp_immediate(OperandSize::S64, R11, 0, Some(X86IndirectAccess::Offset(0))).emit(self)?;
+                        X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
+                        emit_jcc(self, 0x85, TARGET_PC_RUST_EXCEPTION)?;
                     } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
                         emit_bpf_call(self, Value::Constant64(target_pc as i64, false), self.result.pc_section.len() - 1)?;
                     } else {
@@ -1306,7 +1307,8 @@ impl JitCompiler {
                             Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
                         ], None, true)?;
                         X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
-                        emit_jmp(self, TARGET_PC_SYSCALL_EXCEPTION)?;
+                        emit_validate_instruction_count(self, false, None)?;
+                        emit_jmp(self, TARGET_PC_RUST_EXCEPTION)?;
                     }
                 },
                 ebpf::CALL_REG  => {
@@ -1494,7 +1496,7 @@ impl JitCompiler {
         emit_jmp(self, TARGET_PC_EPILOGUE)?;
 
         // Handler for syscall exceptions
-        set_anchor(self, TARGET_PC_SYSCALL_EXCEPTION);
+        set_anchor(self, TARGET_PC_RUST_EXCEPTION);
         emit_profile_instruction_count_of_exception(self, false)?;
         emit_jmp(self, TARGET_PC_EPILOGUE)
     }
