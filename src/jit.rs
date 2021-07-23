@@ -146,7 +146,7 @@ impl<E: UserDefinedError, I: InstructionMeter> PartialEq for JitProgram<E, I> {
 
 impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
     pub fn new(executable: &dyn Executable<E, I>) -> Result<Self, EbpfError<E>> {
-        let program = executable.get_text_bytes()?.1;
+        let program = executable.get_text_bytes().1;
         let mut jit = JitCompiler::new::<E>(program, executable.get_config())?;
         jit.compile::<E, I>(executable)?;
         let main = unsafe { mem::transmute(jit.result.text_section.as_ptr()) };
@@ -982,7 +982,7 @@ impl JitCompiler {
 
     fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self,
             executable: &dyn Executable<E, I>) -> Result<(), EbpfError<E>> {
-        let (program_vm_addr, program) = executable.get_text_bytes()?;
+        let (program_vm_addr, program) = executable.get_text_bytes();
         self.program_vm_addr = program_vm_addr;
 
         self.generate_prologue::<E, I>()?;

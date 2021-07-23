@@ -190,7 +190,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///     Config::default(),
 ///     SyscallRegistry::default(),
 /// ).unwrap();
-/// let program = executable.get_text_bytes().unwrap().1;
+/// let program = executable.get_text_bytes().1;
 /// println!("{:?}", program);
 /// # assert_eq!(program,
 /// #            &[0x07, 0x01, 0x00, 0x00, 0x05, 0x06, 0x00, 0x00,

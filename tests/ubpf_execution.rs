@@ -3170,7 +3170,7 @@ fn test_err_unresolved_elf() {
     file.read_to_end(&mut elf).unwrap();
     let config = Config {
         reject_unresolved_syscalls: true,
-        ..Default::default()
+        ..Config::default()
     };
     assert!(
         matches!(<dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, None, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)

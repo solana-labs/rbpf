@@ -210,10 +210,10 @@ pub struct EBpfElf<E: UserDefinedError, I: InstructionMeter> {
     config: Config,
     /// Loaded and executable elf
     elf_bytes: AlignedMemory,
+    /// Read-only section
+    ro_section: Vec<u8>,
     /// Text section info
     text_section_info: SectionInfo,
-    /// Read-only section info
-    ro_section_infos: Vec<SectionInfo>,
     /// Call resolution map (hash, pc, name)
     bpf_functions: BTreeMap<u32, (usize, String)>,
     /// Syscall symbol map (hash, name)
@@ -231,30 +231,17 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     }
 
     /// Get the .text section virtual address and bytes
-    fn get_text_bytes(&self) -> Result<(u64, &[u8]), EbpfError<E>> {
-        Ok((
+    fn get_text_bytes(&self) -> (u64, &[u8]) {
+        let offset = (self.text_section_info.vaddr - ebpf::MM_PROGRAM_START) as usize;
+        (
             self.text_section_info.vaddr,
-            self.elf_bytes
-                .as_slice()
-                .get(self.text_section_info.offset_range.clone())
-                .ok_or(ElfError::OutOfBounds)?,
-        ))
+            &self.ro_section[offset..offset + self.text_section_info.offset_range.len()],
+        )
     }
 
-    /// Get a vector of virtual addresses for each read-only section
-    fn get_ro_sections(&self) -> Result<Vec<(u64, &[u8])>, EbpfError<E>> {
-        self.ro_section_infos
-            .iter()
-            .map(|section_info| {
-                Ok((
-                    section_info.vaddr,
-                    self.elf_bytes
-                        .as_slice()
-                        .get(section_info.offset_range.clone())
-                        .ok_or(ElfError::OutOfBounds)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, EbpfError<E>>>()
+    /// Get the concatenated read-only sections (including the text section)
+    fn get_ro_section(&self) -> &[u8] {
+        self.ro_section.as_slice()
     }
 
     /// Get the entry point offset into the text section
@@ -347,6 +334,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         Self {
             config,
             elf_bytes,
+            ro_section: text_bytes.to_vec(),
             text_section_info: SectionInfo {
                 name: ".text".to_string(),
                 vaddr: ebpf::MM_PROGRAM_START,
@@ -355,7 +343,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     end: text_bytes.len(),
                 },
             },
-            ro_section_infos: vec![],
             bpf_functions,
             syscall_symbols: BTreeMap::default(),
             syscall_registry,
@@ -410,36 +397,50 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         bpf_functions.remove(&ebpf::hash_symbol_name(b"entrypoint"));
         register_bpf_function(&mut bpf_functions, entrypoint, "entrypoint")?;
 
-        // calculate the read-only section infos
-        let ro_section_infos = elf
+        // concatenate the read-only sections into one
+        let mut ro_length = text_section.sh_addr as usize + text_section_info.offset_range.len();
+        let ro_slices = elf
             .section_headers
             .iter()
-            .filter_map(|section_header| {
+            .filter(|section_header| {
                 if let Some(name) = elf.shdr_strtab.get_at(section_header.sh_name) {
-                    if name == ".rodata" || name == ".data.rel.ro" || name == ".eh_frame" {
-                        return Some(SectionInfo {
-                            name: name.to_string(),
-                            vaddr: section_header
-                                .sh_addr
-                                .saturating_add(ebpf::MM_PROGRAM_START),
-                            offset_range: section_header.file_range().unwrap_or_default(),
-                        });
-                    }
+                    return name == ".rodata" || name == ".data.rel.ro" || name == ".eh_frame";
                 }
-                None
+                false
             })
-            .collect::<Vec<_>>();
-        for ro_section_info in ro_section_infos.iter() {
-            if ro_section_info.vaddr > ebpf::MM_STACK_START {
-                return Err(ElfError::OutOfBounds);
-            }
+            .map(|section_header| {
+                let vaddr = section_header
+                    .sh_addr
+                    .saturating_add(ebpf::MM_PROGRAM_START);
+                if vaddr > ebpf::MM_STACK_START {
+                    return Err(ElfError::OutOfBounds);
+                }
+                let slice = elf_bytes
+                    .as_slice()
+                    .get(section_header.file_range().unwrap_or_default())
+                    .ok_or(ElfError::OutOfBounds)?;
+                ro_length = ro_length.max(section_header.sh_addr as usize + slice.len());
+                Ok((section_header.sh_addr as usize, slice))
+            })
+            .collect::<Result<Vec<_>, ElfError>>()?;
+        let mut ro_section = vec![0; ro_length];
+        ro_section[text_section.sh_addr as usize
+            ..text_section.sh_addr as usize + text_section_info.offset_range.len()]
+            .copy_from_slice(
+                elf_bytes
+                    .as_slice()
+                    .get(text_section_info.offset_range.clone())
+                    .ok_or(ElfError::OutOfBounds)?,
+            );
+        for (offset, slice) in ro_slices.iter() {
+            ro_section[*offset..*offset + slice.len()].copy_from_slice(slice);
         }
 
         Ok(Self {
             config,
             elf_bytes,
+            ro_section,
             text_section_info,
-            ro_section_infos,
             bpf_functions,
             syscall_symbols,
             syscall_registry,

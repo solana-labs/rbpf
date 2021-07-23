@@ -22,7 +22,7 @@ fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
         Config::default(),
         SyscallRegistry::default(),
     )?;
-    let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
+    let (_program_vm_addr, program) = executable.get_text_bytes();
     Ok((0..program.len() / ebpf::INSN_SIZE)
         .map(|insn_ptr| ebpf::get_insn(program, insn_ptr))
         .collect())
@@ -581,7 +581,7 @@ fn test_tcp_sack() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let (_program_vm_addr, program) = executable.get_text_bytes().unwrap();
+    let (_program_vm_addr, program) = executable.get_text_bytes();
     assert_eq!(program, TCP_SACK_BIN.to_vec());
 }
 

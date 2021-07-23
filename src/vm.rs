@@ -218,9 +218,9 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     /// Get the configuration settings
     fn get_config(&self) -> &Config;
     /// Get the .text section virtual address and bytes
-    fn get_text_bytes(&self) -> Result<(u64, &[u8]), EbpfError<E>>;
-    /// Get a vector of virtual addresses for each read-only section
-    fn get_ro_sections(&self) -> Result<Vec<(u64, &[u8])>, EbpfError<E>>;
+    fn get_text_bytes(&self) -> (u64, &[u8]);
+    /// Get the concatenated read-only sections (including the text section)
+    fn get_ro_section(&self) -> &[u8];
     /// Get the entry point offset into the text section
     fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>>;
     /// Get a symbol's instruction offset
@@ -255,7 +255,7 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> dyn Executable<E, I> {
         syscall_registry: SyscallRegistry,
     ) -> Result<Box<Self>, EbpfError<E>> {
         let ebpf_elf = EBpfElf::load(config, elf_bytes, syscall_registry)?;
-        let text_bytes = ebpf_elf.get_text_bytes()?.1;
+        let text_bytes = ebpf_elf.get_text_bytes().1;
         if let Some(verifier) = verifier {
             verifier(text_bytes, &config)?;
         }
@@ -498,34 +498,23 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         granted_regions: &[MemoryRegion],
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
         let config = executable.get_config();
-        let const_data_regions: Vec<MemoryRegion> =
-            if let Ok(sections) = executable.get_ro_sections() {
-                sections
-                    .iter()
-                    .map(|(addr, slice)| MemoryRegion::new_from_slice(slice, *addr, 0, false))
-                    .collect()
-            } else {
-                Vec::new()
-            };
-        let mut regions: Vec<MemoryRegion> =
-            Vec::with_capacity(granted_regions.len() + const_data_regions.len() + 3);
+        let mut regions: Vec<MemoryRegion> = Vec::with_capacity(granted_regions.len() + 3);
+        regions.push(MemoryRegion::new_from_slice(
+            executable.get_ro_section(),
+            ebpf::MM_PROGRAM_START,
+            0,
+            false,
+        ));
         regions.extend(granted_regions.iter().cloned());
         let frames = CallFrames::new(config.max_call_depth, config.stack_frame_size);
         regions.push(frames.get_region().clone());
-        regions.extend(const_data_regions);
         regions.push(MemoryRegion::new_from_slice(
             mem,
             ebpf::MM_INPUT_START,
             0,
             true,
         ));
-        let (program_vm_addr, program) = executable.get_text_bytes()?;
-        regions.push(MemoryRegion::new_from_slice(
-            program,
-            program_vm_addr,
-            0,
-            false,
-        ));
+        let (program_vm_addr, program) = executable.get_text_bytes();
         let number_of_syscalls = executable.get_syscall_registry().get_number_of_syscalls();
         let mut vm = EbpfVm {
             executable,
