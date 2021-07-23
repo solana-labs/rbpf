@@ -29,7 +29,8 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     )
     .unwrap();
     let mut vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
+            .unwrap();
     bencher.iter(|| {
         vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 29 })
             .unwrap()
@@ -51,7 +52,8 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     .unwrap();
     executable.jit_compile().unwrap();
     let mut vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
+            .unwrap();
     bencher.iter(|| {
         vm.execute_program_jit(&mut TestInstructionMeter { remaining: 29 })
             .unwrap()
@@ -73,7 +75,7 @@ fn bench_jit_vs_interpreter(
     )
     .unwrap();
     executable.jit_compile().unwrap();
-    let mut vm = EbpfVm::new(executable.as_ref(), mem, &[]).unwrap();
+    let mut vm = EbpfVm::new(executable.as_ref(), &mut [], mem).unwrap();
     let interpreter_summary = bencher
         .bench(|bencher| {
             bencher.iter(|| {

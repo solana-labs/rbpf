@@ -51,8 +51,8 @@ fn test_verifier_success() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let _vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+    let _vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
+        .unwrap();
 }
 
 #[test]

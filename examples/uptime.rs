@@ -52,7 +52,8 @@ fn main() {
     )
     .unwrap();
     let mut vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
+            .unwrap();
     // Execute prog1.
     assert_eq!(
         vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 5 })
@@ -88,7 +89,8 @@ fn main() {
         executable.jit_compile().unwrap();
     }
     let mut vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
+            .unwrap();
     vm.bind_syscall_context_object(Box::new(syscalls::BpfTimeGetNs {}), None)
         .unwrap();
 

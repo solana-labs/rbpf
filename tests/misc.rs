@@ -127,7 +127,7 @@ fn test_fuzz_execute() {
                 let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(
                     executable.as_ref(),
                     &mut [],
-                    &[],
+                    &mut [],
                 )
                 .unwrap();
                 vm.bind_syscall_context_object(Box::new(BpfSyscallString {}), None)

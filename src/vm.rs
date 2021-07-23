@@ -454,7 +454,7 @@ macro_rules! translate_memory_access {
 /// let mut bpf_functions = std::collections::BTreeMap::new();
 /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
 /// let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
-/// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
+/// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], mem).unwrap();
 ///
 /// // Provide a reference to the packet data.
 /// let res = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 }).unwrap();
@@ -490,30 +490,22 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
     /// let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut []).unwrap();
     /// ```
     pub fn new(
         executable: &'a dyn Executable<E, I>,
-        mem: &mut [u8],
-        granted_regions: &[MemoryRegion],
+        heap_region: &mut [u8],
+        input_region: &mut [u8],
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
         let config = executable.get_config();
-        let mut regions: Vec<MemoryRegion> = Vec::with_capacity(granted_regions.len() + 3);
-        regions.push(MemoryRegion::new_from_slice(
-            executable.get_ro_section(),
-            ebpf::MM_PROGRAM_START,
-            0,
-            false,
-        ));
-        regions.extend(granted_regions.iter().cloned());
+        let ro_region = executable.get_ro_section();
         let frames = CallFrames::new(config.max_call_depth, config.stack_frame_size);
-        regions.push(frames.get_region().clone());
-        regions.push(MemoryRegion::new_from_slice(
-            mem,
-            ebpf::MM_INPUT_START,
-            0,
-            true,
-        ));
+        let regions: Vec<MemoryRegion> = vec![
+            MemoryRegion::new_from_slice(ro_region, ebpf::MM_PROGRAM_START, 0, false),
+            frames.get_region().clone(),
+            MemoryRegion::new_from_slice(heap_region, ebpf::MM_HEAP_START, 0, true),
+            MemoryRegion::new_from_slice(input_region, ebpf::MM_INPUT_START, 0, true),
+        ];
         let (program_vm_addr, program) = executable.get_text_bytes();
         let number_of_syscalls = executable.get_syscall_registry().get_number_of_syscalls();
         let mut vm = EbpfVm {
@@ -587,7 +579,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
     /// let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_text_bytes(prog, None, Config::default(), syscall_registry, bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &[]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut []).unwrap();
     /// // Bind a context object instance to the previously registered syscall
     /// vm.bind_syscall_context_object(Box::new(BpfTracePrintf {}), None);
     /// ```
@@ -651,7 +643,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
     /// let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_text_bytes(prog, None, Config::default(), SyscallRegistry::default(), bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), mem, &[]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], mem).unwrap();
     ///
     /// // Provide a reference to the packet data.
     /// let res = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 }).unwrap();
