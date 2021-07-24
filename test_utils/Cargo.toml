@@ -3,7 +3,7 @@ name = "test_utils"
 version = "0.2.14"
 authors = ["Solana Maintainers <maintainers@solana.com>"]
 edition = "2018"
-publish = false
+publish = true
 
 [dependencies]
 libc = "0.2"
