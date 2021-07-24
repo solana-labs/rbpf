@@ -1,0 +1,58 @@
+name: Rust
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os : [ linux,osx,windows]
+        rust : [stable , beta , nightly]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name : Setup | Checkout
+        uses : actions/checkout@v2
+
+      - name : Setup | Rust
+        uses : ATiltedTree/setup-rust@v1
+        with :
+          rust-version: ${{ matrix.rust }}
+
+      - name : install dependencies
+        run : |
+            rustup update
+            rustup component add clippy-preview
+            rustup component add rustfmt
+
+      - name: running scripts
+        run : |
+            cargo fmt --all -- --check
+            cargo clippy --all --tests -- --deny=warnings
+            export RUSTFLAGS="-D warnings"
+            cargo build --verbose
+            cargo test --verbose
+        if: ${{ (rustup default) == "nightly"}}  
+        run : |
+            cargo bench -- --nocapture 
+            fi
+
+      - name : deploy dependencies
+        run  : |
+             cargo doc
+             cargo package
+
+      - name : deploy 
+        uses: chrnorm/deployment-action@releases/v1
+        with : 
+            tag : true
+            repo : solana-labs/rbpf
+            branch : main
+            api_key : ${{ secrets.API_KEY }}
+      - name : after_deploy
+        run : cargo publish --token ${{ secrets.API_KEY }}
+
