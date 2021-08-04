@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::fmt::Formatter;
 use std::fmt::Error as FormatterError;
 use std::ops::{Index, IndexMut};
-use rand::{rngs::ThreadRng, Rng};
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
     vm::{Config, Executable, ProgramResult, InstructionMeter, Tracer, DynTraitFatPointer, SYSCALL_CONTEXT_OBJECTS_OFFSET, REPORT_UNRESOLVED_SYMBOL_INDEX},
@@ -232,12 +232,12 @@ pub enum OperandSize {
 fn emit_sanitized_load_immediate<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, destination: u8, value: i64) -> Result<(), EbpfError<E>> {
     match size {
         OperandSize::S32 => {
-            let key: i32 = jit.rng.gen();
+            let key: i32 = jit.diversification_rng.gen();
             X86Instruction::load_immediate(size, destination, (value as i32).wrapping_sub(key) as i64).emit(jit)?;
             emit_alu(jit, size, 0x81, 0, destination, key as i64, None)
         },
         OperandSize::S64 if destination == R11 => {
-            let key: i64 = jit.rng.gen();
+            let key: i64 = jit.diversification_rng.gen();
             let lower_key = key as i32 as i64;
             let upper_key = (key >> 32) as i32 as i64;
             X86Instruction::load_immediate(size, destination, value.wrapping_sub(lower_key).rotate_right(32).wrapping_sub(upper_key)).emit(jit)?;
@@ -246,12 +246,12 @@ fn emit_sanitized_load_immediate<E: UserDefinedError>(jit: &mut JitCompiler, siz
             emit_alu(jit, size, 0x81, 0, destination, lower_key, None) // wrapping_add(lower_key)
         },
         OperandSize::S64 if value >= std::i32::MIN as i64 && value <= std::i32::MAX as i64 => {
-            let key = jit.rng.gen::<i32>() as i64;
+            let key = jit.diversification_rng.gen::<i32>() as i64;
             X86Instruction::load_immediate(size, destination, value.wrapping_sub(key)).emit(jit)?;
             emit_alu(jit, size, 0x81, 0, destination, key, None)
         },
         OperandSize::S64 => {
-            let key: i64 = jit.rng.gen();
+            let key: i64 = jit.diversification_rng.gen();
             X86Instruction::load_immediate(size, destination, value.wrapping_sub(key)).emit(jit)?;
             X86Instruction::load_immediate(size, R11, key).emit(jit)?;
             emit_alu(jit, size, 0x01, R11, destination, 0, None)
@@ -265,7 +265,7 @@ fn emit_sanitized_load_immediate<E: UserDefinedError>(jit: &mut JitCompiler, siz
 }
 
 fn emit_sanitized_load<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, source: u8, destination: u8, offset: i32) -> Result<(), EbpfError<E>> {
-    let key: i32 = jit.rng.gen();
+    let key: i32 = jit.diversification_rng.gen();
     X86Instruction::load_immediate(OperandSize::S64, destination, offset.wrapping_sub(key) as i64).emit(jit)?;
     X86Instruction::load(size, source, destination, X86IndirectAccess::OffsetIndexShift(key, destination, 0)).emit(jit)
 }
@@ -889,7 +889,7 @@ pub struct JitCompiler {
     program_vm_addr: u64,
     handler_anchors: HashMap<usize, usize>,
     config: Config,
-    rng: ThreadRng,
+    diversification_rng: SmallRng,
     stopwatch_is_active: bool,
     environment_stack_key: i32,
     program_argument_key: i32,
@@ -953,10 +953,10 @@ impl JitCompiler {
 
         let mut code_length_estimate = pc * 256 + 4096;
         code_length_estimate += (code_length_estimate as f64 * _config.noop_instruction_ratio) as usize;
-        let mut rng = rand::thread_rng();
+        let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
         let (environment_stack_key, program_argument_key) =
             if _config.encrypt_environment_registers {
-                (rng.gen::<i32>() / 8, rng.gen())
+                (diversification_rng.gen::<i32>() / 8, diversification_rng.gen())
             } else { (0, 0) };
 
         Ok(Self {
@@ -969,7 +969,7 @@ impl JitCompiler {
             program_vm_addr: 0,
             handler_anchors: HashMap::new(),
             config: *_config,
-            rng,
+            diversification_rng,
             stopwatch_is_active: false,
             environment_stack_key,
             program_argument_key,
@@ -1609,7 +1609,7 @@ impl JitCompiler {
     }
 
     pub fn emit_random_noop<E: UserDefinedError>(&mut self) -> Result<(), EbpfError<E>> {
-        if self.config.noop_instruction_ratio != 0.0 && self.rng.gen_bool(self.config.noop_instruction_ratio) {
+        if self.config.noop_instruction_ratio != 0.0 && self.diversification_rng.gen_bool(self.config.noop_instruction_ratio) {
             // X86Instruction::noop().emit(self)
             emit::<u8, E>(self, 0x90)
         } else {
