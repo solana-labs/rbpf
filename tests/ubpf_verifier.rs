@@ -210,3 +210,50 @@ fn test_verifier_err_write_r10() {
     )
     .unwrap();
 }
+
+#[test]
+fn test_verifier_err_all_shift_overflows() {
+    let testcases = [
+        // lsh32_imm
+        ("lsh32 r0, 32", "ShiftWithOverflow(32, 32, 29)"),
+        ("lsh32 r0, 42", "ShiftWithOverflow(42, 32, 29)"),
+
+        // rsh32_imm
+        ("rsh32 r0, 32", "ShiftWithOverflow(32, 32, 29)"),
+        ("rsh32 r0, 42", "ShiftWithOverflow(42, 32, 29)"),
+
+        // arsh32_imm
+        ("arsh32 r0, 32", "ShiftWithOverflow(32, 32, 29)"),
+        ("arsh32 r0, 42", "ShiftWithOverflow(42, 32, 29)"),
+
+        // lsh64_imm
+        ("lsh64 r0, 64", "ShiftWithOverflow(64, 64, 29)"),
+        ("lsh64 r0, 250", "ShiftWithOverflow(250, 64, 29)"),
+
+        // rsh64_imm
+        ("rsh64 r0, 64", "ShiftWithOverflow(64, 64, 29)"),
+        ("rsh64 r0, 250", "ShiftWithOverflow(250, 64, 29)"),
+
+        // arsh64_imm
+        ("arsh64 r0, 64", "ShiftWithOverflow(64, 64, 29)"),
+        ("arsh64 r0, 250", "ShiftWithOverflow(250, 64, 29)"),
+    ];
+
+    for (overflowing_instruction, overflow_msg) in testcases {
+        let code = format!("\n{}\nexit", overflowing_instruction);
+        let expected_err = format!("Executable constructor VerifierError({})", overflow_msg);
+
+        let result = assemble::<UserError, TestInstructionMeter>(
+            &code,
+            Some(check),
+            Config::default(),
+            SyscallRegistry::default(),
+        );
+
+        match result {
+            Err(err) => { assert_eq!(err, expected_err); }
+            _ => { panic!("Incorrect test result"); }
+        }
+    }
+}
+

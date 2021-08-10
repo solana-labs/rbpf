@@ -70,8 +70,8 @@ pub enum VerifierError {
     #[error("unknown eBPF opcode {0:#2x} (insn #{1:?})")]
     UnknownOpCode(u8, usize),
     /// Shift with overflow
-    #[error("Shift with overflow at instruction {0}")]
-    ShiftWithOverflow(usize),
+    #[error("Shift with overflow of {0}-bit value by {1} (insn #{2:?})")]
+    ShiftWithOverflow(u64, u64, usize),
     /// Invalid register specified
     #[error("Invalid register specified at instruction {0}")]
     InvalidRegister(usize),
@@ -156,9 +156,10 @@ fn check_registers(insn: &ebpf::Insn, store: bool, insn_ptr: usize) -> Result<()
 }
 
 /// Check that the imm is a valid shift operand
-fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
-    if insn.imm < 0 || insn.imm as u64 >= 64 {
-        return Err(VerifierError::ShiftWithOverflow(adj_insn_ptr(insn_ptr)));
+fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize, imm_bits: u64) -> Result<(), VerifierError> {
+    let shift_by = insn.imm as u64;
+    if insn.imm < 0 || shift_by >= imm_bits {
+        return Err(VerifierError::ShiftWithOverflow(shift_by, imm_bits, adj_insn_ptr(insn_ptr)));
     }
     Ok(())
 }
@@ -229,9 +230,9 @@ pub fn check(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
             ebpf::OR32_REG   => {},
             ebpf::AND32_IMM  => {},
             ebpf::AND32_REG  => {},
-            ebpf::LSH32_IMM  => { check_imm_shift(&insn, insn_ptr)?; },
+            ebpf::LSH32_IMM  => { check_imm_shift(&insn, insn_ptr, 32)?; },
             ebpf::LSH32_REG  => {},
-            ebpf::RSH32_IMM  => { check_imm_shift(&insn, insn_ptr)?; },
+            ebpf::RSH32_IMM  => { check_imm_shift(&insn, insn_ptr, 32)?; },
             ebpf::RSH32_REG  => {},
             ebpf::NEG32      => {},
             ebpf::MOD32_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
@@ -240,7 +241,7 @@ pub fn check(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
             ebpf::XOR32_REG  => {},
             ebpf::MOV32_IMM  => {},
             ebpf::MOV32_REG  => {},
-            ebpf::ARSH32_IMM => { check_imm_shift(&insn, insn_ptr)?; },
+            ebpf::ARSH32_IMM => { check_imm_shift(&insn, insn_ptr, 32)?; },
             ebpf::ARSH32_REG => {},
             ebpf::LE         => { check_imm_endian(&insn, insn_ptr)?; },
             ebpf::BE         => { check_imm_endian(&insn, insn_ptr)?; },
@@ -262,9 +263,9 @@ pub fn check(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
             ebpf::OR64_REG   => {},
             ebpf::AND64_IMM  => {},
             ebpf::AND64_REG  => {},
-            ebpf::LSH64_IMM  => { check_imm_shift(&insn, insn_ptr)?; },
+            ebpf::LSH64_IMM  => { check_imm_shift(&insn, insn_ptr, 64)?; },
             ebpf::LSH64_REG  => {},
-            ebpf::RSH64_IMM  => { check_imm_shift(&insn, insn_ptr)?; },
+            ebpf::RSH64_IMM  => { check_imm_shift(&insn, insn_ptr, 64)?; },
             ebpf::RSH64_REG  => {},
             ebpf::NEG64      => {},
             ebpf::MOD64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
@@ -273,7 +274,7 @@ pub fn check(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
             ebpf::XOR64_REG  => {},
             ebpf::MOV64_IMM  => {},
             ebpf::MOV64_REG  => {},
-            ebpf::ARSH64_IMM => { check_imm_shift(&insn, insn_ptr)?; },
+            ebpf::ARSH64_IMM => { check_imm_shift(&insn, insn_ptr, 64)?; },
             ebpf::ARSH64_REG => {},
 
             // BPF_JMP class
