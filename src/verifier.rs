@@ -159,7 +159,11 @@ fn check_registers(insn: &ebpf::Insn, store: bool, insn_ptr: usize) -> Result<()
 fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize, imm_bits: u64) -> Result<(), VerifierError> {
     let shift_by = insn.imm as u64;
     if insn.imm < 0 || shift_by >= imm_bits {
-        return Err(VerifierError::ShiftWithOverflow(shift_by, imm_bits, adj_insn_ptr(insn_ptr)));
+        return Err(VerifierError::ShiftWithOverflow(
+            shift_by,
+            imm_bits,
+            adj_insn_ptr(insn_ptr),
+        ));
     }
     Ok(())
 }
