@@ -197,6 +197,8 @@ pub struct Config {
     pub encrypt_environment_registers: bool,
     /// Feature flag for the MUL64_IMM != 0 verification check
     pub verify_mul64_imm_nonzero: bool,
+    /// Feature flag for the SHIFT_IMM >= 32 verification check
+    pub verify_shift32_imm: bool,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -212,6 +214,7 @@ impl Default for Config {
             sanitize_user_provided_values: true,
             encrypt_environment_registers: true,
             verify_mul64_imm_nonzero: false,
+            verify_shift32_imm: false,
         }
     }
 }

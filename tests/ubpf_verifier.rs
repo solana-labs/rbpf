@@ -215,43 +215,48 @@ fn test_verifier_err_write_r10() {
 fn test_verifier_err_all_shift_overflows() {
     let testcases = [
         // lsh32_imm
-        ("lsh32 r0, 32", "ShiftWithOverflow(32, 32, 29)"),
-        ("lsh32 r0, 42", "ShiftWithOverflow(42, 32, 29)"),
+        ("lsh32 r0, 16", Ok(())),
+        ("lsh32 r0, 32", Err("ShiftWithOverflow(32, 32, 29)")),
+        ("lsh32 r0, 64", Err("ShiftWithOverflow(64, 32, 29)")),
         // rsh32_imm
-        ("rsh32 r0, 32", "ShiftWithOverflow(32, 32, 29)"),
-        ("rsh32 r0, 42", "ShiftWithOverflow(42, 32, 29)"),
+        ("rsh32 r0, 16", Ok(())),
+        ("rsh32 r0, 32", Err("ShiftWithOverflow(32, 32, 29)")),
+        ("rsh32 r0, 64", Err("ShiftWithOverflow(64, 32, 29)")),
         // arsh32_imm
-        ("arsh32 r0, 32", "ShiftWithOverflow(32, 32, 29)"),
-        ("arsh32 r0, 42", "ShiftWithOverflow(42, 32, 29)"),
+        ("arsh32 r0, 16", Ok(())),
+        ("arsh32 r0, 32", Err("ShiftWithOverflow(32, 32, 29)")),
+        ("arsh32 r0, 64", Err("ShiftWithOverflow(64, 32, 29)")),
         // lsh64_imm
-        ("lsh64 r0, 64", "ShiftWithOverflow(64, 64, 29)"),
-        ("lsh64 r0, 250", "ShiftWithOverflow(250, 64, 29)"),
+        ("lsh64 r0, 32", Ok(())),
+        ("lsh64 r0, 64", Err("ShiftWithOverflow(64, 64, 29)")),
         // rsh64_imm
-        ("rsh64 r0, 64", "ShiftWithOverflow(64, 64, 29)"),
-        ("rsh64 r0, 250", "ShiftWithOverflow(250, 64, 29)"),
+        ("rsh64 r0, 32", Ok(())),
+        ("rsh64 r0, 64", Err("ShiftWithOverflow(64, 64, 29)")),
         // arsh64_imm
-        ("arsh64 r0, 64", "ShiftWithOverflow(64, 64, 29)"),
-        ("arsh64 r0, 250", "ShiftWithOverflow(250, 64, 29)"),
+        ("arsh64 r0, 32", Ok(())),
+        ("arsh64 r0, 64", Err("ShiftWithOverflow(64, 64, 29)")),
     ];
 
-    for (overflowing_instruction, overflow_msg) in testcases {
-        let code = format!("\n{}\nexit", overflowing_instruction);
-        let expected_err = format!("Executable constructor VerifierError({})", overflow_msg);
-
+    for (overflowing_instruction, expected) in testcases {
+        let assembly = format!("\n{}\nexit", overflowing_instruction);
         let result = assemble::<UserError, TestInstructionMeter>(
-            &code,
+            &assembly,
             Some(check),
-            Config::default(),
+            Config {
+                verify_shift32_imm: true,
+                ..Config::default()
+            },
             SyscallRegistry::default(),
         );
-
-        match result {
-            Err(err) => {
-                assert_eq!(err, expected_err);
-            }
-            _ => {
-                panic!("Incorrect test result");
-            }
+        match expected {
+            Ok(()) => assert!(result.is_ok()),
+            Err(overflow_msg) => match result {
+                Err(err) => assert_eq!(
+                    err,
+                    format!("Executable constructor VerifierError({})", overflow_msg),
+                ),
+                _ => panic!("Expected error"),
+            },
         }
     }
 }
