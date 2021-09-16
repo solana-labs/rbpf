@@ -46,18 +46,45 @@ fn byteswap_str(name: &str, insn: &ebpf::Insn) -> String {
 }
 
 #[inline]
+fn signed_off_str(value: i16) -> String {
+    if value < 0 {
+        format!("-{:#x}", -value)
+    } else {
+        format!("+{:#x}", value)
+    }
+}
+
+#[inline]
 fn ld_st_imm_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} [r{}+{:#x}], {}", name, insn.dst, insn.off, insn.imm)
+    format!(
+        "{} [r{}{}], {}",
+        name,
+        insn.dst,
+        signed_off_str(insn.off),
+        insn.imm
+    )
 }
 
 #[inline]
 fn ld_reg_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} r{}, [r{}+{:#x}]", name, insn.dst, insn.src, insn.off)
+    format!(
+        "{} r{}, [r{}{}]",
+        name,
+        insn.dst,
+        insn.src,
+        signed_off_str(insn.off)
+    )
 }
 
 #[inline]
 fn st_reg_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} [r{}+{:#x}], r{}", name, insn.dst, insn.off, insn.src)
+    format!(
+        "{} [r{}{}], r{}",
+        name,
+        insn.dst,
+        signed_off_str(insn.off),
+        insn.src
+    )
 }
 
 #[inline]

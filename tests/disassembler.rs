@@ -60,18 +60,21 @@ fn test_neg64() {
 #[test]
 fn test_ldxw() {
     disasm!("entrypoint:\n    ldxw r1, [r2+0x5]\n");
+    disasm!("entrypoint:\n    ldxw r1, [r2-0x5]\n");
 }
 
 // Example for InstructionType::StoreImm.
 #[test]
 fn test_stw() {
     disasm!("entrypoint:\n    stw [r2+0x5], 7\n");
+    disasm!("entrypoint:\n    stw [r2-0x5], 7\n");
 }
 
 // Example for InstructionType::StoreReg.
 #[test]
 fn test_stxw() {
     disasm!("entrypoint:\n    stxw [r2+0x5], r8\n");
+    disasm!("entrypoint:\n    stxw [r2-0x5], r8\n");
 }
 
 // Example for InstructionType::JumpUnconditional.
@@ -147,18 +150,21 @@ fn test_ldindw() {
 #[test]
 fn test_ldxdw() {
     disasm!("entrypoint:\n    ldxdw r1, [r2+0x3]\n");
+    disasm!("entrypoint:\n    ldxdw r1, [r2-0x3]\n");
 }
 
 // Example for InstructionType::StoreImm.
 #[test]
 fn test_sth() {
     disasm!("entrypoint:\n    sth [r1+0x2], 3\n");
+    disasm!("entrypoint:\n    sth [r1-0x2], 3\n");
 }
 
 // Example for InstructionType::StoreReg.
 #[test]
 fn test_stxh() {
     disasm!("entrypoint:\n    stxh [r1+0x2], r3\n");
+    disasm!("entrypoint:\n    stxh [r1-0x2], r3\n");
 }
 
 // Test all supported AluBinary mnemonics.
