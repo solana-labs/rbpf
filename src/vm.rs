@@ -245,6 +245,12 @@ pub trait Executable<E: UserDefinedError, I: InstructionMeter>: Send + Sync {
     fn get_syscall_symbols(&self) -> &BTreeMap<u32, String>;
 }
 
+#[cfg(vtable_send_sync_plus_one)]
+/// Index of report_unresolved_symbol in the Executable traits vtable
+///
+/// It is shifted by 1 because Send + Sync needs an extra slot.
+pub const REPORT_UNRESOLVED_SYMBOL_INDEX: usize = 9;
+#[cfg(not(vtable_send_sync_plus_one))]
 /// Index of report_unresolved_symbol in the Executable traits vtable
 pub const REPORT_UNRESOLVED_SYMBOL_INDEX: usize = 8;
 
