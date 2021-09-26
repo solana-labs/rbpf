@@ -10,7 +10,7 @@ extern crate solana_rbpf;
 extern crate test_utils;
 extern crate thiserror;
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), target_arch = "x86_64"))]
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
@@ -42,7 +42,7 @@ macro_rules! test_interpreter_and_jit {
             assert!(check_closure(&vm, result));
             (vm.get_total_instruction_count(), vm.get_tracer().clone())
         };
-        #[cfg(not(windows))]
+        #[cfg(all(not(windows), target_arch = "x86_64"))]
         {
             let check_closure = $check;
             let compilation_result = $executable.jit_compile();
@@ -2734,7 +2734,7 @@ impl SyscallObject<UserError> for NestedVmSyscall {
                 syscall_registry,
             )
             .unwrap();
-            #[cfg(not(windows))]
+            #[cfg(all(not(windows), target_arch = "x86_64"))]
             {
                 executable.jit_compile().unwrap();
             }
@@ -2742,11 +2742,11 @@ impl SyscallObject<UserError> for NestedVmSyscall {
             vm.bind_syscall_context_object(Box::new(NestedVmSyscall {}), None)
                 .unwrap();
             let mut instruction_meter = TestInstructionMeter { remaining: 6 };
-            #[cfg(windows)]
+            #[cfg(any(windows, not(target_arch = "x86_64")))]
             {
                 *result = vm.execute_program_interpreted(&mut instruction_meter);
             }
-            #[cfg(not(windows))]
+            #[cfg(all(not(windows), target_arch = "x86_64"))]
             {
                 *result = vm.execute_program_jit(&mut instruction_meter);
             }
@@ -3387,7 +3387,7 @@ fn test_tcp_sack_nomatch() {
 
 // Fuzzy
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), target_arch = "x86_64"))]
 fn execute_generated_program(prog: &[u8]) -> bool {
     use solana_rbpf::{elf::register_bpf_function, verifier::check};
     use std::collections::BTreeMap;
@@ -3453,7 +3453,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     true
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), target_arch = "x86_64"))]
 #[test]
 fn test_total_chaos() {
     use solana_rbpf::ebpf;
