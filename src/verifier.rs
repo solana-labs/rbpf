@@ -121,9 +121,6 @@ fn check_load_dw(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
 
 fn check_jmp_offset(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
     let insn = ebpf::get_insn(prog, insn_ptr);
-    // if insn.off == -1 {
-    //     return Err(VerifierError::InfiniteLoop(adj_insn_ptr(insn_ptr)).into());
-    // }
 
     let dst_insn_ptr = insn_ptr as isize + 1 + insn.off as isize;
     if dst_insn_ptr < 0 || dst_insn_ptr as usize >= (prog.len() / ebpf::INSN_SIZE) {
