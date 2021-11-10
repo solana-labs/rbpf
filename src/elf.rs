@@ -62,9 +62,9 @@ pub enum ElfError {
     /// Incompatible ELF: wrong class
     #[error("Incompatible ELF: wrong class")]
     WrongClass,
-    /// Multiple text sections
-    #[error("Multiple text sections, consider removing llc option: -function-sections")]
-    MultipleTextSections,
+    /// Not one text section
+    #[error("Multiple or no text sections, consider removing llc option: -function-sections")]
+    NotOneTextSection,
     /// Read-write data not supported
     #[error("Found .bss section in ELF, read-write data not supported")]
     BssNotSupported,
@@ -503,7 +503,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             count
         });
         if 1 != num_text_sections {
-            return Err(ElfError::MultipleTextSections);
+            return Err(ElfError::NotOneTextSection);
         }
 
         for section_header in elf.section_headers.iter() {
@@ -562,7 +562,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
         // Fixup all program counter relative call instructions
         Self::fixup_relative_calls(
             bpf_functions,
-            &mut elf_bytes
+            elf_bytes
                 .get_mut(text_section.file_range().unwrap_or_default())
                 .ok_or(ElfError::OutOfBounds)?,
         )?;
@@ -596,10 +596,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         return Err(ElfError::OutOfBounds);
                     }
                     let addr = (sym.st_value + refd_pa) as u32;
-                    let mut checked_slice = elf_bytes
+                    let checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                         .ok_or(ElfError::OutOfBounds)?;
-                    LittleEndian::write_u32(&mut checked_slice, addr);
+                    LittleEndian::write_u32(checked_slice, addr);
                 }
                 Some(BpfRelocationType::R_Bpf_64_Relative) => {
                     // Raw relocation between sections.  The instruction being relocated contains
@@ -629,24 +629,24 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         // Instruction lddw spans two instruction slots, split the
                         // physical address into a high and low and write into both slot's imm field
 
-                        let mut checked_slice = elf_bytes
+                        let checked_slice = elf_bytes
                             .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                             .ok_or(ElfError::OutOfBounds)?;
-                        LittleEndian::write_u32(&mut checked_slice, (refd_pa & 0xFFFFFFFF) as u32);
-                        let mut checked_slice = elf_bytes
+                        LittleEndian::write_u32(checked_slice, (refd_pa & 0xFFFFFFFF) as u32);
+                        let checked_slice = elf_bytes
                             .get_mut(
                                 imm_offset.saturating_add(ebpf::INSN_SIZE)
                                     ..imm_offset
                                         .saturating_add(ebpf::INSN_SIZE + BYTE_LENGTH_IMMEIDATE),
                             )
                             .ok_or(ElfError::OutOfBounds)?;
-                        LittleEndian::write_u32(&mut checked_slice, (refd_pa >> 32) as u32);
+                        LittleEndian::write_u32(checked_slice, (refd_pa >> 32) as u32);
                     } else {
                         // 64 bit memory location, write entire 64 bit physical address directly
-                        let mut checked_slice = elf_bytes
+                        let checked_slice = elf_bytes
                             .get_mut(r_offset..r_offset.saturating_add(mem::size_of::<u64>()))
                             .ok_or(ElfError::OutOfBounds)?;
-                        LittleEndian::write_u64(&mut checked_slice, refd_pa);
+                        LittleEndian::write_u64(checked_slice, refd_pa);
                     }
                 }
                 Some(BpfRelocationType::R_Bpf_64_32) => {
@@ -687,10 +687,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         }
                         hash
                     };
-                    let mut checked_slice = elf_bytes
+                    let checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                         .ok_or(ElfError::OutOfBounds)?;
-                    LittleEndian::write_u32(&mut checked_slice, hash);
+                    LittleEndian::write_u32(checked_slice, hash);
                 }
                 _ => return Err(ElfError::UnknownRelocation(relocation.r_type)),
             }
