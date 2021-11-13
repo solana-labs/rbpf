@@ -347,6 +347,7 @@ dependencies = [
  "scroll",
  "thiserror",
  "time",
+ "version_check",
 ]
 
 [[package]]

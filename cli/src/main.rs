@@ -1,13 +1,15 @@
 use clap::{App, Arg};
 use solana_rbpf::{
     assembler::assemble,
-    ebpf,
-    memory_region::{MemoryMapping, MemoryRegion},
+    memory_region::MemoryMapping,
     static_analysis::Analysis,
     syscalls::Result,
     user_error::UserError,
     verifier::check,
-    vm::{Config, DynamicAnalysis, EbpfVm, Executable, SyscallObject, SyscallRegistry, TestInstructionMeter},
+    vm::{
+        Config, DynamicAnalysis, EbpfVm, Executable, SyscallObject, SyscallRegistry,
+        TestInstructionMeter,
+    },
 };
 use std::{fs::File, io::Read, path::Path};
 
@@ -185,7 +187,7 @@ fn main() {
             .parse::<u64>()
             .unwrap(),
     };
-    let heap = vec![
+    let mut heap = vec![
         0_u8;
         matches
             .value_of("memory")
@@ -193,8 +195,7 @@ fn main() {
             .parse::<usize>()
             .unwrap()
     ];
-    let heap_region = MemoryRegion::new_from_slice(&heap, ebpf::MM_HEAP_START, 0, true);
-    let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &[heap_region]).unwrap();
+    let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &mut heap).unwrap();
     for (hash, name) in analysis.executable.get_syscall_symbols() {
         vm.bind_syscall_context_object(Box::new(MockSyscall { name: name.clone() }), Some(*hash))
             .unwrap();
