@@ -88,7 +88,7 @@ pub enum ElfError {
     UnknownSymbol(usize),
     /// Offset or value is out of bounds
     #[error("Offset or value is out of bounds")]
-    OutOfBounds,
+    ValueOutOfBounds,
 }
 impl From<GoblinError> for ElfError {
     fn from(error: GoblinError) -> Self {
@@ -164,24 +164,28 @@ enum BpfRelocationType {
     /// (4 bytes). The relocation can be resolved with the symbol
     /// value plus implicit addend.
     R_Bpf_64_64 = 1,
-    /// 64 bit relocation of a ldxdw instruction.
-    /// The ldxdw instruction occupies two instruction slots. The 64-bit address
-    /// to load from is split into the 32-bit imm field of each slot. The first
-    /// slot's pre-relocation imm field contains the virtual address (typically same
-    /// as the file offset) of the location to load. Relocation involves calculating
-    /// the post-load 64-bit physical address referenced by the imm field and writing
-    /// that physical address back into the imm fields of the ldxdw instruction.
+    /// 64 bit relocation of a ldxdw instruction.  The ldxdw
+    /// instruction occupies two instruction slots. The 64-bit address
+    /// to load from is split into the 32-bit imm field of each
+    /// slot. The first slot's pre-relocation imm field contains the
+    /// virtual address (typically same as the file offset) of the
+    /// location to load. Relocation involves calculating the
+    /// post-load 64-bit physical address referenced by the imm field
+    /// and writing that physical address back into the imm fields of
+    /// the ldxdw instruction.
     R_Bpf_64_Relative = 8,
-    /// Relocation of a call instruction.
-    /// The existing imm field contains either an offset of the instruction to jump to
-    /// (think local function call) or a special value of "-1".  If -1 the symbol must
-    /// be looked up in the symbol table.  The relocation entry contains the symbol
-    /// number to call.  In order to support both local jumps and calling external
-    /// symbols a 32-bit hash is computed and stored in the the call instruction's
-    /// 32-bit imm field.  The hash is used later to look up the 64-bit address to
-    /// jump to.  In the case of a local jump the hash is calculated using the current
-    /// program counter and in the case of a symbol the hash is calculated using the
-    /// name of the symbol.
+    /// Relocation of a call instruction.  The existing imm field
+    /// contains either an offset of the instruction to jump to (think
+    /// local function call) or a special value of "-1".  If -1 the
+    /// symbol must be looked up in the symbol table.  The relocation
+    /// entry contains the symbol number to call.  In order to support
+    /// both local jumps and calling external symbols a 32-bit hash is
+    /// computed and stored in the the call instruction's 32-bit imm
+    /// field.  The hash is used later to look up the 64-bit address
+    /// to jump to.  In the case of a local jump the hash is
+    /// calculated using the current program counter and in the case
+    /// of a symbol the hash is calculated using the name of the
+    /// symbol.
     R_Bpf_64_32 = 10,
 }
 impl BpfRelocationType {
@@ -373,7 +377,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             offset_range: text_section.file_range().unwrap_or_default(),
         };
         if text_section_info.vaddr > ebpf::MM_STACK_START {
-            return Err(ElfError::OutOfBounds);
+            return Err(ElfError::ValueOutOfBounds);
         }
 
         // relocate symbols
@@ -413,12 +417,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     .sh_addr
                     .saturating_add(ebpf::MM_PROGRAM_START);
                 if vaddr > ebpf::MM_STACK_START {
-                    return Err(ElfError::OutOfBounds);
+                    return Err(ElfError::ValueOutOfBounds);
                 }
                 let slice = elf_bytes
                     .as_slice()
                     .get(section_header.file_range().unwrap_or_default())
-                    .ok_or(ElfError::OutOfBounds)?;
+                    .ok_or(ElfError::ValueOutOfBounds)?;
                 ro_length = ro_length.max(section_header.sh_addr as usize + slice.len());
                 Ok((section_header.sh_addr as usize, slice))
             })
@@ -430,7 +434,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 elf_bytes
                     .as_slice()
                     .get(text_section_info.offset_range.clone())
-                    .ok_or(ElfError::OutOfBounds)?,
+                    .ok_or(ElfError::ValueOutOfBounds)?,
             );
         for (offset, slice) in ro_slices.iter() {
             ro_section[*offset..*offset + slice.len()].copy_from_slice(slice);
@@ -469,7 +473,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 insn.imm = hash as i64;
                 let checked_slice = elf_bytes
                     .get_mut(i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE)
-                    .ok_or(ElfError::OutOfBounds)?;
+                    .ok_or(ElfError::ValueOutOfBounds)?;
                 checked_slice.copy_from_slice(&insn.to_vec());
             }
         }
@@ -519,8 +523,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             let end = section_header
                 .sh_offset
                 .checked_add(section_header.sh_size)
-                .ok_or(ElfError::OutOfBounds)? as usize;
-            let _ = elf_bytes.get(start..end).ok_or(ElfError::OutOfBounds)?;
+                .ok_or(ElfError::ValueOutOfBounds)? as usize;
+            let _ = elf_bytes
+                .get(start..end)
+                .ok_or(ElfError::ValueOutOfBounds)?;
         }
         let text_section = Self::get_section(elf, ".text")?;
         if !text_section
@@ -564,7 +570,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
             bpf_functions,
             elf_bytes
                 .get_mut(text_section.file_range().unwrap_or_default())
-                .ok_or(ElfError::OutOfBounds)?,
+                .ok_or(ElfError::ValueOutOfBounds)?,
         )?;
 
         let mut syscall_cache = BTreeMap::new();
@@ -582,7 +588,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     // address to convert to physical
                     let checked_slice = elf_bytes
                         .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
-                        .ok_or(ElfError::OutOfBounds)?;
+                        .ok_or(ElfError::ValueOutOfBounds)?;
                     let refd_va = LittleEndian::read_u32(checked_slice) as u64;
                     // final "physical address" from the VM's perspetive is rooted at `MM_PROGRAM_START`
                     let refd_pa = ebpf::MM_PROGRAM_START.saturating_add(refd_va);
@@ -592,14 +598,19 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                         .dynsyms
                         .get(relocation.r_sym)
                         .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
-                    if !text_section.vm_range().contains(&(sym.st_value as usize)) {
-                        return Err(ElfError::OutOfBounds);
-                    }
-                    let addr = (sym.st_value + refd_pa) as u32;
+                    let addr = (sym.st_value + refd_pa) as u64;
                     let checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
-                        .ok_or(ElfError::OutOfBounds)?;
-                    LittleEndian::write_u32(checked_slice, addr);
+                        .ok_or(ElfError::ValueOutOfBounds)?;
+                    LittleEndian::write_u32(checked_slice, (addr & 0xFFFFFFFF) as u32);
+                    let checked_slice = elf_bytes
+                        .get_mut(
+                            imm_offset.saturating_add(ebpf::INSN_SIZE)
+                                ..imm_offset
+                                    .saturating_add(ebpf::INSN_SIZE + BYTE_LENGTH_IMMEIDATE),
+                        )
+                        .ok_or(ElfError::ValueOutOfBounds)?;
+                    LittleEndian::write_u32(checked_slice, (addr >> 32) as u32);
                 }
                 Some(BpfRelocationType::R_Bpf_64_Relative) => {
                     // Raw relocation between sections.  The instruction being relocated contains
@@ -610,7 +621,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     // address to convert to physical
                     let checked_slice = elf_bytes
                         .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
-                        .ok_or(ElfError::OutOfBounds)?;
+                        .ok_or(ElfError::ValueOutOfBounds)?;
                     let refd_va = LittleEndian::read_u32(checked_slice) as u64;
 
                     if refd_va == 0 {
@@ -631,7 +642,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
 
                         let checked_slice = elf_bytes
                             .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
-                            .ok_or(ElfError::OutOfBounds)?;
+                            .ok_or(ElfError::ValueOutOfBounds)?;
                         LittleEndian::write_u32(checked_slice, (refd_pa & 0xFFFFFFFF) as u32);
                         let checked_slice = elf_bytes
                             .get_mut(
@@ -639,13 +650,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                                     ..imm_offset
                                         .saturating_add(ebpf::INSN_SIZE + BYTE_LENGTH_IMMEIDATE),
                             )
-                            .ok_or(ElfError::OutOfBounds)?;
+                            .ok_or(ElfError::ValueOutOfBounds)?;
                         LittleEndian::write_u32(checked_slice, (refd_pa >> 32) as u32);
                     } else {
                         // 64 bit memory location, write entire 64 bit physical address directly
                         let checked_slice = elf_bytes
                             .get_mut(r_offset..r_offset.saturating_add(mem::size_of::<u64>()))
-                            .ok_or(ElfError::OutOfBounds)?;
+                            .ok_or(ElfError::ValueOutOfBounds)?;
                         LittleEndian::write_u64(checked_slice, refd_pa);
                     }
                 }
@@ -665,7 +676,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     let hash = if sym.is_function() && sym.st_value != 0 {
                         // bpf call
                         if !text_section.vm_range().contains(&(sym.st_value as usize)) {
-                            return Err(ElfError::OutOfBounds);
+                            return Err(ElfError::ValueOutOfBounds);
                         }
                         let target_pc =
                             (sym.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
@@ -689,7 +700,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                     };
                     let checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
-                        .ok_or(ElfError::OutOfBounds)?;
+                        .ok_or(ElfError::ValueOutOfBounds)?;
                     LittleEndian::write_u32(checked_slice, hash);
                 }
                 _ => return Err(ElfError::UnknownRelocation(relocation.r_type)),
@@ -711,7 +722,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
                 .vm_range()
                 .contains(&(symbol.st_value as usize))
             {
-                return Err(ElfError::OutOfBounds);
+                return Err(ElfError::ValueOutOfBounds);
             }
             let target_pc = (symbol.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
             let name = elf
