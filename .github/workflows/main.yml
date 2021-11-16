@@ -1,0 +1,65 @@
+name: rbpf
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.failure }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        rust: [stable, beta]
+        failure: [false]
+        include:
+          - os: macos-latest
+            rust: nightly
+            failure: true
+          - os: ubuntu-latest
+            rust: nightly
+            failure: true
+          - os: windows-latest
+            rust: nightly
+            failure: true
+    steps:
+    - uses: actions/checkout@v1
+    - name: Setup Rust (rustup)
+      run: |
+        rustup update ${{ matrix.rust }} --no-self-update
+        rustup default ${{ matrix.rust }}
+        rustup component add clippy-preview
+        rustup component add rustfmt
+      shell: bash
+    - name: Lint
+      run: |
+        cargo fmt --all -- --check
+        cargo clippy --all --tests -- --deny=warnings
+      shell: bash
+    - name: Build and test
+      run: |
+        export RUSTFLAGS="-D warnings"
+        cargo build --verbose
+        cargo test --verbose
+      shell: bash
+    - name: Benchmark
+      run: RUSTFLAGS="-D warnings" cargo bench -- --nocapture
+      if: matrix.rust == 'nightly'
+      shell: bash
+
+  release:
+    name: Release
+    needs: test
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+    - uses: actions/checkout@v1
+    - name: Doc and package
+      run: |
+        cargo doc
+        cargo package
+      shell: bash
+    - name: Publish
+      env:
+        CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+      run: cargo publish --token "$CRATES_IO_TOKEN"
