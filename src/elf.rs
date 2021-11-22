@@ -374,7 +374,10 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             vaddr: text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START),
             offset_range: text_section.file_range().unwrap_or_default(),
         };
-        if text_section_info.vaddr > ebpf::MM_STACK_START {
+        if (config.reject_section_virtual_address_file_offset_mismatch
+            && text_section.sh_addr != text_section.sh_offset)
+            || text_section_info.vaddr > ebpf::MM_STACK_START
+        {
             return Err(ElfError::ValueOutOfBounds);
         }
 
@@ -414,7 +417,10 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                 let vaddr = section_header
                     .sh_addr
                     .saturating_add(ebpf::MM_PROGRAM_START);
-                if vaddr > ebpf::MM_STACK_START {
+                if (config.reject_section_virtual_address_file_offset_mismatch
+                    && section_header.sh_addr != section_header.sh_offset)
+                    || vaddr > ebpf::MM_STACK_START
+                {
                     return Err(ElfError::ValueOutOfBounds);
                 }
                 let slice = elf_bytes
