@@ -12,22 +12,10 @@ jobs:
   test:
     name: Test
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.failure }}
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
         rust: [stable, beta]
-        failure: [false]
-        include:
-          - os: macos-latest
-            rust: nightly
-            failure: true
-          - os: ubuntu-latest
-            rust: nightly
-            failure: true
-          - os: windows-latest
-            rust: nightly
-            failure: true
     steps:
     - uses: actions/checkout@v1
     - name: Setup Rust (rustup)
