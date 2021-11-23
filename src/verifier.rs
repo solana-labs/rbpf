@@ -108,7 +108,7 @@ fn check_imm_endian(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierEr
 }
 
 fn check_load_dw(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
-    if insn_ptr + 1 >= (prog.len() / ebpf::INSN_SIZE) {
+    if (insn_ptr + 1) * ebpf::INSN_SIZE >= prog.len() {
         // Last instruction cannot be LD_DW because there would be no 2nd DW
         return Err(VerifierError::LDDWCannotBeLast);
     }
@@ -123,7 +123,7 @@ fn check_jmp_offset(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
     let insn = ebpf::get_insn(prog, insn_ptr);
 
     let dst_insn_ptr = insn_ptr as isize + 1 + insn.off as isize;
-    if dst_insn_ptr < 0 || dst_insn_ptr as usize >= (prog.len() / ebpf::INSN_SIZE) {
+    if dst_insn_ptr < 0 || dst_insn_ptr as usize * ebpf::INSN_SIZE >= prog.len() {
         return Err(VerifierError::JumpOutOfCode(
             dst_insn_ptr as usize,
             adj_insn_ptr(insn_ptr),
@@ -179,7 +179,7 @@ pub fn check(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
     check_prog_len(prog)?;
 
     let mut insn_ptr: usize = 0;
-    while insn_ptr * ebpf::INSN_SIZE < prog.len() {
+    while (insn_ptr + 1) * ebpf::INSN_SIZE <= prog.len() {
         let insn = ebpf::get_insn(prog, insn_ptr);
         let mut store = false;
 

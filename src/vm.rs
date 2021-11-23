@@ -701,7 +701,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         let initial_insn_count = remaining_insn_count;
         self.last_insn_count = 0;
         let mut total_insn_count = 0;
-        while next_pc * ebpf::INSN_SIZE + ebpf::INSN_SIZE <= self.program.len() {
+        while (next_pc + 1) * ebpf::INSN_SIZE <= self.program.len() {
             let pc = next_pc;
             next_pc += 1;
             let mut insn = ebpf::get_insn_unchecked(self.program, pc);

@@ -943,8 +943,8 @@ impl JitCompiler {
 
         // Scan through program to find actual number of instructions
         let mut pc = 0;
-        while pc * ebpf::INSN_SIZE < _program.len() {
-            let insn = ebpf::get_insn(_program, pc);
+        while (pc + 1) * ebpf::INSN_SIZE <= _program.len() {
+            let insn = ebpf::get_insn_unchecked(_program, pc);
             pc += match insn.opc {
                 ebpf::LD_DW_IMM => 2,
                 _ => 1,
@@ -996,7 +996,7 @@ impl JitCompiler {
         self.generate_exception_handlers::<E>()?;
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
-            let mut insn = ebpf::get_insn(program, self.pc);
+            let mut insn = ebpf::get_insn_unchecked(program, self.pc);
 
             self.result.pc_section[self.pc] = self.offset_in_text_section as u64;
 
