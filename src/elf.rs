@@ -14,7 +14,7 @@ use crate::{
     ebpf,
     error::{EbpfError, UserDefinedError},
     jit::JitProgram,
-    vm::{Config, Executable, InstructionMeter, SyscallRegistry},
+    vm::{Config, InstructionMeter, SyscallRegistry},
 };
 use byteorder::{ByteOrder, LittleEndian};
 use goblin::{
@@ -209,7 +209,7 @@ struct SectionInfo {
 
 /// Elf loader/relocator
 #[derive(Debug, PartialEq)]
-pub struct EBpfElf<E: UserDefinedError, I: InstructionMeter> {
+pub struct Executable<E: UserDefinedError, I: InstructionMeter> {
     /// Configuration settings
     config: Config,
     /// Loaded and executable elf
@@ -228,14 +228,14 @@ pub struct EBpfElf<E: UserDefinedError, I: InstructionMeter> {
     compiled_program: Option<JitProgram<E, I>>,
 }
 
-impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I> {
+impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     /// Get the configuration settings
-    fn get_config(&self) -> &Config {
+    pub fn get_config(&self) -> &Config {
         &self.config
     }
 
     /// Get the .text section virtual address and bytes
-    fn get_text_bytes(&self) -> (u64, &[u8]) {
+    pub fn get_text_bytes(&self) -> (u64, &[u8]) {
         let offset = (self.text_section_info.vaddr - ebpf::MM_PROGRAM_START) as usize;
         (
             self.text_section_info.vaddr,
@@ -244,12 +244,12 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     }
 
     /// Get the concatenated read-only sections (including the text section)
-    fn get_ro_section(&self) -> &[u8] {
+    pub fn get_ro_section(&self) -> &[u8] {
         self.ro_section.as_slice()
     }
 
     /// Get the entry point offset into the text section
-    fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>> {
+    pub fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>> {
         self.bpf_functions
             .get(&ebpf::hash_symbol_name(b"entrypoint"))
             .map(|(pc, _name)| *pc)
@@ -257,28 +257,28 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     }
 
     /// Get a symbol's instruction offset
-    fn lookup_bpf_function(&self, hash: u32) -> Option<usize> {
+    pub fn lookup_bpf_function(&self, hash: u32) -> Option<usize> {
         self.bpf_functions.get(&hash).map(|(pc, _name)| *pc)
     }
 
     /// Get the syscall registry
-    fn get_syscall_registry(&self) -> &SyscallRegistry {
+    pub fn get_syscall_registry(&self) -> &SyscallRegistry {
         &self.syscall_registry
     }
 
     /// Get the JIT compiled program
-    fn get_compiled_program(&self) -> Option<&JitProgram<E, I>> {
+    pub fn get_compiled_program(&self) -> Option<&JitProgram<E, I>> {
         self.compiled_program.as_ref()
     }
 
     /// JIT compile the executable
-    fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
+    pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
         self.compiled_program = Some(JitProgram::<E, I>::new(self)?);
         Ok(())
     }
 
     /// Report information on a symbol that failed to be resolved
-    fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>> {
+    pub fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>> {
         let file_offset = insn_offset
             .saturating_mul(ebpf::INSN_SIZE)
             .saturating_add(self.text_section_info.offset_range.start as usize);
@@ -312,7 +312,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     }
 
     /// Get syscalls and BPF functions (if debug symbols are not stripped)
-    fn get_function_symbols(&self) -> BTreeMap<usize, (u32, String)> {
+    pub fn get_function_symbols(&self) -> BTreeMap<usize, (u32, String)> {
         let mut bpf_functions = BTreeMap::new();
         for (hash, (pc, name)) in self.bpf_functions.iter() {
             bpf_functions.insert(*pc, (*hash, name.clone()));
@@ -321,12 +321,10 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> for EBpfElf<E, I
     }
 
     /// Get syscalls symbols
-    fn get_syscall_symbols(&self) -> &BTreeMap<u32, String> {
+    pub fn get_syscall_symbols(&self) -> &BTreeMap<u32, String> {
         &self.syscall_symbols
     }
-}
 
-impl<'a, E: UserDefinedError, I: InstructionMeter> EBpfElf<E, I> {
     /// Create from raw text section bytes (list of instructions)
     pub fn new_from_text_bytes(
         config: Config,
@@ -763,7 +761,7 @@ mod test {
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
-    type ElfExecutable = EBpfElf<UserError, TestInstructionMeter>;
+    type ElfExecutable = Executable<UserError, TestInstructionMeter>;
 
     fn syscall_registry() -> SyscallRegistry {
         let mut syscall_registry = SyscallRegistry::default();
@@ -828,7 +826,7 @@ mod test {
             .expect("validation failed");
         let mut parsed_elf = Elf::parse(&elf_bytes).unwrap();
         let initial_e_entry = parsed_elf.header.e_entry;
-        let executable: &dyn Executable<UserError, TestInstructionMeter> = &elf;
+        let executable: &Executable<UserError, TestInstructionMeter> = &elf;
         assert_eq!(
             0,
             executable
@@ -841,7 +839,7 @@ mod test {
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
-        let executable: &dyn Executable<UserError, TestInstructionMeter> = &elf;
+        let executable: &Executable<UserError, TestInstructionMeter> = &elf;
         assert_eq!(
             1,
             executable
@@ -878,7 +876,7 @@ mod test {
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
-        let executable: &dyn Executable<UserError, TestInstructionMeter> = &elf;
+        let executable: &Executable<UserError, TestInstructionMeter> = &elf;
         assert_eq!(
             0,
             executable

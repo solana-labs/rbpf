@@ -24,10 +24,11 @@ extern crate thiserror;
 
 use solana_rbpf::{
     assembler::assemble,
+    elf::Executable,
     error::UserDefinedError,
     user_error::UserError,
     verifier::{check, VerifierError},
-    vm::{Config, EbpfVm, Executable, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -51,8 +52,8 @@ fn test_verifier_success() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let _vm = EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
-        .unwrap();
+    let _vm =
+        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut []).unwrap();
 }
 
 #[test]
@@ -95,7 +96,7 @@ fn test_verifier_err_endian_size() {
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
+    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
         Some(check),
         Config::default(),
@@ -113,7 +114,7 @@ fn test_verifier_err_incomplete_lddw() {
         0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
+    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
         Some(check),
         Config::default(),
@@ -187,7 +188,7 @@ fn test_verifier_err_unknown_opcode() {
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
+    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
         Some(check),
         Config::default(),

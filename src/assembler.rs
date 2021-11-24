@@ -17,9 +17,9 @@ use crate::{
         Statement,
     },
     ebpf::{self, Insn},
-    elf::register_bpf_function,
+    elf::{register_bpf_function, Executable},
     error::UserDefinedError,
-    vm::{Config, Executable, InstructionMeter, SyscallRegistry, Verifier},
+    vm::{Config, InstructionMeter, SyscallRegistry, Verifier},
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -216,7 +216,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
     verifier: Option<Verifier>,
     config: Config,
     syscall_registry: SyscallRegistry,
-) -> Result<Box<dyn Executable<E, I>>, String> {
+) -> Result<Executable<E, I>, String> {
     fn resolve_label(
         insn_ptr: usize,
         labels: &HashMap<&str, usize>,
@@ -360,12 +360,6 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
         .map(|insn| insn.to_vec())
         .flatten()
         .collect::<Vec<_>>();
-    <dyn Executable<E, I>>::from_text_bytes(
-        &program,
-        verifier,
-        config,
-        syscall_registry,
-        bpf_functions,
-    )
-    .map_err(|err| format!("Executable constructor {:?}", err))
+    Executable::<E, I>::from_text_bytes(&program, verifier, config, syscall_registry, bpf_functions)
+        .map_err(|err| format!("Executable constructor {:?}", err))
 }

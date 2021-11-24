@@ -25,7 +25,7 @@ macro_rules! disasm {
             SyscallRegistry::default(),
         )
         .unwrap();
-        let analysis = Analysis::from_executable(executable.as_ref());
+        let analysis = Analysis::from_executable(&executable);
         let mut reasm = Vec::new();
         analysis.disassemble(&mut reasm).unwrap();
         assert_eq!(src, String::from_utf8(reasm).unwrap());

@@ -14,13 +14,13 @@ extern crate thiserror;
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
-    elf::ElfError,
+    elf::{ElfError, Executable},
     error::EbpfError,
     memory_region::AccessType,
     memory_region::MemoryMapping,
     syscalls::{self, Result},
     user_error::UserError,
-    vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read};
 use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
@@ -36,7 +36,7 @@ macro_rules! test_interpreter_and_jit {
         let check_closure = $check;
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
-            let mut vm = EbpfVm::new($executable.as_ref(), &mut [], &mut mem).unwrap();
+            let mut vm = EbpfVm::new(&$executable, &mut [], &mut mem).unwrap();
             $(test_interpreter_and_jit!(bind, vm, $location => $syscall_function; $syscall_context_object);)*
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count });
             assert!(check_closure(&vm, result));
@@ -47,7 +47,7 @@ macro_rules! test_interpreter_and_jit {
             let check_closure = $check;
             let compilation_result = $executable.jit_compile();
             let mut mem = $mem;
-            let mut vm = EbpfVm::new($executable.as_ref(), &mut [], &mut mem).unwrap();
+            let mut vm = EbpfVm::new(&$executable, &mut [], &mut mem).unwrap();
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, Err(err))),
                 Ok(()) => {
@@ -55,7 +55,7 @@ macro_rules! test_interpreter_and_jit {
                     let result = vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count });
                     let tracer_jit = vm.get_tracer();
                     if !check_closure(&vm, result) || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit) {
-                        let analysis = solana_rbpf::static_analysis::Analysis::from_executable($executable.as_ref());
+                        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(&$executable);
                         let stdout = std::io::stdout();
                         _tracer_interpreter.write(&mut stdout.lock(), &analysis).unwrap();
                         tracer_jit.write(&mut stdout.lock(), &analysis).unwrap();
@@ -103,7 +103,7 @@ macro_rules! test_interpreter_and_jit_elf {
             };
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function; $syscall_context_object);)*
-            let mut executable = <dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, None, config, syscall_registry).unwrap();
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }
     };
@@ -2738,7 +2738,7 @@ impl SyscallObject<UserError> for NestedVmSyscall {
             {
                 executable.jit_compile().unwrap();
             }
-            let mut vm = EbpfVm::new(executable.as_ref(), &mut [], mem).unwrap();
+            let mut vm = EbpfVm::new(&executable, &mut [], mem).unwrap();
             vm.bind_syscall_context_object(Box::new(NestedVmSyscall {}), None)
                 .unwrap();
             let mut instruction_meter = TestInstructionMeter { remaining: 6 };
@@ -2836,7 +2836,7 @@ fn test_custom_entrypoint() {
     test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {});
     test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::BpfSyscallU64::call; syscalls::BpfSyscallU64 {});
     #[allow(unused_mut)]
-    let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
+    let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(
         &elf,
         None,
         config,
@@ -3173,7 +3173,7 @@ fn test_err_unresolved_elf() {
         ..Config::default()
     };
     assert!(
-        matches!(<dyn Executable::<UserError, TestInstructionMeter>>::from_elf(&elf, None, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
+        matches!(Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
     );
 }
 
@@ -3396,7 +3396,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let mem_size = 1024 * 1024;
     let mut bpf_functions = BTreeMap::new();
     register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
-    let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
         Some(check),
         Config {
@@ -3416,7 +3416,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     }
     let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {
         let mut mem = vec![0u8; mem_size];
-        let mut vm = EbpfVm::new(executable.as_ref(), &mut [], &mut mem).unwrap();
+        let mut vm = EbpfVm::new(&executable, &mut [], &mut mem).unwrap();
         let result_interpreter = vm.execute_program_interpreted(&mut TestInstructionMeter {
             remaining: max_instruction_count,
         });
@@ -3428,7 +3428,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         )
     };
     let mut mem = vec![0u8; mem_size];
-    let mut vm = EbpfVm::new(executable.as_ref(), &mut [], &mut mem).unwrap();
+    let mut vm = EbpfVm::new(&executable, &mut [], &mut mem).unwrap();
     let result_jit = vm.execute_program_jit(&mut TestInstructionMeter {
         remaining: max_instruction_count,
     });
@@ -3436,7 +3436,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     if result_interpreter != result_jit
         || !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit)
     {
-        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(executable.as_ref());
+        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(&executable);
         println!("result_interpreter={:?}", result_interpreter);
         println!("result_jit={:?}", result_jit);
         let stdout = std::io::stdout();

@@ -13,9 +13,10 @@ use std::path::PathBuf;
 extern crate solana_rbpf;
 use solana_rbpf::{
     disassembler::disassemble_instruction,
+    elf::Executable,
     static_analysis::Analysis,
     user_error::UserError,
-    vm::{Config, Executable, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
 // Turn a program into a JSON string.
@@ -28,7 +29,7 @@ use std::collections::BTreeMap;
 // * Print integers as integers, and not as strings containing their hexadecimal representation
 //   (just replace the relevant `format!()` calls by the commented values.
 fn to_json(program: &[u8]) -> String {
-    let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         &program,
         None,
         Config::default(),
@@ -36,7 +37,7 @@ fn to_json(program: &[u8]) -> String {
         BTreeMap::default(),
     )
     .unwrap();
-    let analysis = Analysis::from_executable(executable.as_ref());
+    let analysis = Analysis::from_executable(&executable);
 
     let mut json_insns = vec![];
     for insn in analysis.instructions.iter() {

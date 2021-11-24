@@ -1,13 +1,14 @@
 use clap::{App, Arg};
 use solana_rbpf::{
     assembler::assemble,
+    elf::Executable,
     memory_region::MemoryMapping,
     static_analysis::Analysis,
     syscalls::Result,
     user_error::UserError,
     verifier::check,
     vm::{
-        Config, DynamicAnalysis, EbpfVm, Executable, SyscallObject, SyscallRegistry,
+        Config, DynamicAnalysis, EbpfVm, SyscallObject, SyscallRegistry,
         TestInstructionMeter,
     },
 };
@@ -144,7 +145,7 @@ fn main() {
             let mut file = File::open(&Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
+            Executable::<UserError, TestInstructionMeter>::from_elf(
                 &elf,
                 verifier,
                 config,
@@ -155,7 +156,7 @@ fn main() {
     }
     .unwrap();
     executable.jit_compile().unwrap();
-    let analysis = Analysis::from_executable(executable.as_ref());
+    let analysis = Analysis::from_executable(&executable);
 
     match matches.value_of("use") {
         Some("cfg") => {
@@ -195,7 +196,7 @@ fn main() {
             .parse::<usize>()
             .unwrap()
     ];
-    let mut vm = EbpfVm::new(executable.as_ref(), &mut mem, &mut heap).unwrap();
+    let mut vm = EbpfVm::new(&executable, &mut mem, &mut heap).unwrap();
     for (hash, name) in analysis.executable.get_syscall_symbols() {
         vm.bind_syscall_context_object(Box::new(MockSyscall { name: name.clone() }), Some(*hash))
             .unwrap();
@@ -209,7 +210,7 @@ fn main() {
     println!("Instruction Count: {}", vm.get_total_instruction_count());
     if matches.is_present("trace") {
         println!("Trace:\n");
-        let analysis = Analysis::from_executable(executable.as_ref());
+        let analysis = Analysis::from_executable(&executable);
         let stdout = std::io::stdout();
         vm.get_tracer()
             .write(&mut stdout.lock(), &analysis)

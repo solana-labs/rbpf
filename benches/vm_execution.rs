@@ -10,8 +10,9 @@ extern crate solana_rbpf;
 extern crate test;
 
 use solana_rbpf::{
+    elf::Executable,
     user_error::UserError,
-    vm::{Config, EbpfVm, Executable, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
@@ -21,7 +22,7 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_elf(
         &elf,
         None,
         Config::default(),
@@ -29,8 +30,7 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     )
     .unwrap();
     let mut vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
-            .unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut []).unwrap();
     bencher.iter(|| {
         vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 29 })
             .unwrap()
@@ -43,7 +43,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_elf(
+    let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(
         &elf,
         None,
         Config::default(),
@@ -52,8 +52,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     .unwrap();
     executable.jit_compile().unwrap();
     let mut vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
-            .unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut []).unwrap();
     bencher.iter(|| {
         vm.execute_program_jit(&mut TestInstructionMeter { remaining: 29 })
             .unwrap()
@@ -75,7 +74,7 @@ fn bench_jit_vs_interpreter(
     )
     .unwrap();
     executable.jit_compile().unwrap();
-    let mut vm = EbpfVm::new(executable.as_ref(), &mut [], mem).unwrap();
+    let mut vm = EbpfVm::new(&executable, &mut [], mem).unwrap();
     let interpreter_summary = bencher
         .bench(|bencher| {
             bencher.iter(|| {

@@ -23,7 +23,8 @@ use std::ops::{Index, IndexMut};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
-    vm::{Config, Executable, ProgramResult, InstructionMeter, Tracer, DynTraitFatPointer, SYSCALL_CONTEXT_OBJECTS_OFFSET, REPORT_UNRESOLVED_SYMBOL_INDEX},
+    elf::Executable,
+    vm::{Config, ProgramResult, InstructionMeter, Tracer, SYSCALL_CONTEXT_OBJECTS_OFFSET},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, STACK_REG, MM_STACK_START},
     error::{UserDefinedError, EbpfError},
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
@@ -145,7 +146,7 @@ impl<E: UserDefinedError, I: InstructionMeter> PartialEq for JitProgram<E, I> {
 }
 
 impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
-    pub fn new(executable: &dyn Executable<E, I>) -> Result<Self, EbpfError<E>> {
+    pub fn new(executable: &Executable<E, I>) -> Result<Self, EbpfError<E>> {
         let program = executable.get_text_bytes().1;
         let mut jit = JitCompiler::new::<E>(program, executable.get_config())?;
         jit.compile::<E, I>(executable)?;
@@ -977,7 +978,7 @@ impl JitCompiler {
     }
 
     fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self,
-            executable: &dyn Executable<E, I>) -> Result<(), EbpfError<E>> {
+            executable: &Executable<E, I>) -> Result<(), EbpfError<E>> {
         let (program_vm_addr, program) = executable.get_text_bytes();
         self.program_vm_addr = program_vm_addr;
 
@@ -1296,10 +1297,9 @@ impl JitCompiler {
                     } else {
                         // executable.report_unresolved_symbol(self.pc)?;
                         // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
-                        let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(executable) };
-                        emit_rust_call(self, fat_ptr.vtable.methods[REPORT_UNRESOLVED_SYMBOL_INDEX], &[
+                        emit_rust_call(self, Executable::<E, I>::report_unresolved_symbol as *const _, &[
                             Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
-                            Argument { index: 1, value: Value::Constant64(fat_ptr.data as i64, false) },
+                            Argument { index: 1, value: Value::Constant64(executable as *const _ as i64, false) },
                             Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
                         ], None, true)?;
                         X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;

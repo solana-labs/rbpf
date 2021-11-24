@@ -6,9 +6,10 @@
 
 extern crate solana_rbpf;
 use solana_rbpf::{
+    elf::Executable,
     syscalls,
     user_error::UserError,
-    vm::{Config, EbpfVm, Executable, SyscallObject, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
 
@@ -43,7 +44,7 @@ fn main() {
     ];
 
     // Create a VM: this one takes no data. Load prog1 in it.
-    let executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog1,
         None,
         Config::default(),
@@ -52,8 +53,7 @@ fn main() {
     )
     .unwrap();
     let mut vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
-            .unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut []).unwrap();
     // Execute prog1.
     assert_eq!(
         vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 5 })
@@ -76,7 +76,7 @@ fn main() {
         )
         .unwrap();
     #[allow(unused_mut)]
-    let mut executable = <dyn Executable<UserError, TestInstructionMeter>>::from_text_bytes(
+    let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog2,
         None,
         Config::default(),
@@ -89,8 +89,7 @@ fn main() {
         executable.jit_compile().unwrap();
     }
     let mut vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(executable.as_ref(), &mut [], &mut [])
-            .unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut []).unwrap();
     vm.bind_syscall_context_object(Box::new(syscalls::BpfTimeGetNs {}), None)
         .unwrap();
 
