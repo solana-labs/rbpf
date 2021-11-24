@@ -3395,7 +3395,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
     let mut bpf_functions = BTreeMap::new();
-    register_bpf_function(&mut bpf_functions, 0, "entrypoint").unwrap();
+    register_bpf_function(&mut bpf_functions, 0, "entrypoint", false).unwrap();
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
         Some(check),

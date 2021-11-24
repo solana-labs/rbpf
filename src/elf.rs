@@ -122,9 +122,15 @@ pub fn register_bpf_function(
     bpf_functions: &mut BTreeMap<u32, (usize, String)>,
     pc: usize,
     name: &str,
+    enable_symbol_and_section_labels: bool,
 ) -> Result<u32, ElfError> {
     let hash = hash_bpf_function(pc, name);
-    if let Some(entry) = bpf_functions.insert(hash, (pc, name.to_string())) {
+    let name = if enable_symbol_and_section_labels {
+        name.to_string()
+    } else {
+        String::default()
+    };
+    if let Some(entry) = bpf_functions.insert(hash, (pc, name)) {
         if entry.0 != pc {
             return Err(ElfError::SymbolHashCollision(hash));
         }
@@ -338,7 +344,11 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             elf_bytes,
             ro_section: text_bytes.to_vec(),
             text_section_info: SectionInfo {
-                name: ".text".to_string(),
+                name: if config.enable_symbol_and_section_labels {
+                    ".text".to_string()
+                } else {
+                    String::default()
+                },
                 vaddr: ebpf::MM_PROGRAM_START,
                 offset_range: Range {
                     start: 0,
@@ -366,11 +376,14 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         // calculate the text section info
         let text_section = Self::get_section(&elf, ".text")?;
         let text_section_info = SectionInfo {
-            name: elf
-                .shdr_strtab
-                .get_at(text_section.sh_name)
-                .unwrap()
-                .to_string(),
+            name: if config.enable_symbol_and_section_labels {
+                elf.shdr_strtab
+                    .get_at(text_section.sh_name)
+                    .unwrap()
+                    .to_string()
+            } else {
+                String::default()
+            },
             vaddr: text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START),
             offset_range: text_section.file_range().unwrap_or_default(),
         };
@@ -400,7 +413,12 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         }
         let entrypoint = offset as usize / ebpf::INSN_SIZE;
         bpf_functions.remove(&ebpf::hash_symbol_name(b"entrypoint"));
-        register_bpf_function(&mut bpf_functions, entrypoint, "entrypoint")?;
+        register_bpf_function(
+            &mut bpf_functions,
+            entrypoint,
+            "entrypoint",
+            config.enable_symbol_and_section_labels,
+        )?;
 
         // concatenate the read-only sections into one
         let mut ro_length = text_section.sh_addr as usize + text_section_info.offset_range.len();
@@ -460,6 +478,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
     /// Fix-ups relative calls
     pub fn fixup_relative_calls(
+        enable_symbol_and_section_labels: bool,
         bpf_functions: &mut BTreeMap<u32, (usize, String)>,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
@@ -473,7 +492,12 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     ));
                 }
                 let name = format!("function_{}", target_pc);
-                let hash = register_bpf_function(bpf_functions, target_pc as usize, &name)?;
+                let hash = register_bpf_function(
+                    bpf_functions,
+                    target_pc as usize,
+                    &name,
+                    enable_symbol_and_section_labels,
+                )?;
                 insn.imm = hash as i64;
                 let checked_slice = elf_bytes
                     .get_mut(i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE)
@@ -571,6 +595,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
         // Fixup all program counter relative call instructions
         Self::fixup_relative_calls(
+            config.enable_symbol_and_section_labels,
             bpf_functions,
             elf_bytes
                 .get_mut(text_section.file_range().unwrap_or_default())
@@ -684,7 +709,12 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         }
                         let target_pc =
                             (sym.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
-                        register_bpf_function(bpf_functions, target_pc, name)?
+                        register_bpf_function(
+                            bpf_functions,
+                            target_pc,
+                            name,
+                            config.enable_symbol_and_section_labels,
+                        )?
                     } else {
                         // syscall
                         let hash = syscall_cache
@@ -711,29 +741,31 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             }
         }
 
-        // Save hashed syscall names for debugging
-        *syscall_symbols = syscall_cache
-            .values()
-            .map(|(hash, name)| (*hash, name.to_string()))
-            .collect();
+        if config.enable_symbol_and_section_labels {
+            // Save syscall names
+            *syscall_symbols = syscall_cache
+                .values()
+                .map(|(hash, name)| (*hash, name.to_string()))
+                .collect();
 
-        // Register all known function names from the symbol table
-        for symbol in &elf.syms {
-            if symbol.st_info & 0xEF != 0x02 {
-                continue;
+            // Register all known function names from the symbol table
+            for symbol in &elf.syms {
+                if symbol.st_info & 0xEF != 0x02 {
+                    continue;
+                }
+                if !text_section
+                    .vm_range()
+                    .contains(&(symbol.st_value as usize))
+                {
+                    return Err(ElfError::ValueOutOfBounds);
+                }
+                let target_pc = (symbol.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
+                let name = elf
+                    .strtab
+                    .get_at(symbol.st_name)
+                    .ok_or(ElfError::UnknownSymbol(symbol.st_name))?;
+                register_bpf_function(bpf_functions, target_pc, name, true)?;
             }
-            if !text_section
-                .vm_range()
-                .contains(&(symbol.st_value as usize))
-            {
-                return Err(ElfError::ValueOutOfBounds);
-            }
-            let target_pc = (symbol.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
-            let name = elf
-                .strtab
-                .get_at(symbol.st_name)
-                .ok_or(ElfError::UnknownSymbol(symbol.st_name))?;
-            register_bpf_function(bpf_functions, target_pc, name)?;
         }
 
         Ok(())
@@ -904,7 +936,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x10, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff];
 
-        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_4".to_string();
         let hash = hash_bpf_function(4, &name);
         let insn = ebpf::Insn {
@@ -920,7 +952,7 @@ mod test {
         // call +6
         let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
-        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_0".to_string();
         let hash = hash_bpf_function(0, &name);
         let insn = ebpf::Insn {
@@ -947,7 +979,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_1".to_string();
         let hash = hash_bpf_function(1, &name);
         let insn = ebpf::Insn {
@@ -963,7 +995,7 @@ mod test {
         // call +4
         let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
-        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_5".to_string();
         let hash = hash_bpf_function(5, &name);
         let insn = ebpf::Insn {
@@ -993,7 +1025,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_1".to_string();
         let hash = hash_bpf_function(1, &name);
         let insn = ebpf::Insn {
@@ -1023,7 +1055,7 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x10, 0x00, 0x00, 0xf9, 0xff, 0xff, 0xff];
 
-        ElfExecutable::fixup_relative_calls(&mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_4".to_string();
         let hash = hash_bpf_function(4, &name);
         let insn = ebpf::Insn {

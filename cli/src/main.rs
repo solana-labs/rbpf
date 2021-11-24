@@ -117,6 +117,7 @@ fn main() {
 
     let config = Config {
         enable_instruction_tracing: matches.is_present("trace") || matches.is_present("profile"),
+        enable_symbol_and_section_labels: true,
         ..Config::default()
     };
     let verifier: Option<for<'r> fn(&'r [u8], &Config) -> std::result::Result<_, _>> =
@@ -126,9 +127,6 @@ fn main() {
             None
         };
     let syscall_registry = SyscallRegistry::default();
-    /*for hash in syscalls.keys() {
-        let _ = syscall_registry.register_syscall_by_hash(*hash, MockSyscall::call);
-    }*/
     let mut executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(&Path::new(asm_file_name)).unwrap();

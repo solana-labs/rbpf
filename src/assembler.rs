@@ -241,7 +241,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
                 .get(label)
                 .ok_or_else(|| format!("Label not found {}", label))?
         };
-        let hash = register_bpf_function(bpf_functions, target_pc, label)
+        let hash = register_bpf_function(bpf_functions, target_pc, label, true)
             .map_err(|_| format!("Label hash collision {}", label))?;
         Ok(hash as i32 as i64)
     }
