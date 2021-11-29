@@ -38,7 +38,7 @@ impl SyscallObject<UserError> for MockSyscall {
 
 fn main() {
     let matches = App::new("Solana RBPF CLI")
-        .version("0.2.15")
+        .version("0.2.16")
         .author("Solana Maintainers <maintainers@solana.foundation>")
         .about("CLI to test and analyze eBPF programs")
         .arg(
