@@ -1,4 +1,3 @@
-#![allow(clippy::integer_arithmetic)]
 //! This module relocates a BPF ELF
 
 // Note: Typically ELF shared objects are loaded using the program headers and
@@ -243,10 +242,14 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
     /// Get the .text section virtual address and bytes
     pub fn get_text_bytes(&self) -> (u64, &[u8]) {
-        let offset = (self.text_section_info.vaddr - ebpf::MM_PROGRAM_START) as usize;
+        let offset = (self
+            .text_section_info
+            .vaddr
+            .saturating_sub(ebpf::MM_PROGRAM_START)) as usize;
         (
             self.text_section_info.vaddr,
-            &self.ro_section[offset..offset + self.text_section_info.offset_range.len()],
+            &self.ro_section
+                [offset..offset.saturating_add(self.text_section_info.offset_range.len())],
         )
     }
 
@@ -312,7 +315,10 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         }
         Err(ElfError::UnresolvedSymbol(
             name.to_string(),
-            file_offset / ebpf::INSN_SIZE + ebpf::ELF_INSN_DUMP_OFFSET,
+            file_offset
+                .checked_div(ebpf::INSN_SIZE)
+                .and_then(|offset| offset.checked_add(ebpf::ELF_INSN_DUMP_OFFSET))
+                .unwrap_or(ebpf::ELF_INSN_DUMP_OFFSET),
             file_offset,
         )
         .into())
@@ -408,21 +414,25 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         )?;
 
         // calculate entrypoint offset into the text section
-        let offset = elf.header.e_entry - text_section.sh_addr;
-        if offset % ebpf::INSN_SIZE as u64 != 0 {
+        let offset = elf.header.e_entry.saturating_sub(text_section.sh_addr);
+        if offset.checked_rem(ebpf::INSN_SIZE as u64) != Some(0) {
             return Err(ElfError::InvalidEntrypoint);
         }
-        let entrypoint = offset as usize / ebpf::INSN_SIZE;
-        bpf_functions.remove(&ebpf::hash_symbol_name(b"entrypoint"));
-        register_bpf_function(
-            &mut bpf_functions,
-            entrypoint,
-            "entrypoint",
-            config.enable_symbol_and_section_labels,
-        )?;
+        if let Some(entrypoint) = (offset as usize).checked_div(ebpf::INSN_SIZE) {
+            bpf_functions.remove(&ebpf::hash_symbol_name(b"entrypoint"));
+            register_bpf_function(
+                &mut bpf_functions,
+                entrypoint,
+                "entrypoint",
+                config.enable_symbol_and_section_labels,
+            )?;
+        } else {
+            return Err(ElfError::InvalidEntrypoint);
+        }
 
         // concatenate the read-only sections into one
-        let mut ro_length = text_section.sh_addr as usize + text_section_info.offset_range.len();
+        let mut ro_length =
+            (text_section.sh_addr as usize).saturating_add(text_section_info.offset_range.len());
         let ro_slices = elf
             .section_headers
             .iter()
@@ -446,13 +456,17 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     .as_slice()
                     .get(section_header.file_range().unwrap_or_default())
                     .ok_or(ElfError::ValueOutOfBounds)?;
-                ro_length = ro_length.max(section_header.sh_addr as usize + slice.len());
+                ro_length =
+                    ro_length.max((section_header.sh_addr as usize).saturating_add(slice.len()));
                 Ok((section_header.sh_addr as usize, slice))
             })
             .collect::<Result<Vec<_>, ElfError>>()?;
+        if ro_length > elf_bytes.len() {
+            return Err(ElfError::ValueOutOfBounds);
+        }
         let mut ro_section = vec![0; ro_length];
         ro_section[text_section.sh_addr as usize
-            ..text_section.sh_addr as usize + text_section_info.offset_range.len()]
+            ..(text_section.sh_addr as usize).saturating_add(text_section_info.offset_range.len())]
             .copy_from_slice(
                 elf_bytes
                     .as_slice()
@@ -460,7 +474,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     .ok_or(ElfError::ValueOutOfBounds)?,
             );
         for (offset, slice) in ro_slices.iter() {
-            ro_section[*offset..*offset + slice.len()].copy_from_slice(slice);
+            ro_section[*offset..offset.saturating_add(slice.len())].copy_from_slice(slice);
         }
 
         Ok(Self {
@@ -483,13 +497,19 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         bpf_functions: &mut BTreeMap<u32, (usize, String)>,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
-        for i in 0..elf_bytes.len() / ebpf::INSN_SIZE {
+        let instruction_count = elf_bytes
+            .len()
+            .checked_div(ebpf::INSN_SIZE)
+            .ok_or(ElfError::ValueOutOfBounds)?;
+        for i in 0..instruction_count {
             let mut insn = ebpf::get_insn(elf_bytes, i);
             if insn.opc == ebpf::CALL_IMM && insn.imm != -1 {
-                let target_pc = i as isize + 1 + insn.imm as isize;
-                if target_pc < 0 || target_pc >= (elf_bytes.len() / ebpf::INSN_SIZE) as isize {
+                let target_pc = (i as isize)
+                    .saturating_add(1)
+                    .saturating_add(insn.imm as isize);
+                if target_pc < 0 || target_pc >= instruction_count as isize {
                     return Err(ElfError::RelativeJumpOutOfBounds(
-                        i + ebpf::ELF_INSN_DUMP_OFFSET,
+                        i.saturating_add(ebpf::ELF_INSN_DUMP_OFFSET),
                     ));
                 }
                 let name = format!("function_{}", target_pc);
@@ -500,8 +520,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     enable_symbol_and_section_labels,
                 )?;
                 insn.imm = hash as i64;
+                let offset = i.saturating_mul(ebpf::INSN_SIZE);
                 let checked_slice = elf_bytes
-                    .get_mut(i * ebpf::INSN_SIZE..(i * ebpf::INSN_SIZE) + ebpf::INSN_SIZE)
+                    .get_mut(offset..offset.saturating_add(ebpf::INSN_SIZE))
                     .ok_or(ElfError::ValueOutOfBounds)?;
                 checked_slice.copy_from_slice(&insn.to_vec());
             }
@@ -527,14 +548,17 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             return Err(ElfError::WrongType);
         }
 
-        let num_text_sections = elf.section_headers.iter().fold(0, |count, section_header| {
-            if let Some(this_name) = elf.shdr_strtab.get_at(section_header.sh_name) {
-                if this_name == ".text" {
-                    return count + 1;
-                }
-            }
-            count
-        });
+        let num_text_sections =
+            elf.section_headers
+                .iter()
+                .fold(0, |count: usize, section_header| {
+                    if let Some(this_name) = elf.shdr_strtab.get_at(section_header.sh_name) {
+                        if this_name == ".text" {
+                            return count.saturating_add(1);
+                        }
+                    }
+                    count
+                });
         if 1 != num_text_sections {
             return Err(ElfError::NotOneTextSection);
         }
@@ -628,19 +652,19 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         .dynsyms
                         .get(relocation.r_sym)
                         .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
-                    let addr = (sym.st_value + refd_pa) as u64;
+                    let addr = sym.st_value.saturating_add(refd_pa) as u64;
                     let checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
                     LittleEndian::write_u32(checked_slice, (addr & 0xFFFFFFFF) as u32);
+                    let file_offset = imm_offset.saturating_add(ebpf::INSN_SIZE);
                     let checked_slice = elf_bytes
-                        .get_mut(
-                            imm_offset.saturating_add(ebpf::INSN_SIZE)
-                                ..imm_offset
-                                    .saturating_add(ebpf::INSN_SIZE + BYTE_LENGTH_IMMEIDATE),
-                        )
+                        .get_mut(file_offset..file_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
-                    LittleEndian::write_u32(checked_slice, (addr >> 32) as u32);
+                    LittleEndian::write_u32(
+                        checked_slice,
+                        addr.checked_shr(32).unwrap_or_default() as u32,
+                    );
                 }
                 Some(BpfRelocationType::R_Bpf_64_Relative) => {
                     // Raw relocation between sections.  The instruction being relocated contains
@@ -674,14 +698,14 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                             .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                             .ok_or(ElfError::ValueOutOfBounds)?;
                         LittleEndian::write_u32(checked_slice, (refd_pa & 0xFFFFFFFF) as u32);
+                        let file_offset = imm_offset.saturating_add(ebpf::INSN_SIZE);
                         let checked_slice = elf_bytes
-                            .get_mut(
-                                imm_offset.saturating_add(ebpf::INSN_SIZE)
-                                    ..imm_offset
-                                        .saturating_add(ebpf::INSN_SIZE + BYTE_LENGTH_IMMEIDATE),
-                            )
+                            .get_mut(file_offset..file_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
                             .ok_or(ElfError::ValueOutOfBounds)?;
-                        LittleEndian::write_u32(checked_slice, (refd_pa >> 32) as u32);
+                        LittleEndian::write_u32(
+                            checked_slice,
+                            refd_pa.checked_shr(32).unwrap_or_default() as u32,
+                        );
                     } else {
                         // 64 bit memory location, write entire 64 bit physical address directly
                         let checked_slice = elf_bytes
@@ -708,8 +732,10 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         if !text_section.vm_range().contains(&(sym.st_value as usize)) {
                             return Err(ElfError::ValueOutOfBounds);
                         }
-                        let target_pc =
-                            (sym.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
+                        let target_pc = (sym.st_value.saturating_sub(text_section.sh_addr)
+                            as usize)
+                            .checked_div(ebpf::INSN_SIZE)
+                            .unwrap_or_default();
                         register_bpf_function(
                             bpf_functions,
                             target_pc,
@@ -727,7 +753,12 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         {
                             return Err(ElfError::UnresolvedSymbol(
                                 name.to_string(),
-                                r_offset / ebpf::INSN_SIZE + ebpf::ELF_INSN_DUMP_OFFSET,
+                                r_offset
+                                    .checked_div(ebpf::INSN_SIZE)
+                                    .and_then(|offset| {
+                                        offset.checked_add(ebpf::ELF_INSN_DUMP_OFFSET)
+                                    })
+                                    .unwrap_or(ebpf::ELF_INSN_DUMP_OFFSET),
                                 r_offset,
                             ));
                         }
@@ -760,7 +791,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                 {
                     return Err(ElfError::ValueOutOfBounds);
                 }
-                let target_pc = (symbol.st_value - text_section.sh_addr) as usize / ebpf::INSN_SIZE;
+                let target_pc = (symbol.st_value.saturating_sub(text_section.sh_addr) as usize)
+                    .checked_div(ebpf::INSN_SIZE)
+                    .unwrap_or_default();
                 let name = elf
                     .strtab
                     .get_at(symbol.st_name)
