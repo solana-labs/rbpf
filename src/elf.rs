@@ -156,7 +156,7 @@ pub fn register_bpf_function(
 /// Byte offset of the immediate field in the instruction
 const BYTE_OFFSET_IMMEDIATE: usize = 4;
 /// Byte length of the immediate field
-const BYTE_LENGTH_IMMEIDATE: usize = 4;
+const BYTE_LENGTH_IMMEDIATE: usize = 4;
 
 /// BPF relocation types.
 #[allow(non_camel_case_types)]
@@ -641,25 +641,25 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     // Read the instruction's immediate field which contains virtual
                     // address to convert to physical
                     let checked_slice = elf_bytes
-                        .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
+                        .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
                     let refd_va = LittleEndian::read_u32(checked_slice) as u64;
                     // final "physical address" from the VM's perspetive is rooted at `MM_PROGRAM_START`
                     let refd_pa = ebpf::MM_PROGRAM_START.saturating_add(refd_va);
 
                     // The .text section has an unresolved load symbol instruction.
-                    let sym = elf
+                    let symbol = elf
                         .dynsyms
                         .get(relocation.r_sym)
                         .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
-                    let addr = sym.st_value.saturating_add(refd_pa) as u64;
+                    let addr = symbol.st_value.saturating_add(refd_pa) as u64;
                     let checked_slice = elf_bytes
-                        .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
+                        .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
                     LittleEndian::write_u32(checked_slice, (addr & 0xFFFFFFFF) as u32);
                     let file_offset = imm_offset.saturating_add(ebpf::INSN_SIZE);
                     let checked_slice = elf_bytes
-                        .get_mut(file_offset..file_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
+                        .get_mut(file_offset..file_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
                     LittleEndian::write_u32(
                         checked_slice,
@@ -674,7 +674,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     // Read the instruction's immediate field which contains virtual
                     // address to convert to physical
                     let checked_slice = elf_bytes
-                        .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
+                        .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
                     let refd_va = LittleEndian::read_u32(checked_slice) as u64;
 
@@ -695,12 +695,12 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         // physical address into a high and low and write into both slot's imm field
 
                         let checked_slice = elf_bytes
-                            .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
+                            .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                             .ok_or(ElfError::ValueOutOfBounds)?;
                         LittleEndian::write_u32(checked_slice, (refd_pa & 0xFFFFFFFF) as u32);
                         let file_offset = imm_offset.saturating_add(ebpf::INSN_SIZE);
                         let checked_slice = elf_bytes
-                            .get_mut(file_offset..file_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
+                            .get_mut(file_offset..file_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                             .ok_or(ElfError::ValueOutOfBounds)?;
                         LittleEndian::write_u32(
                             checked_slice,
@@ -719,20 +719,23 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     // Hash the symbol name and stick it into the call instruction's imm
                     // field.  Later that hash will be used to look up the function location.
 
-                    let sym = elf
+                    let symbol = elf
                         .dynsyms
                         .get(relocation.r_sym)
                         .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
                     let name = elf
                         .dynstrtab
-                        .get_at(sym.st_name)
-                        .ok_or(ElfError::UnknownSymbol(sym.st_name))?;
-                    let hash = if sym.is_function() && sym.st_value != 0 {
+                        .get_at(symbol.st_name)
+                        .ok_or(ElfError::UnknownSymbol(symbol.st_name))?;
+                    let hash = if symbol.is_function() && symbol.st_value != 0 {
                         // bpf call
-                        if !text_section.vm_range().contains(&(sym.st_value as usize)) {
+                        if !text_section
+                            .vm_range()
+                            .contains(&(symbol.st_value as usize))
+                        {
                             return Err(ElfError::ValueOutOfBounds);
                         }
-                        let target_pc = (sym.st_value.saturating_sub(text_section.sh_addr)
+                        let target_pc = (symbol.st_value.saturating_sub(text_section.sh_addr)
                             as usize)
                             .checked_div(ebpf::INSN_SIZE)
                             .unwrap_or_default();
@@ -745,7 +748,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     } else {
                         // syscall
                         let hash = syscall_cache
-                            .entry(sym.st_name)
+                            .entry(symbol.st_name)
                             .or_insert_with(|| (ebpf::hash_symbol_name(name.as_bytes()), name))
                             .0;
                         if config.reject_unresolved_syscalls
@@ -765,7 +768,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         hash
                     };
                     let checked_slice = elf_bytes
-                        .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEIDATE))
+                        .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
                     LittleEndian::write_u32(checked_slice, hash);
                 }
