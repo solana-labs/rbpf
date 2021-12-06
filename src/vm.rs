@@ -1,3 +1,4 @@
+#![allow(clippy::integer_arithmetic)]
 // Derived from uBPF <https://github.com/iovisor/ubpf>
 // Copyright 2015 Big Switch Networks, Inc
 //      (uBPF: VM architecture, parts of the interpreter, originally in C)

@@ -1,3 +1,4 @@
+#![allow(clippy::integer_arithmetic)]
 //! This module defines memory regions
 
 use crate::{

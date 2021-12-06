@@ -1,3 +1,4 @@
+#![allow(clippy::integer_arithmetic)]
 //! Aligned memory
 
 /// Provides u8 slices at a specified alignment

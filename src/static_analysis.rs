@@ -1,3 +1,4 @@
+#![allow(clippy::integer_arithmetic)]
 //! Static Byte Code Analysis
 
 use crate::disassembler::disassemble_instruction;

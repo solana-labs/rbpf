@@ -1,3 +1,4 @@
+#![allow(clippy::integer_arithmetic)]
 use crate::{
     error::{EbpfError, UserDefinedError},
     jit::{emit, emit_variable_length, JitCompiler, OperandSize},

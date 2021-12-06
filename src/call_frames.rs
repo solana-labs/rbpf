@@ -1,3 +1,4 @@
+#![allow(clippy::integer_arithmetic)]
 //! Call frame handler
 
 use crate::{

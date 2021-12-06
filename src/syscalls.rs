@@ -1,3 +1,4 @@
+#![allow(clippy::integer_arithmetic)]
 // Copyright 2015 Big Switch Networks, Inc
 //      (Algorithms for uBPF syscalls, originally in C)
 // Copyright 2016 6WIND S.A. <quentin.monnet@6wind.com>
