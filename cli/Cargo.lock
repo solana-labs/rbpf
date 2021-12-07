@@ -299,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "rbpf_cli"
-version = "0.2.16"
+version = "0.2.17"
 dependencies = [
  "clap",
  "solana_rbpf",
@@ -334,7 +334,7 @@ dependencies = [
 
 [[package]]
 name = "solana_rbpf"
-version = "0.2.16"
+version = "0.2.17"
 dependencies = [
  "byteorder",
  "combine",
@@ -347,7 +347,6 @@ dependencies = [
  "scroll",
  "thiserror",
  "time",
- "version_check",
 ]
 
 [[package]]
@@ -378,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "test_utils"
-version = "0.2.16"
+version = "0.2.17"
 dependencies = [
  "libc",
  "solana_rbpf",

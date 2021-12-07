@@ -1,4 +1,4 @@
-use clap::{App, Arg};
+use clap::{crate_version, App, Arg};
 use solana_rbpf::{
     assembler::assemble,
     elf::Executable,
@@ -38,7 +38,7 @@ impl SyscallObject<UserError> for MockSyscall {
 
 fn main() {
     let matches = App::new("Solana RBPF CLI")
-        .version("0.2.16")
+        .version(crate_version!())
         .author("Solana Maintainers <maintainers@solana.foundation>")
         .about("CLI to test and analyze eBPF programs")
         .arg(
