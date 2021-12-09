@@ -431,8 +431,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         }
 
         // concatenate the read-only sections into one
-        let mut ro_length =
+        let mut ro_alloc_length =
             (text_section.sh_addr as usize).saturating_add(text_section_info.offset_range.len());
+        let mut ro_fill_length = text_section_info.offset_range.len();
         let ro_slices = elf
             .section_headers
             .iter()
@@ -456,15 +457,19 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     .as_slice()
                     .get(section_header.file_range().unwrap_or_default())
                     .ok_or(ElfError::ValueOutOfBounds)?;
-                ro_length =
-                    ro_length.max((section_header.sh_addr as usize).saturating_add(slice.len()));
+                ro_alloc_length = ro_alloc_length
+                    .max((section_header.sh_addr as usize).saturating_add(slice.len()));
+                ro_fill_length = ro_fill_length.saturating_add(slice.len());
                 Ok((section_header.sh_addr as usize, slice))
             })
             .collect::<Result<Vec<_>, ElfError>>()?;
-        if ro_length > elf_bytes.len() {
+        if ro_alloc_length > elf_bytes.len()
+            || (config.reject_section_virtual_address_file_offset_mismatch
+                && ro_fill_length > ro_alloc_length)
+        {
             return Err(ElfError::ValueOutOfBounds);
         }
-        let mut ro_section = vec![0; ro_length];
+        let mut ro_section = vec![0; ro_alloc_length];
         ro_section[text_section.sh_addr as usize
             ..(text_section.sh_addr as usize).saturating_add(text_section_info.offset_range.len())]
             .copy_from_slice(
