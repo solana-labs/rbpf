@@ -42,3 +42,11 @@ rm scratch_registers.o
 "$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o pass_stack_reference.o -c pass_stack_reference.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o pass_stack_reference.so pass_stack_reference.o
 rm pass_stack_reference.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o writable_data_section.o -c writable_data_section.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o writable_data_section.so writable_data_section.o
+rm writable_data_section.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o bss_section.o -c bss_section.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o bss_section.so bss_section.o
+rm bss_section.o

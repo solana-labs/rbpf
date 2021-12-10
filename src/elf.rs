@@ -66,8 +66,8 @@ pub enum ElfError {
     #[error("Multiple or no text sections, consider removing llc option: -function-sections")]
     NotOneTextSection,
     /// Read-write data not supported
-    #[error("Found .bss section in ELF, read-write data not supported")]
-    BssNotSupported,
+    #[error("Found writable section ({0}) in ELF, read-write data not supported")]
+    WritableSectionNotSupported(String),
     /// Relocation failed, no loadable section contains virtual address
     #[error("Relocation failed, no loadable section contains virtual address {0:#x}")]
     AddressOutsideLoadableSection(u64),
@@ -378,7 +378,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         let elf = Elf::parse(bytes)?;
         let mut elf_bytes = AlignedMemory::new_with_data(bytes, ebpf::HOST_ALIGN);
 
-        Self::validate(&elf, elf_bytes.as_slice())?;
+        Self::validate(&config, &elf, elf_bytes.as_slice())?;
 
         // calculate the text section info
         let text_section = Self::get_section(&elf, ".text")?;
@@ -536,7 +536,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     }
 
     /// Validates the ELF
-    pub fn validate(elf: &Elf, elf_bytes: &[u8]) -> Result<(), ElfError> {
+    pub fn validate(config: &Config, elf: &Elf, elf_bytes: &[u8]) -> Result<(), ElfError> {
         if elf.header.e_ident[EI_CLASS] != ELFCLASS64 {
             return Err(ElfError::WrongClass);
         }
@@ -569,9 +569,13 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         }
 
         for section_header in elf.section_headers.iter() {
-            if let Some(this_name) = elf.shdr_strtab.get_at(section_header.sh_name) {
-                if this_name.starts_with(".bss") {
-                    return Err(ElfError::BssNotSupported);
+            if let Some(name) = elf.shdr_strtab.get_at(section_header.sh_name) {
+                if name.starts_with(".bss")
+                    || (config.reject_writable_data_sections
+                        && section_header.is_writable()
+                        && (name.starts_with(".data") && !name.starts_with(".data.rel")))
+                {
+                    return Err(ElfError::WritableSectionNotSupported(name.to_owned()));
                 }
             }
         }
@@ -862,28 +866,30 @@ mod test {
             .expect("failed to read elf file");
         let mut parsed_elf = Elf::parse(&bytes).unwrap();
         let elf_bytes = bytes.to_vec();
+        let config = Config::default();
 
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_ident[EI_CLASS] = ELFCLASS32;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect_err("allowed bad class");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect_err("allowed bad class");
         parsed_elf.header.e_ident[EI_CLASS] = ELFCLASS64;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_ident[EI_DATA] = ELFDATA2MSB;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect_err("allowed big endian");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect_err("allowed big endian");
         parsed_elf.header.e_ident[EI_DATA] = ELFDATA2LSB;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_ident[EI_OSABI] = 1;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect_err("allowed wrong abi");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect_err("allowed wrong abi");
         parsed_elf.header.e_ident[EI_OSABI] = ELFOSABI_NONE;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_machine = EM_QDSP6;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect_err("allowed wrong machine");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes)
+            .expect_err("allowed wrong machine");
         parsed_elf.header.e_machine = EM_BPF;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_type = ET_REL;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect_err("allowed wrong type");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect_err("allowed wrong type");
         parsed_elf.header.e_type = ET_DYN;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
     }
 
     #[test]
@@ -1177,6 +1183,34 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
+        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+            .expect("validation failed");
+    }
+
+    #[test]
+    #[should_panic(expected = r#"validation failed: WritableSectionNotSupported(".data")"#)]
+    fn test_writable_data_section() {
+        let elf_bytes =
+            std::fs::read("tests/elfs/writable_data_section.so").expect("failed to read elf file");
+
+        assert!(ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry()).is_ok());
+
+        ElfExecutable::load(
+            Config {
+                reject_writable_data_sections: true,
+                ..Config::default()
+            },
+            &elf_bytes,
+            syscall_registry(),
+        )
+        .expect("validation failed");
+    }
+
+    #[test]
+    #[should_panic(expected = r#"validation failed: WritableSectionNotSupported(".bss")"#)]
+    fn test_bss_section() {
+        let elf_bytes =
+            std::fs::read("tests/elfs/bss_section.so").expect("failed to read elf file");
         ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
     }
