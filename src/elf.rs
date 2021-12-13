@@ -66,6 +66,9 @@ pub enum ElfError {
     #[error("Multiple or no text sections, consider removing llc option: -function-sections")]
     NotOneTextSection,
     /// Read-write data not supported
+    #[error("Found .bss section in ELF, read-write data not supported")]
+    BssNotSupported,
+    /// Read-write data not supported
     #[error("Found writable section ({0}) in ELF, read-write data not supported")]
     WritableSectionNotSupported(String),
     /// Relocation failed, no loadable section contains virtual address
@@ -570,12 +573,14 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
         for section_header in elf.section_headers.iter() {
             if let Some(name) = elf.shdr_strtab.get_at(section_header.sh_name) {
-                if name.starts_with(".bss")
-                    || (config.reject_writable_data_sections
-                        && section_header.is_writable()
-                        && (name.starts_with(".data") && !name.starts_with(".data.rel")))
+                if config.reject_all_writable_sections
+                    && (name.starts_with(".bss")
+                        || (section_header.is_writable()
+                            && (name.starts_with(".data") && !name.starts_with(".data.rel"))))
                 {
                     return Err(ElfError::WritableSectionNotSupported(name.to_owned()));
+                } else if name == ".bss" {
+                    return Err(ElfError::BssNotSupported);
                 }
             }
         }
@@ -1197,7 +1202,7 @@ mod test {
 
         ElfExecutable::load(
             Config {
-                reject_writable_data_sections: true,
+                reject_all_writable_sections: true,
                 ..Config::default()
             },
             &elf_bytes,
@@ -1211,7 +1216,14 @@ mod test {
     fn test_bss_section() {
         let elf_bytes =
             std::fs::read("tests/elfs/bss_section.so").expect("failed to read elf file");
-        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
-            .expect("validation failed");
+        ElfExecutable::load(
+            Config {
+                reject_all_writable_sections: true,
+                ..Config::default()
+            },
+            &elf_bytes,
+            syscall_registry(),
+        )
+        .expect("validation failed");
     }
 }

@@ -195,7 +195,7 @@ pub struct Config {
     /// Reject ELF files containing section headers where sh_addr != sh_offset
     pub reject_section_virtual_address_file_offset_mismatch: bool,
     /// Reject ELF files containing writable data sections
-    pub reject_writable_data_sections: bool,
+    pub reject_all_writable_sections: bool,
     /// Ratio of random no-ops per instruction in JIT (0.0 = OFF)
     pub noop_instruction_ratio: f64,
     /// Enable disinfection of immediate values and offsets provided by the user in JIT
@@ -219,7 +219,7 @@ impl Default for Config {
             enable_symbol_and_section_labels: false,
             reject_unresolved_syscalls: false,
             reject_section_virtual_address_file_offset_mismatch: false,
-            reject_writable_data_sections: false,
+            reject_all_writable_sections: false,
             noop_instruction_ratio: 1.0 / 256.0,
             sanitize_user_provided_values: true,
             encrypt_environment_registers: true,
