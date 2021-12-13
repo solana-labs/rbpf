@@ -378,7 +378,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         let elf = Elf::parse(bytes)?;
         let mut elf_bytes = AlignedMemory::new_with_data(bytes, ebpf::HOST_ALIGN);
 
-        Self::validate(&elf, elf_bytes.as_slice())?;
+        Self::validate(&elf, elf_bytes.as_slice(), config.reject_all_rw)?;
 
         // calculate the text section info
         let text_section = Self::get_section(&elf, ".text")?;
@@ -536,7 +536,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     }
 
     /// Validates the ELF
-    pub fn validate(elf: &Elf, elf_bytes: &[u8]) -> Result<(), ElfError> {
+    pub fn validate(elf: &Elf, elf_bytes: &[u8], reject_all_rw: bool) -> Result<(), ElfError> {
         if elf.header.e_ident[EI_CLASS] != ELFCLASS64 {
             return Err(ElfError::WrongClass);
         }
@@ -570,7 +570,11 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
         for section_header in elf.section_headers.iter() {
             if let Some(this_name) = elf.shdr_strtab.get_at(section_header.sh_name) {
-                if this_name.starts_with(".bss") {
+                if reject_all_rw {
+                    if this_name.starts_with(".bss") {
+                        return Err(ElfError::BssNotSupported);
+                    }
+                } else if this_name == ".bss" {
                     return Err(ElfError::BssNotSupported);
                 }
             }
@@ -863,27 +867,27 @@ mod test {
         let mut parsed_elf = Elf::parse(&bytes).unwrap();
         let elf_bytes = bytes.to_vec();
 
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect("validation failed");
         parsed_elf.header.e_ident[EI_CLASS] = ELFCLASS32;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect_err("allowed bad class");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect_err("allowed bad class");
         parsed_elf.header.e_ident[EI_CLASS] = ELFCLASS64;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect("validation failed");
         parsed_elf.header.e_ident[EI_DATA] = ELFDATA2MSB;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect_err("allowed big endian");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect_err("allowed big endian");
         parsed_elf.header.e_ident[EI_DATA] = ELFDATA2LSB;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect("validation failed");
         parsed_elf.header.e_ident[EI_OSABI] = 1;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect_err("allowed wrong abi");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect_err("allowed wrong abi");
         parsed_elf.header.e_ident[EI_OSABI] = ELFOSABI_NONE;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect("validation failed");
         parsed_elf.header.e_machine = EM_QDSP6;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect_err("allowed wrong machine");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect_err("allowed wrong machine");
         parsed_elf.header.e_machine = EM_BPF;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect("validation failed");
         parsed_elf.header.e_type = ET_REL;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect_err("allowed wrong type");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect_err("allowed wrong type");
         parsed_elf.header.e_type = ET_DYN;
-        ElfExecutable::validate(&parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&parsed_elf, &elf_bytes, true).expect("validation failed");
     }
 
     #[test]

@@ -204,6 +204,8 @@ pub struct Config {
     pub verify_mul64_imm_nonzero: bool,
     /// Feature flag for the SHIFT_IMM >= 32 verification check
     pub verify_shift32_imm: bool,
+    /// Feature flag for rejecting all rw sections in the ELF
+    pub reject_all_rw: bool,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -222,6 +224,7 @@ impl Default for Config {
             encrypt_environment_registers: true,
             verify_mul64_imm_nonzero: false,
             verify_shift32_imm: false,
+            reject_all_rw: false,
         }
     }
 }
