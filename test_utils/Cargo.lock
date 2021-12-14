@@ -200,7 +200,7 @@ dependencies = [
 
 [[package]]
 name = "solana_rbpf"
-version = "0.2.18"
+version = "0.2.19"
 dependencies = [
  "byteorder",
  "combine",
@@ -213,7 +213,6 @@ dependencies = [
  "scroll",
  "thiserror",
  "time",
- "version_check",
 ]
 
 [[package]]
@@ -229,7 +228,7 @@ dependencies = [
 
 [[package]]
 name = "test_utils"
-version = "0.2.18"
+version = "0.2.19"
 dependencies = [
  "libc",
  "solana_rbpf",
@@ -280,12 +279,6 @@ checksum = "382810877fe448991dfc7f0dd6e3ae5d58088fd0ea5e35189655f84e6814fa56"
 dependencies = [
  "void",
 ]
-
-[[package]]
-name = "version_check"
-version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 
 [[package]]
 name = "void"
