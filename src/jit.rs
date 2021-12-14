@@ -1442,7 +1442,7 @@ impl JitCompiler {
                 emit_alu(self, OperandSize::S64, 0x09, RCX, R11, 0, None)?; // gapped_offset = above_gap | below_gap;
             }
             X86Instruction::lea(OperandSize::S64, R11, RCX, Some(X86IndirectAccess::Offset(*len))).emit(self)?; // RCX = R11 + len;
-            X86Instruction::cmp(OperandSize::S8, RCX, RAX, Some(X86IndirectAccess::Offset(16))).emit(self)?; // region.len < R11 + len
+            X86Instruction::cmp(OperandSize::S64, RCX, RAX, Some(X86IndirectAccess::Offset(16))).emit(self)?; // region.len < R11 + len
             emit_jcc(self, 0x82, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
             emit_alu(self, OperandSize::S64, 0x03, R11, RAX, 0, Some(X86IndirectAccess::Offset(0)))?; // R11 += region.host_addr;
             if self.config.enable_stack_frame_gaps {
