@@ -22,7 +22,10 @@ use crate::{
     error::UserDefinedError,
     vm::{Config, InstructionMeter, SyscallRegistry, Verifier},
 };
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    pin::Pin,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum InstructionType {
@@ -217,7 +220,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
     verifier: Option<Verifier>,
     config: Config,
     syscall_registry: SyscallRegistry,
-) -> Result<Executable<E, I>, String> {
+) -> Result<Pin<Box<Executable<E, I>>>, String> {
     fn resolve_label(
         insn_ptr: usize,
         labels: &HashMap<&str, usize>,

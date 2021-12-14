@@ -46,7 +46,7 @@ macro_rules! test_interpreter_and_jit {
         #[cfg(all(not(windows), target_arch = "x86_64"))]
         {
             let check_closure = $check;
-            let compilation_result = $executable.jit_compile();
+            let compilation_result = Executable::<UserError, TestInstructionMeter>::jit_compile(&mut $executable);
             let mut mem = $mem;
             let mut vm = EbpfVm::new(&$executable, &mut [], &mut mem).unwrap();
             match compilation_result {
@@ -2737,7 +2737,8 @@ impl SyscallObject<UserError> for NestedVmSyscall {
             .unwrap();
             #[cfg(all(not(windows), target_arch = "x86_64"))]
             {
-                executable.jit_compile().unwrap();
+                Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable)
+                    .unwrap();
             }
             let mut vm = EbpfVm::new(&executable, &mut [], mem).unwrap();
             vm.bind_syscall_context_object(Box::new(NestedVmSyscall {}), None)
@@ -3412,7 +3413,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     } else {
         return false;
     };
-    if executable.jit_compile().is_err() {
+    if Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).is_err() {
         return false;
     }
     let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {

@@ -15,12 +15,13 @@
 
 extern crate libc;
 
-use std::fmt::Debug;
-use std::mem;
-use std::collections::HashMap;
-use std::fmt::Formatter;
-use std::fmt::Error as FormatterError;
-use std::ops::{Index, IndexMut};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Error as FormatterError, Formatter},
+    mem,
+    ops::{Index, IndexMut},
+    pin::Pin,
+};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
@@ -147,7 +148,7 @@ impl<E: UserDefinedError, I: InstructionMeter> PartialEq for JitProgram<E, I> {
 }
 
 impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
-    pub fn new(executable: &Executable<E, I>) -> Result<Self, EbpfError<E>> {
+    pub fn new(executable: &Pin<Box<Executable<E, I>>>) -> Result<Self, EbpfError<E>> {
         let program = executable.get_text_bytes().1;
         let mut jit = JitCompiler::new::<E>(program, executable.get_config())?;
         jit.compile::<E, I>(executable)?;
@@ -979,7 +980,7 @@ impl JitCompiler {
     }
 
     fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self,
-            executable: &Executable<E, I>) -> Result<(), EbpfError<E>> {
+            executable: &Pin<Box<Executable<E, I>>>) -> Result<(), EbpfError<E>> {
         let (program_vm_addr, program) = executable.get_text_bytes();
         self.program_vm_addr = program_vm_addr;
 
@@ -1300,7 +1301,7 @@ impl JitCompiler {
                         // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
                         emit_rust_call(self, Executable::<E, I>::report_unresolved_symbol as *const _, &[
                             Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
-                            Argument { index: 1, value: Value::Constant64(executable as *const _ as i64, false) },
+                            Argument { index: 1, value: Value::Constant64(&*executable.as_ref() as *const _ as i64, false) },
                             Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
                         ], None, true)?;
                         X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;

@@ -86,7 +86,7 @@ fn main() {
     .unwrap();
     #[cfg(not(windows))]
     {
-        executable.jit_compile().unwrap();
+        Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
     }
     let mut vm =
         EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut []).unwrap();

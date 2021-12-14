@@ -27,6 +27,7 @@ use log::debug;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
+    pin::Pin,
     u32,
 };
 
@@ -240,13 +241,12 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> Executable<E, I> {
         verifier: Option<Verifier>,
         config: Config,
         syscall_registry: SyscallRegistry,
-    ) -> Result<Self, EbpfError<E>> {
-        let ebpf_elf = Executable::load(config, elf_bytes, syscall_registry)?;
-        let text_bytes = ebpf_elf.get_text_bytes().1;
+    ) -> Result<Pin<Box<Self>>, EbpfError<E>> {
+        let executable = Executable::load(config, elf_bytes, syscall_registry)?;
         if let Some(verifier) = verifier {
-            verifier(text_bytes, &config)?;
+            verifier(executable.get_text_bytes().1, &config)?;
         }
-        Ok(ebpf_elf)
+        Ok(Pin::new(Box::new(executable)))
     }
     /// Creates a verified executable from machine code
     pub fn from_text_bytes(
@@ -255,16 +255,16 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> Executable<E, I> {
         config: Config,
         syscall_registry: SyscallRegistry,
         bpf_functions: BTreeMap<u32, (usize, String)>,
-    ) -> Result<Self, EbpfError<E>> {
+    ) -> Result<Pin<Box<Self>>, EbpfError<E>> {
         if let Some(verifier) = verifier {
             verifier(text_bytes, &config).map_err(EbpfError::VerifierError)?;
         }
-        Ok(Executable::new_from_text_bytes(
+        Ok(Pin::new(Box::new(Executable::new_from_text_bytes(
             config,
             text_bytes,
             syscall_registry,
             bpf_functions,
-        ))
+        ))))
     }
 }
 
@@ -480,7 +480,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut []).unwrap();
     /// ```
     pub fn new(
-        executable: &'a Executable<E, I>,
+        executable: &'a Pin<Box<Executable<E, I>>>,
         heap_region: &mut [u8],
         input_region: &mut [u8],
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {

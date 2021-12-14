@@ -50,7 +50,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
         SyscallRegistry::default(),
     )
     .unwrap();
-    executable.jit_compile().unwrap();
+    Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
     let mut vm =
         EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut []).unwrap();
     bencher.iter(|| {
@@ -73,7 +73,7 @@ fn bench_jit_vs_interpreter(
         SyscallRegistry::default(),
     )
     .unwrap();
-    executable.jit_compile().unwrap();
+    Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
     let mut vm = EbpfVm::new(&executable, &mut [], mem).unwrap();
     let interpreter_summary = bencher
         .bench(|bencher| {

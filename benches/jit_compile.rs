@@ -47,5 +47,7 @@ fn bench_jit_compile(bencher: &mut Bencher) {
         SyscallRegistry::default(),
     )
     .unwrap();
-    bencher.iter(|| executable.jit_compile().unwrap());
+    bencher.iter(|| {
+        Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap()
+    });
 }

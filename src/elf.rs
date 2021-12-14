@@ -21,7 +21,7 @@ use goblin::{
     elf::{header::*, reloc::*, section_header::*, Elf},
     error::Error as GoblinError,
 };
-use std::{collections::BTreeMap, fmt::Debug, mem, ops::Range, str};
+use std::{collections::BTreeMap, fmt::Debug, mem, ops::Range, pin::Pin, str};
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -285,8 +285,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     }
 
     /// JIT compile the executable
-    pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
-        self.compiled_program = Some(JitProgram::<E, I>::new(self)?);
+    pub fn jit_compile(executable: &mut Pin<Box<Self>>) -> Result<(), EbpfError<E>> {
+        // TODO: Turn back to `executable: &mut self` once Self::report_unresolved_symbol() is gone
+        executable.compiled_program = Some(JitProgram::<E, I>::new(executable)?);
         Ok(())
     }
 

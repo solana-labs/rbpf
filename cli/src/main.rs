@@ -153,7 +153,7 @@ fn main() {
         }
     }
     .unwrap();
-    executable.jit_compile().unwrap();
+    Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
     let analysis = Analysis::from_executable(&executable);
 
     match matches.value_of("use") {
