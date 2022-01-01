@@ -957,9 +957,12 @@ impl JitCompiler {
         let mut code_length_estimate = pc * 256 + 4096;
         code_length_estimate += (code_length_estimate as f64 * _config.noop_instruction_ratio) as usize;
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
-        let (environment_stack_key, program_argument_key) =
+        let (environment_stack_key, program_argument_key) = 
             if _config.encrypt_environment_registers {
-                (diversification_rng.gen::<i32>() / 8, diversification_rng.gen())
+                (
+                    diversification_rng.gen::<i32>() / 16, // -3 bits for 8 Byte alignment, and -1 bit to have encoding space for EnvironmentStackSlot::SlotCount
+                    diversification_rng.gen::<i32>() / 2, // -1 bit to have encoding space for (SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) * 8
+                )
             } else { (0, 0) };
 
         Ok(Self {
