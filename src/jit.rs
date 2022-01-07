@@ -161,7 +161,8 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
 }
 
 // Special values for target_pc in struct Jump
-const TARGET_PC_TRACE: usize = std::usize::MAX - 29;
+const TARGET_PC_TRACE: usize = std::usize::MAX - 30;
+const TARGET_PC_BPF_CALL_REG: usize = std::usize::MAX - 29;
 const TARGET_PC_TRANSLATE_PC: usize = std::usize::MAX - 28;
 const TARGET_PC_TRANSLATE_PC_LOOP: usize = std::usize::MAX - 27;
 const TARGET_PC_TRANSLATE_MEMORY_ADDRESS: usize = std::usize::MAX - 26;
@@ -444,8 +445,7 @@ fn emit_profile_instruction_count<E: UserDefinedError>(jit: &mut JitCompiler, ta
         Some(target_pc) => {
             emit_alu(jit, OperandSize::S64, 0x81, 0, ARGUMENT_REGISTERS[0], target_pc as i64 - jit.pc as i64 - 1, None)?; // instruction_meter += target_pc - (jit.pc + 1);
         },
-        None => { // If no constant target_pc is given, it is expected to be on the stack instead
-            X86Instruction::pop(R11).emit(jit)?;
+        None => {
             emit_alu(jit, OperandSize::S64, 0x81, 5, ARGUMENT_REGISTERS[0], jit.pc as i64 + 1, None)?; // instruction_meter -= jit.pc + 1;
             emit_alu(jit, OperandSize::S64, 0x01, R11, ARGUMENT_REGISTERS[0], jit.pc as i64, None)?; // instruction_meter += target_pc;
         },
@@ -527,89 +527,50 @@ enum Value {
 }
 
 #[inline]
-fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, number_of_instructions: usize) -> Result<(), EbpfError<E>> {
+fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value) -> Result<(), EbpfError<E>> {
     for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS) {
         X86Instruction::push(*reg).emit(jit)?;
     }
     X86Instruction::push(REGISTER_MAP[STACK_REG]).emit(jit)?;
+    let stack_ptr_access = X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::BpfStackPtr));
+    let stack_frame_size = jit.config.stack_frame_size as i64 * if jit.config.enable_stack_frame_gaps { 2 } else { 1 };
+    emit_alu(jit, OperandSize::S64, 0x81, 0, RBP, stack_frame_size, Some(stack_ptr_access))?; // stack_ptr += stack_frame_size;
+    // if((stack_ptr as u32) >= jit.config.stack_frame_size + jit.config.max_call_depth * stack_frame_size) throw EbpfError::CallDepthExeeded;
+    X86Instruction::cmp_immediate(OperandSize::S32, RBP, jit.config.stack_frame_size as i64 + (jit.config.max_call_depth as i64 * stack_frame_size), Some(stack_ptr_access)).emit(jit)?;
+
+    // Store PC in case the bounds check fails
+    X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?; // ### CUSTOM ###
+    emit_jcc(jit, 0x83, TARGET_PC_CALL_DEPTH_EXCEEDED)?;
 
     match dst {
         Value::Register(reg) => {
             // Move vm target_address into RAX
             X86Instruction::push(REGISTER_MAP[0]).emit(jit)?;
             if reg != REGISTER_MAP[0] {
-                X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[0]).emit(jit)?;
+                X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[0]).emit(jit)?; // ### CUSTOM ###
             }
-            // Force alignment of RAX
-            emit_alu(jit, OperandSize::S64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i64 - 1), None)?; // RAX &= !(INSN_SIZE - 1);
-            // Store PC in case the bounds check fails
-            X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
-            // Upper bound check
-            // if(RAX >= jit.program_vm_addr + number_of_instructions * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
-            X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[STACK_REG], jit.program_vm_addr as i64 + (number_of_instructions * INSN_SIZE) as i64).emit(jit)?;
-            X86Instruction::cmp(OperandSize::S64, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], None).emit(jit)?;
-            emit_jcc(jit, 0x83, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT)?;
-            // Lower bound check
-            // if(RAX < jit.program_vm_addr) throw CALL_OUTSIDE_TEXT_SEGMENT;
-            X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[STACK_REG], jit.program_vm_addr as i64).emit(jit)?;
-            X86Instruction::cmp(OperandSize::S64, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], None).emit(jit)?;
-            emit_jcc(jit, 0x82, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT)?;
-            // Calculate offset relative to instruction_addresses
-            emit_alu(jit, OperandSize::S64, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None)?; // RAX -= jit.program_vm_addr;
-            if jit.config.enable_instruction_meter {
-                // Calculate the target_pc to update the instruction_meter
-                let shift_amount = INSN_SIZE.trailing_zeros();
-                debug_assert_eq!(INSN_SIZE, 1<<shift_amount);
-                X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]).emit(jit)?;
-                emit_alu(jit, OperandSize::S64, 0xc1, 5, REGISTER_MAP[STACK_REG], shift_amount as i64, None)?;
-                X86Instruction::push(REGISTER_MAP[STACK_REG]).emit(jit)?;
-            }
-            // Load host target_address from jit_program_argument.instruction_addresses
-            debug_assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
-            X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[STACK_REG]).emit(jit)?;
-            X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[STACK_REG], jit.result.pc_section.as_ptr() as i64).emit(jit)?;
-            emit_alu(jit, OperandSize::S64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None)?; // RAX += jit.result.pc_section;
-            X86Instruction::load(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], X86IndirectAccess::Offset(0)).emit(jit)?; // RAX = jit.result.pc_section[RAX / 8];
-        },
-        Value::Constant64(_target_pc, user_provided) => debug_assert!(!user_provided),
-        _ => {
-            #[cfg(debug_assertions)]
-            unreachable!();
-        }
-    }
 
-    let stack_frame_size = jit.config.stack_frame_size as i64 * if jit.config.enable_stack_frame_gaps { 2 } else { 1 };
-    X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::BpfStackPtr))).emit(jit)?;
-    emit_alu(jit, OperandSize::S64, 0x81, 0, REGISTER_MAP[STACK_REG], stack_frame_size, None)?; // stack_ptr += stack_frame_increment;
-    X86Instruction::store(OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::BpfStackPtr))).emit(jit)?;
+            emit_call(jit, TARGET_PC_BPF_CALL_REG)?;
 
-    // if(stack_ptr >= MM_STACK_START + jit.config.stack_frame_size + jit.config.max_call_depth * stack_frame_size) throw EbpfError::CallDepthExeeded;
-    X86Instruction::load_immediate(OperandSize::S64, R11, MM_STACK_START as i64 + jit.config.stack_frame_size as i64 + (jit.config.max_call_depth as i64 * stack_frame_size)).emit(jit)?;
-    X86Instruction::cmp(OperandSize::S64, R11, REGISTER_MAP[STACK_REG], None).emit(jit)?;
-    // Store PC in case the bounds check fails
-    X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
-    emit_jcc(jit, 0x83, TARGET_PC_CALL_DEPTH_EXCEEDED)?;
-
-    match dst {
-        Value::Register(_reg) => {
-            emit_validate_and_profile_instruction_count(jit, false, None)?;
-
+            emit_validate_and_profile_instruction_count(jit, false, None)?; // ### CUSTOM ###
             X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(jit)?;
             X86Instruction::pop(REGISTER_MAP[0]).emit(jit)?;
             X86Instruction::call_reg(OperandSize::S64, R11, None).emit(jit)?; // callq *%r11
         },
-        Value::Constant64(target_pc, _user_provided) => {
-            emit_validate_and_profile_instruction_count(jit, false, Some(target_pc as usize))?;
-
-            X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64).emit(jit)?;
-            emit_call(jit, target_pc as usize)?;
+        Value::Constant64(target_pc, user_provided) => {
+            debug_assert!(!user_provided);
+            emit_validate_and_profile_instruction_count(jit, false, Some(target_pc as usize))?; // ### CUSTOM ###
+            X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], stack_ptr_access).emit(jit)?; // Load BpfStackPtr
+            X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64).emit(jit)?; // ### CUSTOM ###
+            emit_call(jit, target_pc as usize)?; // ### CUSTOM ###
         },
         _ => {
             #[cfg(debug_assertions)]
             unreachable!();
         }
     }
-    emit_undo_profile_instruction_count(jit, 0)?;
+
+    emit_undo_profile_instruction_count(jit, 0)?; // ### CUSTOM ###
 
     X86Instruction::pop(REGISTER_MAP[STACK_REG]).emit(jit)?;
     for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS).rev() {
@@ -1298,7 +1259,7 @@ impl JitCompiler {
                         X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
                         emit_jcc(self, 0x85, TARGET_PC_RUST_EXCEPTION)?;
                     } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
-                        emit_bpf_call(self, Value::Constant64(target_pc as i64, false), self.result.pc_section.len() - 1)?;
+                        emit_bpf_call(self, Value::Constant64(target_pc as i64, false))?;
                     } else {
                         // executable.report_unresolved_symbol(self.pc)?;
                         // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
@@ -1313,15 +1274,15 @@ impl JitCompiler {
                     }
                 },
                 ebpf::CALL_REG  => {
-                    emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]), self.result.pc_section.len() - 1)?;
+                    emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]))?;
                 },
                 ebpf::EXIT      => {
                     emit_validate_and_profile_instruction_count(self, true, Some(0))?;
 
+                    let stack_ptr_access = X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::BpfStackPtr));
                     let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
-                    X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::BpfStackPtr))).emit(self)?;
-                    emit_alu(self, OperandSize::S64, 0x81, 5, REGISTER_MAP[STACK_REG], stack_frame_size, None)?; // stack_ptr -= stack_frame_size;
-                    X86Instruction::store(OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::BpfStackPtr))).emit(self)?;
+                    emit_alu(self, OperandSize::S64, 0x81, 5, RBP, stack_frame_size, Some(stack_ptr_access))?; // stack_ptr -= stack_frame_size;
+                    X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], stack_ptr_access).emit(self)?;
 
                     // if(stack_ptr < MM_STACK_START + self.config.stack_frame_size) goto exit;
                     X86Instruction::load_immediate(OperandSize::S64, R11, MM_STACK_START as i64 + self.config.stack_frame_size as i64).emit(self)?;
@@ -1338,6 +1299,7 @@ impl JitCompiler {
             self.pc += 1;
         }
         self.result.pc_section[self.pc] = self.offset_in_text_section as u64; // Bumper so that the linear search of TARGET_PC_TRANSLATE_PC can not run off
+        println!("offset_in_text_section={}", self.offset_in_text_section);
 
         // Bumper in case there was no final exit
         emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2))?;
@@ -1378,6 +1340,39 @@ impl JitCompiler {
             X86Instruction::pop(R11).emit(self)?;
             X86Instruction::return_near().emit(self)?;
         }
+
+        // Routine for emit_bpf_call with Value::Register(_) as dst
+        set_anchor(self, TARGET_PC_BPF_CALL_REG);
+        // Force alignment of RAX
+        emit_alu(self, OperandSize::S64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i64 - 1), None)?; // RAX &= !(INSN_SIZE - 1);
+        // Upper bound check
+        // if(RAX >= self.program_vm_addr + number_of_instructions * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
+        let number_of_instructions = self.result.pc_section.len() - 1;
+        X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[STACK_REG], self.program_vm_addr as i64 + (number_of_instructions * INSN_SIZE) as i64).emit(self)?;
+        X86Instruction::cmp(OperandSize::S64, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], None).emit(self)?;
+        emit_jcc(self, 0x83, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT)?;
+        // Lower bound check
+        // if(RAX < self.program_vm_addr) throw CALL_OUTSIDE_TEXT_SEGMENT;
+        X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[STACK_REG], self.program_vm_addr as i64).emit(self)?;
+        X86Instruction::cmp(OperandSize::S64, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], None).emit(self)?;
+        emit_jcc(self, 0x82, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT)?;
+        // Calculate offset relative to instruction_addresses
+        emit_alu(self, OperandSize::S64, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None)?; // RAX -= self.program_vm_addr;
+        if self.config.enable_instruction_meter {
+            // Calculate the target_pc (dst / INSN_SIZE) to update the instruction_meter
+            let shift_amount = INSN_SIZE.trailing_zeros();
+            debug_assert_eq!(INSN_SIZE, 1 << shift_amount);
+            X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(self)?;
+            emit_alu(self, OperandSize::S64, 0xc1, 5, R11, shift_amount as i64, None)?;
+        }
+        // Load host target_address from self.result.pc_section
+        debug_assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
+        X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[STACK_REG], self.result.pc_section.as_ptr() as i64).emit(self)?;
+        emit_alu(self, OperandSize::S64, 0x01, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None)?; // RAX += self.result.pc_section;
+        X86Instruction::load(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], X86IndirectAccess::Offset(0)).emit(self)?; // RAX = self.result.pc_section[RAX / 8];
+        // Load BpfStackPtr
+        X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::BpfStackPtr))).emit(self)?;
+        X86Instruction::return_near().emit(self)?;
 
         // Translates a host pc back to a BPF pc by linear search of the pc_section table
         set_anchor(self, TARGET_PC_TRANSLATE_PC);
