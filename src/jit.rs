@@ -530,7 +530,7 @@ enum Value {
 #[inline]
 fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value) -> Result<(), EbpfError<E>> {
     // Store PC in case the bounds check fails
-    X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?; // ### CUSTOM ###
+    X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
 
     emit_call(jit, TARGET_PC_BPF_CALL_PROLOGUE)?;
 
@@ -539,21 +539,21 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value) -> Resu
             // Move vm target_address into RAX
             X86Instruction::push(REGISTER_MAP[0]).emit(jit)?;
             if reg != REGISTER_MAP[0] {
-                X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[0]).emit(jit)?; // ### CUSTOM ###
+                X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[0]).emit(jit)?; 
             }
 
             emit_call(jit, TARGET_PC_BPF_CALL_REG)?;
 
-            emit_validate_and_profile_instruction_count(jit, false, None)?; // ### CUSTOM ###
-            X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(jit)?;
-            X86Instruction::pop(REGISTER_MAP[0]).emit(jit)?;
+            emit_validate_and_profile_instruction_count(jit, false, None)?;
+            X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(jit)?; // Save target_pc
+            X86Instruction::pop(REGISTER_MAP[0]).emit(jit)?; // Restore RAX
             X86Instruction::call_reg(OperandSize::S64, R11, None).emit(jit)?; // callq *%r11
         },
         Value::Constant64(target_pc, user_provided) => {
             debug_assert!(!user_provided);
-            emit_validate_and_profile_instruction_count(jit, false, Some(target_pc as usize))?; // ### CUSTOM ###
-            X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64).emit(jit)?; // ### CUSTOM ###
-            emit_call(jit, target_pc as usize)?; // ### CUSTOM ###
+            emit_validate_and_profile_instruction_count(jit, false, Some(target_pc as usize))?;
+            X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64).emit(jit)?;
+            emit_call(jit, target_pc as usize)?;
         },
         _ => {
             #[cfg(debug_assertions)]
@@ -561,7 +561,7 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value) -> Resu
         }
     }
 
-    emit_undo_profile_instruction_count(jit, 0)?; // ### CUSTOM ###
+    emit_undo_profile_instruction_count(jit, 0)?;
 
     X86Instruction::pop(REGISTER_MAP[STACK_REG]).emit(jit)?;
     for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS).rev() {
@@ -1290,7 +1290,6 @@ impl JitCompiler {
             self.pc += 1;
         }
         self.result.pc_section[self.pc] = self.offset_in_text_section as u64; // Bumper so that the linear search of TARGET_PC_TRANSLATE_PC can not run off
-        println!("offset_in_text_section={}", self.offset_in_text_section);
 
         // Bumper in case there was no final exit
         emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2))?;
