@@ -80,6 +80,15 @@ macro_rules! test_interpreter_and_jit {
 }
 
 macro_rules! test_interpreter_and_jit_asm {
+    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
+        #[allow(unused_mut)]
+        {
+            let mut syscall_registry = SyscallRegistry::default();
+            $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function; $syscall_context_object);)*
+            let mut executable = assemble($source, None, $config, syscall_registry).unwrap();
+            test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
+        }
+    };
     ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
         #[allow(unused_mut)]
         {
@@ -87,10 +96,7 @@ macro_rules! test_interpreter_and_jit_asm {
                 enable_instruction_tracing: true,
                 ..Config::default()
             };
-            let mut syscall_registry = SyscallRegistry::default();
-            $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function; $syscall_context_object);)*
-            let mut executable = assemble($source, None, config, syscall_registry).unwrap();
-            test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
+            test_interpreter_and_jit_asm!($source, config, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }
     };
 }

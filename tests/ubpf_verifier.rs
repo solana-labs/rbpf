@@ -24,6 +24,7 @@ extern crate thiserror;
 
 use solana_rbpf::{
     assembler::assemble,
+    ebpf,
     elf::Executable,
     error::UserDefinedError,
     user_error::UserError,
@@ -255,6 +256,48 @@ fn test_verifier_err_all_shift_overflows() {
                 ),
                 _ => panic!("Expected error"),
             },
+        }
+    }
+}
+
+#[test]
+fn test_verifier_err_ldabs_ldind_disabled() {
+    let instructions = [
+        (ebpf::LD_ABS_B, "ldabsb 0x3"),
+        (ebpf::LD_ABS_H, "ldabsh 0x3"),
+        (ebpf::LD_ABS_W, "ldabsw 0x3"),
+        (ebpf::LD_ABS_DW, "ldabsdw 0x3"),
+        (ebpf::LD_IND_B, "ldindb r1, 0x3"),
+        (ebpf::LD_IND_H, "ldindh r1, 0x3"),
+        (ebpf::LD_IND_W, "ldindw r1, 0x3"),
+        (ebpf::LD_IND_DW, "ldinddw r1, 0x3"),
+    ];
+
+    for (opc, instruction) in instructions {
+        for disable_deprecated_load_instructions in [true, false] {
+            let assembly = format!("\n{}\nexit", instruction);
+            let result = assemble::<UserError, TestInstructionMeter>(
+                &assembly,
+                Some(check),
+                Config {
+                    disable_deprecated_load_instructions,
+                    ..Config::default()
+                },
+                SyscallRegistry::default(),
+            );
+
+            if disable_deprecated_load_instructions {
+                assert_eq!(
+                    result.unwrap_err(),
+                    format!(
+                        "Executable constructor VerifierError(UnknownOpCode({}, {}))",
+                        opc,
+                        ebpf::ELF_INSN_DUMP_OFFSET
+                    ),
+                );
+            } else {
+                assert!(result.is_ok());
+            }
         }
     }
 }

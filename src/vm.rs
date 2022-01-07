@@ -209,7 +209,10 @@ pub struct Config {
     pub sanitize_user_provided_values: bool,
     /// Encrypt the environment registers in JIT
     pub encrypt_environment_registers: bool,
+    /// Disable ldabs* and ldind* instructions
+    pub disable_deprecated_load_instructions: bool,
 }
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -222,6 +225,7 @@ impl Default for Config {
             enable_symbol_and_section_labels: false,
             disable_unresolved_symbols_at_runtime: true,
             reject_broken_elfs: false,
+            disable_deprecated_load_instructions: true,
             noop_instruction_ratio: 1.0 / 256.0,
             sanitize_user_provided_values: true,
             encrypt_environment_registers: true,
