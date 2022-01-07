@@ -183,12 +183,18 @@ impl X86Instruction {
     }
 
     /// Swap source and destination
-    pub fn xchg(size: OperandSize, source: u8, destination: u8) -> Self {
+    pub fn xchg(
+        size: OperandSize,
+        source: u8,
+        destination: u8,
+        indirect: Option<X86IndirectAccess>,
+    ) -> Self {
         Self {
             size,
             opcode: 0x87,
             first_operand: source,
             second_operand: destination,
+            indirect,
             ..Self::default()
         }
     }
