@@ -15,7 +15,8 @@ extern crate thiserror;
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
-    elf::{ElfError, Executable},
+    ebpf,
+    elf::{register_bpf_function, ElfError, Executable},
     error::EbpfError,
     memory_region::AccessType,
     memory_region::MemoryMapping,
@@ -23,7 +24,7 @@ use solana_rbpf::{
     user_error::UserError,
     vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
-use std::{fs::File, io::Read};
+use std::{collections::BTreeMap, fs::File, io::Read};
 use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 
 macro_rules! test_interpreter_and_jit {
@@ -34,7 +35,8 @@ macro_rules! test_interpreter_and_jit {
         $vm.bind_syscall_context_object(Box::new($syscall_context_object), None).unwrap();
     };
     ($executable:expr, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
-        let check_closure = $check;
+        #[allow(unused_mut)]
+        let mut check_closure = $check;
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mut vm = EbpfVm::new(&$executable, &mut [], &mut mem).unwrap();
@@ -45,7 +47,8 @@ macro_rules! test_interpreter_and_jit {
         };
         #[cfg(all(not(windows), target_arch = "x86_64"))]
         {
-            let check_closure = $check;
+            #[allow(unused_mut)]
+            let mut check_closure = $check;
             let compilation_result = Executable::<UserError, TestInstructionMeter>::jit_compile(&mut $executable);
             let mut mem = $mem;
             let mut vm = EbpfVm::new(&$executable, &mut [], &mut mem).unwrap();
@@ -2721,7 +2724,7 @@ impl SyscallObject<UserError> for NestedVmSyscall {
             syscall_registry
                 .register_syscall_by_name::<UserError, _>(b"NestedVmSyscall", NestedVmSyscall::call)
                 .unwrap();
-            let mem = &mut [depth as u8 - 1, throw as u8];
+            let mem = [depth as u8 - 1, throw as u8];
             let mut executable = assemble::<UserError, TestInstructionMeter>(
                 "
                 ldabsb 0
@@ -2735,27 +2738,7 @@ impl SyscallObject<UserError> for NestedVmSyscall {
                 syscall_registry,
             )
             .unwrap();
-            #[cfg(all(not(windows), target_arch = "x86_64"))]
-            {
-                Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable)
-                    .unwrap();
-            }
-            let mut vm = EbpfVm::new(&executable, &mut [], mem).unwrap();
-            vm.bind_syscall_context_object(Box::new(NestedVmSyscall {}), None)
-                .unwrap();
-            let mut instruction_meter = TestInstructionMeter { remaining: 6 };
-            #[cfg(any(windows, not(target_arch = "x86_64")))]
-            {
-                *result = vm.execute_program_interpreted(&mut instruction_meter);
-            }
-            #[cfg(all(not(windows), target_arch = "x86_64"))]
-            {
-                *result = vm.execute_program_jit(&mut instruction_meter);
-            }
-            assert_eq!(
-                vm.get_total_instruction_count(),
-                if throw == 0 { 6 } else { 5 }
-            );
+            test_interpreter_and_jit!(executable, mem, (b"NestedVmSyscall" => NestedVmSyscall::call; NestedVmSyscall {}), { |_vm, res: Result| { *result = res; true } }, if throw == 0 { 6 } else { 5 });
         } else {
             *result = if throw == 0 {
                 Ok(42)
@@ -3391,16 +3374,13 @@ fn test_tcp_sack_nomatch() {
 
 #[cfg(all(not(windows), target_arch = "x86_64"))]
 fn execute_generated_program(prog: &[u8]) -> bool {
-    use solana_rbpf::{elf::register_bpf_function, verifier::check};
-    use std::collections::BTreeMap;
-
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
     let mut bpf_functions = BTreeMap::new();
     register_bpf_function(&mut bpf_functions, 0, "entrypoint", false).unwrap();
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
-        Some(check),
+        Some(solana_rbpf::verifier::check),
         Config {
             enable_instruction_tracing: true,
             ..Config::default()
@@ -3458,7 +3438,6 @@ fn execute_generated_program(prog: &[u8]) -> bool {
 #[cfg(all(not(windows), target_arch = "x86_64"))]
 #[test]
 fn test_total_chaos() {
-    use solana_rbpf::ebpf;
     let instruction_count = 6;
     let iteration_count = 1000000;
     let mut program = vec![0; instruction_count * ebpf::INSN_SIZE];
