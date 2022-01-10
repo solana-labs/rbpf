@@ -11,6 +11,7 @@ extern crate solana_rbpf;
 extern crate test_utils;
 extern crate thiserror;
 
+use byteorder::{ByteOrder, LittleEndian};
 #[cfg(all(not(windows), target_arch = "x86_64"))]
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
@@ -2271,6 +2272,44 @@ fn test_err_stack_out_of_bound() {
         },
         1
     );
+}
+
+#[test]
+fn test_err_mem_access_out_of_bound() {
+    let mem = [0; 512];
+    let mut prog = [0; 32];
+    prog[0] = ebpf::LD_DW_IMM;
+    prog[16] = ebpf::ST_B_IMM;
+    prog[24] = ebpf::EXIT;
+    for address in [0x2u64, 0x8002u64, 0x80000002u64, 0x8000000000000002u64] {
+        LittleEndian::write_u32(&mut prog[4..], address as u32);
+        LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
+        let mut bpf_functions = BTreeMap::new();
+        register_bpf_function(&mut bpf_functions, 0, "entrypoint", false).unwrap();
+        #[allow(unused_mut)]
+        let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+            &prog,
+            None,
+            Config::default(),
+            SyscallRegistry::default(),
+            bpf_functions,
+        )
+        .unwrap();
+        test_interpreter_and_jit!(
+            executable,
+            mem,
+            (),
+            {
+                |_vm, res: Result| {
+                    matches!(res.unwrap_err(),
+                        EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
+                        if access_type == AccessType::Store && pc == 31 && vm_addr == address && len == 1 && name == "unknown"
+                    )
+                }
+            },
+            2
+        );
+    }
 }
 
 // CALL_IMM & CALL_REG : Procedure Calls
