@@ -123,8 +123,7 @@ impl JitProgramSections {
     }
 
     pub fn mem_size(&self) -> usize {
-        self.pc_section.len() * std::mem::size_of::<u64>() +
-            self.text_section.len()
+            self.total_allocation_size
     }
 }
 
@@ -174,8 +173,8 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
     }
 
     pub fn mem_size(&self) ->usize{
+        mem::size_of::<Self>() +
         self._sections.mem_size()
-        + std::mem::size_of_val(&self.main)
     }
 }
 
@@ -1340,7 +1339,7 @@ impl JitCompiler {
             emit_alu(self, OperandSize::S64, 0x81, 0, RSP, - 8 * 3, None)?; // RSP -= 8 * 3;
             emit_rust_call(self, Tracer::trace as *const u8, &[
                 Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
-                Argument { index: 0, value: Value::RegisterIndirect(R10, std::mem::size_of::<MemoryMapping>() as i32 + self.program_argument_key, false) }, // jit.tracer
+                Argument { index: 0, value: Value::RegisterIndirect(R10, mem::size_of::<MemoryMapping>() as i32 + self.program_argument_key, false) }, // jit.tracer
             ], None, false)?;
             // Pop stack and return
             emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8 * 3, None)?; // RSP += 8 * 3;
@@ -1444,8 +1443,8 @@ impl JitCompiler {
             emit_alu(self, OperandSize::S64, 0xc1, 5, RAX, ebpf::VIRTUAL_ADDRESS_BITS as i64, None)?; // RAX >>= ebpf::VIRTUAL_ADDRESS_BITS;
             X86Instruction::cmp(OperandSize::S64, RAX, R10, Some(X86IndirectAccess::Offset(self.program_argument_key + 8))).emit(self)?; // region_index >= jit_program_argument.memory_mapping.regions.len()
             emit_jcc(self, 0x86, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
-            debug_assert_eq!(1 << 5, std::mem::size_of::<MemoryRegion>());
-            emit_alu(self, OperandSize::S64, 0xc1, 4, RAX, 5, None)?; // RAX *= std::mem::size_of::<MemoryRegion>();
+            debug_assert_eq!(1 << 5, mem::size_of::<MemoryRegion>());
+            emit_alu(self, OperandSize::S64, 0xc1, 4, RAX, 5, None)?; // RAX *= mem::size_of::<MemoryRegion>();
             emit_alu(self, OperandSize::S64, 0x03, RAX, R10, 0, Some(X86IndirectAccess::Offset(self.program_argument_key)))?; // region = &jit_program_argument.memory_mapping.regions[region_index];
             if *access_type == AccessType::Store {
                 X86Instruction::cmp_immediate(OperandSize::S8, RAX, 0, Some(X86IndirectAccess::Offset(25))).emit(self)?; // region.is_writable == 0
@@ -1652,12 +1651,12 @@ impl JitCompiler {
         for jump in &self.text_section_jumps {
             let offset_value = jump.get_target_offset(self) as i32
                 - jump.location as i32 // Relative jump
-                - std::mem::size_of::<i32>() as i32; // Jump from end of instruction
+                - mem::size_of::<i32>() as i32; // Jump from end of instruction
             unsafe {
                 libc::memcpy(
                     self.result.text_section.as_ptr().add(jump.location) as *mut libc::c_void,
                     &offset_value as *const i32 as *const libc::c_void,
-                    std::mem::size_of::<i32>(),
+                    mem::size_of::<i32>(),
                 );
             }
         }

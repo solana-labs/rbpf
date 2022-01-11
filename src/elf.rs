@@ -215,6 +215,11 @@ struct SectionInfo {
     vaddr: u64,
     offset_range: Range<usize>,
 }
+impl SectionInfo {
+    fn mem_size(&self) -> usize {
+        mem::size_of::<Self>() + self.name.capacity()
+    }
+}
 
 /// Elf loader/relocator
 #[derive(Debug, PartialEq)]
@@ -496,28 +501,36 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     }
 
     /// Calculate the total memory size of the executable
-    pub fn mem_size(&self) -> u64 {
-        let total = std::mem::size_of_val(&self)
+    pub fn mem_size(&self) -> usize {
+        let total = mem::size_of::<Self>()
             // elf bytres
             + self.elf_bytes.mem_size()
             // ro section
-            + self.ro_section.len()
+            + self.ro_section.capacity()
             // text section info
-            + self.text_section_info.name.len()
+            + self.text_section_info.mem_size()
             // bpf functions
-            + self.bpf_functions.iter().fold(0, |state, (_, (val, name))| state + std::mem::size_of_val(&val) + name.len())
+            + mem::size_of_val(&self.bpf_functions)
+            + self.bpf_functions
+            .iter()
+            .fold(0, |state, (_, (val, name))| state
+                + mem::size_of_val(&val)
+                + mem::size_of_val(&name)
+                + name.capacity())
             // syscall symbols
+            + mem::size_of_val(&self.syscall_symbols)
             + self.syscall_symbols
             .iter()
             .fold(0, |state, (val, name)| state
-                + std::mem::size_of_val(&val)
-                + name.len())
+                + mem::size_of_val(&val)
+                + mem::size_of_val(&name)
+                + name.capacity())
             // syscall registry
             + self.syscall_registry.mem_size()
             // compiled programs
             + self.compiled_program.as_ref().map_or(0, |program| program.mem_size());
 
-        total as u64
+        total as usize
     }
 
     // Functions exposed for tests
@@ -1241,14 +1254,10 @@ mod test {
         let mut executable =
             ElfExecutable::from_elf(&elf_bytes, None, Config::default(), syscall_registry())
                 .expect("validation failed");
-
         {
-            // let executable = {
-            // let mut pinbox = Box::new(executable)).pin();
             Executable::jit_compile(&mut executable).unwrap();
-            // };
         }
 
-        println!("size {:?}", executable.mem_size());
+        assert_eq!(26888, executable.mem_size());
     }
 }

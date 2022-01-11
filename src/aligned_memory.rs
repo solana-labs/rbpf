@@ -1,6 +1,8 @@
 #![allow(clippy::integer_arithmetic)]
 //! Aligned memory
 
+use std::mem;
+
 /// Provides u8 slices at a specified alignment
 #[derive(Clone, Debug, PartialEq)]
 pub struct AlignedMemory {
@@ -48,7 +50,7 @@ impl AlignedMemory {
     }
     /// Calculate memory size
     pub fn mem_size(&self) -> usize {
-        std::mem::size_of::<Self>() + self.mem.len()
+        mem::size_of::<Self>() + self.mem.capacity()
     }
     /// Get the length of the data
     pub fn len(&self) -> usize {
