@@ -121,6 +121,11 @@ impl JitProgramSections {
         }
         Ok(())
     }
+
+    pub fn mem_size(&self) -> usize {
+        self.pc_section.len() * std::mem::size_of::<u64>() +
+            self.text_section.len()
+    }
 }
 
 impl Drop for JitProgramSections {
@@ -166,6 +171,11 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
             _sections: jit.result,
             main,
         })
+    }
+
+    pub fn mem_size(&self) ->usize{
+        self._sections.mem_size()
+        + std::mem::size_of_val(&self.main)
     }
 }
 

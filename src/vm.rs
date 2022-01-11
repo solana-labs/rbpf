@@ -172,6 +172,12 @@ impl SyscallRegistry {
     pub fn get_number_of_syscalls(&self) -> usize {
         self.entries.len()
     }
+
+    /// Calculate memory size
+    pub fn mem_size(&self) -> usize {
+        self.entries.len() * (std::mem::size_of::<u32>() + std::mem::size_of::<Syscall>())
+            + self.context_object_slots.len() * std::mem::size_of::<(u64, usize)>()
+    }
 }
 
 /// VM configuration settings

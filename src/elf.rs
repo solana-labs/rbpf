@@ -495,6 +495,31 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         })
     }
 
+    /// Calculate the total memory size of the executable
+    pub fn mem_size(&self) -> u64 {
+        let total = std::mem::size_of_val(&self)
+            // elf bytres
+            + self.elf_bytes.mem_size()
+            // ro section
+            + self.ro_section.len()
+            // text section info
+            + self.text_section_info.name.len()
+            // bpf functions
+            + self.bpf_functions.iter().fold(0, |state, (_, (val, name))| state + std::mem::size_of_val(&val) + name.len())
+            // syscall symbols
+            + self.syscall_symbols
+            .iter()
+            .fold(0, |state, (val, name)| state
+                + std::mem::size_of_val(&val)
+                + name.len())
+            // syscall registry
+            + self.syscall_registry.mem_size()
+            // compiled programs
+            + self.compiled_program.as_ref().map_or(0, |program| program.mem_size());
+
+        total as u64
+    }
+
     // Functions exposed for tests
 
     /// Fix-ups relative calls
@@ -1205,5 +1230,25 @@ mod test {
             std::fs::read("tests/elfs/bss_section.so").expect("failed to read elf file");
         ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
+    }
+
+    #[test]
+    fn test_size() {
+        let mut file = File::open("tests/elfs/noop.so").expect("file open failed");
+        let mut elf_bytes = Vec::new();
+        file.read_to_end(&mut elf_bytes)
+            .expect("failed to read elf file");
+        let mut executable =
+            ElfExecutable::from_elf(&elf_bytes, None, Config::default(), syscall_registry())
+                .expect("validation failed");
+
+        {
+            // let executable = {
+            // let mut pinbox = Box::new(executable)).pin();
+            Executable::jit_compile(&mut executable).unwrap();
+            // };
+        }
+
+        println!("size {:?}", executable.mem_size());
     }
 }

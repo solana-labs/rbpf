@@ -46,6 +46,10 @@ impl AlignedMemory {
             mem,
         }
     }
+    /// Calculate memory size
+    pub fn mem_size(&self) -> usize {
+        std::mem::size_of::<Self>() + self.mem.len()
+    }
     /// Get the length of the data
     pub fn len(&self) -> usize {
         self.mem.len() - self.align_offset
