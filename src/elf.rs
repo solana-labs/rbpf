@@ -1247,6 +1247,7 @@ mod test {
             .expect("validation failed");
     }
 
+    #[cfg(all(not(windows), target_arch = "x86_64"))]
     #[test]
     fn test_size() {
         let mut file = File::open("tests/elfs/noop.so").expect("file open failed");
