@@ -110,8 +110,8 @@ impl<E: UserDefinedError> From<GoblinError> for EbpfError<E> {
 }
 
 /// Generates the hash by which a symbol can be called
-pub fn hash_bpf_function(pc: usize, name: &str) -> u32 {
-    if name == "entrypoint" {
+pub fn hash_bpf_function(pc: usize, name: Option<&str>) -> u32 {
+    if name == Some("entrypoint") {
         ebpf::hash_symbol_name(b"entrypoint")
     } else {
         let mut key = [0u8; mem::size_of::<u64>()];
@@ -122,22 +122,28 @@ pub fn hash_bpf_function(pc: usize, name: &str) -> u32 {
 
 /// Register a symbol or throw ElfError::SymbolHashCollision
 pub fn register_bpf_function(
-    bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+    bpf_functions: &mut BTreeMap<u32, (usize, Option<String>)>,
     pc: usize,
-    name: &str,
+    name: Option<String>,
     enable_symbol_and_section_labels: bool,
 ) -> Result<u32, ElfError> {
-    let hash = hash_bpf_function(pc, name);
-    let name = if enable_symbol_and_section_labels {
-        name.to_string()
-    } else {
-        String::default()
-    };
-    if let Some(entry) = bpf_functions.insert(hash, (pc, name)) {
+    let hash = hash_bpf_function(pc, name.as_deref());
+    if let Some(entry) = bpf_functions.insert(
+        hash,
+        (
+            pc,
+            if enable_symbol_and_section_labels {
+                name
+            } else {
+                None
+            },
+        ),
+    ) {
         if entry.0 != pc {
             return Err(ElfError::SymbolHashCollision(hash));
         }
     }
+
     Ok(hash)
 }
 
@@ -233,7 +239,7 @@ pub struct Executable<E: UserDefinedError, I: InstructionMeter> {
     /// Text section info
     text_section_info: SectionInfo,
     /// Call resolution map (hash, pc, name)
-    bpf_functions: BTreeMap<u32, (usize, String)>,
+    bpf_functions: BTreeMap<u32, (usize, Option<String>)>,
     /// Syscall symbol map (hash, name)
     syscall_symbols: BTreeMap<u32, String>,
     /// Syscall resolution map
@@ -337,7 +343,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     pub fn get_function_symbols(&self) -> BTreeMap<usize, (u32, String)> {
         let mut bpf_functions = BTreeMap::new();
         for (hash, (pc, name)) in self.bpf_functions.iter() {
-            bpf_functions.insert(*pc, (*hash, name.clone()));
+            bpf_functions.insert(*pc, (*hash, name.clone().unwrap_or_default()));
         }
         bpf_functions
     }
@@ -352,7 +358,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         config: Config,
         text_bytes: &[u8],
         syscall_registry: SyscallRegistry,
-        bpf_functions: BTreeMap<u32, (usize, String)>,
+        bpf_functions: BTreeMap<u32, (usize, Option<String>)>,
     ) -> Self {
         let elf_bytes = AlignedMemory::new_with_data(text_bytes, ebpf::HOST_ALIGN);
         Self {
@@ -410,7 +416,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         }
 
         // relocate symbols
-        let mut bpf_functions = BTreeMap::default();
+        let mut bpf_functions: BTreeMap<u32, (usize, Option<String>)> = BTreeMap::default();
         let mut syscall_symbols = BTreeMap::default();
         Self::relocate(
             &config,
@@ -431,7 +437,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             register_bpf_function(
                 &mut bpf_functions,
                 entrypoint,
-                "entrypoint",
+                Some("entrypoint".to_string()),
                 config.enable_symbol_and_section_labels,
             )?;
         } else {
@@ -517,7 +523,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             .fold(0, |state: usize, (_, (val, name))| state
                 .saturating_add(mem::size_of_val(&val)
                 .saturating_add(mem::size_of_val(&name)
-                .saturating_add(name.capacity())))))
+                .saturating_add(name.as_ref().map(|n| n.capacity()).unwrap_or(0))))))
             // syscall symbols
             .saturating_add(mem::size_of_val(&self.syscall_symbols))
             .saturating_add(self.syscall_symbols
@@ -539,7 +545,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     /// Fix-ups relative calls
     pub fn fixup_relative_calls(
         enable_symbol_and_section_labels: bool,
-        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+        bpf_functions: &mut BTreeMap<u32, (usize, Option<String>)>,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
         let instruction_count = elf_bytes
@@ -557,11 +563,13 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         i.saturating_add(ebpf::ELF_INSN_DUMP_OFFSET),
                     ));
                 }
-                let name = format!("function_{}", target_pc);
+                let name =
+                    enable_symbol_and_section_labels.then(|| format!("function_{}", target_pc));
+
                 let hash = register_bpf_function(
                     bpf_functions,
                     target_pc as usize,
-                    &name,
+                    name,
                     enable_symbol_and_section_labels,
                 )?;
                 insn.imm = hash as i64;
@@ -660,7 +668,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     /// Relocates the ELF in-place
     fn relocate(
         config: &Config,
-        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+        bpf_functions: &mut BTreeMap<u32, (usize, Option<String>)>,
         syscall_symbols: &mut BTreeMap<u32, String>,
         syscall_registry: &mut SyscallRegistry,
         elf: &Elf,
@@ -792,7 +800,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         register_bpf_function(
                             bpf_functions,
                             target_pc,
-                            name,
+                            config
+                                .enable_symbol_and_section_labels
+                                .then(|| name.to_owned()),
                             config.enable_symbol_and_section_labels,
                         )?
                     } else {
@@ -851,7 +861,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     .strtab
                     .get_at(symbol.st_name)
                     .ok_or(ElfError::UnknownSymbol(symbol.st_name))?;
-                register_bpf_function(bpf_functions, target_pc, name, true)?;
+                register_bpf_function(bpf_functions, target_pc, Some(name.to_owned()), true)?;
             }
         }
 
@@ -1015,7 +1025,7 @@ mod test {
     #[test]
     fn test_fixup_relative_calls_back() {
         // call -2
-        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
+        let mut bpf_functions = BTreeMap::new();
         #[rustfmt::skip]
         let mut prog = vec![
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1027,7 +1037,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_4".to_string();
-        let hash = hash_bpf_function(4, &name);
+        let hash = hash_bpf_function(4, Some(&name));
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1036,14 +1046,14 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (4, name));
+        assert_eq!(*bpf_functions.get(&hash).unwrap(), (4, Some(name)));
 
         // call +6
-        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
+        let mut bpf_functions = BTreeMap::new();
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
         ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_0".to_string();
-        let hash = hash_bpf_function(0, &name);
+        let hash = hash_bpf_function(0, Some(&name));
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1052,13 +1062,13 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (0, name));
+        assert_eq!(*bpf_functions.get(&hash).unwrap(), (0, Some(name)));
     }
 
     #[test]
     fn test_fixup_relative_calls_forward() {
         // call +0
-        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
+        let mut bpf_functions = BTreeMap::new();
         #[rustfmt::skip]
         let mut prog = vec![
             0x85, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1070,7 +1080,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_1".to_string();
-        let hash = hash_bpf_function(1, &name);
+        let hash = hash_bpf_function(1, Some(&name));
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1079,14 +1089,14 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (1, name));
+        assert_eq!(*bpf_functions.get(&hash).unwrap(), (1, Some(name)));
 
         // call +4
-        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
+        let mut bpf_functions = BTreeMap::new();
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
         ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_5".to_string();
-        let hash = hash_bpf_function(5, &name);
+        let hash = hash_bpf_function(5, Some(&name));
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1095,7 +1105,7 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (5, name));
+        assert_eq!(*bpf_functions.get(&hash).unwrap(), (5, Some(name)));
     }
 
     #[test]
@@ -1103,7 +1113,7 @@ mod test {
         expected = "called `Result::unwrap()` on an `Err` value: RelativeJumpOutOfBounds(29)"
     )]
     fn test_fixup_relative_calls_out_of_bounds_forward() {
-        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
+        let mut bpf_functions = BTreeMap::new();
         // call +5
         #[rustfmt::skip]
         let mut prog = vec![
@@ -1116,7 +1126,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_1".to_string();
-        let hash = hash_bpf_function(1, &name);
+        let hash = hash_bpf_function(1, Some(&name));
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1125,7 +1135,7 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (1, name));
+        assert_eq!(*bpf_functions.get(&hash).unwrap(), (1, Some(name)));
     }
 
     #[test]
@@ -1133,7 +1143,7 @@ mod test {
         expected = "called `Result::unwrap()` on an `Err` value: RelativeJumpOutOfBounds(34)"
     )]
     fn test_fixup_relative_calls_out_of_bounds_back() {
-        let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
+        let mut bpf_functions = BTreeMap::new();
         // call -7
         #[rustfmt::skip]
         let mut prog = vec![
@@ -1146,7 +1156,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
         let name = "function_4".to_string();
-        let hash = hash_bpf_function(4, &name);
+        let hash = hash_bpf_function(4, Some(&name));
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1155,7 +1165,7 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (4, name));
+        assert_eq!(*bpf_functions.get(&hash).unwrap(), (4, Some(name)));
     }
 
     #[test]

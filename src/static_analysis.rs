@@ -349,7 +349,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 if cfg_node.sources.is_empty() {
                     self.functions.entry(*cfg_node_start).or_insert_with(|| {
                         let name = format!("function_{}", *cfg_node_start);
-                        let hash = elf::hash_bpf_function(*cfg_node_start, &name);
+                        let hash = elf::hash_bpf_function(*cfg_node_start, Some(&name));
                         (hash, name)
                     });
                 }

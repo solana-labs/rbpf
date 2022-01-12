@@ -233,7 +233,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
     }
 
     fn resolve_call(
-        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+        bpf_functions: &mut BTreeMap<u32, (usize, Option<String>)>,
         labels: &HashMap<&str, usize>,
         label: &str,
         target_pc: Option<usize>,
@@ -245,7 +245,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
                 .get(label)
                 .ok_or_else(|| format!("Label not found {}", label))?
         };
-        let hash = register_bpf_function(bpf_functions, target_pc, label, true)
+        let hash = register_bpf_function(bpf_functions, target_pc, Some(label.to_owned()), true)
             .map_err(|_| format!("Label hash collision {}", label))?;
         Ok(hash as i32 as i64)
     }
@@ -266,7 +266,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
         }
     }
     insn_ptr = 0;
-    let mut bpf_functions: BTreeMap<u32, (usize, String)> = BTreeMap::new();
+    let mut bpf_functions = BTreeMap::new();
     resolve_call(&mut bpf_functions, &labels, "entrypoint", None)?;
     let mut instructions: Vec<Insn> = Vec::new();
     for statement in statements.iter() {

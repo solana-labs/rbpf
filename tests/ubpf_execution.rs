@@ -2285,7 +2285,7 @@ fn test_err_mem_access_out_of_bound() {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
         let mut bpf_functions = BTreeMap::new();
-        register_bpf_function(&mut bpf_functions, 0, "entrypoint", false).unwrap();
+        register_bpf_function(&mut bpf_functions, 0, Some("entrypoint".to_string()), true).unwrap();
         #[allow(unused_mut)]
         let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
             &prog,
@@ -3416,7 +3416,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
     let mut bpf_functions = BTreeMap::new();
-    register_bpf_function(&mut bpf_functions, 0, "entrypoint", false).unwrap();
+    register_bpf_function(&mut bpf_functions, 0, Some("entrypoint".to_string()), true).unwrap();
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
         Some(solana_rbpf::verifier::check),
