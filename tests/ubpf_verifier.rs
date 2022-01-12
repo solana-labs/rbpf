@@ -243,10 +243,7 @@ fn test_verifier_err_all_shift_overflows() {
         let result = assemble::<UserError, TestInstructionMeter>(
             &assembly,
             Some(check),
-            Config {
-                verify_shift32_imm: true,
-                ..Config::default()
-            },
+            Config::default(),
             SyscallRegistry::default(),
         );
         match expected {
