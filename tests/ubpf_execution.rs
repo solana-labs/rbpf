@@ -3193,7 +3193,7 @@ fn test_err_unresolved_elf() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let config = Config {
-        reject_unresolved_syscalls: true,
+        reject_broken_elfs: true,
         ..Config::default()
     };
     assert!(

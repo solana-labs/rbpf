@@ -398,8 +398,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             vaddr: text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START),
             offset_range: text_section.file_range().unwrap_or_default(),
         };
-        if (config.reject_section_virtual_address_file_offset_mismatch
-            && text_section.sh_addr != text_section.sh_offset)
+        if (config.reject_broken_elfs && text_section.sh_addr != text_section.sh_offset)
             || text_section_info.vaddr > ebpf::MM_STACK_START
         {
             return Err(ElfError::ValueOutOfBounds);
@@ -451,8 +450,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                 let vaddr = section_header
                     .sh_addr
                     .saturating_add(ebpf::MM_PROGRAM_START);
-                if (config.reject_section_virtual_address_file_offset_mismatch
-                    && section_header.sh_addr != section_header.sh_offset)
+                if (config.reject_broken_elfs && section_header.sh_addr != section_header.sh_offset)
                     || vaddr > ebpf::MM_STACK_START
                 {
                     return Err(ElfError::ValueOutOfBounds);
@@ -468,8 +466,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             })
             .collect::<Result<Vec<_>, ElfError>>()?;
         if ro_alloc_length > elf_bytes.len()
-            || (config.reject_section_virtual_address_file_offset_mismatch
-                && ro_fill_length > ro_alloc_length)
+            || (config.reject_broken_elfs && ro_fill_length > ro_alloc_length)
         {
             return Err(ElfError::ValueOutOfBounds);
         }
@@ -766,7 +763,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                             .entry(symbol.st_name)
                             .or_insert_with(|| (ebpf::hash_symbol_name(name.as_bytes()), name))
                             .0;
-                        if config.reject_unresolved_syscalls
+                        if config.reject_broken_elfs
                             && syscall_registry.lookup_syscall(hash).is_none()
                         {
                             return Err(ElfError::UnresolvedSymbol(

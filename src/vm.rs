@@ -191,10 +191,8 @@ pub struct Config {
     pub enable_instruction_tracing: bool,
     /// Enable dynamic string allocation for labels
     pub enable_symbol_and_section_labels: bool,
-    /// Reject ELF files containing syscalls which are not in the SyscallRegistry
-    pub reject_unresolved_syscalls: bool,
-    /// Reject ELF files containing section headers where sh_addr != sh_offset
-    pub reject_section_virtual_address_file_offset_mismatch: bool,
+    /// Reject ELF files containing issues that the verifier did not catch before (up to v0.2.21)
+    pub reject_broken_elfs: bool,
     /// Reject ELF files containing writable data sections
     pub reject_all_writable_sections: bool,
     /// Ratio of random no-ops per instruction in JIT (0.0 = OFF)
@@ -214,8 +212,7 @@ impl Default for Config {
             enable_instruction_meter: true,
             enable_instruction_tracing: false,
             enable_symbol_and_section_labels: false,
-            reject_unresolved_syscalls: false,
-            reject_section_virtual_address_file_offset_mismatch: false,
+            reject_broken_elfs: false,
             reject_all_writable_sections: false,
             noop_instruction_ratio: 1.0 / 256.0,
             sanitize_user_provided_values: true,
