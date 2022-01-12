@@ -176,7 +176,7 @@ fn check_imm_register(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), Verifier
 
 /// Check the program against the verifier's rules
 #[rustfmt::skip]
-pub fn check(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
+pub fn check(prog: &[u8], _config: &Config) -> Result<(), VerifierError> {
     check_prog_len(prog)?;
 
     let mut insn_ptr: usize = 0;
@@ -253,11 +253,7 @@ pub fn check(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
             ebpf::ADD64_REG  => {},
             ebpf::SUB64_IMM  => {},
             ebpf::SUB64_REG  => {},
-            ebpf::MUL64_IMM  => {
-                if config.verify_mul64_imm_nonzero {
-                    check_imm_nonzero(&insn, insn_ptr)?;
-                }
-            },
+            ebpf::MUL64_IMM  => {},
             ebpf::MUL64_REG  => {},
             ebpf::DIV64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
             ebpf::DIV64_REG  => {},
