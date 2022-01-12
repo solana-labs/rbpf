@@ -537,7 +537,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     }
 
     /// Validates the ELF
-    pub fn validate(config: &Config, elf: &Elf, elf_bytes: &[u8]) -> Result<(), ElfError> {
+    pub fn validate(_config: &Config, elf: &Elf, elf_bytes: &[u8]) -> Result<(), ElfError> {
         if elf.header.e_ident[EI_CLASS] != ELFCLASS64 {
             return Err(ElfError::WrongClass);
         }
@@ -571,10 +571,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
         for section_header in elf.section_headers.iter() {
             if let Some(name) = elf.shdr_strtab.get_at(section_header.sh_name) {
-                if config.reject_all_writable_sections
-                    && (name.starts_with(".bss")
-                        || (section_header.is_writable()
-                            && (name.starts_with(".data") && !name.starts_with(".data.rel"))))
+                if name.starts_with(".bss")
+                    || (section_header.is_writable()
+                        && (name.starts_with(".data") && !name.starts_with(".data.rel")))
                 {
                     return Err(ElfError::WritableSectionNotSupported(name.to_owned()));
                 } else if name == ".bss" {
@@ -1195,18 +1194,8 @@ mod test {
     fn test_writable_data_section() {
         let elf_bytes =
             std::fs::read("tests/elfs/writable_data_section.so").expect("failed to read elf file");
-
-        assert!(ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry()).is_ok());
-
-        ElfExecutable::load(
-            Config {
-                reject_all_writable_sections: true,
-                ..Config::default()
-            },
-            &elf_bytes,
-            syscall_registry(),
-        )
-        .expect("validation failed");
+        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+            .expect("validation failed");
     }
 
     #[test]
@@ -1214,14 +1203,7 @@ mod test {
     fn test_bss_section() {
         let elf_bytes =
             std::fs::read("tests/elfs/bss_section.so").expect("failed to read elf file");
-        ElfExecutable::load(
-            Config {
-                reject_all_writable_sections: true,
-                ..Config::default()
-            },
-            &elf_bytes,
-            syscall_registry(),
-        )
-        .expect("validation failed");
+        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+            .expect("validation failed");
     }
 }

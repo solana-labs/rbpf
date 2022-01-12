@@ -193,8 +193,6 @@ pub struct Config {
     pub enable_symbol_and_section_labels: bool,
     /// Reject ELF files containing issues that the verifier did not catch before (up to v0.2.21)
     pub reject_broken_elfs: bool,
-    /// Reject ELF files containing writable data sections
-    pub reject_all_writable_sections: bool,
     /// Ratio of random no-ops per instruction in JIT (0.0 = OFF)
     pub noop_instruction_ratio: f64,
     /// Enable disinfection of immediate values and offsets provided by the user in JIT
@@ -213,7 +211,6 @@ impl Default for Config {
             enable_instruction_tracing: false,
             enable_symbol_and_section_labels: false,
             reject_broken_elfs: false,
-            reject_all_writable_sections: false,
             noop_instruction_ratio: 1.0 / 256.0,
             sanitize_user_provided_values: true,
             encrypt_environment_registers: true,
