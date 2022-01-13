@@ -638,12 +638,11 @@ impl Argument {
             },
             Value::RegisterPlusConstant64(reg, offset, user_provided) => {
                 if user_provided && jit.config.sanitize_user_provided_values {
-                    emit_sanitized_load_immediate(jit, OperandSize::S64, R11, offset)?;
+                    emit_sanitized_load_immediate(jit, OperandSize::S64, dst, offset)?;
                 } else {
-                    X86Instruction::load_immediate(OperandSize::S64, R11, offset).emit(jit)?;
+                    X86Instruction::load_immediate(OperandSize::S64, dst, offset).emit(jit)?;
                 }
-                emit_alu(jit, OperandSize::S64, 0x01, reg, R11, 0, None)?;
-                X86Instruction::mov(OperandSize::S64, R11, dst).emit(jit)?;
+                emit_alu(jit, OperandSize::S64, 0x01, reg, dst, 0, None)?;
             },
             Value::Constant64(value, user_provided) => {
                 if user_provided && jit.config.sanitize_user_provided_values {
@@ -662,7 +661,7 @@ impl Argument {
 }
 
 #[inline]
-fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u8, arguments: &[Argument], result_reg: Option<u8>, check_exception: bool) -> Result<(), EbpfError<E>> {
+fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, arguments: &[Argument], result_reg: Option<u8>, check_exception: bool) -> Result<(), EbpfError<E>> {
     let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
     if let Some(reg) = result_reg {
         let dst = saved_registers.iter().position(|x| *x == reg);
@@ -686,9 +685,20 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, function: *const u
         argument.emit_pass(jit)?;
     }
 
-    // TODO use direct call when possible
-    X86Instruction::load_immediate(OperandSize::S64, RAX, function as i64).emit(jit)?;
-    X86Instruction::call_reg(OperandSize::S64, RAX, None).emit(jit)?; // callq *%rax
+    match dst {
+        Value::Register(reg) => {
+            X86Instruction::call_reg(OperandSize::S64, reg, None).emit(jit)?;
+        },
+        Value::Constant64(value, user_provided) => {
+            debug_assert!(!user_provided);
+            X86Instruction::load_immediate(OperandSize::S64, RAX, value).emit(jit)?;
+            X86Instruction::call_reg(OperandSize::S64, RAX, None).emit(jit)?;
+        },
+        _ => {
+            #[cfg(debug_assertions)]
+            unreachable!();
+        }
+    }
 
     // Save returned value in result register
     if let Some(reg) = result_reg {
@@ -1236,14 +1246,14 @@ impl JitCompiler {
                             emit_alu(self, OperandSize::S64, 0x29, ARGUMENT_REGISTERS[0], R11, 0, None)?;
                             X86Instruction::mov(OperandSize::S64, R11, ARGUMENT_REGISTERS[0]).emit(self)?;
                             X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr))).emit(self)?;
-                            emit_rust_call(self, I::consume as *const u8, &[
+                            emit_rust_call(self, Value::Constant64(I::consume as *const u8 as i64, false), &[
                                 Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[0]) },
                                 Argument { index: 0, value: Value::Register(R11) },
                             ], None, false)?;
                         }
 
                         X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset((SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8 + self.program_argument_key)).emit(self)?;
-                        emit_rust_call(self, syscall.function as *const u8, &[
+                        emit_rust_call(self, Value::Constant64(syscall.function as *const u8 as i64, false), &[
                             Argument { index: 7, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
                             Argument { index: 6, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // jit_program_argument.memory_mapping
                             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
@@ -1256,7 +1266,7 @@ impl JitCompiler {
 
                         if self.config.enable_instruction_meter {
                             X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr))).emit(self)?;
-                            emit_rust_call(self, I::get_remaining as *const u8, &[
+                            emit_rust_call(self, Value::Constant64(I::get_remaining as *const u8 as i64, false), &[
                                 Argument { index: 0, value: Value::Register(R11) },
                             ], Some(ARGUMENT_REGISTERS[0]), false)?;
                             X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))).emit(self)?;
@@ -1276,7 +1286,7 @@ impl JitCompiler {
                     } else {
                         // executable.report_unresolved_symbol(self.pc)?;
                         // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
-                        emit_rust_call(self, Executable::<E, I>::report_unresolved_symbol as *const _, &[
+                        emit_rust_call(self, Value::Constant64(Executable::<E, I>::report_unresolved_symbol as *const u8 as i64, false), &[
                             Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
                             Argument { index: 1, value: Value::Constant64(&*executable.as_ref() as *const _ as i64, false) },
                             Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
@@ -1341,7 +1351,7 @@ impl JitCompiler {
             }
             X86Instruction::mov(OperandSize::S64, RSP, REGISTER_MAP[0]).emit(self)?;
             emit_alu(self, OperandSize::S64, 0x81, 0, RSP, - 8 * 3, None)?; // RSP -= 8 * 3;
-            emit_rust_call(self, Tracer::trace as *const u8, &[
+            emit_rust_call(self, Value::Constant64(Tracer::trace as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
                 Argument { index: 0, value: Value::RegisterIndirect(R10, mem::size_of::<MemoryMapping>() as i32 + self.program_argument_key, false) }, // jit.tracer
             ], None, false)?;
@@ -1486,7 +1496,7 @@ impl JitCompiler {
             set_anchor(self, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset);
             emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 = 0;
             X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(stack_offset, R11, 0)).emit(self)?;
-            emit_rust_call(self, MemoryMapping::generate_access_violation::<UserError> as *const u8, &[
+            emit_rust_call(self, Value::Constant64(MemoryMapping::generate_access_violation::<UserError> as *const u8 as i64, false), &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
@@ -1573,7 +1583,7 @@ impl JitCompiler {
         X86Instruction::push(ARGUMENT_REGISTERS[0]).emit(self)?;
 
         // Save initial value of instruction_meter.get_remaining()
-        emit_rust_call(self, I::get_remaining as *const u8, &[
+        emit_rust_call(self, Value::Constant64(I::get_remaining as *const u8 as i64, false), &[
             Argument { index: 0, value: Value::Register(ARGUMENT_REGISTERS[3]) },
         ], Some(ARGUMENT_REGISTERS[0]), false)?;
         X86Instruction::push(ARGUMENT_REGISTERS[0]).emit(self)?;
@@ -1619,7 +1629,7 @@ impl JitCompiler {
             println!("Stop watch: {} / {} = {}", numerator, denominator, if denominator == 0 { 0.0 } else { numerator as f64 / denominator as f64 });
         }
         if self.stopwatch_is_active {
-            emit_rust_call(self, stopwatch_result as *const u8, &[
+            emit_rust_call(self, Value::Constant64(stopwatch_result as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::StopwatchDenominator), false) },
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::StopwatchNumerator), false) },
             ], None, false)?;
