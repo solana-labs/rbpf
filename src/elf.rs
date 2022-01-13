@@ -1261,6 +1261,6 @@ mod test {
             Executable::jit_compile(&mut executable).unwrap();
         }
 
-        assert_eq!(26888, executable.mem_size());
+        assert_eq!(22784, executable.mem_size());
     }
 }

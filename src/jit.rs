@@ -123,7 +123,9 @@ impl JitProgramSections {
     }
 
     pub fn mem_size(&self) -> usize {
-            self.total_allocation_size
+        let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
+        let code_size = round_to_page_size(self.text_section.len(), self.page_size);
+        pc_loc_table_size + code_size
     }
 }
 
