@@ -577,7 +577,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                 let checked_slice = elf_bytes
                     .get_mut(offset..offset.saturating_add(ebpf::INSN_SIZE))
                     .ok_or(ElfError::ValueOutOfBounds)?;
-                checked_slice.copy_from_slice(&insn.to_vec());
+                checked_slice.copy_from_slice(&insn.to_array());
             }
         }
         Ok(())
