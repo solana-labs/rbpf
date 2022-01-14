@@ -21,7 +21,14 @@ use goblin::{
     elf::{header::*, reloc::*, section_header::*, Elf},
     error::Error as GoblinError,
 };
-use std::{collections::BTreeMap, fmt::Debug, mem, ops::Range, pin::Pin, str};
+use std::{
+    collections::{btree_map::Entry, BTreeMap},
+    fmt::Debug,
+    mem,
+    ops::Range,
+    pin::Pin,
+    str,
+};
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -128,19 +135,21 @@ pub fn register_bpf_function(
     enable_symbol_and_section_labels: bool,
 ) -> Result<u32, ElfError> {
     let hash = hash_bpf_function(pc, name.as_deref());
-    if let Some(entry) = bpf_functions.insert(
-        hash,
-        (
-            pc,
-            if enable_symbol_and_section_labels {
-                name
-            } else {
-                None
-            },
-        ),
-    ) {
-        if entry.0 != pc {
-            return Err(ElfError::SymbolHashCollision(hash));
+    match bpf_functions.entry(hash) {
+        Entry::Vacant(entry) => {
+            entry.insert((
+                pc,
+                if enable_symbol_and_section_labels {
+                    name
+                } else {
+                    None
+                },
+            ));
+        }
+        Entry::Occupied(entry) => {
+            if entry.get().0 != pc {
+                return Err(ElfError::SymbolHashCollision(hash));
+            }
         }
     }
 
