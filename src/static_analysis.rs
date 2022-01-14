@@ -461,10 +461,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     ) -> std::io::Result<()> {
         fn html_escape(string: &str) -> String {
             string
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('\"', "&quot;")
         }
         fn emit_cfg_node<W: std::io::Write, E: UserDefinedError, I: InstructionMeter>(
             output: &mut W,

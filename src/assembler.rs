@@ -361,8 +361,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
     }
     let program = instructions
         .iter()
-        .map(|insn| insn.to_vec())
-        .flatten()
+        .flat_map(|insn| insn.to_vec())
         .collect::<Vec<_>>();
     Executable::<E, I>::from_text_bytes(&program, verifier, config, syscall_registry, bpf_functions)
         .map_err(|err| format!("Executable constructor {:?}", err))

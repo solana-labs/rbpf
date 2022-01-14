@@ -505,32 +505,31 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     pub fn mem_size(&self) -> usize {
         let total = mem::size_of::<Self>()
             // elf bytres
-            .saturating_add(self.elf_bytes.mem_size()
+            .saturating_add(self.elf_bytes.mem_size())
             // ro section
-            .saturating_add(self.ro_section.capacity()
+            .saturating_add(self.ro_section.capacity())
             // text section info
-            .saturating_add(self.text_section_info.mem_size()
+            .saturating_add(self.text_section_info.mem_size())
             // bpf functions
-            .saturating_add(mem::size_of_val(&self.bpf_functions)
+            .saturating_add(mem::size_of_val(&self.bpf_functions))
             .saturating_add(self.bpf_functions
             .iter()
             .fold(0, |state: usize, (_, (val, name))| state
                 .saturating_add(mem::size_of_val(&val)
                 .saturating_add(mem::size_of_val(&name)
-                .saturating_add(name.capacity()))))
+                .saturating_add(name.capacity())))))
             // syscall symbols
-            .saturating_add(mem::size_of_val(&self.syscall_symbols)
+            .saturating_add(mem::size_of_val(&self.syscall_symbols))
             .saturating_add(self.syscall_symbols
             .iter()
             .fold(0, |state: usize, (val, name)| state
                 .saturating_add(mem::size_of_val(&val)
                 .saturating_add(mem::size_of_val(&name)
-                .saturating_add(name.capacity()))))
+                .saturating_add(name.capacity())))))
             // syscall registry
-            .saturating_add(self.syscall_registry.mem_size()
+            .saturating_add(self.syscall_registry.mem_size())
             // compiled programs
-            .saturating_add(self.compiled_program.as_ref().map_or(0, |program| program.mem_size()
-        ))))))))));
+            .saturating_add(self.compiled_program.as_ref().map_or(0, |program| program.mem_size()));
 
         total as usize
     }

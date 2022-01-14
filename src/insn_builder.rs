@@ -35,24 +35,28 @@ pub trait Instruction: Sized {
     }
 
     /// sets destination register
+    #[must_use]
     fn set_dst(mut self, dst: u8) -> Self {
         self.get_insn_mut().dst = dst;
         self
     }
 
     /// sets source register
+    #[must_use]
     fn set_src(mut self, src: u8) -> Self {
         self.get_insn_mut().src = src;
         self
     }
 
     /// sets offset bytes
+    #[must_use]
     fn set_off(mut self, offset: i16) -> Self {
         self.get_insn_mut().off = offset;
         self
     }
 
     /// sets immediate value
+    #[must_use]
     fn set_imm(mut self, imm: i64) -> Self {
         self.get_insn_mut().imm = imm;
         self

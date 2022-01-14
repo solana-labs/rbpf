@@ -147,7 +147,7 @@ impl Drop for JitProgramSections {
 /// eBPF JIT-compiled program
 pub struct JitProgram<E: UserDefinedError, I: InstructionMeter> {
     /// Holds and manages the protected memory
-    _sections: JitProgramSections,
+    sections: JitProgramSections,
     /// Call this with JitProgramArgument to execute the compiled code
     pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, &mut I) -> i64,
 }
@@ -171,14 +171,14 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
         jit.compile::<E, I>(executable)?;
         let main = unsafe { mem::transmute(jit.result.text_section.as_ptr()) };
         Ok(Self {
-            _sections: jit.result,
+            sections: jit.result,
             main,
         })
     }
 
     pub fn mem_size(&self) ->usize{
         mem::size_of::<Self>() +
-        self._sections.mem_size()
+        self.sections.mem_size()
     }
 }
 
