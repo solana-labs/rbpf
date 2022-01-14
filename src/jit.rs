@@ -1330,16 +1330,13 @@ impl JitCompiler {
         // Routine for syscall
         set_anchor(self, TARGET_PC_SYSCALL);
         if self.config.enable_instruction_meter {
-            X86Instruction::push(R11, None).emit(self)?;
-            X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))).emit(self)?;
-            emit_alu(self, OperandSize::S64, 0x29, ARGUMENT_REGISTERS[0], R11, 0, None)?;
-            X86Instruction::mov(OperandSize::S64, R11, ARGUMENT_REGISTERS[0]).emit(self)?;
-            X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr))).emit(self)?;
+            // RDI = *PrevInsnMeter - RDI;
+            emit_alu(self, OperandSize::S64, 0x2B, ARGUMENT_REGISTERS[0], RBP, 0, Some(X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))))?; // RDI -= *PrevInsnMeter;
+            emit_alu(self, OperandSize::S64, 0xf7, 3, ARGUMENT_REGISTERS[0], 0, None)?; // RDI = -RDI;
             emit_rust_call(self, Value::Constant64(I::consume as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[0]) },
-                Argument { index: 0, value: Value::Register(R11) },
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr), false) },
             ], None, false)?;
-            X86Instruction::pop(R11).emit(self)?;
         }
         emit_rust_call(self, Value::Register(R11), &[
             Argument { index: 7, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
@@ -1352,9 +1349,8 @@ impl JitCompiler {
             Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the SyscallObject
         ], None, false)?;
         if self.config.enable_instruction_meter {
-            X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr))).emit(self)?;
             emit_rust_call(self, Value::Constant64(I::get_remaining as *const u8 as i64, false), &[
-                Argument { index: 0, value: Value::Register(R11) },
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr), false) },
             ], Some(ARGUMENT_REGISTERS[0]), false)?;
             X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))).emit(self)?;
         }
