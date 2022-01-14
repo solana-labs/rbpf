@@ -291,12 +291,6 @@ fn emit_sanitized_load_immediate<E: UserDefinedError>(jit: &mut JitCompiler, siz
     }
 }
 
-fn emit_sanitized_load<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, source: u8, destination: u8, offset: i32) -> Result<(), EbpfError<E>> {
-    let key: i32 = jit.diversification_rng.gen();
-    X86Instruction::load_immediate(OperandSize::S64, destination, offset.wrapping_sub(key) as i64).emit(jit)?;
-    X86Instruction::load(size, source, destination, X86IndirectAccess::OffsetIndexShift(key, destination, 0)).emit(jit)
-}
-
 #[inline]
 fn emit_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcode: u8, source: u8, destination: u8, immediate: i64, indirect: Option<X86IndirectAccess>) -> Result<(), EbpfError<E>> {
     X86Instruction {
@@ -622,34 +616,21 @@ impl Argument {
                 }
             },
             Value::RegisterIndirect(reg, offset, user_provided) => {
-                if user_provided && jit.config.sanitize_user_provided_values {
-                    emit_sanitized_load(jit, OperandSize::S64, reg, dst, offset)?;
-                } else {
-                    X86Instruction::load(OperandSize::S64, reg, dst, X86IndirectAccess::Offset(offset)).emit(jit)?;
-                }
+                debug_assert!(!user_provided);
+                X86Instruction::load(OperandSize::S64, reg, dst, X86IndirectAccess::Offset(offset)).emit(jit)?;
             },
             Value::RegisterPlusConstant32(reg, offset, user_provided) => {
-                if user_provided && jit.config.sanitize_user_provided_values {
-                    emit_sanitized_load_immediate(jit, OperandSize::S64, dst, offset as i64)?;
-                    emit_alu(jit, OperandSize::S64, 0x01, reg, dst, 0, None)?;
-                } else {
-                    X86Instruction::lea(OperandSize::S64, reg, dst, Some(X86IndirectAccess::Offset(offset))).emit(jit)?;
-                }
+                debug_assert!(!user_provided);
+                X86Instruction::lea(OperandSize::S64, reg, dst, Some(X86IndirectAccess::Offset(offset))).emit(jit)?;
             },
             Value::RegisterPlusConstant64(reg, offset, user_provided) => {
-                if user_provided && jit.config.sanitize_user_provided_values {
-                    emit_sanitized_load_immediate(jit, OperandSize::S64, dst, offset)?;
-                } else {
-                    X86Instruction::load_immediate(OperandSize::S64, dst, offset).emit(jit)?;
-                }
+                debug_assert!(!user_provided);
+                X86Instruction::load_immediate(OperandSize::S64, dst, offset).emit(jit)?;
                 emit_alu(jit, OperandSize::S64, 0x01, reg, dst, 0, None)?;
             },
             Value::Constant64(value, user_provided) => {
-                if user_provided && jit.config.sanitize_user_provided_values {
-                    emit_sanitized_load_immediate(jit, OperandSize::S64, dst, value)?;
-                } else {
-                    X86Instruction::load_immediate(OperandSize::S64, dst, value).emit(jit)?;
-                }
+                debug_assert!(!user_provided);
+                X86Instruction::load_immediate(OperandSize::S64, dst, value).emit(jit)?;
             },
         }
         if is_stack_argument {
