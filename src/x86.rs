@@ -427,13 +427,45 @@ impl X86Instruction {
     }
 
     /// Push source onto the stack
-    pub fn push(source: u8) -> Self {
+    #[allow(dead_code)]
+    pub fn push_immediate(size: OperandSize, immediate: i32) -> Self {
         Self {
-            size: OperandSize::S32,
-            opcode: 0x50 | (source & 0b111),
+            size,
+            opcode: match size {
+                OperandSize::S8 => 0x6A,
+                _ => 0x68,
+            },
             modrm: false,
-            second_operand: source,
+            immediate_size: if size == OperandSize::S64 {
+                OperandSize::S32
+            } else {
+                size
+            },
+            immediate: immediate as i64,
             ..Self::default()
+        }
+    }
+
+    /// Push source onto the stack
+    pub fn push(source: u8, indirect: Option<X86IndirectAccess>) -> Self {
+        if indirect.is_none() {
+            Self {
+                size: OperandSize::S32,
+                opcode: 0x50 | (source & 0b111),
+                modrm: false,
+                second_operand: source,
+                ..Self::default()
+            }
+        } else {
+            Self {
+                size: OperandSize::S64,
+                opcode: 0xFF,
+                modrm: true,
+                first_operand: 6,
+                second_operand: source,
+                indirect,
+                ..Self::default()
+            }
         }
     }
 
@@ -508,7 +540,6 @@ impl X86Instruction {
     }
 
     /// rdtsc
-    #[allow(dead_code)]
     pub fn cycle_count() -> Self {
         Self {
             size: OperandSize::S32,
