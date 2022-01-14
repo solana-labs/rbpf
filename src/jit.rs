@@ -112,7 +112,9 @@ impl JitProgramSections {
             let code_size = round_to_page_size(text_section_usage, self.page_size);
             #[cfg(not(target_os = "windows"))]
             unsafe {
-                libc_error_guard!(munmap, raw.add(pc_loc_table_size).add(code_size) as *mut _, over_allocated_code_size - code_size);
+                if over_allocated_code_size > code_size {
+                    libc_error_guard!(munmap, raw.add(pc_loc_table_size).add(code_size) as *mut _, over_allocated_code_size - code_size);
+                }
                 std::ptr::write_bytes(raw.add(pc_loc_table_size).add(text_section_usage), 0xcc, code_size - text_section_usage); // Fill with debugger traps
                 self.text_section = std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size), text_section_usage);
                 libc_error_guard!(mprotect, self.pc_section.as_mut_ptr() as *mut _, pc_loc_table_size, libc::PROT_READ);
@@ -131,10 +133,10 @@ impl JitProgramSections {
 
 impl Drop for JitProgramSections {
     fn drop(&mut self) {
-        #[cfg(not(target_os = "windows"))]
-        if self.page_size > 0 {
-            let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
-            let code_size = round_to_page_size(self.text_section.len(), self.page_size);
+        let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
+        let code_size = round_to_page_size(self.text_section.len(), self.page_size);
+        if pc_loc_table_size + code_size > 0 {
+            #[cfg(not(target_os = "windows"))]
             unsafe {
                 libc::munmap(self.pc_section.as_ptr() as *mut _, pc_loc_table_size + code_size);
             }
