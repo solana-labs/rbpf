@@ -1329,6 +1329,7 @@ impl JitCompiler {
 
         // Routine for syscall
         set_anchor(self, TARGET_PC_SYSCALL);
+        X86Instruction::push(R11, None).emit(self)?; // Padding for stack alignment
         if self.config.enable_instruction_meter {
             // RDI = *PrevInsnMeter - RDI;
             emit_alu(self, OperandSize::S64, 0x2B, ARGUMENT_REGISTERS[0], RBP, 0, Some(X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))))?; // RDI -= *PrevInsnMeter;
@@ -1354,6 +1355,7 @@ impl JitCompiler {
             ], Some(ARGUMENT_REGISTERS[0]), false)?;
             X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))).emit(self)?;
         }
+        X86Instruction::pop(R11).emit(self)?;
         // Store Ok value in result register
         X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
         X86Instruction::load(OperandSize::S64, R11, REGISTER_MAP[0], X86IndirectAccess::Offset(8)).emit(self)?;
