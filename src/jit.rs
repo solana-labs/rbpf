@@ -930,7 +930,7 @@ impl JitCompiler {
             };
         }
 
-        let mut code_length_estimate = pc * 256 + 4096;
+        let mut code_length_estimate = pc * 110 + 4096;
         code_length_estimate += (code_length_estimate as f64 * _config.noop_instruction_ratio) as usize;
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
         let (environment_stack_key, program_argument_key) = 
