@@ -1233,6 +1233,12 @@ impl JitCompiler {
                     if let Some(syscall) = executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
                         if self.config.enable_instruction_meter {
                             emit_validate_and_profile_instruction_count(self, true, Some(0))?;
+                        }
+                        X86Instruction::load_immediate(OperandSize::S64, R11, syscall.function as *const u8 as i64).emit(self)?;
+                        X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset((SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8 + self.program_argument_key)).emit(self)?;
+
+                        if self.config.enable_instruction_meter {
+                            X86Instruction::push(R11, None).emit(self)?;
                             X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))).emit(self)?;
                             emit_alu(self, OperandSize::S64, 0x29, ARGUMENT_REGISTERS[0], R11, 0, None)?;
                             X86Instruction::mov(OperandSize::S64, R11, ARGUMENT_REGISTERS[0]).emit(self)?;
@@ -1241,10 +1247,9 @@ impl JitCompiler {
                                 Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[0]) },
                                 Argument { index: 0, value: Value::Register(R11) },
                             ], None, false)?;
+                            X86Instruction::pop(R11).emit(self)?;
                         }
 
-                        X86Instruction::load_immediate(OperandSize::S64, R11, syscall.function as *const u8 as i64).emit(self)?;
-                        X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset((SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8 + self.program_argument_key)).emit(self)?;
                         emit_rust_call(self, Value::Register(R11), &[
                             Argument { index: 7, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
                             Argument { index: 6, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // jit_program_argument.memory_mapping
@@ -1262,12 +1267,15 @@ impl JitCompiler {
                                 Argument { index: 0, value: Value::Register(R11) },
                             ], Some(ARGUMENT_REGISTERS[0]), false)?;
                             X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))).emit(self)?;
-                            emit_undo_profile_instruction_count(self, 0)?;
                         }
 
                         // Store Ok value in result register
                         X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
                         X86Instruction::load(OperandSize::S64, R11, REGISTER_MAP[0], X86IndirectAccess::Offset(8)).emit(self)?;
+
+                        if self.config.enable_instruction_meter {
+                            emit_undo_profile_instruction_count(self, 0)?;
+                        }
 
                         // Throw error if the result indicates one
                         X86Instruction::cmp_immediate(OperandSize::S64, R11, 0, Some(X86IndirectAccess::Offset(0))).emit(self)?;
