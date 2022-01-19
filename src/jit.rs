@@ -20,7 +20,7 @@ use std::{
     fmt::{Debug, Error as FormatterError, Formatter},
     mem,
     ops::{Index, IndexMut},
-    pin::Pin,
+    pin::Pin, ptr,
 };
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
@@ -1665,10 +1665,9 @@ impl JitCompiler {
                 - jump.location as i32 // Relative jump
                 - mem::size_of::<i32>() as i32; // Jump from end of instruction
             unsafe {
-                libc::memcpy(
-                    self.result.text_section.as_ptr().add(jump.location) as *mut libc::c_void,
-                    &offset_value as *const i32 as *const libc::c_void,
-                    mem::size_of::<i32>(),
+                ptr::write_unaligned(
+                    self.result.text_section.as_ptr().add(jump.location) as *mut i32,
+                    offset_value,
                 );
             }
         }
