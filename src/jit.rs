@@ -312,8 +312,28 @@ fn emit_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcod
 }
 
 #[inline]
+fn should_sanitize_constant(jit: &JitCompiler, value: i64) -> bool {
+    if !jit.config.sanitize_user_provided_values {
+        return false;
+    }
+
+    match value as u64 {
+        0xFFFF
+        | 0xFFFFFF
+        | 0xFFFFFFFF
+        | 0xFFFFFFFFFF
+        | 0xFFFFFFFFFFFF
+        | 0xFFFFFFFFFFFFFF
+        | 0xFFFFFFFFFFFFFFFF => false,
+        v if v <= 0xFF => false,
+        v if !v <= 0xFF => false,
+        _ => true
+    }
+}
+
+#[inline]
 fn emit_sanitized_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcode: u8, opcode_extension: u8, destination: u8, immediate: i64) -> Result<(), EbpfError<E>> {
-    if jit.config.sanitize_user_provided_values {
+    if should_sanitize_constant(jit, immediate) {
         emit_sanitized_load_immediate(jit, size, R11, immediate)?;
         emit_alu(jit, size, opcode, R11, destination, immediate, None)
     } else {
@@ -519,7 +539,7 @@ fn emit_conditional_branch_reg<E: UserDefinedError>(jit: &mut JitCompiler, op: u
 #[inline]
 fn emit_conditional_branch_imm<E: UserDefinedError>(jit: &mut JitCompiler, op: u8, bitwise: bool, immediate: i64, second_operand: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
     emit_validate_and_profile_instruction_count(jit, false, Some(target_pc))?;
-    if jit.config.sanitize_user_provided_values {
+    if should_sanitize_constant(jit, immediate) {
         emit_sanitized_load_immediate(jit, OperandSize::S64, R11, immediate)?;
         if bitwise { // Logical
             X86Instruction::test(OperandSize::S64, R11, second_operand, None).emit(jit)?;
@@ -715,7 +735,7 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, argume
 fn emit_address_translation<E: UserDefinedError>(jit: &mut JitCompiler, host_addr: u8, vm_addr: Value, len: u64, access_type: AccessType) -> Result<(), EbpfError<E>> {
     match vm_addr {
         Value::RegisterPlusConstant64(reg, constant, user_provided) => {
-            if user_provided && jit.config.sanitize_user_provided_values {
+            if user_provided && should_sanitize_constant(jit, constant) {
                 emit_sanitized_load_immediate(jit, OperandSize::S64, R11, constant)?;
             } else {
                 X86Instruction::load_immediate(OperandSize::S64, R11, constant).emit(jit)?;
@@ -723,7 +743,7 @@ fn emit_address_translation<E: UserDefinedError>(jit: &mut JitCompiler, host_add
             emit_alu(jit, OperandSize::S64, 0x01, reg, R11, 0, None)?;
         },
         Value::Constant64(constant, user_provided) => {
-            if user_provided && jit.config.sanitize_user_provided_values {
+            if user_provided && should_sanitize_constant(jit, constant) {
                 emit_sanitized_load_immediate(jit, OperandSize::S64, R11, constant)?;
             } else {
                 X86Instruction::load_immediate(OperandSize::S64, R11, constant).emit(jit)?;
@@ -740,7 +760,7 @@ fn emit_address_translation<E: UserDefinedError>(jit: &mut JitCompiler, host_add
 
 fn emit_shift<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcode_extension: u8, source: u8, destination: u8, immediate: Option<i64>) -> Result<(), EbpfError<E>> {
     if let Some(immediate) = immediate {
-        if jit.config.sanitize_user_provided_values {
+        if should_sanitize_constant(jit, immediate) {
             emit_sanitized_load_immediate(jit, OperandSize::S32, source, immediate)?;
         } else {
             return emit_alu(jit, size, 0xc1, opcode_extension, destination, immediate, None);
@@ -797,7 +817,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
     }
 
     if let Some(imm) = imm {
-        if jit.config.sanitize_user_provided_values {
+        if should_sanitize_constant(jit, imm) {
             emit_sanitized_load_immediate(jit, OperandSize::S64, R11, imm)?;
         } else {
             X86Instruction::load_immediate(OperandSize::S64, R11, imm).emit(jit)?;
@@ -1037,7 +1057,7 @@ impl JitCompiler {
                     self.pc += 1;
                     self.pc_section_jumps.push(Jump { location: self.pc, target_pc: TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION });
                     ebpf::augment_lddw_unchecked(program, &mut insn);
-                    if self.config.sanitize_user_provided_values {
+                    if should_sanitize_constant(self, insn.imm) {
                         emit_sanitized_load_immediate(self, OperandSize::S64, dst, insn.imm)?;
                     } else {
                         X86Instruction::load_immediate(OperandSize::S64, dst, insn.imm).emit(self)?;
@@ -1131,7 +1151,7 @@ impl JitCompiler {
                 ebpf::XOR32_IMM  => emit_sanitized_alu(self, OperandSize::S32, 0x31, 6, dst, insn.imm)?,
                 ebpf::XOR32_REG  => emit_alu(self, OperandSize::S32, 0x31, src, dst, 0, None)?,
                 ebpf::MOV32_IMM  => {
-                    if self.config.sanitize_user_provided_values {
+                    if should_sanitize_constant(self, insn.imm) {
                         emit_sanitized_load_immediate(self, OperandSize::S32, dst, insn.imm)?;
                     } else {
                         X86Instruction::load_immediate(OperandSize::S32, dst, insn.imm).emit(self)?;
@@ -1189,7 +1209,7 @@ impl JitCompiler {
                 ebpf::XOR64_IMM  => emit_sanitized_alu(self, OperandSize::S64, 0x31, 6, dst, insn.imm)?,
                 ebpf::XOR64_REG  => emit_alu(self, OperandSize::S64, 0x31, src, dst, 0, None)?,
                 ebpf::MOV64_IMM  => {
-                    if self.config.sanitize_user_provided_values {
+                    if should_sanitize_constant(self, insn.imm) {
                         emit_sanitized_load_immediate(self, OperandSize::S64, dst, insn.imm)?;
                     } else {
                         X86Instruction::load_immediate(OperandSize::S64, dst, insn.imm).emit(self)?;
