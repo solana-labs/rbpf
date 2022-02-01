@@ -3027,8 +3027,8 @@ fn test_non_terminate_early() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::ElfError(ElfError::UnresolvedSymbol(a, b, c))
-                    if a == "Unknown" && b == 35 && c == 48
+                    EbpfError::UnsupportedInstruction(pc)
+                    if pc == 35
                 )
             }
         },
@@ -3179,7 +3179,7 @@ fn test_err_call_unresolved() {
         [],
         (),
         {
-            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset)) if symbol == "Unknown" && pc == 34 && offset == 40)
+            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(pc) if pc == 34)
         },
         6
     );

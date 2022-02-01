@@ -220,7 +220,7 @@ impl Default for Config {
             enable_instruction_meter: true,
             enable_instruction_tracing: false,
             enable_symbol_and_section_labels: false,
-            disable_unresolved_symbols_at_runtime: false,
+            disable_unresolved_symbols_at_runtime: true,
             reject_broken_elfs: false,
             noop_instruction_ratio: 1.0 / 256.0,
             sanitize_user_provided_values: true,
