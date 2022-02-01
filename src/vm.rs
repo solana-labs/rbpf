@@ -199,6 +199,8 @@ pub struct Config {
     pub enable_instruction_tracing: bool,
     /// Enable dynamic string allocation for labels
     pub enable_symbol_and_section_labels: bool,
+    /// Disable reporting of unresolved symbols at runtime
+    pub disable_unresolved_symbols_at_runtime: bool,
     /// Reject ELF files containing issues that the verifier did not catch before (up to v0.2.21)
     pub reject_broken_elfs: bool,
     /// Ratio of random no-ops per instruction in JIT (0.0 = OFF)
@@ -218,6 +220,7 @@ impl Default for Config {
             enable_instruction_meter: true,
             enable_instruction_tracing: false,
             enable_symbol_and_section_labels: false,
+            disable_unresolved_symbols_at_runtime: false,
             reject_broken_elfs: false,
             noop_instruction_ratio: 1.0 / 256.0,
             sanitize_user_provided_values: true,
@@ -966,6 +969,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                             next_pc,
                         )?;
                         next_pc = self.check_pc(pc, target_pc)?;
+                    } else if self.executable.get_config().disable_unresolved_symbols_at_runtime {
+                        return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     } else {
                         self.executable.report_unresolved_symbol(pc)?;
                     }

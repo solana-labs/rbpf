@@ -1010,6 +1010,7 @@ impl JitCompiler {
             if self.config.enable_instruction_tracing {
                 X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
                 emit_call(self, TARGET_PC_TRACE)?;
+                X86Instruction::load_immediate(OperandSize::S64, R11, 0).emit(self)?;
             }
 
             let dst = REGISTER_MAP[insn.dst as usize];
@@ -1267,7 +1268,11 @@ impl JitCompiler {
                         emit_jcc(self, 0x85, TARGET_PC_RUST_EXCEPTION)?;
                     } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
                         emit_bpf_call(self, Value::Constant64(target_pc as i64, false))?;
+                    } else if self.config.disable_unresolved_symbols_at_runtime {
+                        X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
+                        emit_jmp(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION)?;
                     } else {
+                        emit_validate_instruction_count(self, true, Some(self.pc))?;
                         // executable.report_unresolved_symbol(self.pc)?;
                         // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
                         emit_rust_call(self, Value::Constant64(Executable::<E, I>::report_unresolved_symbol as *const u8 as i64, false), &[
@@ -1276,7 +1281,6 @@ impl JitCompiler {
                             Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
                         ], None, true)?;
                         X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
-                        emit_validate_instruction_count(self, false, None)?;
                         emit_jmp(self, TARGET_PC_RUST_EXCEPTION)?;
                     }
                 },
