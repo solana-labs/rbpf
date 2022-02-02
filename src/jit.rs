@@ -1421,13 +1421,13 @@ impl JitCompiler {
         emit_jcc(self, 0x82, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT)?;
         // Calculate offset relative to instruction_addresses
         emit_alu(self, OperandSize::S64, 0x29, REGISTER_MAP[STACK_REG], REGISTER_MAP[0], 0, None)?; // RAX -= self.program_vm_addr;
-        if self.config.enable_instruction_meter {
-            // Calculate the target_pc (dst / INSN_SIZE) to update the instruction_meter
-            let shift_amount = INSN_SIZE.trailing_zeros();
-            debug_assert_eq!(INSN_SIZE, 1 << shift_amount);
-            X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(self)?;
-            emit_alu(self, OperandSize::S64, 0xc1, 5, R11, shift_amount as i64, None)?;
-        }
+        // Calculate the target_pc (dst / INSN_SIZE) to update the instruction_meter
+        let shift_amount = INSN_SIZE.trailing_zeros();
+        debug_assert_eq!(INSN_SIZE, 1 << shift_amount);
+        X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(self)?;
+        emit_alu(self, OperandSize::S64, 0xc1, 5, R11, shift_amount as i64, None)?;
+        // Save BPF target pc for potential TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION
+        X86Instruction::store(OperandSize::S64, R11, RSP, X86IndirectAccess::OffsetIndexShift(-8, RSP, 0)).emit(self)?; // RSP[-8] = R11;
         // Load host target_address from self.result.pc_section
         debug_assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
         X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[STACK_REG], self.result.pc_section.as_ptr() as i64).emit(self)?;
@@ -1560,10 +1560,8 @@ impl JitCompiler {
 
         // Handler for EbpfError::UnsupportedInstruction
         set_anchor(self, TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION);
-        emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 = 0;
-        X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(0, R11, 0)).emit(self)?;
-        emit_call(self, TARGET_PC_TRANSLATE_PC)?;
-        emit_alu(self, OperandSize::S64, 0x81, 0, R11, 2, None)?; // Increment exception pc
+        // Load BPF target pc from stack (which was saved in TARGET_PC_BPF_CALL_REG)
+        X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0)).emit(self)?; // R11 = RSP[-16];
         // emit_jmp(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION)?; // Fall-through
 
         // Handler for EbpfError::UnsupportedInstruction
