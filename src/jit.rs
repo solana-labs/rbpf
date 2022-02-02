@@ -509,8 +509,10 @@ fn emit_undo_profile_instruction_count<E: UserDefinedError>(jit: &mut JitCompile
 }
 
 #[inline]
-fn emit_profile_instruction_count_of_exception<E: UserDefinedError>(jit: &mut JitCompiler, store_pc_in_exception: bool) -> Result<(), EbpfError<E>> {
-    emit_alu(jit, OperandSize::S64, 0x81, 0, R11, 1, None)?;
+fn emit_profile_instruction_count_finalize<E: UserDefinedError>(jit: &mut JitCompiler, store_pc_in_exception: bool) -> Result<(), EbpfError<E>> {
+    if jit.config.enable_instruction_meter || store_pc_in_exception {
+        emit_alu(jit, OperandSize::S64, 0x81, 0, R11, 1, None)?; // R11 += 1;
+    }
     if jit.config.enable_instruction_meter {
         emit_alu(jit, OperandSize::S64, 0x29, R11, ARGUMENT_REGISTERS[0], 0, None)?; // instruction_meter -= pc + 1;
     }
@@ -1287,19 +1289,21 @@ impl JitCompiler {
                     emit_bpf_call(self, Value::Register(REGISTER_MAP[insn.imm as usize]))?;
                 },
                 ebpf::EXIT      => {
-                    emit_validate_and_profile_instruction_count(self, true, Some(0))?;
-
                     let stack_ptr_access = X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::BpfStackPtr));
                     let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
+
+                    // if((stack_ptr as u32) == self.config.stack_frame_size) goto exit;
+                    X86Instruction::cmp_immediate(OperandSize::S32, RBP, self.config.stack_frame_size as i64, Some(stack_ptr_access)).emit(self)?;
+                    if self.config.enable_instruction_meter {
+                        X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
+                    }
+                    emit_jcc(self, 0x84, TARGET_PC_EXIT)?;
+
                     emit_alu(self, OperandSize::S64, 0x81, 5, RBP, stack_frame_size, Some(stack_ptr_access))?; // stack_ptr -= stack_frame_size;
                     X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], stack_ptr_access).emit(self)?;
 
-                    // if(stack_ptr < MM_STACK_START + self.config.stack_frame_size) goto exit;
-                    X86Instruction::load_immediate(OperandSize::S64, R11, MM_STACK_START as i64 + self.config.stack_frame_size as i64).emit(self)?;
-                    X86Instruction::cmp(OperandSize::S64, R11, REGISTER_MAP[STACK_REG], None).emit(self)?;
-                    emit_jcc(self, 0x82, TARGET_PC_EXIT)?;
-
                     // else return;
+                    emit_validate_and_profile_instruction_count(self, false, Some(0))?;
                     X86Instruction::return_near().emit(self)?;
                 },
 
@@ -1535,9 +1539,9 @@ impl JitCompiler {
     fn generate_exception_handlers<E: UserDefinedError>(&mut self) -> Result<(), EbpfError<E>> {
         // Handler for EbpfError::ExceededMaxInstructions
         set_anchor(self, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
-        X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], R11).emit(self)?;
         emit_set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0))?;
-        emit_profile_instruction_count_of_exception(self, true)?;
+        X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], R11).emit(self)?; // R11 = instruction_meter;
+        emit_profile_instruction_count_finalize(self, true)?;
         emit_jmp(self, TARGET_PC_EPILOGUE)?;
 
         // Handler for EbpfError::CallDepthExceeded
@@ -1577,12 +1581,12 @@ impl JitCompiler {
         if self.config.enable_instruction_meter {
             emit_validate_instruction_count(self, false, None)?;
         }
-        emit_profile_instruction_count_of_exception(self, true)?;
+        emit_profile_instruction_count_finalize(self, true)?;
         emit_jmp(self, TARGET_PC_EPILOGUE)?;
 
         // Handler for syscall exceptions
         set_anchor(self, TARGET_PC_RUST_EXCEPTION);
-        emit_profile_instruction_count_of_exception(self, false)?;
+        emit_profile_instruction_count_finalize(self, false)?;
         emit_jmp(self, TARGET_PC_EPILOGUE)
     }
 
@@ -1635,6 +1639,9 @@ impl JitCompiler {
     fn generate_epilogue<E: UserDefinedError>(&mut self) -> Result<(), EbpfError<E>> {
         // Quit gracefully
         set_anchor(self, TARGET_PC_EXIT);
+        emit_validate_instruction_count(self, false, None)?;
+        emit_profile_instruction_count_finalize(self, false)?;
+
         X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
         X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(8)).emit(self)?; // result.return_value = R0;
         X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], 0).emit(self)?;
