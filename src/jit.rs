@@ -1293,14 +1293,15 @@ impl JitCompiler {
                     let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
 
                     // if((stack_ptr as u32) == self.config.stack_frame_size) goto exit;
-                    X86Instruction::cmp_immediate(OperandSize::S32, RBP, self.config.stack_frame_size as i64, Some(stack_ptr_access)).emit(self)?;
+                    X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], stack_ptr_access).emit(self)?;
+                    X86Instruction::cmp_immediate(OperandSize::S32, REGISTER_MAP[STACK_REG], self.config.stack_frame_size as i64, None).emit(self)?;
                     if self.config.enable_instruction_meter {
                         X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
                     }
                     emit_jcc(self, 0x84, TARGET_PC_EXIT)?;
 
-                    emit_alu(self, OperandSize::S64, 0x81, 5, RBP, stack_frame_size, Some(stack_ptr_access))?; // stack_ptr -= stack_frame_size;
-                    X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[STACK_REG], stack_ptr_access).emit(self)?;
+                    emit_alu(self, OperandSize::S64, 0x81, 5, REGISTER_MAP[STACK_REG], stack_frame_size, None)?; // stack_ptr -= stack_frame_size;
+                    X86Instruction::store(OperandSize::S64, REGISTER_MAP[STACK_REG], RBP, stack_ptr_access).emit(self)?;
 
                     // else return;
                     emit_validate_and_profile_instruction_count(self, false, Some(0))?;
