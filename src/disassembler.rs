@@ -267,7 +267,7 @@ pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &
                 }
             };
         },
-        ebpf::CALL_REG   => { name = "callx"; desc = format!("{} {}", name, insn.imm); },
+        ebpf::CALL_REG   => { name = "callx"; desc = format!("{} r{}", name, insn.imm); },
         ebpf::EXIT       => { name = "exit"; desc = name.to_string(); },
 
         _                => { name = "unknown"; desc = format!("{} opcode={:#x}", name, insn.opc); },

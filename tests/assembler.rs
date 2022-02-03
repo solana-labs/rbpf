@@ -120,7 +120,7 @@ fn test_jeq() {
 #[test]
 fn test_call_reg() {
     assert_eq!(
-        asm("callx 3"),
+        asm("callx r3"),
         Ok(vec![insn(0, ebpf::CALL_REG, 0, 0, 0, 3)])
     );
 }

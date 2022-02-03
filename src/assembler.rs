@@ -309,7 +309,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
                                 resolve_call(&mut bpf_functions, &labels, &label, Some(target_pc))?;
                             insn(opc, 0, 0, 0, hash as i32 as i64)
                         }
-                        (CallReg, [Integer(imm)]) => insn(opc, 0, 0, 0, *imm),
+                        (CallReg, [Register(dst)]) => insn(opc, 0, 0, 0, *dst),
                         (JumpConditional, [Register(dst), Register(src), Label(label)]) => insn(
                             opc | ebpf::BPF_X,
                             *dst,

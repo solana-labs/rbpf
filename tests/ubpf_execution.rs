@@ -2384,7 +2384,7 @@ fn test_call_reg() {
         mov64 r8, 0x1
         lsh64 r8, 0x20
         or64 r8, 0x30
-        callx 0x8
+        callx r8
         exit
         mov64 r0, 0x2A
         exit",
@@ -2400,7 +2400,7 @@ fn test_err_callx_oob_low() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r0, 0x3
-        callx 0x0
+        callx r0
         exit",
         [],
         (),
@@ -2423,7 +2423,7 @@ fn test_err_callx_oob_high() {
         mov64 r0, -0x1
         lsh64 r0, 0x20
         or64 r0, 0x3
-        callx 0x0
+        callx r0
         exit",
         [],
         (),
@@ -2519,7 +2519,7 @@ fn test_err_dynamic_jmp_lddw() {
         mov64 r8, 0x1
         lsh64 r8, 0x20
         or64 r8, 40
-        callx 0x8
+        callx r8
         lddw r0, 0x1122334455667788
         exit",
         [],
@@ -2579,7 +2579,7 @@ fn test_err_reg_stack_depth() {
         "
         mov64 r0, 0x1
         lsh64 r0, 0x20
-        callx 0x0
+        callx r0
         exit",
         [],
         (),
@@ -2957,7 +2957,7 @@ fn test_tight_infinite_recursion_callx() {
         lsh64 r8, 0x20
         or64 r8, 0x18
         mov64 r3, 0x41414141
-        callx 8
+        callx r8
         exit",
         [],
         (),
