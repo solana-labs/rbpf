@@ -221,7 +221,7 @@ dependencies = [
 
 [[package]]
 name = "solana_rbpf"
-version = "0.2.22"
+version = "0.2.23"
 dependencies = [
  "byteorder 1.2.7",
  "combine",
@@ -252,7 +252,7 @@ dependencies = [
 
 [[package]]
 name = "test_utils"
-version = "0.2.22"
+version = "0.2.23"
 dependencies = [
  "libc",
  "solana_rbpf",
