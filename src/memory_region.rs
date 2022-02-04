@@ -9,6 +9,7 @@ use std::fmt;
 
 /// Memory region for bounds checking and address translation
 #[derive(Clone, PartialEq, Eq, Default)]
+#[repr(C, align(32))]
 pub struct MemoryRegion {
     /// start host address
     pub host_addr: u64,
@@ -22,6 +23,16 @@ pub struct MemoryRegion {
     pub is_writable: bool,
 }
 impl MemoryRegion {
+    pub(crate) const HOST_ADDR_OFFSET: i32 = 0;
+    pub(crate) const VM_ADDR_OFFSET: i32 =
+        MemoryRegion::HOST_ADDR_OFFSET + std::mem::size_of::<u64>() as i32;
+    pub(crate) const LEN_OFFSET: i32 =
+        MemoryRegion::VM_ADDR_OFFSET + std::mem::size_of::<u64>() as i32;
+    pub(crate) const VM_GAP_SHIFT_OFFSET: i32 =
+        MemoryRegion::LEN_OFFSET + std::mem::size_of::<u64>() as i32;
+    pub(crate) const IS_WRITABLE_OFFSET: i32 =
+        MemoryRegion::VM_GAP_SHIFT_OFFSET + std::mem::size_of::<u8>() as i32;
+
     /// Creates a new MemoryRegion structure from a slice
     pub fn new_from_slice(slice: &[u8], vm_addr: u64, vm_gap_size: u64, is_writable: bool) -> Self {
         let mut vm_gap_shift = (std::mem::size_of::<u64>() as u8)
