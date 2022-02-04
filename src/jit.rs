@@ -247,7 +247,7 @@ pub fn emit_variable_length<E: UserDefinedError>(jit: &mut JitCompiler, size: Op
     }
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum OperandSize {
     S0  = 0,
     S8  = 8,
@@ -586,7 +586,7 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value) -> Resu
             emit_validate_and_profile_instruction_count(jit, false, None)?;
             X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11).emit(jit)?; // Save target_pc
             X86Instruction::pop(REGISTER_MAP[0]).emit(jit)?; // Restore RAX
-            X86Instruction::call_reg(OperandSize::S64, R11, None).emit(jit)?; // callq *%r11
+            X86Instruction::call_reg(R11, None).emit(jit)?; // callq *%r11
         },
         Value::Constant64(target_pc, user_provided) => {
             debug_assert!(!user_provided);
@@ -701,12 +701,12 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, argume
 
     match dst {
         Value::Register(reg) => {
-            X86Instruction::call_reg(OperandSize::S64, reg, None).emit(jit)?;
+            X86Instruction::call_reg(reg, None).emit(jit)?;
         },
         Value::Constant64(value, user_provided) => {
             debug_assert!(!user_provided);
             X86Instruction::load_immediate(OperandSize::S64, RAX, value).emit(jit)?;
-            X86Instruction::call_reg(OperandSize::S64, RAX, None).emit(jit)?;
+            X86Instruction::call_reg(RAX, None).emit(jit)?;
         },
         _ => {
             #[cfg(debug_assertions)]
