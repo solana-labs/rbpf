@@ -11,7 +11,7 @@ extern crate scroll;
 
 use crate::{
     aligned_memory::AlignedMemory,
-    ebpf,
+    ebpf::{self, EF_SBF_V2},
     error::{EbpfError, UserDefinedError},
     jit::JitProgram,
     vm::{Config, InstructionMeter, SyscallRegistry},
@@ -99,6 +99,9 @@ pub enum ElfError {
     /// Offset or value is out of bounds
     #[error("Offset or value is out of bounds")]
     ValueOutOfBounds,
+    /// Dynamic stack frames detected but not enabled
+    #[error("Dynamic stack frames detected but not enabled")]
+    DynamicStackFramesDisabled,
 }
 impl From<GoblinError> for ElfError {
     fn from(error: GoblinError) -> Self {
@@ -379,12 +382,13 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         bpf_functions: BTreeMap<u32, (usize, String)>,
     ) -> Self {
         let elf_bytes = AlignedMemory::new_with_data(text_bytes, ebpf::HOST_ALIGN);
+        let enable_symbol_and_section_labels = config.enable_symbol_and_section_labels;
         Self {
             config,
             elf_bytes,
             ro_section: text_bytes.to_vec(),
             text_section_info: SectionInfo {
-                name: if config.enable_symbol_and_section_labels {
+                name: if enable_symbol_and_section_labels {
                     ".text".to_string()
                 } else {
                     String::default()
@@ -404,14 +408,14 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
     /// Fully loads an ELF, including validation and relocation
     pub fn load(
-        config: Config,
+        mut config: Config,
         bytes: &[u8],
         syscall_registry: SyscallRegistry,
     ) -> Result<Self, ElfError> {
         let elf = Elf::parse(bytes)?;
         let mut elf_bytes = AlignedMemory::new_with_data(bytes, ebpf::HOST_ALIGN);
 
-        Self::validate(&config, &elf, elf_bytes.as_slice())?;
+        Self::validate(&mut config, &elf, elf_bytes.as_slice())?;
 
         // calculate the text section info
         let text_section = Self::get_section(&elf, ".text")?;
@@ -608,7 +612,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     }
 
     /// Validates the ELF
-    pub fn validate(_config: &Config, elf: &Elf, elf_bytes: &[u8]) -> Result<(), ElfError> {
+    pub fn validate(config: &mut Config, elf: &Elf, elf_bytes: &[u8]) -> Result<(), ElfError> {
         if elf.header.e_ident[EI_CLASS] != ELFCLASS64 {
             return Err(ElfError::WrongClass);
         }
@@ -623,6 +627,14 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         }
         if elf.header.e_type != ET_DYN {
             return Err(ElfError::WrongType);
+        }
+
+        if elf.header.e_flags == EF_SBF_V2 {
+            if !config.dynamic_stack_frames {
+                return Err(ElfError::DynamicStackFramesDisabled);
+            }
+        } else {
+            config.dynamic_stack_frames = false;
         }
 
         let num_text_sections =
@@ -939,30 +951,34 @@ mod test {
             .expect("failed to read elf file");
         let mut parsed_elf = Elf::parse(&bytes).unwrap();
         let elf_bytes = bytes.to_vec();
-        let config = Config::default();
+        let mut config = Config::default();
 
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_ident[EI_CLASS] = ELFCLASS32;
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect_err("allowed bad class");
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes)
+            .expect_err("allowed bad class");
         parsed_elf.header.e_ident[EI_CLASS] = ELFCLASS64;
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_ident[EI_DATA] = ELFDATA2MSB;
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect_err("allowed big endian");
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes)
+            .expect_err("allowed big endian");
         parsed_elf.header.e_ident[EI_DATA] = ELFDATA2LSB;
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_ident[EI_OSABI] = 1;
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect_err("allowed wrong abi");
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes)
+            .expect_err("allowed wrong abi");
         parsed_elf.header.e_ident[EI_OSABI] = ELFOSABI_NONE;
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_machine = EM_QDSP6;
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes)
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes)
             .expect_err("allowed wrong machine");
         parsed_elf.header.e_machine = EM_BPF;
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes).expect("validation failed");
         parsed_elf.header.e_type = ET_REL;
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect_err("allowed wrong type");
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes)
+            .expect_err("allowed wrong type");
         parsed_elf.header.e_type = ET_DYN;
-        ElfExecutable::validate(&config, &parsed_elf, &elf_bytes).expect("validation failed");
+        ElfExecutable::validate(&mut config, &parsed_elf, &elf_bytes).expect("validation failed");
     }
 
     #[test]

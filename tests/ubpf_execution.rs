@@ -2257,7 +2257,7 @@ fn test_string_stack() {
 }
 
 #[test]
-fn test_err_stack_out_of_bound() {
+fn test_err_fixed_stack_out_of_bound() {
     test_interpreter_and_jit_asm!(
         "
         stb [r10-0x4000], 0
@@ -2274,6 +2274,251 @@ fn test_err_stack_out_of_bound() {
         },
         1
     );
+}
+
+#[test]
+fn test_err_dynamic_stack_out_of_bound() {
+    let config = Config {
+        dynamic_stack_frames: true,
+        max_call_depth: 3,
+        ..Config::default()
+    };
+
+    // The stack goes from MM_STACK_START + config.stack_size() to MM_STACK_START
+
+    // Check that accessing MM_STACK_START - 1 fails
+    test_interpreter_and_jit_asm!(
+        "
+        stb [r10-0x3001], 0
+        exit",
+        config,
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, region)
+                    if access_type == AccessType::Store && pc == 29 && vm_addr == ebpf::MM_STACK_START - 1 && len == 1 && region == "program"
+                )
+            }
+        },
+        1
+    );
+
+    // Check that accessing MM_STACK_START + expected_stack_len fails
+    test_interpreter_and_jit_asm!(
+        "
+        stb [r10], 0
+        exit",
+        config,
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, region)
+                    if access_type == AccessType::Store && pc == 29 && vm_addr == ebpf::MM_STACK_START + config.stack_size() as u64 && len == 1 && region == "stack"
+                )
+            }
+        },
+        1
+    );
+}
+
+#[test]
+fn test_err_dynamic_stack_ptr_overflow() {
+    let config = Config {
+        dynamic_stack_frames: true,
+        ..Config::default()
+    };
+
+    // See the comment in CallFrames::resize_stack() for the reason why it's
+    // safe to let the stack pointer overflow
+
+    // stack_ptr -= stack_ptr + 1
+    test_interpreter_and_jit_asm!(
+        "
+        sub r11, 0x7FFFFFFF
+        sub r11, 0x7FFFFFFF
+        sub r11, 0x7FFFFFFF
+        sub r11, 0x7FFFFFFF
+        sub r11, 0x14005
+        call foo
+        exit
+        foo:
+        stb [r10], 0
+        exit",
+        config,
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, region)
+                    if access_type == AccessType::Store && pc == 29 + 7 && vm_addr == u64::MAX && len == 1 && region == "unknown"
+                )
+            }
+        },
+        7
+    );
+}
+
+#[test]
+fn test_dynamic_stack_frames_empty() {
+    let config = Config {
+        dynamic_stack_frames: true,
+        ..Config::default()
+    };
+
+    // Check that unless explicitly resized the stack doesn't grow
+    test_interpreter_and_jit_asm!(
+        "
+        call foo
+        exit
+        foo:
+        mov r0, r10
+        exit",
+        config,
+        [],
+        (),
+        { |_vm, res: Result| res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64 },
+        4
+    );
+}
+
+#[test]
+fn test_dynamic_frame_ptr() {
+    let config = Config {
+        dynamic_stack_frames: true,
+        ..Config::default()
+    };
+
+    // Check that upon entering a function (foo) the frame pointer is advanced
+    // to the top of the stack
+    test_interpreter_and_jit_asm!(
+        "
+        sub r11, 8
+        call foo
+        exit
+        foo:
+        mov r0, r10
+        exit",
+        config,
+        [],
+        (),
+        {
+            |_vm, res: Result| res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64 - 8
+        },
+        5
+    );
+
+    // And check that when exiting a function (foo) the caller's frame pointer
+    // is restored
+    test_interpreter_and_jit_asm!(
+        "
+        sub r11, 8
+        call foo
+        mov r0, r10
+        exit
+        foo:
+        exit
+        ",
+        config,
+        [],
+        (),
+        { |_vm, res: Result| res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64 },
+        5
+    );
+}
+
+#[test]
+fn test_entrypoint_exit() {
+    // With fixed frames we used to exit the entrypoint when we reached an exit
+    // instruction and the stack size was 1 * config.stack_frame_size, which
+    // meant that we were in the entrypoint's frame.  With dynamic frames we
+    // can't infer anything from the stack size so we track call depth
+    // explicitly. Make sure exit still works with both fixed and dynamic
+    // frames.
+    for dynamic_stack_frames in [false, true] {
+        let config = Config {
+            dynamic_stack_frames,
+            ..Config::default()
+        };
+
+        // This checks that when foo exits we don't stop execution even if the
+        // stack is empty (stack size and call depth are decoupled)
+        test_interpreter_and_jit_asm!(
+            "
+            entrypoint:
+            call foo
+            mov r0, 42
+            exit
+            foo:
+            mov r0, 12
+            exit",
+            config,
+            [],
+            (),
+            { |_vm, res: Result| { res.unwrap() == 42 } },
+            5
+        );
+    }
+}
+
+#[test]
+fn test_stack_call_depth_tracking() {
+    for dynamic_stack_frames in [false, true] {
+        let config = Config {
+            dynamic_stack_frames,
+            max_call_depth: 2,
+            ..Config::default()
+        };
+
+        // Given max_call_depth=2, make sure that two sibling calls don't
+        // trigger CallDepthExceeded. In other words ensure that we correctly
+        // pop frames in the interpreter and decrement
+        // EnvironmentStackSlot::CallDepth on ebpf::EXIT in the jit.
+        test_interpreter_and_jit_asm!(
+            "
+            call foo
+            call foo
+            exit
+            foo:
+            exit
+            ",
+            config,
+            [],
+            (),
+            { |_vm, res: Result| { res.is_ok() } },
+            5
+        );
+
+        // two nested calls should trigger CallDepthExceeded instead
+        test_interpreter_and_jit_asm!(
+            "
+            entrypoint:
+            call foo
+            exit
+            foo:
+            call bar
+            exit
+            bar:
+            exit
+            ",
+            config,
+            [],
+            (),
+            {
+                |_vm, res: Result| {
+                    matches!(res.unwrap_err(),
+                        EbpfError::CallDepthExceeded(pc, depth)
+                        if pc == 29 + 2 && depth == config.max_call_depth
+                    )
+                }
+            },
+            2
+        );
+    }
 }
 
 #[test]

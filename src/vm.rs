@@ -12,6 +12,7 @@
 //! Virtual machine and JIT compiler for eBPF programs.
 
 use crate::disassembler::disassemble_instruction;
+use crate::ebpf::STACK_PTR_REG;
 use crate::static_analysis::Analysis;
 use crate::{
     call_frames::CallFrames,
@@ -215,6 +216,15 @@ pub struct Config {
     pub syscall_bpf_function_hash_collision: bool,
     /// Have the verifier reject "callx r10"
     pub reject_callx_r10: bool,
+    /// Use dynamic stack frame sizes
+    pub dynamic_stack_frames: bool,
+}
+
+impl Config {
+    /// Returns the size of the stack memory region
+    pub fn stack_size(&self) -> usize {
+        self.stack_frame_size * self.max_call_depth
+    }
 }
 
 impl Default for Config {
@@ -235,6 +245,7 @@ impl Default for Config {
             disable_deprecated_load_instructions: true,
             syscall_bpf_function_hash_collision: true,
             reject_callx_r10: true,
+            dynamic_stack_frames: false,
         }
     }
 }
@@ -253,7 +264,7 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> Executable<E, I> {
     ) -> Result<Pin<Box<Self>>, EbpfError<E>> {
         let executable = Executable::load(config, elf_bytes, syscall_registry)?;
         if let Some(verifier) = verifier {
-            verifier(executable.get_text_bytes().1, &config)?;
+            verifier(executable.get_text_bytes().1, executable.get_config())?;
         }
         Ok(Pin::new(Box::new(executable)))
     }
@@ -675,7 +686,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         const U32MAX: u64 = u32::MAX as u64;
 
         // R1 points to beginning of input memory, R10 to the stack of the first frame
-        let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.stack.get_stack_top()];
+        let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.stack.get_frame_ptr()];
 
         if self.memory_mapping.map::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1).is_ok() {
             reg[1] = ebpf::MM_INPUT_START;
@@ -684,6 +695,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         // Check config outside of the instruction loop
         let instruction_meter_enabled = self.executable.get_config().enable_instruction_meter;
         let instruction_tracing_enabled = self.executable.get_config().enable_instruction_tracing;
+        let dynamic_stack_frames = self.executable.get_config().dynamic_stack_frames;
 
         // Loop on instructions
         let entry = self.executable.get_entrypoint_instruction_offset()?;
@@ -708,7 +720,18 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 self.tracer.trace(state);
             }
 
+
             match insn.opc {
+                _ if dst == STACK_PTR_REG && dynamic_stack_frames => {
+                    match insn.opc {
+                        ebpf::SUB64_IMM => self.stack.resize_stack(-insn.imm),
+                        ebpf::ADD64_IMM => self.stack.resize_stack(insn.imm),
+                        _ => {
+                            #[cfg(debug_assertions)]
+                            unreachable!("unexpected insn on r11")
+                        }
+                    }
+                }
 
                 // BPF_LD class
                 // Since this pointer is constant, and since we already know it (ebpf::MM_INPUT_START), do not
@@ -948,7 +971,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
 
                 ebpf::CALL_REG   => {
                     let target_address = reg[insn.imm as usize];
-                    reg[ebpf::STACK_REG] =
+                    reg[ebpf::FRAME_PTR_REG] =
                         self.stack.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
                     if target_address < self.program_vm_addr {
                         return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
@@ -982,11 +1005,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         }
                     } else if let Some(target_pc) = self.executable.lookup_bpf_function(insn.imm as u32) {
                         // make BPF to BPF call
-                        reg[ebpf::STACK_REG] = self.stack.push(
-                            &reg[ebpf::FIRST_SCRATCH_REG
-                                ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
-                            next_pc,
-                        )?;
+                        reg[ebpf::FRAME_PTR_REG] =
+                            self.stack.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
                         next_pc = self.check_pc(pc, target_pc)?;
                     } else if self.executable.get_config().disable_unresolved_symbols_at_runtime {
                         return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
@@ -997,12 +1017,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
 
                 ebpf::EXIT => {
                     match self.stack.pop::<E>() {
-                        Ok((saved_reg, stack_ptr, ptr)) => {
+                        Ok((saved_reg, frame_ptr, ptr)) => {
                             // Return from BPF to BPF call
                             reg[ebpf::FIRST_SCRATCH_REG
                                 ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                                 .copy_from_slice(&saved_reg);
-                            reg[ebpf::STACK_REG] = stack_ptr;
+                            reg[ebpf::FRAME_PTR_REG] = frame_ptr;
                             next_pc = self.check_pc(pc, ptr)?;
                         }
                         _ => {
@@ -1017,6 +1037,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 }
                 _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
             }
+
             if instruction_meter_enabled && self.last_insn_count >= remaining_insn_count {
                 // Use `pc + instruction_width` instead of `next_pc` here because jumps and calls don't continue at the end of this instruction
                 return Err(EbpfError::ExceededMaxInstructions(pc + instruction_width + ebpf::ELF_INSN_DUMP_OFFSET, initial_insn_count));

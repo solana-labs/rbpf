@@ -140,12 +140,23 @@ fn check_jmp_offset(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
     Ok(())
 }
 
-fn check_registers(insn: &ebpf::Insn, store: bool, insn_ptr: usize) -> Result<(), VerifierError> {
+fn check_registers(
+    insn: &ebpf::Insn,
+    store: bool,
+    insn_ptr: usize,
+    enable_stack_ptr: bool,
+) -> Result<(), VerifierError> {
     if insn.src > 10 {
         return Err(VerifierError::InvalidSourceRegister(adj_insn_ptr(insn_ptr)));
     }
+
     match (insn.dst, store) {
         (0..=9, _) | (10, true) => Ok(()),
+        (11, _)
+            if enable_stack_ptr && (insn.opc == ebpf::SUB64_IMM || insn.opc == ebpf::ADD64_IMM) =>
+        {
+            Ok(())
+        }
         (10, false) => Err(VerifierError::CannotWriteR10(adj_insn_ptr(insn_ptr))),
         (_, _) => Err(VerifierError::InvalidDestinationRegister(adj_insn_ptr(
             insn_ptr,
@@ -322,7 +333,7 @@ pub fn check(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
             }
         }
 
-        check_registers(&insn, store, insn_ptr)?;
+        check_registers(&insn, store, insn_ptr, config.dynamic_stack_frames)?;
 
         insn_ptr += 1;
     }

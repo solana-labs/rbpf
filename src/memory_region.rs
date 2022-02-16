@@ -194,7 +194,9 @@ impl<'a> MemoryMapping<'a> {
             .saturating_sub(ebpf::MM_STACK_START as i64)
             .checked_div(self.config.stack_frame_size as i64)
             .unwrap_or(0);
-        if (-1..(self.config.max_call_depth as i64).saturating_add(1)).contains(&stack_frame) {
+        if !self.config.dynamic_stack_frames
+            && (-1..(self.config.max_call_depth as i64).saturating_add(1)).contains(&stack_frame)
+        {
             Err(EbpfError::StackAccessViolation(
                 0, // Filled out later
                 access_type,

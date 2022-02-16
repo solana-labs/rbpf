@@ -126,28 +126,64 @@ fn test_verifier_err_incomplete_lddw() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidDestinationRegister(29)")]
 fn test_verifier_err_invalid_reg_dst() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
-        "
-        mov r11, 1
-        exit",
-        Some(check),
-        Config::default(),
-        SyscallRegistry::default(),
-    )
-    .unwrap();
+    // r11 is disabled when dynamic_stack_frames=false, and only sub and add are
+    // allowed when dynamic_stack_frames=true
+    for dynamic_stack_frames in [false, true] {
+        assert_eq!(
+            assemble::<UserError, TestInstructionMeter>(
+                "
+                mov r11, 1
+                exit",
+                Some(check),
+                Config {
+                    dynamic_stack_frames,
+                    ..Config::default()
+                },
+                SyscallRegistry::default(),
+            )
+            .unwrap_err(),
+            "Executable constructor VerifierError(InvalidDestinationRegister(29))"
+        );
+    }
 }
 
 #[test]
-#[should_panic(expected = "InvalidSourceRegister(29)")]
 fn test_verifier_err_invalid_reg_src() {
+    // r11 is disabled when dynamic_stack_frames=false, and only sub and add are
+    // allowed when dynamic_stack_frames=true
+    for dynamic_stack_frames in [false, true] {
+        assert_eq!(
+            assemble::<UserError, TestInstructionMeter>(
+                "
+                mov r0, r11
+                exit",
+                Some(check),
+                Config {
+                    dynamic_stack_frames,
+                    ..Config::default()
+                },
+                SyscallRegistry::default(),
+            )
+            .unwrap_err(),
+            "Executable constructor VerifierError(InvalidSourceRegister(29))"
+        );
+    }
+}
+
+#[test]
+fn test_verifier_resize_stack_ptr_success() {
     let _executable = assemble::<UserError, TestInstructionMeter>(
         "
-        mov r0, r11
+        sub r11, 1
+        add r11, 1
         exit",
         Some(check),
-        Config::default(),
+        Config {
+            dynamic_stack_frames: true,
+            enable_stack_frame_gaps: false,
+            ..Config::default()
+        },
         SyscallRegistry::default(),
     )
     .unwrap();

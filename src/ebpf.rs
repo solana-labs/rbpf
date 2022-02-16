@@ -22,12 +22,16 @@ use byteorder::{ByteOrder, LittleEndian};
 use hash32::{Hash, Hasher, Murmur3Hasher};
 use std::fmt;
 
+/// SBF version flag
+pub const EF_SBF_V2: u32 = 0x20;
 /// Maximum number of instructions in an eBPF program.
 pub const PROG_MAX_INSNS: usize = 65_536;
 /// Size of an eBPF instructions, in bytes.
 pub const INSN_SIZE: usize = 8;
-/// Stack register
-pub const STACK_REG: usize = 10;
+/// Frame pointer register
+pub const FRAME_PTR_REG: usize = 10;
+/// Stack pointer register
+pub const STACK_PTR_REG: usize = 11;
 /// First scratch register
 pub const FIRST_SCRATCH_REG: usize = 6;
 /// Number of scratch registers
