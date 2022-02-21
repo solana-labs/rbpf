@@ -682,6 +682,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         while (next_pc + 1) * ebpf::INSN_SIZE <= self.program.len() {
             let pc = next_pc;
             next_pc += 1;
+            let mut instruction_width = 1;
             let mut insn = ebpf::get_insn_unchecked(self.program, pc);
             let dst = insn.dst as usize;
             let src = insn.src as usize;
@@ -742,6 +743,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
 
                 ebpf::LD_DW_IMM  => {
                     ebpf::augment_lddw_unchecked(self.program, &mut insn);
+                    instruction_width = 2;
                     next_pc += 1;
                     reg[dst] = insn.imm as u64;
                 },
@@ -1003,7 +1005,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
             }
             if instruction_meter_enabled && self.last_insn_count >= remaining_insn_count {
-                return Err(EbpfError::ExceededMaxInstructions(pc + 1 + ebpf::ELF_INSN_DUMP_OFFSET, initial_insn_count));
+                // Use `pc + instruction_width` instead of `next_pc` here because jumps and calls don't continue at the end of this instruction
+                return Err(EbpfError::ExceededMaxInstructions(pc + instruction_width + ebpf::ELF_INSN_DUMP_OFFSET, initial_insn_count));
             }
         }
 
