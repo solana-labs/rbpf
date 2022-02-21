@@ -11,6 +11,36 @@ use crate::{
 use rustc_demangle::demangle;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+/// Used for topological sort
+#[derive(PartialEq, Eq, Debug)]
+pub struct TopologicalIndex {
+    /// Strongly connected component ID
+    pub scc_id: usize,
+    /// Discovery order inside a strongly connected component
+    pub discovery: usize,
+}
+
+impl Default for TopologicalIndex {
+    fn default() -> Self {
+        Self {
+            scc_id: usize::MAX,
+            discovery: usize::MAX,
+        }
+    }
+}
+
+impl Ord for TopologicalIndex {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.scc_id.cmp(&other.scc_id)).then(self.discovery.cmp(&other.discovery))
+    }
+}
+
+impl PartialOrd for TopologicalIndex {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// A node of the control-flow graph
 #[derive(Debug)]
 pub struct CfgNode {
@@ -22,10 +52,8 @@ pub struct CfgNode {
     pub destinations: Vec<usize>,
     /// Range of the instructions belonging to this basic block
     pub instructions: std::ops::Range<usize>,
-    /// Strongly connected component ID (and topological order)
-    pub scc_id: usize,
-    /// Discovery order inside a strongly connected component
-    pub index_in_scc: usize,
+    /// Topological index
+    pub topo_index: TopologicalIndex,
     /// Immediate dominator (the last control flow junction)
     pub dominator_parent: usize,
     /// All basic blocks which can only be reached through this one
@@ -83,8 +111,7 @@ impl Default for CfgNode {
             sources: Vec::new(),
             destinations: Vec::new(),
             instructions: 0..0,
-            scc_id: usize::MAX,
-            index_in_scc: usize::MAX,
+            topo_index: TopologicalIndex::default(),
             dominator_parent: usize::MAX,
             dominated_children: Vec::new(),
         }
@@ -105,6 +132,8 @@ pub struct Analysis<'a, E: UserDefinedError, I: InstructionMeter> {
     pub topological_order: Vec<usize>,
     /// CfgNode where the execution starts
     pub entrypoint: usize,
+    /// Virtual CfgNode that reaches all functions
+    pub super_root: usize,
     /// Data flow edges (the keys are DfgEdge sources)
     pub dfg_forward_edges: BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
     /// Data flow edges (the keys are DfgEdge destinations)
@@ -143,10 +172,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             cfg_nodes: BTreeMap::new(),
             topological_order: Vec::new(),
             entrypoint: executable.get_entrypoint_instruction_offset().unwrap(),
+            super_root: insn_ptr,
             dfg_forward_edges: BTreeMap::new(),
             dfg_reverse_edges: BTreeMap::new(),
         };
-        result.split_into_basic_blocks(false, false);
+        result.split_into_basic_blocks(false);
         result.label_basic_blocks();
         result.control_flow_graph_tarjan();
         result.control_flow_graph_dominance_hierarchy();
@@ -173,11 +203,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     /// Splits the sequence of instructions into basic blocks
     ///
     /// Also links the control-flow graph edges between the basic blocks.
-    pub fn split_into_basic_blocks(
-        &mut self,
-        flatten_call_graph: bool,
-        assume_unreachable_to_be_a_function: bool,
-    ) {
+    pub fn split_into_basic_blocks(&mut self, flatten_call_graph: bool) {
         self.cfg_nodes.insert(0, CfgNode::default());
         for pc in self.functions.keys() {
             self.cfg_nodes.entry(*pc).or_insert_with(CfgNode::default);
@@ -207,17 +233,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                         self.cfg_nodes
                             .entry(target_pc)
                             .or_insert_with(CfgNode::default);
-                        cfg_edges.insert(
-                            insn.ptr,
-                            (
-                                insn.opc,
-                                if flatten_call_graph {
-                                    vec![insn.ptr + 1, target_pc]
-                                } else {
-                                    vec![insn.ptr + 1]
-                                },
-                            ),
-                        );
+                        let destinations = if flatten_call_graph {
+                            vec![insn.ptr + 1, target_pc]
+                        } else {
+                            vec![insn.ptr + 1]
+                        };
+                        cfg_edges.insert(insn.ptr, (insn.opc, destinations));
                     }
                 }
                 ebpf::CALL_REG => {
@@ -225,7 +246,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                     self.cfg_nodes
                         .entry(insn.ptr + 1)
                         .or_insert_with(CfgNode::default);
-                    cfg_edges.insert(insn.ptr, (insn.opc, vec![insn.ptr + 1]));
+                    let destinations = if flatten_call_graph {
+                        vec![insn.ptr + 1, self.super_root]
+                    } else {
+                        vec![insn.ptr + 1]
+                    };
+                    cfg_edges.insert(insn.ptr, (insn.opc, destinations));
                 }
                 ebpf::EXIT => {
                     self.cfg_nodes
@@ -344,16 +370,24 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 .collect::<Vec<(usize, Vec<usize>)>>(),
             false,
         );
-        if assume_unreachable_to_be_a_function {
-            for (cfg_node_start, cfg_node) in self.cfg_nodes.iter() {
-                if cfg_node.sources.is_empty() {
-                    self.functions.entry(*cfg_node_start).or_insert_with(|| {
-                        let name = format!("function_{}", *cfg_node_start);
-                        let hash = elf::hash_bpf_function(*cfg_node_start, &name);
-                        (hash, name)
-                    });
-                }
+        for (cfg_node_start, cfg_node) in self.cfg_nodes.iter() {
+            if *cfg_node_start != self.super_root && cfg_node.sources.is_empty() {
+                self.functions.entry(*cfg_node_start).or_insert_with(|| {
+                    let name = format!("function_{}", *cfg_node_start);
+                    let hash = elf::hash_bpf_function(*cfg_node_start, &name);
+                    (hash, name)
+                });
             }
+        }
+        let super_root = CfgNode {
+            instructions: self.instructions.len()..self.instructions.len(),
+            destinations: self.functions.keys().cloned().collect(),
+            ..CfgNode::default()
+        };
+        self.cfg_nodes.insert(self.super_root, super_root);
+        for cfg_node_start in self.functions.keys() {
+            let cfg_node = self.cfg_nodes.get_mut(cfg_node_start).unwrap();
+            cfg_node.sources.push(self.super_root);
         }
         if flatten_call_graph {
             let mut destinations = Vec::new();
@@ -389,6 +423,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 format!("lbb_{}", pc)
             };
         }
+        self.cfg_nodes.get_mut(&self.super_root).unwrap().label = "super_root".to_string();
     }
 
     /// Generates labels for assembler code
@@ -655,7 +690,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             .iter_mut()
             .enumerate()
             .map(|(v, (key, cfg_node))| {
-                cfg_node.scc_id = v;
+                cfg_node.topo_index.scc_id = v;
                 NodeState {
                     cfg_node: *key,
                     discovery: usize::MAX,
@@ -685,6 +720,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                     .cfg_nodes
                     .get(&cfg_node.destinations[j])
                     .unwrap()
+                    .topo_index
                     .scc_id;
                 if nodes[w].discovery == usize::MAX {
                     recursion_stack.push((v, j + 1));
@@ -726,20 +762,36 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         }
         for node in &nodes {
             let cfg_node = self.cfg_nodes.get_mut(&node.cfg_node).unwrap();
-            cfg_node.scc_id = node.scc_id;
-            cfg_node.index_in_scc = node.discovery;
+            cfg_node.topo_index = TopologicalIndex {
+                scc_id: node.scc_id,
+                discovery: node.discovery,
+            };
         }
         let mut topological_order = self.cfg_nodes.keys().cloned().collect::<Vec<_>>();
-        topological_order.sort_by(|a, b| self.control_flow_graph_order(*a, *b));
+        topological_order.sort_by(|a, b| {
+            self.cfg_nodes[b]
+                .topo_index
+                .cmp(&self.cfg_nodes[a].topo_index)
+        });
         self.topological_order = topological_order;
     }
 
-    /// Topological order relation in the control-flow graph
-    pub fn control_flow_graph_order(&self, a: usize, b: usize) -> std::cmp::Ordering {
-        let cfg_node_a = &self.cfg_nodes[&a];
-        let cfg_node_b = &self.cfg_nodes[&b];
-        (cfg_node_b.scc_id.cmp(&cfg_node_a.scc_id))
-            .then(cfg_node_b.index_in_scc.cmp(&cfg_node_a.index_in_scc))
+    fn control_flow_graph_dominance_intersect(&self, mut a: usize, mut b: usize) -> usize {
+        while a != b {
+            match self.cfg_nodes[&a]
+                .topo_index
+                .cmp(&self.cfg_nodes[&b].topo_index)
+            {
+                std::cmp::Ordering::Greater => {
+                    b = self.cfg_nodes[&b].dominator_parent;
+                }
+                std::cmp::Ordering::Less => {
+                    a = self.cfg_nodes[&a].dominator_parent;
+                }
+                std::cmp::Ordering::Equal => unreachable!(),
+            }
+        }
+        b
     }
 
     /// Finds the dominance hierarchy of the control-flow graph
@@ -750,40 +802,23 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             return;
         }
         self.cfg_nodes
-            .get_mut(&self.entrypoint)
+            .get_mut(&self.super_root)
             .unwrap()
-            .dominator_parent = self.entrypoint;
+            .dominator_parent = self.super_root;
         loop {
             let mut terminate = true;
             for b in self.topological_order.iter() {
                 let cfg_node = &self.cfg_nodes[b];
-                let mut dominator_parent;
-                if cfg_node.sources.is_empty() {
-                    dominator_parent = *b;
-                } else {
-                    dominator_parent = usize::MAX;
-                    for p in cfg_node.sources.iter() {
-                        if self.cfg_nodes[p].dominator_parent == usize::MAX {
-                            continue;
-                        }
-                        if dominator_parent == usize::MAX {
-                            dominator_parent = *p;
-                            continue;
-                        }
-                        let mut p = *p;
-                        while dominator_parent != p {
-                            match self.control_flow_graph_order(dominator_parent, p) {
-                                std::cmp::Ordering::Greater => {
-                                    dominator_parent =
-                                        self.cfg_nodes[&dominator_parent].dominator_parent;
-                                }
-                                std::cmp::Ordering::Less => {
-                                    p = self.cfg_nodes[&p].dominator_parent;
-                                }
-                                std::cmp::Ordering::Equal => unreachable!(),
-                            }
-                        }
+                let mut dominator_parent = usize::MAX;
+                for p in cfg_node.sources.iter() {
+                    if self.cfg_nodes[p].dominator_parent == usize::MAX {
+                        continue;
                     }
+                    dominator_parent = if dominator_parent == usize::MAX {
+                        *p
+                    } else {
+                        self.control_flow_graph_dominance_intersect(*p, dominator_parent)
+                    };
                 }
                 if dominator_parent == usize::MAX {
                     dominator_parent = *b;
