@@ -1433,10 +1433,6 @@ fn test_lddw() {
         { |_vm, res: Result| { res.unwrap() == 0x1122334455667788 } },
         2
     );
-}
-
-#[test]
-fn test_lddw2() {
     test_interpreter_and_jit_asm!(
         "
         lddw r0, 0x0000000080000000
@@ -2452,7 +2448,8 @@ fn test_err_callx_oob_high() {
 fn test_err_static_jmp_lddw() {
     test_interpreter_and_jit_asm!(
         "
-        ja 1
+        ja 2
+        mov r0, r0
         lddw r0, 0x1122334455667788
         exit
         ",
@@ -2461,7 +2458,7 @@ fn test_err_static_jmp_lddw() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::UnsupportedInstruction(pc) if pc == 31
+                    EbpfError::UnsupportedInstruction(pc) if pc == 32
                 )
             }
         },
@@ -2504,7 +2501,9 @@ fn test_err_static_jmp_lddw() {
     );
     test_interpreter_and_jit_asm!(
         "
-        call 1
+        call 3
+        mov r0, r0
+        mov r0, r0
         lddw r0, 0x1122334455667788
         exit
         ",
@@ -2513,7 +2512,7 @@ fn test_err_static_jmp_lddw() {
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
-                    EbpfError::UnsupportedInstruction(pc) if pc == 31
+                    EbpfError::UnsupportedInstruction(pc) if pc == 33
                 )
             }
         },
@@ -2527,7 +2526,7 @@ fn test_err_dynamic_jmp_lddw() {
         "
         mov64 r8, 0x1
         lsh64 r8, 0x20
-        or64 r8, 40
+        or64 r8, 0x28
         callx r8
         lddw r0, 0x1122334455667788
         exit",
@@ -2541,6 +2540,49 @@ fn test_err_dynamic_jmp_lddw() {
             }
         },
         5
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r1, 0x1
+        lsh64 r1, 0x20
+        or64 r1, 0x38
+        callx r1
+        mov r0, r0
+        mov r0, r0
+        lddw r0, 0x1122334455667788
+        exit
+        ",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::UnsupportedInstruction(pc) if pc == 36
+                )
+            }
+        },
+        5
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        lddw r1, 0x100000038
+        callx r1
+        mov r0, r0
+        mov r0, r0
+        exit
+        lddw r0, 0x1122334455667788
+        exit
+        ",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::UnsupportedInstruction(pc) if pc == 36
+                )
+            }
+        },
+        3
     );
 }
 
@@ -3024,6 +3066,29 @@ fn test_err_instruction_count_syscall_capped() {
 }
 
 #[test]
+fn test_err_instruction_count_lddw_capped() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 0
+        lddw r1, 0x1
+        mov r2, 0
+        exit
+        ",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                    if pc == 32 && initial_insn_count == 2
+                )
+            }
+        },
+        2
+    );
+}
+
+#[test]
 fn test_non_terminate_early() {
     test_interpreter_and_jit_asm!(
         "
@@ -3079,10 +3144,6 @@ fn test_err_non_terminate_capped() {
         },
         6
     );
-}
-
-#[test]
-fn test_err_non_terminating_capped() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r6, 0x0
@@ -3134,7 +3195,6 @@ fn test_err_capped_before_exception() {
         },
         2
     );
-
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x0
@@ -3155,6 +3215,66 @@ fn test_err_capped_before_exception() {
             }
         },
         4
+    );
+}
+
+#[test]
+fn test_err_exit_capped() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r1, 0x1
+        lsh64 r1, 0x20
+        or64 r1, 0x20
+        callx r1
+        exit
+        ",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count) if pc == 34 && initial_insn_count == 5
+                )
+            }
+        },
+        5
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r1, 0x1
+        lsh64 r1, 0x20
+        or64 r1, 0x20
+        callx r1
+        mov r0, r0
+        exit
+        ",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count) if pc == 35 && initial_insn_count == 6
+                )
+            }
+        },
+        6
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        call 0
+        mov r0, r0
+        exit
+        ",
+        [],
+        (),
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count) if pc == 32 && initial_insn_count == 3
+                )
+            }
+        },
+        3
     );
 }
 
