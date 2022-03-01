@@ -177,9 +177,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             dfg_reverse_edges: BTreeMap::new(),
         };
         result.split_into_basic_blocks(false);
-        result.label_basic_blocks();
         result.control_flow_graph_tarjan();
         result.control_flow_graph_dominance_hierarchy();
+        result.label_basic_blocks();
         let basic_block_outputs = result.intra_basic_block_data_flow();
         result.inter_basic_block_data_flow(basic_block_outputs);
         result
@@ -370,25 +370,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 .collect::<Vec<(usize, Vec<usize>)>>(),
             false,
         );
-        for (cfg_node_start, cfg_node) in self.cfg_nodes.iter() {
-            if *cfg_node_start != self.super_root && cfg_node.sources.is_empty() {
-                self.functions.entry(*cfg_node_start).or_insert_with(|| {
-                    let name = format!("function_{}", *cfg_node_start);
-                    let hash = elf::hash_bpf_function(*cfg_node_start, &name);
-                    (hash, name)
-                });
-            }
-        }
-        let super_root = CfgNode {
-            instructions: self.instructions.len()..self.instructions.len(),
-            destinations: self.functions.keys().cloned().collect(),
-            ..CfgNode::default()
-        };
-        self.cfg_nodes.insert(self.super_root, super_root);
-        for cfg_node_start in self.functions.keys() {
-            let cfg_node = self.cfg_nodes.get_mut(cfg_node_start).unwrap();
-            cfg_node.sources.push(self.super_root);
-        }
         if flatten_call_graph {
             let mut destinations = Vec::new();
             let mut cfg_edges = Vec::new();
@@ -423,7 +404,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 format!("lbb_{}", pc)
             };
         }
-        self.cfg_nodes.get_mut(&self.super_root).unwrap().label = "super_root".to_string();
+        if let Some(super_root) = self.cfg_nodes.get_mut(&self.super_root) {
+            super_root.label = "super_root".to_string();
+        }
     }
 
     /// Generates labels for assembler code
@@ -774,6 +757,42 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 .cmp(&self.cfg_nodes[a].topo_index)
         });
         self.topological_order = topological_order;
+        let mut super_root = CfgNode {
+            instructions: self.instructions.len()..self.instructions.len(),
+            ..CfgNode::default()
+        };
+        let mut first_node = self.topological_order.first().cloned();
+        let mut has_external_source = false;
+        for (index, v) in self.topological_order.iter().enumerate() {
+            let cfg_node = &self.cfg_nodes[v];
+            has_external_source |= cfg_node.sources.iter().any(|source| {
+                self.cfg_nodes[source].topo_index.scc_id != cfg_node.topo_index.scc_id
+            });
+            if self
+                .topological_order
+                .get(index + 1)
+                .map(|next_v| {
+                    self.cfg_nodes[next_v].topo_index.scc_id != cfg_node.topo_index.scc_id
+                })
+                .unwrap_or(true)
+            {
+                if !has_external_source && first_node != Some(self.super_root) {
+                    super_root.destinations.push(first_node.unwrap());
+                }
+                first_node = self.topological_order.get(index + 1).cloned();
+                has_external_source = false;
+            }
+        }
+        for v in super_root.destinations.iter() {
+            let cfg_node = self.cfg_nodes.get_mut(v).unwrap();
+            cfg_node.sources.push(self.super_root);
+            self.functions.entry(*v).or_insert_with(|| {
+                let name = format!("function_{}", *v);
+                let hash = elf::hash_bpf_function(*v, &name);
+                (hash, name)
+            });
+        }
+        self.cfg_nodes.insert(self.super_root, super_root);
     }
 
     fn control_flow_graph_dominance_intersect(&self, mut a: usize, mut b: usize) -> usize {
