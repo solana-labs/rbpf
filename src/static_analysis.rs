@@ -851,6 +851,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         }
         for b in self.topological_order.iter() {
             let cfg_node = &self.cfg_nodes[b];
+            assert_ne!(cfg_node.dominator_parent, usize::MAX);
             if *b == cfg_node.dominator_parent {
                 continue;
             }
