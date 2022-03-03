@@ -35,53 +35,6 @@ use std::{slice::from_raw_parts, str::from_utf8, u64};
 /// Return type of syscalls
 pub type Result = std::result::Result<u64, EbpfError<UserError>>;
 
-// syscalls associated to kernel syscalls
-// See also linux/include/uapi/linux/bpf.h in Linux kernel sources.
-
-// bpf_ktime_getns()
-
-/// Index of syscall `bpf_ktime_getns()`, equivalent to `bpf_time_getns()`, in Linux kernel, see
-/// <https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/bpf.h>.
-pub const BPF_KTIME_GETNS_IDX: u32 = 5;
-
-/// Get monotonic time (since boot time) in nanoseconds. All arguments are unused.
-///
-/// # Examples
-///
-/// ```
-/// use solana_rbpf::syscalls::{BpfTimeGetNs, Result};
-/// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
-/// use solana_rbpf::vm::{Config, SyscallObject};
-/// use solana_rbpf::user_error::UserError;
-///
-/// let mut result: Result = Ok(0);
-/// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
-/// BpfTimeGetNs::call(&mut BpfTimeGetNs {}, 0, 0, 0, 0, 0, &memory_mapping, &mut result);
-/// let t = result.unwrap();
-/// let d =  t / 10u64.pow(9)  / 60   / 60  / 24;
-/// let h = (t / 10u64.pow(9)  / 60   / 60) % 24;
-/// let m = (t / 10u64.pow(9)  / 60 ) % 60;
-/// let s = (t / 10u64.pow(9)) % 60;
-/// let ns = t % 10u64.pow(9);
-/// println!("Uptime: {:#x} == {} days {}:{}:{}, {} ns", t, d, h, m, s, ns);
-/// ```
-pub struct BpfTimeGetNs {}
-impl SyscallObject<UserError> for BpfTimeGetNs {
-    fn call(
-        &mut self,
-        _arg1: u64,
-        _arg2: u64,
-        _arg3: u64,
-        _arg4: u64,
-        _arg5: u64,
-        _memory_mapping: &MemoryMapping,
-        result: &mut Result,
-    ) {
-        *result = Result::Ok(time::precise_time_ns());
-    }
-}
-
 // bpf_trace_printk()
 
 /// Index of syscall `bpf_trace_printk()`, equivalent to `bpf_trace_printf`, in Linux kernel, see
@@ -353,17 +306,12 @@ impl SyscallObject<UserError> for BpfStrCmp {
 /// ```
 /// extern crate libc;
 /// extern crate solana_rbpf;
-/// extern crate time;
 ///
 /// use solana_rbpf::syscalls::{BpfRand, Result};
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::vm::{Config, SyscallObject};
 /// use solana_rbpf::user_error::UserError;
-///
-/// unsafe {
-///     libc::srand(time::precise_time_ns() as u32)
-/// }
-///
+//////
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
 /// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();

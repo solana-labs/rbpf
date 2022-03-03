@@ -107,6 +107,7 @@ impl From<GoblinError> for ElfError {
             GoblinError::BadMagic(magic) => Self::FailedToParse(format!("bad magic: {:#x}", magic)),
             GoblinError::Scroll(error) => Self::FailedToParse(format!("read-write: {}", error)),
             GoblinError::IO(error) => Self::FailedToParse(format!("io: {}", error)),
+            _ => Self::FailedToParse("cause unkown".to_string()),
         }
     }
 }

@@ -21,7 +21,6 @@ extern crate hash32;
 extern crate log;
 extern crate rand;
 extern crate thiserror;
-extern crate time;
 
 pub mod aligned_memory;
 mod asm_parser;
