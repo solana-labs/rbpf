@@ -133,17 +133,18 @@ pub fn hash_bpf_function(pc: usize, name: &str) -> u32 {
 
 /// Register a symbol or throw ElfError::SymbolHashCollision
 pub fn register_bpf_function<T: AsRef<str> + ToString>(
+    config: &Config,
     bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+    _syscall_registry: &SyscallRegistry,
     pc: usize,
     name: T,
-    enable_symbol_and_section_labels: bool,
 ) -> Result<u32, ElfError> {
     let hash = hash_bpf_function(pc, name.as_ref());
     match bpf_functions.entry(hash) {
         Entry::Vacant(entry) => {
             entry.insert((
                 pc,
-                if enable_symbol_and_section_labels {
+                if config.enable_symbol_and_section_labels {
                     name.to_string()
                 } else {
                     String::default()
@@ -401,7 +402,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     pub fn load(
         config: Config,
         bytes: &[u8],
-        mut syscall_registry: SyscallRegistry,
+        syscall_registry: SyscallRegistry,
     ) -> Result<Self, ElfError> {
         let elf = Elf::parse(bytes)?;
         let mut elf_bytes = AlignedMemory::new_with_data(bytes, ebpf::HOST_ALIGN);
@@ -435,7 +436,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             &config,
             &mut bpf_functions,
             &mut syscall_symbols,
-            &mut syscall_registry,
+            &syscall_registry,
             &elf,
             elf_bytes.as_slice_mut(),
         )?;
@@ -448,10 +449,11 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         if let Some(entrypoint) = (offset as usize).checked_div(ebpf::INSN_SIZE) {
             bpf_functions.remove(&ebpf::hash_symbol_name(b"entrypoint"));
             register_bpf_function(
+                &config,
                 &mut bpf_functions,
+                &syscall_registry,
                 entrypoint,
                 "entrypoint",
-                config.enable_symbol_and_section_labels,
             )?;
         } else {
             return Err(ElfError::InvalidEntrypoint);
@@ -557,8 +559,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
     /// Fix-ups relative calls
     pub fn fixup_relative_calls(
-        enable_symbol_and_section_labels: bool,
+        config: &Config,
         bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+        syscall_registry: &SyscallRegistry,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
         let instruction_count = elf_bytes
@@ -576,17 +579,18 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         i.saturating_add(ebpf::ELF_INSN_DUMP_OFFSET),
                     ));
                 }
-                let name = if enable_symbol_and_section_labels {
+                let name = if config.enable_symbol_and_section_labels {
                     format!("function_{}", target_pc)
                 } else {
                     String::default()
                 };
 
                 let hash = register_bpf_function(
+                    config,
                     bpf_functions,
+                    syscall_registry,
                     target_pc as usize,
                     name,
-                    enable_symbol_and_section_labels,
                 )?;
                 insn.imm = hash as i64;
                 let offset = i.saturating_mul(ebpf::INSN_SIZE);
@@ -686,23 +690,22 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         config: &Config,
         bpf_functions: &mut BTreeMap<u32, (usize, String)>,
         syscall_symbols: &mut BTreeMap<u32, String>,
-        syscall_registry: &mut SyscallRegistry,
+        syscall_registry: &SyscallRegistry,
         elf: &Elf,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
+        let mut syscall_cache = BTreeMap::new();
         let text_section = Self::get_section(elf, ".text")?;
 
         // Fixup all program counter relative call instructions
         Self::fixup_relative_calls(
-            config.enable_symbol_and_section_labels,
+            config,
             bpf_functions,
+            syscall_registry,
             elf_bytes
                 .get_mut(text_section.file_range().unwrap_or_default())
                 .ok_or(ElfError::ValueOutOfBounds)?,
         )?;
-
-        let mut syscall_cache = BTreeMap::new();
-        let text_section = Self::get_section(elf, ".text")?;
 
         // Fixup all the relocations in the relocation section if exists
         for relocation in &elf.dynrels {
@@ -814,10 +817,11 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                             .checked_div(ebpf::INSN_SIZE)
                             .unwrap_or_default();
                         register_bpf_function(
+                            config,
                             bpf_functions,
+                            syscall_registry,
                             target_pc,
                             name,
-                            config.enable_symbol_and_section_labels,
                         )?
                     } else {
                         // syscall
@@ -875,7 +879,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     .strtab
                     .get_at(symbol.st_name)
                     .ok_or(ElfError::UnknownSymbol(symbol.st_name))?;
-                register_bpf_function(bpf_functions, target_pc, name, true)?;
+                register_bpf_function(config, bpf_functions, syscall_registry, target_pc, name)?;
             }
         }
 
@@ -1038,8 +1042,14 @@ mod test {
 
     #[test]
     fn test_fixup_relative_calls_back() {
-        // call -2
+        let config = Config {
+            enable_symbol_and_section_labels: true,
+            ..Config::default()
+        };
         let mut bpf_functions = BTreeMap::new();
+        let syscall_registry = SyscallRegistry::default();
+
+        // call -2
         #[rustfmt::skip]
         let mut prog = vec![
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1049,7 +1059,13 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x10, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff];
 
-        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(
+            &config,
+            &mut bpf_functions,
+            &syscall_registry,
+            &mut prog,
+        )
+        .unwrap();
         let name = "function_4".to_string();
         let hash = hash_bpf_function(4, &name);
         let insn = ebpf::Insn {
@@ -1065,7 +1081,13 @@ mod test {
         // call +6
         let mut bpf_functions = BTreeMap::new();
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
-        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(
+            &config,
+            &mut bpf_functions,
+            &syscall_registry,
+            &mut prog,
+        )
+        .unwrap();
         let name = "function_0".to_string();
         let hash = hash_bpf_function(0, &name);
         let insn = ebpf::Insn {
@@ -1081,8 +1103,14 @@ mod test {
 
     #[test]
     fn test_fixup_relative_calls_forward() {
-        // call +0
+        let config = Config {
+            enable_symbol_and_section_labels: true,
+            ..Config::default()
+        };
         let mut bpf_functions = BTreeMap::new();
+        let syscall_registry = SyscallRegistry::default();
+
+        // call +0
         #[rustfmt::skip]
         let mut prog = vec![
             0x85, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1092,7 +1120,13 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(
+            &config,
+            &mut bpf_functions,
+            &syscall_registry,
+            &mut prog,
+        )
+        .unwrap();
         let name = "function_1".to_string();
         let hash = hash_bpf_function(1, &name);
         let insn = ebpf::Insn {
@@ -1108,7 +1142,13 @@ mod test {
         // call +4
         let mut bpf_functions = BTreeMap::new();
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
-        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(
+            &config,
+            &mut bpf_functions,
+            &syscall_registry,
+            &mut prog,
+        )
+        .unwrap();
         let name = "function_5".to_string();
         let hash = hash_bpf_function(5, &name);
         let insn = ebpf::Insn {
@@ -1127,7 +1167,10 @@ mod test {
         expected = "called `Result::unwrap()` on an `Err` value: RelativeJumpOutOfBounds(29)"
     )]
     fn test_fixup_relative_calls_out_of_bounds_forward() {
+        let config = Config::default();
         let mut bpf_functions = BTreeMap::new();
+        let syscall_registry = SyscallRegistry::default();
+
         // call +5
         #[rustfmt::skip]
         let mut prog = vec![
@@ -1138,7 +1181,13 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(
+            &config,
+            &mut bpf_functions,
+            &syscall_registry,
+            &mut prog,
+        )
+        .unwrap();
         let name = "function_1".to_string();
         let hash = hash_bpf_function(1, &name);
         let insn = ebpf::Insn {
@@ -1157,7 +1206,10 @@ mod test {
         expected = "called `Result::unwrap()` on an `Err` value: RelativeJumpOutOfBounds(34)"
     )]
     fn test_fixup_relative_calls_out_of_bounds_back() {
+        let config = Config::default();
         let mut bpf_functions = BTreeMap::new();
+        let syscall_registry = SyscallRegistry::default();
+
         // call -7
         #[rustfmt::skip]
         let mut prog = vec![
@@ -1168,7 +1220,13 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x10, 0x00, 0x00, 0xf9, 0xff, 0xff, 0xff];
 
-        ElfExecutable::fixup_relative_calls(true, &mut bpf_functions, &mut prog).unwrap();
+        ElfExecutable::fixup_relative_calls(
+            &config,
+            &mut bpf_functions,
+            &syscall_registry,
+            &mut prog,
+        )
+        .unwrap();
         let name = "function_4".to_string();
         let hash = hash_bpf_function(4, &name);
         let insn = ebpf::Insn {

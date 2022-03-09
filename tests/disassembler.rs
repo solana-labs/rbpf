@@ -18,10 +18,14 @@ use solana_rbpf::{
 macro_rules! disasm {
     ($src:expr) => {{
         let src = $src;
+        let config = Config {
+            enable_symbol_and_section_labels: true,
+            ..Config::default()
+        };
         let executable = assemble::<UserError, TestInstructionMeter>(
             src,
             None,
-            Config::default(),
+            config,
             SyscallRegistry::default(),
         )
         .unwrap();

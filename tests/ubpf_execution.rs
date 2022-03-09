@@ -2290,14 +2290,23 @@ fn test_err_mem_access_out_of_bound() {
     for address in [0x2u64, 0x8002u64, 0x80000002u64, 0x8000000000000002u64] {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
+        let config = Config::default();
         let mut bpf_functions = BTreeMap::new();
-        register_bpf_function(&mut bpf_functions, 0, "entrypoint", true).unwrap();
+        let syscall_registry = SyscallRegistry::default();
+        register_bpf_function(
+            &config,
+            &mut bpf_functions,
+            &syscall_registry,
+            0,
+            "entrypoint",
+        )
+        .unwrap();
         #[allow(unused_mut)]
         let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
             &prog,
             None,
-            Config::default(),
-            SyscallRegistry::default(),
+            config,
+            syscall_registry,
             bpf_functions,
         )
         .unwrap();
@@ -3422,15 +3431,24 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
     let mut bpf_functions = BTreeMap::new();
-    register_bpf_function(&mut bpf_functions, 0, "entrypoint", true).unwrap();
+    let config = Config {
+        enable_instruction_tracing: true,
+        ..Config::default()
+    };
+    let syscall_registry = SyscallRegistry::default();
+    register_bpf_function(
+        &config,
+        &mut bpf_functions,
+        &syscall_registry,
+        0,
+        "entrypoint",
+    )
+    .unwrap();
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
         Some(solana_rbpf::verifier::check),
-        Config {
-            enable_instruction_tracing: true,
-            ..Config::default()
-        },
-        SyscallRegistry::default(),
+        config,
+        syscall_registry,
         bpf_functions,
     );
     let mut executable = if let Ok(executable) = executable {
