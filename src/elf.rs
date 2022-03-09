@@ -135,11 +135,15 @@ pub fn hash_bpf_function(pc: usize, name: &str) -> u32 {
 pub fn register_bpf_function<T: AsRef<str> + ToString>(
     config: &Config,
     bpf_functions: &mut BTreeMap<u32, (usize, String)>,
-    _syscall_registry: &SyscallRegistry,
+    syscall_registry: &SyscallRegistry,
     pc: usize,
     name: T,
 ) -> Result<u32, ElfError> {
     let hash = hash_bpf_function(pc, name.as_ref());
+    if config.syscall_bpf_function_hash_collision && syscall_registry.lookup_syscall(hash).is_some()
+    {
+        return Err(ElfError::SymbolHashCollision(hash));
+    }
     match bpf_functions.entry(hash) {
         Entry::Vacant(entry) => {
             entry.insert((

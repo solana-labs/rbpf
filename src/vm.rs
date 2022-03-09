@@ -211,6 +211,8 @@ pub struct Config {
     pub encrypt_environment_registers: bool,
     /// Disable ldabs* and ldind* instructions
     pub disable_deprecated_load_instructions: bool,
+    /// Throw ElfError::SymbolHashCollision when a BPF function collides with a registered syscall
+    pub syscall_bpf_function_hash_collision: bool,
 }
 
 impl Default for Config {
@@ -225,10 +227,11 @@ impl Default for Config {
             enable_symbol_and_section_labels: false,
             disable_unresolved_symbols_at_runtime: true,
             reject_broken_elfs: false,
-            disable_deprecated_load_instructions: true,
             noop_instruction_ratio: 1.0 / 256.0,
             sanitize_user_provided_values: true,
             encrypt_environment_registers: true,
+            disable_deprecated_load_instructions: true,
+            syscall_bpf_function_hash_collision: true,
         }
     }
 }
