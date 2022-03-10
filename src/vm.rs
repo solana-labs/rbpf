@@ -213,6 +213,8 @@ pub struct Config {
     pub disable_deprecated_load_instructions: bool,
     /// Throw ElfError::SymbolHashCollision when a BPF function collides with a registered syscall
     pub syscall_bpf_function_hash_collision: bool,
+    /// Have the verifier reject "callx r10"
+    pub reject_callx_r10: bool,
 }
 
 impl Default for Config {
@@ -232,6 +234,7 @@ impl Default for Config {
             encrypt_environment_registers: true,
             disable_deprecated_load_instructions: true,
             syscall_bpf_function_hash_collision: true,
+            reject_callx_r10: true,
         }
     }
 }

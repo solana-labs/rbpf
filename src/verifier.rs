@@ -167,8 +167,12 @@ fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize, imm_bits: u64) -> Result<
 }
 
 /// Check that the imm is a valid register number
-fn check_imm_register(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
-    if insn.imm < 0 || insn.imm > 10 {
+fn check_imm_register(
+    insn: &ebpf::Insn,
+    insn_ptr: usize,
+    config: &Config,
+) -> Result<(), VerifierError> {
+    if insn.imm < 0 || insn.imm > 10 || (insn.imm == 10 && config.reject_callx_r10) {
         return Err(VerifierError::InvalidRegister(adj_insn_ptr(insn_ptr)));
     }
     Ok(())
@@ -310,7 +314,7 @@ pub fn check(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
             ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
             ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr)?; },
             ebpf::CALL_IMM   => {},
-            ebpf::CALL_REG   => { check_imm_register(&insn, insn_ptr)?; },
+            ebpf::CALL_REG   => { check_imm_register(&insn, insn_ptr, config)?; },
             ebpf::EXIT       => {},
 
             _                => {
