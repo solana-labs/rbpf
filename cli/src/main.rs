@@ -7,10 +7,7 @@ use solana_rbpf::{
     syscalls::Result,
     user_error::UserError,
     verifier::check,
-    vm::{
-        Config, DynamicAnalysis, EbpfVm, SyscallObject, SyscallRegistry,
-        TestInstructionMeter,
-    },
+    vm::{Config, DynamicAnalysis, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read, path::Path};
 
@@ -153,22 +150,6 @@ fn main() {
         }
     }
     .unwrap();
-    Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
-    let analysis = Analysis::from_executable(&executable);
-
-    match matches.value_of("use") {
-        Some("cfg") => {
-            let mut file = File::create("cfg.dot").unwrap();
-            analysis.visualize_graphically(&mut file, None).unwrap();
-            return;
-        }
-        Some("disassembler") => {
-            let stdout = std::io::stdout();
-            analysis.disassemble(&mut stdout.lock()).unwrap();
-            return;
-        }
-        _ => {}
-    }
 
     let mut mem = match matches.value_of("input").unwrap().parse::<usize>() {
         Ok(allocate) => vec![0u8; allocate],
@@ -194,8 +175,43 @@ fn main() {
             .parse::<usize>()
             .unwrap()
     ];
+    if matches.value_of("use") == Some("jit") {
+        Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
+    }
     let mut vm = EbpfVm::new(&executable, &mut mem, &mut heap).unwrap();
-    for (hash, name) in analysis.executable.get_syscall_symbols() {
+
+    let analysis = if matches.value_of("use") == Some("cfg")
+        || matches.value_of("use") == Some("disassembler")
+        || matches.is_present("trace")
+        || matches.is_present("profile")
+    {
+        Some(Analysis::from_executable(&executable))
+    } else {
+        None
+    };
+    match matches.value_of("use") {
+        Some("cfg") => {
+            let mut file = File::create("cfg.dot").unwrap();
+            analysis
+                .as_ref()
+                .unwrap()
+                .visualize_graphically(&mut file, None)
+                .unwrap();
+            return;
+        }
+        Some("disassembler") => {
+            let stdout = std::io::stdout();
+            analysis
+                .as_ref()
+                .unwrap()
+                .disassemble(&mut stdout.lock())
+                .unwrap();
+            return;
+        }
+        _ => {}
+    }
+
+    for (hash, name) in executable.get_syscall_symbols() {
         vm.bind_syscall_context_object(Box::new(MockSyscall { name: name.clone() }), Some(*hash))
             .unwrap();
     }
@@ -208,17 +224,18 @@ fn main() {
     println!("Instruction Count: {}", vm.get_total_instruction_count());
     if matches.is_present("trace") {
         println!("Trace:\n");
-        let analysis = Analysis::from_executable(&executable);
         let stdout = std::io::stdout();
         vm.get_tracer()
-            .write(&mut stdout.lock(), &analysis)
+            .write(&mut stdout.lock(), analysis.as_ref().unwrap())
             .unwrap();
     }
     if matches.is_present("profile") {
         let tracer = &vm.get_tracer();
-        let dynamic_analysis = DynamicAnalysis::new(&tracer, &analysis);
+        let dynamic_analysis = DynamicAnalysis::new(&tracer, analysis.as_ref().unwrap());
         let mut file = File::create("profile.dot").unwrap();
         analysis
+            .as_ref()
+            .unwrap()
             .visualize_graphically(&mut file, Some(&dynamic_analysis))
             .unwrap();
     }
