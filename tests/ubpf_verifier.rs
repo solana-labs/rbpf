@@ -337,3 +337,41 @@ fn test_verifier_err_ldabs_ldind_disabled() {
         }
     }
 }
+
+#[test]
+fn test_sdiv_disabled() {
+    let instructions = [
+        (ebpf::SDIV32_IMM, "sdiv32 r0, 2"),
+        (ebpf::SDIV32_REG, "sdiv32 r0, r1"),
+        (ebpf::SDIV64_IMM, "sdiv64 r0, 4"),
+        (ebpf::SDIV64_REG, "sdiv64 r0, r1"),
+    ];
+
+    for (opc, instruction) in instructions {
+        for enable_sdiv in [true, false] {
+            let assembly = format!("\n{}\nexit", instruction);
+            let result = assemble::<UserError, TestInstructionMeter>(
+                &assembly,
+                Some(check),
+                Config {
+                    enable_sdiv,
+                    ..Config::default()
+                },
+                SyscallRegistry::default(),
+            );
+
+            if enable_sdiv {
+                assert!(result.is_ok());
+            } else {
+                assert_eq!(
+                    result.unwrap_err(),
+                    format!(
+                        "Executable constructor VerifierError(UnknownOpCode({}, {}))",
+                        opc,
+                        ebpf::ELF_INSN_DUMP_OFFSET
+                    ),
+                );
+            }
+        }
+    }
+}

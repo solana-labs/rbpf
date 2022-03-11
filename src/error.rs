@@ -49,6 +49,9 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Divide by zero"
     #[error("divide by zero at instruction {0}")]
     DivideByZero(usize),
+    /// Divide overflow
+    #[error("division overflow at instruction {0}")]
+    DivideOverflow(usize),
     /// Exceeded max instructions allowed
     #[error("attempted to execute past the end of the text segment at instruction #{0}")]
     ExecutionOverrun(usize),

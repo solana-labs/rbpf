@@ -183,6 +183,8 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
 }
 
 // Special values for target_pc in struct Jump
+const TARGET_PC_LOCAL_ANCHOR: usize = std::usize::MAX - 100;
+const TARGET_PC_DIV_OVERFLOW: usize = std::usize::MAX - 33;
 const TARGET_PC_TRACE: usize = std::usize::MAX - 32;
 const TARGET_PC_SYSCALL: usize = std::usize::MAX - 31;
 const TARGET_PC_BPF_CALL_PROLOGUE: usize = std::usize::MAX - 30;
@@ -816,14 +818,43 @@ fn emit_shift<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opc
 fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: Option<i64>) -> Result<(), EbpfError<E>> {
     let mul = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MUL32_IMM & ebpf::BPF_ALU_OP_MASK);
     let div = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::DIV32_IMM & ebpf::BPF_ALU_OP_MASK);
+    let sdiv = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::SDIV32_IMM & ebpf::BPF_ALU_OP_MASK);
     let modrm = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MOD32_IMM & ebpf::BPF_ALU_OP_MASK);
     let size = if (opc & ebpf::BPF_CLS_MASK) == ebpf::BPF_ALU64 { OperandSize::S64 } else { OperandSize::S32 };
 
-    if (div || modrm) && imm.is_none() {
+    // subtracting offset_in_text_section from TARGET_PC_LOCAL_ANCHOR gives us a
+    // unique local anchor
+    let sdiv_anchor =  if sdiv { TARGET_PC_LOCAL_ANCHOR - jit.offset_in_text_section } else { 0 };
+
+    if (div || sdiv || modrm) && imm.is_none() {
         // Save pc
         X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
         X86Instruction::test(size, src, src, None).emit(jit)?; // src == 0
         emit_jcc(jit, 0x84, TARGET_PC_DIV_BY_ZERO)?;
+
+    }
+
+    // sdiv overflows with MIN / -1. If we have an immediate and it's not -1, we
+    // don't need any checks.
+    if sdiv && imm.unwrap_or(-1) == -1 {
+        if imm.is_none() {
+            // if src != -1, we can skip checking dst
+            X86Instruction::cmp_immediate(size, src, -1, None).emit(jit)?;
+            emit_jcc(jit, 0x85, sdiv_anchor)?;
+        }
+
+        // if dst != MIN, we're not going to overflow
+        X86Instruction::load_immediate(size, R11, if size == OperandSize::S64 { i64::MIN } else { i32::MIN as i64 }).emit(jit)?;
+        X86Instruction::cmp(size, dst, R11, None).emit(jit)?;
+        emit_jcc(jit, 0x85, sdiv_anchor)?;
+
+        // MIN / -1, raise EbpfError::DivideOverflow(pc)
+        X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
+        emit_jmp(jit, TARGET_PC_DIV_OVERFLOW)?;
+    }
+
+    if sdiv {
+        set_anchor(jit, sdiv_anchor);
     }
 
     if dst != RAX {
@@ -850,9 +881,17 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
     if div || modrm {
         // xor %edx,%edx
         emit_alu(jit, size, 0x31, RDX, RDX, 0, None)?;
+    } else if sdiv {
+        // cdq or cqo depending on operand size
+        X86Instruction {
+            size,
+            opcode: 0x99,
+            modrm: false,
+            ..X86Instruction::default()
+        }.emit(jit)?;
     }
 
-    emit_alu(jit, size, 0xf7, if mul { 4 } else { 6 }, R11, 0, None)?;
+    emit_alu(jit, size, 0xf7, if mul { 4 } else if sdiv { 7 } else { 6 }, R11, 0, None)?;
 
     if dst != RDX {
         if modrm {
@@ -861,7 +900,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
         X86Instruction::pop(RDX).emit(jit)?;
     }
     if dst != RAX {
-        if div || mul {
+        if div || sdiv || mul {
             X86Instruction::mov(OperandSize::S64, RAX, dst).emit(jit)?;
         }
         X86Instruction::pop(RAX).emit(jit)?;
@@ -1167,9 +1206,9 @@ impl JitCompiler {
                     emit_alu(self, OperandSize::S32, 0x29, src, dst, 0, None)?;
                     X86Instruction::sign_extend_i32_to_i64(dst, dst).emit(self)?;
                 },
-                ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::MOD32_IMM  =>
+                ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::SDIV32_IMM | ebpf::MOD32_IMM  =>
                     emit_muldivmod(self, insn.opc, dst, dst, Some(insn.imm))?,
-                ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::MOD32_REG  =>
+                ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::SDIV32_REG | ebpf::MOD32_REG  =>
                     emit_muldivmod(self, insn.opc, src, dst, None)?,
                 ebpf::OR32_IMM   => emit_sanitized_alu(self, OperandSize::S32, 0x09, 1, dst, insn.imm)?,
                 ebpf::OR32_REG   => emit_alu(self, OperandSize::S32, 0x09, src, dst, 0, None)?,
@@ -1225,9 +1264,9 @@ impl JitCompiler {
                 ebpf::ADD64_REG  => emit_alu(self, OperandSize::S64, 0x01, src, dst, 0, None)?,
                 ebpf::SUB64_IMM  => emit_sanitized_alu(self, OperandSize::S64, 0x29, 5, dst, insn.imm)?,
                 ebpf::SUB64_REG  => emit_alu(self, OperandSize::S64, 0x29, src, dst, 0, None)?,
-                ebpf::MUL64_IMM | ebpf::DIV64_IMM | ebpf::MOD64_IMM  =>
+                ebpf::MUL64_IMM | ebpf::DIV64_IMM | ebpf::SDIV64_IMM | ebpf::MOD64_IMM  =>
                     emit_muldivmod(self, insn.opc, dst, dst, Some(insn.imm))?,
-                ebpf::MUL64_REG | ebpf::DIV64_REG | ebpf::MOD64_REG  =>
+                ebpf::MUL64_REG | ebpf::DIV64_REG | ebpf::SDIV64_REG | ebpf::MOD64_REG  =>
                     emit_muldivmod(self, insn.opc, src, dst, None)?,
                 ebpf::OR64_IMM   => emit_sanitized_alu(self, OperandSize::S64, 0x09, 1, dst, insn.imm)?,
                 ebpf::OR64_REG   => emit_alu(self, OperandSize::S64, 0x09, src, dst, 0, None)?,
@@ -1607,6 +1646,11 @@ impl JitCompiler {
         // Handler for EbpfError::DivideByZero
         set_anchor(self, TARGET_PC_DIV_BY_ZERO);
         emit_set_exception_kind::<E>(self, EbpfError::DivideByZero(0))?;
+        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
+
+        // Handler for EbpfError::DivideOverflow
+        set_anchor(self, TARGET_PC_DIV_OVERFLOW);
+        emit_set_exception_kind::<E>(self, EbpfError::DivideOverflow(0))?;
         emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
 
         // Handler for EbpfError::UnsupportedInstruction

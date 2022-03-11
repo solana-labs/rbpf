@@ -218,6 +218,8 @@ pub struct Config {
     pub reject_callx_r10: bool,
     /// Use dynamic stack frame sizes
     pub dynamic_stack_frames: bool,
+    /// Enable native signed division
+    pub enable_sdiv: bool,
 }
 
 impl Config {
@@ -246,6 +248,7 @@ impl Default for Config {
             syscall_bpf_function_hash_collision: true,
             reject_callx_r10: true,
             dynamic_stack_frames: false,
+            enable_sdiv: true,
         }
     }
 }
@@ -862,7 +865,22 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                     if reg[src] as u32 == 0 {
                         return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
-                                    reg[dst] = (reg[dst] as u32 / reg[src] as u32)               as u64;
+                    reg[dst] = (reg[dst] as u32 / reg[src] as u32) as u64;
+                },
+                ebpf::SDIV32_IMM  => {
+                    if reg[dst] as i32 == i32::MIN && insn.imm == -1 {
+                        return Err(EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    }
+                    reg[dst] = (reg[dst] as i32 / insn.imm as i32) as u64;
+                }
+                ebpf::SDIV32_REG  => {
+                    if reg[src] as i32 == 0 {
+                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    }
+                    if reg[dst] as i32 == i32::MIN && reg[src] as i32 == -1 {
+                        return Err(EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    }
+                    reg[dst] = (reg[dst] as i32 / reg[src] as i32) as u64;
                 },
                 ebpf::OR32_IMM   =>   reg[dst] = (reg[dst] as u32             | insn.imm as u32) as u64,
                 ebpf::OR32_REG   =>   reg[dst] = (reg[dst] as u32             | reg[src] as u32) as u64,
@@ -920,6 +938,22 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                                     reg[dst] /= reg[src];
+                },
+                ebpf::SDIV64_IMM  => {
+                    if reg[dst] as i64 == i64::MIN && insn.imm == -1 {
+                        return Err(EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    }
+
+                    reg[dst] = (reg[dst] as i64 / insn.imm) as u64
+                }
+                ebpf::SDIV64_REG  => {
+                    if reg[src] == 0 {
+                        return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    }
+                    if reg[dst] as i64 == i64::MIN && reg[src] as i64 == -1 {
+                        return Err(EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    }
+                    reg[dst] = (reg[dst] as i64 / reg[src] as i64) as u64;
                 },
                 ebpf::OR64_IMM   => reg[dst] |=  insn.imm as u64,
                 ebpf::OR64_REG   => reg[dst] |=  reg[src],

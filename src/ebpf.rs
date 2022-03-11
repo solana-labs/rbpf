@@ -150,6 +150,8 @@ pub const BPF_MOV: u8 = 0xb0;
 pub const BPF_ARSH: u8 = 0xc0;
 /// BPF ALU/ALU64 operation code: endianness conversion.
 pub const BPF_END: u8 = 0xd0;
+/// BPF ALU/ALU64 operation code: signed division.
+pub const BPF_SDIV: u8 = 0xe0;
 
 // Operation codes -- BPF_JMP class:
 /// BPF JMP operation code: jump.
@@ -288,6 +290,10 @@ pub const ARSH32_IMM: u8 = BPF_ALU | BPF_K | BPF_ARSH;
 ///
 /// <https://en.wikipedia.org/wiki/Arithmetic_shift>
 pub const ARSH32_REG: u8 = BPF_ALU | BPF_X | BPF_ARSH;
+/// BPF opcode: `sdiv32 dst, imm` /// `dst s/= imm`.
+pub const SDIV32_IMM: u8 = BPF_ALU | BPF_K | BPF_SDIV;
+/// BPF opcode: `sdiv32 dst, src` /// `dst s/= src`.
+pub const SDIV32_REG: u8 = BPF_ALU | BPF_X | BPF_SDIV;
 
 /// BPF opcode: `le dst` /// `dst = htole<imm>(dst), with imm in {16, 32, 64}`.
 pub const LE: u8 = BPF_ALU | BPF_K | BPF_END;
@@ -348,6 +354,10 @@ pub const ARSH64_IMM: u8 = BPF_ALU64 | BPF_K | BPF_ARSH;
 ///
 /// <https://en.wikipedia.org/wiki/Arithmetic_shift>
 pub const ARSH64_REG: u8 = BPF_ALU64 | BPF_X | BPF_ARSH;
+/// BPF opcode: `sdiv64 dst, imm` /// `dst s/= imm`.
+pub const SDIV64_IMM: u8 = BPF_ALU64 | BPF_K | BPF_SDIV;
+/// BPF opcode: `sdiv64 dst, src` /// `dst s/= src`.
+pub const SDIV64_REG: u8 = BPF_ALU64 | BPF_X | BPF_SDIV;
 
 /// BPF opcode: `ja +off` /// `PC += off`.
 pub const JA: u8 = BPF_JMP | BPF_JA;

@@ -770,6 +770,35 @@ fn test_div32_reg() {
 }
 
 #[test]
+fn test_sdiv32_imm() {
+    test_interpreter_and_jit_asm!(
+        "
+        lddw r0, 0x10000000c
+        sdiv32 r0, 4
+        exit",
+        [],
+        (),
+        { |_vm, res: Result| { res.unwrap() == 0x3 } },
+        3
+    );
+}
+
+#[test]
+fn test_sdiv32_reg() {
+    test_interpreter_and_jit_asm!(
+        "
+        lddw r0, 0x10000000c
+        mov r1, 4
+        sdiv32 r0, r1
+        exit",
+        [],
+        (),
+        { |_vm, res: Result| { res.unwrap() == 0x3 } },
+        4
+    );
+}
+
+#[test]
 fn test_div64_imm() {
     test_interpreter_and_jit_asm!(
         "
@@ -801,6 +830,37 @@ fn test_div64_reg() {
 }
 
 #[test]
+fn test_sdiv64_imm() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 0xc
+        lsh r0, 32
+        sdiv r0, 4
+        exit",
+        [],
+        (),
+        { |_vm, res: Result| { res.unwrap() == 0x300000000 } },
+        4
+    );
+}
+
+#[test]
+fn test_sdiv64_reg() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 0xc
+        lsh r0, 32
+        mov r1, 4
+        sdiv r0, r1
+        exit",
+        [],
+        (),
+        { |_vm, res: Result| { res.unwrap() == 0x300000000 } },
+        5
+    );
+}
+
+#[test]
 fn test_err_div64_by_zero_reg() {
     test_interpreter_and_jit_asm!(
         "
@@ -816,7 +876,7 @@ fn test_err_div64_by_zero_reg() {
 }
 
 #[test]
-fn test_err_div_by_zero_reg() {
+fn test_err_div32_by_zero_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
@@ -827,6 +887,106 @@ fn test_err_div_by_zero_reg() {
         (),
         { |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
+    );
+}
+
+#[test]
+fn test_err_sdiv64_by_zero_reg() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov32 r0, 1
+        mov32 r1, 0
+        sdiv r0, r1
+        exit",
+        [],
+        (),
+        { |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
+        3
+    );
+}
+
+#[test]
+fn test_err_sdiv32_by_zero_reg() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov32 r0, 1
+        mov32 r1, 0
+        sdiv32 r0, r1
+        exit",
+        [],
+        (),
+        { |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
+        3
+    );
+}
+
+#[test]
+fn test_err_sdiv64_overflow_imm() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 0x80
+        lsh r0, 56
+        sdiv r0, -1
+        exit",
+        [],
+        (),
+        {
+            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 31)
+        },
+        3
+    );
+}
+
+#[test]
+fn test_err_sdiv64_overflow_reg() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 0x80
+        lsh r0, 56
+        mov r1, -1
+        sdiv r0, r1
+        exit",
+        [],
+        (),
+        {
+            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 32)
+        },
+        4
+    );
+}
+
+#[test]
+fn test_err_sdiv32_overflow_imm() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 0x80
+        lsh r0, 24
+        sdiv32 r0, -1
+        exit",
+        [],
+        (),
+        {
+            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 31)
+        },
+        3
+    );
+}
+
+#[test]
+fn test_err_sdiv32_overflow_reg() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 0x80
+        lsh r0, 24
+        mov r1, -1
+        sdiv32 r0, r1
+        exit",
+        [],
+        (),
+        {
+            |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 32)
+        },
+        4
     );
 }
 

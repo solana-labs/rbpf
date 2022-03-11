@@ -110,6 +110,10 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
             entry(&format!("{}64", name), AluBinary, ebpf::BPF_ALU64 | opc);
         }
 
+        entry("sdiv", AluBinary, ebpf::BPF_ALU64 | ebpf::BPF_SDIV);
+        entry("sdiv64", AluBinary, ebpf::BPF_ALU64 | ebpf::BPF_SDIV);
+        entry("sdiv32", AluBinary, ebpf::BPF_ALU | ebpf::BPF_SDIV);
+
         // LoadAbs, LoadInd, LoadReg, StoreImm, and StoreReg.
         for &(suffix, size) in &mem_sizes {
             entry(

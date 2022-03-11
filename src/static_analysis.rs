@@ -934,6 +934,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                         | ebpf::SUB32_IMM
                         | ebpf::MUL32_IMM
                         | ebpf::DIV32_IMM
+                        | ebpf::SDIV32_IMM
                         | ebpf::OR32_IMM
                         | ebpf::AND32_IMM
                         | ebpf::LSH32_IMM
@@ -945,6 +946,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                         | ebpf::SUB64_IMM
                         | ebpf::MUL64_IMM
                         | ebpf::DIV64_IMM
+                        | ebpf::SDIV64_IMM
                         | ebpf::OR64_IMM
                         | ebpf::AND64_IMM
                         | ebpf::LSH64_IMM
@@ -966,6 +968,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                         | ebpf::SUB32_REG
                         | ebpf::MUL32_REG
                         | ebpf::DIV32_REG
+                        | ebpf::SDIV32_REG
                         | ebpf::OR32_REG
                         | ebpf::AND32_REG
                         | ebpf::LSH32_REG
@@ -977,6 +980,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                         | ebpf::SUB64_REG
                         | ebpf::MUL64_REG
                         | ebpf::DIV64_REG
+                        | ebpf::SDIV64_REG
                         | ebpf::OR64_REG
                         | ebpf::AND64_REG
                         | ebpf::LSH64_REG
