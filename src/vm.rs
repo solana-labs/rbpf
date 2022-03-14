@@ -220,6 +220,8 @@ pub struct Config {
     pub dynamic_stack_frames: bool,
     /// Enable native signed division
     pub enable_sdiv: bool,
+    /// Avoid copying read only sections when possible
+    pub optimize_rodata: bool,
 }
 
 impl Config {
@@ -249,6 +251,7 @@ impl Default for Config {
             reject_callx_r10: true,
             dynamic_stack_frames: false,
             enable_sdiv: true,
+            optimize_rodata: true,
         }
     }
 }
@@ -512,11 +515,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         input_region: &mut [u8],
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
         let config = executable.get_config();
-        let ro_region = executable.get_ro_section();
         let stack = CallFrames::new(config);
         let regions: Vec<MemoryRegion> = vec![
             MemoryRegion::new_from_slice(&[], 0, 0, false),
-            MemoryRegion::new_from_slice(ro_region, ebpf::MM_PROGRAM_START, 0, false),
+            executable.get_ro_region(),
             stack.get_memory_region(),
             MemoryRegion::new_from_slice(heap_region, ebpf::MM_HEAP_START, 0, true),
             MemoryRegion::new_from_slice(input_region, ebpf::MM_INPUT_START, 0, true),

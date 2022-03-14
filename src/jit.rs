@@ -1576,8 +1576,10 @@ impl JitCompiler {
                 X86Instruction::cmp_immediate(OperandSize::S8, RAX, 0, Some(X86IndirectAccess::Offset(MemoryRegion::IS_WRITABLE_OFFSET))).emit(self)?; // region.is_writable == 0
                 emit_jcc(self, 0x84, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
             }
-            X86Instruction::load_immediate(OperandSize::S64, RCX, (1i64 << ebpf::VIRTUAL_ADDRESS_BITS) - 1).emit(self)?; // RCX = (1 << ebpf::VIRTUAL_ADDRESS_BITS) - 1;
-            emit_alu(self, OperandSize::S64, 0x21, RCX, R11, 0, None)?; // R11 &= (1 << ebpf::VIRTUAL_ADDRESS_BITS) - 1;
+            X86Instruction::load(OperandSize::S64, RAX, RCX, X86IndirectAccess::Offset(MemoryRegion::VM_ADDR_OFFSET)).emit(self)?; // RCX = region.vm_addr
+            X86Instruction::cmp(OperandSize::S64, RCX, R11, None).emit(self)?; // vm_addr < region.vm_addr
+            emit_jcc(self, 0x82, TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset)?;
+            emit_alu(self, OperandSize::S64, 0x29, RCX, R11, 0, None)?; // vm_addr -= region.vm_addr
             if !self.config.dynamic_stack_frames && self.config.enable_stack_frame_gaps {
                 X86Instruction::load(OperandSize::S8, RAX, RCX, X86IndirectAccess::Offset(MemoryRegion::VM_GAP_SHIFT_OFFSET)).emit(self)?; // RCX = region.vm_gap_shift;
                 X86Instruction::mov(OperandSize::S64, R11, RDX).emit(self)?; // RDX = R11;

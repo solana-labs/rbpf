@@ -69,12 +69,18 @@ impl MemoryRegion {
     }
 
     /// Convert a virtual machine address into a host address
-    /// Does not perform a lower bounds check, as that is already done by the binary search in MemoryMapping::map()
     pub fn vm_to_host<E: UserDefinedError>(
         &self,
         vm_addr: u64,
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
+        // This can happen if a region starts at an offset from the base region
+        // address, eg with rodata regions if config.optimize_rodata = true, see
+        // Elf::get_ro_region.
+        if vm_addr < self.vm_addr {
+            return Err(EbpfError::InvalidVirtualAddress(vm_addr));
+        }
+
         let begin_offset = vm_addr.saturating_sub(self.vm_addr);
         let is_in_gap = (begin_offset
             .checked_shr(self.vm_gap_shift as u32)
@@ -140,18 +146,11 @@ impl<'a> MemoryMapping<'a> {
     ) -> Result<Self, EbpfError<E>> {
         regions.sort();
         for (index, region) in regions.iter().enumerate() {
-            if region.vm_addr
-                != (index as u64)
-                    .checked_shl(ebpf::VIRTUAL_ADDRESS_BITS as u32)
-                    .unwrap_or(0)
-                || (region.len > 0
-                    && region
-                        .vm_addr
-                        .saturating_add(region.len)
-                        .saturating_sub(1)
-                        .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
-                        .unwrap_or(0) as usize
-                        != index)
+            if region
+                .vm_addr
+                .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
+                .unwrap_or(0)
+                != index as u64
             {
                 return Err(EbpfError::InvalidMemoryRegion(index));
             }

@@ -14,6 +14,7 @@ use crate::{
     ebpf::{self, EF_SBF_V2},
     error::{EbpfError, UserDefinedError},
     jit::JitProgram,
+    memory_region::MemoryRegion,
     vm::{Config, InstructionMeter, SyscallRegistry},
 };
 use byteorder::{ByteOrder, LittleEndian};
@@ -248,6 +249,17 @@ impl SectionInfo {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub(crate) enum Section {
+    /// Owned section data.
+    Owned(usize, Vec<u8>),
+    /// Borrowed section data.
+    ///
+    /// The borrowed section data can be retrieved indexing the input ELF buffer
+    /// with the given range.
+    Borrowed(Range<usize>),
+}
+
 /// Elf loader/relocator
 #[derive(Debug, PartialEq)]
 pub struct Executable<E: UserDefinedError, I: InstructionMeter> {
@@ -256,7 +268,7 @@ pub struct Executable<E: UserDefinedError, I: InstructionMeter> {
     /// Loaded and executable elf
     elf_bytes: AlignedMemory,
     /// Read-only section
-    ro_section: Vec<u8>,
+    ro_section: Section,
     /// Text section info
     text_section_info: SectionInfo,
     /// Call resolution map (hash, pc, name)
@@ -277,20 +289,33 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
     /// Get the .text section virtual address and bytes
     pub fn get_text_bytes(&self) -> (u64, &[u8]) {
-        let offset = (self
+        let (ro_offset, ro_section) = match &self.ro_section {
+            Section::Owned(offset, data) => (*offset, data.as_slice()),
+            Section::Borrowed(range) => (range.start, &self.elf_bytes.as_slice()[range.clone()]),
+        };
+
+        let offset = self
             .text_section_info
             .vaddr
-            .saturating_sub(ebpf::MM_PROGRAM_START)) as usize;
+            .saturating_sub(ebpf::MM_PROGRAM_START)
+            .saturating_sub(ro_offset as u64) as usize;
         (
             self.text_section_info.vaddr,
-            &self.ro_section
-                [offset..offset.saturating_add(self.text_section_info.offset_range.len())],
+            &ro_section[offset..offset.saturating_add(self.text_section_info.offset_range.len())],
         )
     }
 
     /// Get the concatenated read-only sections (including the text section)
     pub fn get_ro_section(&self) -> &[u8] {
-        self.ro_section.as_slice()
+        match &self.ro_section {
+            Section::Owned(_offset, data) => data.as_slice(),
+            Section::Borrowed(range) => &self.elf_bytes.as_slice()[range.clone()],
+        }
+    }
+
+    /// Get a memory region that can be used to access the merged readonly section
+    pub fn get_ro_region(&self) -> MemoryRegion {
+        get_ro_region(&self.ro_section, self.elf_bytes.as_slice())
     }
 
     /// Get the entry point offset into the text section
@@ -386,7 +411,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         Self {
             config,
             elf_bytes,
-            ro_section: text_bytes.to_vec(),
+            ro_section: Section::Borrowed(0..text_bytes.len()),
             text_section_info: SectionInfo {
                 name: if enable_symbol_and_section_labels {
                     ".text".to_string()
@@ -394,10 +419,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     String::default()
                 },
                 vaddr: ebpf::MM_PROGRAM_START,
-                offset_range: Range {
-                    start: 0,
-                    end: text_bytes.len(),
-                },
+                offset_range: 0..text_bytes.len(),
             },
             bpf_functions,
             syscall_symbols: BTreeMap::default(),
@@ -467,55 +489,13 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             return Err(ElfError::InvalidEntrypoint);
         }
 
-        // concatenate the read-only sections into one
-        let mut ro_alloc_length =
-            (text_section.sh_addr as usize).saturating_add(text_section_info.offset_range.len());
-        let mut ro_fill_length = text_section_info.offset_range.len();
-        let ro_slices = elf
-            .section_headers
-            .iter()
-            .filter(|section_header| {
-                if let Some(name) = elf.shdr_strtab.get_at(section_header.sh_name) {
-                    return name == ".rodata" || name == ".data.rel.ro" || name == ".eh_frame";
-                }
-                false
-            })
-            .map(|section_header| {
-                let vaddr = section_header
-                    .sh_addr
-                    .saturating_add(ebpf::MM_PROGRAM_START);
-                if (config.reject_broken_elfs && section_header.sh_addr != section_header.sh_offset)
-                    || vaddr > ebpf::MM_STACK_START
-                {
-                    return Err(ElfError::ValueOutOfBounds);
-                }
-                let slice = elf_bytes
-                    .as_slice()
-                    .get(section_header.file_range().unwrap_or_default())
-                    .ok_or(ElfError::ValueOutOfBounds)?;
-                ro_alloc_length = ro_alloc_length
-                    .max((section_header.sh_addr as usize).saturating_add(slice.len()));
-                ro_fill_length = ro_fill_length.saturating_add(slice.len());
-                Ok((section_header.sh_addr as usize, slice))
-            })
-            .collect::<Result<Vec<_>, ElfError>>()?;
-        if ro_alloc_length > elf_bytes.len()
-            || (config.reject_broken_elfs && ro_fill_length > ro_alloc_length)
-        {
-            return Err(ElfError::ValueOutOfBounds);
-        }
-        let mut ro_section = vec![0; ro_alloc_length];
-        ro_section[text_section.sh_addr as usize
-            ..(text_section.sh_addr as usize).saturating_add(text_section_info.offset_range.len())]
-            .copy_from_slice(
-                elf_bytes
-                    .as_slice()
-                    .get(text_section_info.offset_range.clone())
-                    .ok_or(ElfError::ValueOutOfBounds)?,
-            );
-        for (offset, slice) in ro_slices.iter() {
-            ro_section[*offset..offset.saturating_add(slice.len())].copy_from_slice(slice);
-        }
+        let ro_section = Self::parse_ro_sections(
+            &config,
+            elf.section_headers
+                .iter()
+                .map(|s| (elf.shdr_strtab.get_at(s.sh_name), s)),
+            elf_bytes.as_slice(),
+        )?;
 
         Ok(Self {
             config,
@@ -536,7 +516,10 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             // elf bytres
             .saturating_add(self.elf_bytes.mem_size())
             // ro section
-            .saturating_add(self.ro_section.capacity())
+            .saturating_add(match &self.ro_section {
+                Section::Owned(_, data) => data.capacity(),
+                Section::Borrowed(_) => 0,
+            })
             // text section info
             .saturating_add(self.text_section_info.mem_size())
             // bpf functions
@@ -684,6 +667,114 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         }
 
         Ok(())
+    }
+
+    pub(crate) fn parse_ro_sections<
+        'a,
+        S: IntoIterator<Item = (Option<&'a str>, &'a SectionHeader)>,
+    >(
+        config: &Config,
+        sections: S,
+        elf_bytes: &[u8],
+    ) -> Result<Section, ElfError> {
+        // the lowest section address
+        let mut lowest_addr = usize::MAX;
+        // the highest section address
+        let mut highest_addr = 0;
+        // the aggregated section length, not including gaps between sections
+        let mut ro_fill_length = 0usize;
+        // whether at least one ro section has non-matching sh_addr and
+        // sh_offset
+        let mut have_offsets = false;
+
+        // keep track of where ro sections are so we can tell whether they're
+        // contiguous
+        let mut first_ro_section = 0;
+        let mut last_ro_section = 0;
+        let mut n_ro_sections = 0usize;
+
+        let mut ro_slices = vec![];
+        for (i, (name, section_header)) in sections.into_iter().enumerate() {
+            match name {
+                Some(name)
+                    if name == ".text"
+                        || name == ".rodata"
+                        || name == ".data.rel.ro"
+                        || name == ".eh_frame" => {}
+                _ => continue,
+            }
+
+            if n_ro_sections == 0 {
+                first_ro_section = i;
+            }
+            last_ro_section = i;
+            n_ro_sections = n_ro_sections.saturating_add(1);
+
+            let section_addr = section_header.sh_addr;
+            let vaddr = section_addr.saturating_add(ebpf::MM_PROGRAM_START);
+            have_offsets = have_offsets || section_addr != section_header.sh_offset;
+            if (config.reject_broken_elfs && have_offsets) || vaddr > ebpf::MM_STACK_START {
+                return Err(ElfError::ValueOutOfBounds);
+            }
+
+            let section_data = elf_bytes
+                .get(section_header.file_range().unwrap_or_default())
+                .ok_or(ElfError::ValueOutOfBounds)?;
+
+            let section_addr = section_addr as usize;
+            lowest_addr = lowest_addr.min(section_addr);
+            highest_addr = highest_addr
+                .max(section_addr)
+                .saturating_add(section_data.len());
+            ro_fill_length = ro_fill_length.saturating_add(section_data.len());
+
+            ro_slices.push((section_addr, section_data));
+        }
+
+        if highest_addr > elf_bytes.len()
+            || (config.reject_broken_elfs
+                && lowest_addr.saturating_add(ro_fill_length) > highest_addr)
+        {
+            return Err(ElfError::ValueOutOfBounds);
+        }
+
+        let can_borrow = !have_offsets
+            && last_ro_section
+                .saturating_add(1)
+                .saturating_sub(first_ro_section)
+                == n_ro_sections;
+        let ro_section = if config.optimize_rodata && can_borrow {
+            // Read only sections are grouped together with no intermixed non-ro
+            // sections. We can borrow.
+            Section::Borrowed(lowest_addr..highest_addr as usize)
+        } else {
+            // Read only and other non-ro sections are mixed. Zero the non-ro
+            // sections and and copy the ro ones at their intended offsets.
+
+            if config.optimize_rodata {
+                // The rodata region starts at MM_PROGRAM_START + lowest_addr,
+                // [MM_PROGRAM_START, MM_PROGRAM_START + lowest_addr) is not
+                // mappable. We only need to allocate highest_addr - lowest_addr
+                // bytes.
+                highest_addr = highest_addr.saturating_sub(lowest_addr);
+            } else {
+                // For backwards compatibility, the whole [MM_PROGRAM_START,
+                // MM_PROGRAM_START + highest_addr) range is mappable. We need
+                // to allocate the whole address range.
+                lowest_addr = 0;
+            };
+
+            let mut ro_section = vec![0; highest_addr];
+            for (mut section_addr, slice) in ro_slices.iter() {
+                section_addr = section_addr.saturating_sub(lowest_addr);
+                ro_section[section_addr..section_addr.saturating_add(slice.len())]
+                    .copy_from_slice(slice);
+            }
+
+            Section::Owned(lowest_addr, ro_section)
+        };
+
+        Ok(ro_section)
     }
 
     // Private functions
@@ -915,6 +1006,23 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             }
         }
     }
+}
+
+pub(crate) fn get_ro_region(ro_section: &Section, elf: &[u8]) -> MemoryRegion {
+    let (offset, ro_data) = match ro_section {
+        Section::Owned(offset, data) => (*offset, data.as_slice()),
+        Section::Borrowed(range) => (range.start, &elf[range.clone()]),
+    };
+
+    // If offset > 0, the region will start at MM_PROGRAM_START + the offset of
+    // the first read only byte. [MM_PROGRAM_START, MM_PROGRAM_START + offset)
+    // will be unmappable, see MemoryRegion::vm_to_host.
+    MemoryRegion::new_from_slice(
+        ro_data,
+        ebpf::MM_PROGRAM_START.saturating_add(offset as u64),
+        0,
+        false,
+    )
 }
 
 #[cfg(test)]
@@ -1330,6 +1438,338 @@ mod test {
             .expect("validation failed");
     }
 
+    fn new_section(sh_addr: u64, sh_size: u64) -> SectionHeader {
+        SectionHeader {
+            sh_addr,
+            sh_offset: sh_addr,
+            sh_size,
+            ..SectionHeader::default()
+        }
+    }
+
+    #[test]
+    fn test_owned_ro_sections_not_contiguous() {
+        let config = Config::default();
+        let elf_bytes = [0u8; 512];
+
+        // there's a non-rodata section between two rodata sections
+        let s1 = new_section(10, 10);
+        let s2 = new_section(20, 10);
+        let s3 = new_section(30, 10);
+
+        assert!(matches!(
+            ElfExecutable::parse_ro_sections(
+                &config,
+                [(Some(".text"), &s1), (Some(".dynamic"), &s2), (Some(".rodata"), &s3)],
+                &elf_bytes,
+            ),
+            Ok(Section::Owned(offset, data)) if offset == 10 && data.len() == 30
+        ));
+    }
+
+    #[test]
+    fn test_owned_ro_sections_with_sh_offset() {
+        let config = Config::default();
+        let elf_bytes = [0u8; 512];
+
+        // s2 is at a custom sh_offset. We need to merge into an owned buffer so
+        // s2 can be moved to the right address offset.
+        let s1 = new_section(10, 10);
+        let mut s2 = new_section(20, 10);
+        s2.sh_offset = 30;
+
+        assert!(matches!(
+            ElfExecutable::parse_ro_sections(
+                &config,
+                [(Some(".text"), &s1), (Some(".rodata"), &s2)],
+                &elf_bytes,
+            ),
+            Ok(Section::Owned(offset, data)) if offset == 10 && data.len() == 20
+        ));
+    }
+
+    #[test]
+    fn test_owned_ro_region_no_initial_gap() {
+        let config = Config::default();
+        let elf_bytes = [0u8; 512];
+
+        // need an owned buffer so we can zero the address space taken by s2
+        let s1 = new_section(0, 10);
+        let s2 = new_section(10, 10);
+        let s3 = new_section(20, 10);
+
+        let ro_section = ElfExecutable::parse_ro_sections(
+            &config,
+            [
+                (Some(".text"), &s1),
+                (Some(".dynamic"), &s2),
+                (Some(".rodata"), &s3),
+            ],
+            &elf_bytes,
+        )
+        .unwrap();
+        let ro_region = get_ro_region(&ro_section, &elf_bytes);
+        let owned_section = match &ro_section {
+            Section::Owned(_offset, data) => data.as_slice(),
+            _ => panic!(),
+        };
+
+        // [0..s3.sh_addr + s3.sh_size] is the valid ro memory area
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START, s3.sh_addr + s3.sh_size),
+            Ok(owned_section.as_ptr() as u64),
+        );
+
+        // one byte past the ro section is not mappable
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+            Err(EbpfError::InvalidVirtualAddress(
+                ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+            ))
+        );
+    }
+
+    #[test]
+    fn test_owned_ro_region_initial_gap_mappable() {
+        let config = Config {
+            optimize_rodata: false,
+            ..Config::default()
+        };
+        let elf_bytes = [0u8; 512];
+
+        // the first section starts at a non-zero offset
+        let s1 = new_section(10, 10);
+        let s2 = new_section(20, 10);
+        let s3 = new_section(30, 10);
+
+        let ro_section = ElfExecutable::parse_ro_sections(
+            &config,
+            [
+                (Some(".text"), &s1),
+                (Some(".dynamic"), &s2),
+                (Some(".rodata"), &s3),
+            ],
+            &elf_bytes,
+        )
+        .unwrap();
+        let ro_region = get_ro_region(&ro_section, &elf_bytes);
+        let owned_section = match &ro_section {
+            Section::Owned(_offset, data) => data.as_slice(),
+            _ => panic!(),
+        };
+
+        // [s1.sh_addr..s3.sh_addr + s3.sh_size] is where the readonly data is.
+        // But for backwards compatibility (config.optimize_rodata=false)
+        // [0..s1.sh_addr] is mappable too (and zeroed).
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START, s3.sh_addr + s3.sh_size),
+            Ok(owned_section.as_ptr() as u64),
+        );
+
+        // one byte past the ro section is not mappable
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+            Err(EbpfError::InvalidVirtualAddress(
+                ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+            ))
+        );
+    }
+
+    #[test]
+    fn test_owned_ro_region_initial_gap_map_error() {
+        let config = Config::default();
+        let elf_bytes = [0u8; 512];
+
+        // the first section starts at a non-zero offset
+        let s1 = new_section(10, 10);
+        let s2 = new_section(20, 10);
+        let s3 = new_section(30, 10);
+
+        let ro_section = ElfExecutable::parse_ro_sections(
+            &config,
+            [
+                (Some(".text"), &s1),
+                (Some(".dynamic"), &s2),
+                (Some(".rodata"), &s3),
+            ],
+            &elf_bytes,
+        )
+        .unwrap();
+        let owned_section = match &ro_section {
+            Section::Owned(_offset, data) => data.as_slice(),
+            _ => panic!(),
+        };
+        let ro_region = get_ro_region(&ro_section, &elf_bytes);
+
+        // s1 starts at sh_addr=10 so [MM_PROGRAM_START..MM_PROGRAM_START + 10] is not mappable
+
+        // the low bound of the initial gap is not mappable
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START, 1),
+            Err(EbpfError::InvalidVirtualAddress(ebpf::MM_PROGRAM_START))
+        );
+
+        // the hi bound of the initial gap is not mappable
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s1.sh_addr - 1, 1),
+            Err(EbpfError::InvalidVirtualAddress(ebpf::MM_PROGRAM_START + 9))
+        );
+
+        // [s1.sh_addr..s3.sh_addr + s3.sh_size] is the valid ro memory area
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(
+                ebpf::MM_PROGRAM_START + s1.sh_addr,
+                s3.sh_addr + s3.sh_size - s1.sh_addr
+            ),
+            Ok(owned_section.as_ptr() as u64),
+        );
+
+        // one byte past the ro section is not mappable
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+            Err(EbpfError::InvalidVirtualAddress(
+                ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+            ))
+        );
+    }
+
+    #[test]
+    fn test_borrowed_ro_sections_disabled() {
+        let config = Config {
+            optimize_rodata: false,
+            ..Config::default()
+        };
+        let elf_bytes = [0u8; 512];
+
+        // s1 and s2 are contiguous, the rodata section can be borrowed from the
+        // original elf input but config.borrow_rodata=false
+        let s1 = new_section(0, 10);
+        let s2 = new_section(10, 10);
+
+        assert!(matches!(
+            ElfExecutable::parse_ro_sections(
+                &config,
+                [(Some(".text"), &s1), (Some(".rodata"), &s2)],
+                &elf_bytes,
+            ),
+            Ok(Section::Owned(offset, data)) if offset == 0 && data.len() == 20
+        ));
+    }
+
+    #[test]
+    fn test_borrowed_ro_sections() {
+        let config = Config::default();
+        let elf_bytes = [0u8; 512];
+
+        let s1 = new_section(0, 10);
+        let s2 = new_section(20, 10);
+        let s3 = new_section(40, 10);
+        let s4 = new_section(50, 10);
+
+        assert_eq!(
+            ElfExecutable::parse_ro_sections(
+                &config,
+                [
+                    (Some(".dynsym"), &s1),
+                    (Some(".text"), &s2),
+                    (Some(".rodata"), &s3),
+                    (Some(".dynamic"), &s4)
+                ],
+                &elf_bytes,
+            ),
+            Ok(Section::Borrowed(20..50))
+        );
+    }
+
+    #[test]
+    fn test_borrowed_ro_region_no_initial_gap() {
+        let config = Config::default();
+        let elf_bytes = [0u8; 512];
+
+        let s1 = new_section(0, 10);
+        let s2 = new_section(10, 10);
+        let s3 = new_section(10, 10);
+
+        let ro_section = ElfExecutable::parse_ro_sections(
+            &config,
+            [
+                (Some(".text"), &s1),
+                (Some(".rodata"), &s2),
+                (Some(".dynamic"), &s3),
+            ],
+            &elf_bytes,
+        )
+        .unwrap();
+        let ro_region = get_ro_region(&ro_section, &elf_bytes);
+
+        // s1 starts at sh_addr=0 so [0..s2.sh_addr + s2.sh_size] is the valid
+        // ro memory area
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START, s2.sh_addr + s2.sh_size),
+            Ok(elf_bytes.as_ptr() as u64),
+        );
+
+        // one byte past the ro section is not mappable
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size, 1),
+            Err(EbpfError::InvalidVirtualAddress(
+                ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size
+            ))
+        );
+    }
+
+    #[test]
+    fn test_borrowed_ro_region_initial_gap() {
+        let config = Config::default();
+        let elf_bytes = [0u8; 512];
+        let s1 = new_section(0, 10);
+        let s2 = new_section(10, 10);
+        let s3 = new_section(20, 10);
+
+        let ro_section = ElfExecutable::parse_ro_sections(
+            &config,
+            [
+                (Some(".dynamic"), &s1),
+                (Some(".text"), &s2),
+                (Some(".rodata"), &s3),
+            ],
+            &elf_bytes,
+        )
+        .unwrap();
+        let ro_region = get_ro_region(&ro_section, &elf_bytes);
+
+        // s2 starts at sh_addr=10 so [0..10] is not mappable
+
+        // the low bound of the initial gap is not mappable
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START, 1),
+            Err(EbpfError::InvalidVirtualAddress(ebpf::MM_PROGRAM_START))
+        );
+
+        // the hi bound of the initial gap is not mappable
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s2.sh_addr - 1, 1),
+            Err(EbpfError::InvalidVirtualAddress(ebpf::MM_PROGRAM_START + 9))
+        );
+
+        // [s2.sh_addr..s3.sh_addr + s3.sh_size] is the valid ro memory area
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(
+                ebpf::MM_PROGRAM_START + s2.sh_addr,
+                s3.sh_addr + s3.sh_size - s2.sh_addr
+            ),
+            Ok(elf_bytes[s2.sh_addr as usize..].as_ptr() as u64),
+        );
+
+        // one byte past the ro section is not mappable
+        assert_eq!(
+            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+            Err(EbpfError::InvalidVirtualAddress(
+                ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+            ))
+        );
+    }
+
     #[test]
     #[should_panic(expected = r#"validation failed: WritableSectionNotSupported(".data")"#)]
     fn test_writable_data_section() {
@@ -1362,6 +1802,6 @@ mod test {
             Executable::jit_compile(&mut executable).unwrap();
         }
 
-        assert_eq!(22792, executable.mem_size());
+        assert_eq!(18616, executable.mem_size());
     }
 }
