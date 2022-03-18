@@ -7,6 +7,23 @@ use crate::{
 };
 use std::fmt;
 
+/* Explaination of the Gapped Memory
+
+    The MemoryMapping supports a special mapping mode which is used for the stack MemoryRegion.
+    In this mode the backing address space of the host is sliced in power-of-two aligned frames.
+    The exponent of this alignment is specified in vm_gap_shift. Then the virtual address space
+    of the guest is spread out in a way which leaves gapes, the same size as the frames, in
+    between the frames. This effectively doubles the size of the guests virtual address space.
+    But the acutual mapped memory stays the same, as the gaps are not mapped and accessing them
+    results in an AccessViolation.
+
+    Guest: frame 0 | gap 0 | frame 1 | gap 1 | frame 2 | gap 2 | ...
+              |                /                 /
+              |          *----*    *------------*
+              |         /         /
+    Host:  frame 0 | frame 1 | frame 2 | ...
+*/
+
 /// Memory region for bounds checking and address translation
 #[derive(Clone, PartialEq, Eq, Default)]
 #[repr(C, align(32))]
