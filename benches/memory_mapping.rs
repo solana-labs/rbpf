@@ -45,7 +45,7 @@ fn generate_memory_regions(
 
 macro_rules! new_prng {
     ( ) => {
-        SmallRng::from_seed([0; 16])
+        SmallRng::from_seed([0; 32])
     };
 }
 
