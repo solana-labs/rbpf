@@ -50,3 +50,7 @@ rm writable_data_section.o
 "$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o bss_section.o -c bss_section.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o bss_section.so bss_section.o
 rm bss_section.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o rodata.o -c rodata.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o rodata.so rodata.o
+rm rodata.o

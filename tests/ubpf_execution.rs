@@ -102,21 +102,24 @@ macro_rules! test_interpreter_and_jit_asm {
 }
 
 macro_rules! test_interpreter_and_jit_elf {
-    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
+    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
         #[allow(unused_mut)]
         {
-            let config = Config {
-                enable_instruction_tracing: true,
-                ..Config::default()
-            };
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function; $syscall_context_object);)*
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, config, syscall_registry).unwrap();
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
         }
+    };
+    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
+        let config = Config {
+            enable_instruction_tracing: true,
+            ..Config::default()
+        };
+        test_interpreter_and_jit_elf!($source, config, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
     };
 }
 
@@ -3306,6 +3309,26 @@ fn test_load_elf_empty_rodata() {
         { |_vm, res: Result| { res.unwrap() == 0 } },
         8
     );
+}
+
+#[test]
+fn test_load_elf_rodata() {
+    // checks that the program loads the correct rodata offset with both
+    // borrowed and owned rodata
+    for optimize_rodata in [false, true] {
+        let config = Config {
+            optimize_rodata,
+            ..Config::default()
+        };
+        test_interpreter_and_jit_elf!(
+            "tests/elfs/rodata.so",
+            config,
+            [],
+            (),
+            { |_vm, res: Result| { res.unwrap() == 42 } },
+            3
+        );
+    }
 }
 
 #[test]
