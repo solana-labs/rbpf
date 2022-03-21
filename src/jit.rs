@@ -866,6 +866,12 @@ fn emit_set_exception_kind<E: UserDefinedError>(jit: &mut JitCompiler, err: Ebpf
     X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(8), err_kind as i64).emit(jit)
 }
 
+#[inline]
+#[allow(unused)]
+fn emit_indirect_branch_target<E: UserDefinedError>(jit: &mut JitCompiler) -> Result<(), EbpfError<E>> {
+    X86Instruction::end_branch().emit(jit)
+}
+
 #[derive(Debug)]
 struct Jump {
     location: usize,
@@ -978,6 +984,22 @@ impl JitCompiler {
             environment_stack_key,
             program_argument_key,
         })
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn new_mock() -> Self {
+        let res = Self::new::<UserError>(&[], &Config {
+            noop_instruction_ratio: 0.0,
+            ..Config::default()
+        });
+        res.expect("failed to create mock JitCompiler")
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn get_text_result(&self) -> &[u8] {
+        self.result.text_section
     }
 
     fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self,

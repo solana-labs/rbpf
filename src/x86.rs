@@ -68,6 +68,7 @@ pub enum FenceType {
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct X86Instruction {
     pub size: OperandSize,
+    pub repeat_string: Option<bool>,
     pub opcode_escape_sequence: u8,
     pub opcode: u8,
     pub modrm: bool,
@@ -82,6 +83,7 @@ impl Default for X86Instruction {
     fn default() -> Self {
         Self {
             size: OperandSize::S64,
+            repeat_string: None,
             opcode_escape_sequence: 0,
             opcode: 0,
             modrm: true,
@@ -96,6 +98,11 @@ impl Default for X86Instruction {
 
 impl X86Instruction {
     pub fn emit<E: UserDefinedError>(&self, jit: &mut JitCompiler) -> Result<(), EbpfError<E>> {
+        match self.repeat_string {
+            Some(false) => emit(jit, 0xF2u8)?, // repnz
+            Some(true) => emit(jit, 0xF3u8)?,  // repz
+            _ => (),
+        }
         let mut rex = X86Rex {
             w: self.size == OperandSize::S64,
             r: self.first_operand & 0b1000 != 0,
@@ -580,5 +587,45 @@ impl X86Instruction {
             first_operand: fence_type as u8,
             ..Self::default()
         }
+    }
+
+    /// endbr64
+    ///
+    /// aka Intel CET "Terminate Indirect Branch".
+    /// Marks a valid indirect branch target.
+    #[allow(dead_code)]
+    pub fn end_branch() -> Self {
+        Self {
+            // repz
+            repeat_string: Some(true),
+            // nop
+            opcode_escape_sequence: 1,
+            opcode: 0x1e,
+            size: OperandSize::S0,
+            // edx
+            modrm: true,
+            first_operand: 7,  // reserved
+            second_operand: 2, // edx
+            ..Self::default()
+        }
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(windows))]
+mod tests {
+    use super::*;
+    use crate::user_error::UserError;
+
+    #[test]
+    fn test_end_branch() {
+        let mut compiler = JitCompiler::new_mock();
+        X86Instruction::end_branch()
+            .emit::<UserError>(&mut compiler)
+            .unwrap();
+        assert_eq!(
+            &compiler.get_text_result()[..4],
+            &[0xF3u8, 0x0Fu8, 0x1Eu8, 0xFAu8]
+        );
     }
 }
