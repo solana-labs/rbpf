@@ -30,6 +30,7 @@ pub mod call_frames;
 pub mod disassembler;
 pub mod ebpf;
 pub mod elf;
+pub mod elf_parser;
 pub mod error;
 pub mod fuzz;
 pub mod insn_builder;
