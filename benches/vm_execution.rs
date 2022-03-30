@@ -63,13 +63,14 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
 fn bench_jit_vs_interpreter(
     bencher: &mut Bencher,
     assembly: &str,
+    config: Config,
     instruction_meter: u64,
     mem: &mut [u8],
 ) {
     let mut executable = solana_rbpf::assembler::assemble::<UserError, TestInstructionMeter>(
         assembly,
         None,
-        Config::default(),
+        config,
         SyscallRegistry::default(),
     )
     .unwrap();
@@ -81,7 +82,7 @@ fn bench_jit_vs_interpreter(
                 let result = vm.execute_program_interpreted(&mut TestInstructionMeter {
                     remaining: instruction_meter,
                 });
-                assert!(result.is_ok());
+                assert!(result.is_ok(), "{:?}", result);
                 assert_eq!(vm.get_total_instruction_count(), instruction_meter);
             });
         })
@@ -92,7 +93,7 @@ fn bench_jit_vs_interpreter(
                 let result = vm.execute_program_jit(&mut TestInstructionMeter {
                     remaining: instruction_meter,
                 });
-                assert!(result.is_ok());
+                assert!(result.is_ok(), "{:?}", result);
                 assert_eq!(vm.get_total_instruction_count(), instruction_meter);
             });
         })
@@ -115,8 +116,50 @@ fn bench_jit_vs_interpreter_address_translation(bencher: &mut Bencher) {
     add r2, 1
     jlt r2, 0x10000, -5
     exit",
+        Config::default(),
         327681,
         &mut [0; 1024],
+    );
+}
+
+static ADDRESS_TRANSLATION_STACK_CODE: &str = "
+    mov r1, r2
+    and r1, 4095
+    mov r3, r10
+    sub r3, r1
+    sub r3, 1
+    ldxb r4, [r3]
+    add r2, 1
+    jlt r2, 0x10000, -8
+    exit";
+
+#[cfg(not(windows))]
+#[bench]
+fn bench_jit_vs_interpreter_address_translation_stack_fixed(bencher: &mut Bencher) {
+    bench_jit_vs_interpreter(
+        bencher,
+        ADDRESS_TRANSLATION_STACK_CODE,
+        Config {
+            dynamic_stack_frames: false,
+            ..Config::default()
+        },
+        524289,
+        &mut [],
+    );
+}
+
+#[cfg(not(windows))]
+#[bench]
+fn bench_jit_vs_interpreter_address_translation_stack_dynamic(bencher: &mut Bencher) {
+    bench_jit_vs_interpreter(
+        bencher,
+        ADDRESS_TRANSLATION_STACK_CODE,
+        Config {
+            dynamic_stack_frames: true,
+            ..Config::default()
+        },
+        524289,
+        &mut [],
     );
 }
 
@@ -131,7 +174,69 @@ fn bench_jit_vs_interpreter_empty_for_loop(bencher: &mut Bencher) {
     add r2, 1
     jlt r2, 0x10000, -4
     exit",
+        Config::default(),
         262145,
         &mut [0; 0],
+    );
+}
+
+#[cfg(not(windows))]
+#[bench]
+fn bench_jit_vs_interpreter_call_depth_fixed(bencher: &mut Bencher) {
+    bench_jit_vs_interpreter(
+        bencher,
+        "
+    mov r6, 0
+    add r6, 1
+    mov r1, 18
+    call fun
+    jlt r6, 1024, -4
+    exit
+    fun:
+    stw [r10-4], 0x11223344
+    mov r6, r1
+    jgt r6, 0, +1
+    exit
+    mov r1, r6
+    sub r1, 1
+    call fun
+    exit",
+        Config {
+            dynamic_stack_frames: false,
+            ..Config::default()
+        },
+        137218,
+        &mut [],
+    );
+}
+
+#[cfg(not(windows))]
+#[bench]
+fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
+    bench_jit_vs_interpreter(
+        bencher,
+        "
+    mov r6, 0
+    add r6, 1
+    mov r1, 18
+    call fun
+    jlt r6, 1024, -4
+    exit
+    fun:
+    sub r11, 4
+    stw [r10-4], 0x11223344
+    mov r6, r1
+    jeq r6, 0, +3
+    mov r1, r6
+    sub r1, 1
+    call fun
+    add r11, 4
+    exit",
+        Config {
+            dynamic_stack_frames: true,
+            ..Config::default()
+        },
+        176130,
+        &mut [],
     );
 }
