@@ -1032,7 +1032,7 @@ mod test {
         ebpf,
         elf::scroll::Pwrite,
         fuzz::fuzz,
-        syscalls::{BpfSyscallString, BpfSyscallU64},
+        syscalls::{BpfSyscallContext, BpfSyscallString, BpfSyscallU64},
         user_error::UserError,
         vm::{SyscallObject, TestInstructionMeter},
     };
@@ -1043,10 +1043,18 @@ mod test {
     fn syscall_registry() -> SyscallRegistry {
         let mut syscall_registry = SyscallRegistry::default();
         syscall_registry
-            .register_syscall_by_name(b"log", BpfSyscallString::call)
+            .register_syscall_by_name(
+                b"log",
+                BpfSyscallString::init::<BpfSyscallContext, UserError>,
+                BpfSyscallString::call,
+            )
             .unwrap();
         syscall_registry
-            .register_syscall_by_name(b"log_64", BpfSyscallU64::call)
+            .register_syscall_by_name(
+                b"log_64",
+                BpfSyscallU64::init::<BpfSyscallContext, UserError>,
+                BpfSyscallU64::call,
+            )
             .unwrap();
         syscall_registry
     }
@@ -1802,6 +1810,6 @@ mod test {
             Executable::jit_compile(&mut executable).unwrap();
         }
 
-        assert_eq!(18616, executable.mem_size());
+        assert_eq!(18640, executable.mem_size());
     }
 }
