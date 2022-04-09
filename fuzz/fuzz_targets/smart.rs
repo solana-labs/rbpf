@@ -1,19 +1,28 @@
 #![feature(bench_black_box)]
 #![no_main]
 
-mod grammar_aware;
-
-use libfuzzer_sys::fuzz_target;
 use std::collections::BTreeMap;
-
 use std::hint::black_box;
 
-use solana_rbpf::{elf::{Executable, register_bpf_function}, insn_builder::{Arch, IntoBytes}, verifier::check, vm::{Config, EbpfVm, TestInstructionMeter, SyscallRegistry}, user_error::UserError};
+use libfuzzer_sys::fuzz_target;
 
 use grammar_aware::*;
+use solana_rbpf::{
+    elf::{register_bpf_function, Executable},
+    insn_builder::{Arch, IntoBytes},
+    user_error::UserError,
+    verifier::check,
+    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter},
+};
+
+use crate::common::ConfigTemplate;
+
+mod common;
+mod grammar_aware;
 
 #[derive(arbitrary::Arbitrary, Debug)]
 struct FuzzData {
+    template: ConfigTemplate,
     prog: FuzzProgram,
     mem: Vec<u8>,
     arch: Arch,
@@ -21,16 +30,27 @@ struct FuzzData {
 
 fuzz_target!(|data: FuzzData| {
     let prog = make_program(&data.prog, data.arch);
-    let config = Config::default();
-    if check(prog.into_bytes(), &config).is_err() { // verify please
+    let config = data.template.into();
+    if check(prog.into_bytes(), &config).is_err() {
+        // verify please
         return;
     }
     let mut mem = data.mem;
     let registry = SyscallRegistry::default();
     let mut bpf_functions = BTreeMap::new();
     register_bpf_function(&config, &mut bpf_functions, &registry, 0, "entrypoint").unwrap();
-    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog.into_bytes(), None, config, SyscallRegistry::default(), bpf_functions).unwrap();
-    let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut mem).unwrap();
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+        prog.into_bytes(),
+        None,
+        config,
+        SyscallRegistry::default(),
+        bpf_functions,
+    )
+    .unwrap();
+    let mut vm =
+        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut mem).unwrap();
 
-    drop(black_box(vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 << 16 })));
+    drop(black_box(vm.execute_program_interpreted(
+        &mut TestInstructionMeter { remaining: 1 << 16 },
+    )));
 });
