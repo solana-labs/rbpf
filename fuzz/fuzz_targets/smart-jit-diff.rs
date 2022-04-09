@@ -10,7 +10,7 @@ use solana_rbpf::{
     insn_builder::{Arch, Instruction, IntoBytes},
     user_error::UserError,
     verifier::check,
-    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter},
+    vm::{EbpfVm, SyscallRegistry, TestInstructionMeter},
 };
 
 use crate::common::ConfigTemplate;

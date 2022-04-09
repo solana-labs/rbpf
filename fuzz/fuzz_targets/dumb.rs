@@ -10,7 +10,7 @@ use solana_rbpf::{
     elf::{register_bpf_function, Executable},
     user_error::UserError,
     verifier::check,
-    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter},
+    vm::{EbpfVm, SyscallRegistry, TestInstructionMeter},
 };
 
 use crate::common::ConfigTemplate;

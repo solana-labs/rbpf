@@ -12,7 +12,7 @@ use solana_rbpf::{
     static_analysis::Analysis,
     user_error::UserError,
     verifier::check,
-    vm::{Config, EbpfVm, InstructionMeter, SyscallRegistry, TestInstructionMeter},
+    vm::{EbpfVm, InstructionMeter, SyscallRegistry, TestInstructionMeter},
 };
 
 use crate::common::ConfigTemplate;

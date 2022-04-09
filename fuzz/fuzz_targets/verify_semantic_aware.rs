@@ -5,7 +5,6 @@ use libfuzzer_sys::fuzz_target;
 use semantic_aware::*;
 use solana_rbpf::insn_builder::IntoBytes;
 use solana_rbpf::verifier::check;
-use solana_rbpf::vm::Config;
 
 use crate::common::ConfigTemplate;
 
