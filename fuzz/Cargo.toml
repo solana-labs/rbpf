@@ -39,13 +39,13 @@ doc = false
 
 [[bin]]
 name = "smart-jit-diff"
-path = "fuzz_targets/smart-jit-diff.rs"
+path = "fuzz_targets/smart_jit_diff.rs"
 test = false
 doc = false
 
 [[bin]]
 name = "smarter-jit-diff"
-path = "fuzz_targets/smarter-jit-diff.rs"
+path = "fuzz_targets/smarter_jit_diff.rs"
 test = false
 doc = false
 

@@ -38,7 +38,7 @@ fuzz_target!(|data: DumbFuzzData| {
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         &prog,
         None,
-        Config::default(),
+        config,
         SyscallRegistry::default(),
         bpf_functions,
     )
