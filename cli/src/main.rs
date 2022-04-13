@@ -185,7 +185,7 @@ fn main() {
         || matches.is_present("trace")
         || matches.is_present("profile")
     {
-        Some(Analysis::from_executable(&executable))
+        Some(Analysis::from_executable(&executable).unwrap())
     } else {
         None
     };

@@ -39,7 +39,7 @@ fn main() {
         BTreeMap::default(),
     )
     .unwrap();
-    let analysis = Analysis::from_executable(&executable);
+    let analysis = Analysis::from_executable(&executable).unwrap();
     let stdout = std::io::stdout();
     analysis.disassemble(&mut stdout.lock()).unwrap();
 }

@@ -29,7 +29,7 @@ macro_rules! disasm {
             SyscallRegistry::default(),
         )
         .unwrap();
-        let analysis = Analysis::from_executable(&executable);
+        let analysis = Analysis::from_executable(&executable).unwrap();
         let mut reasm = Vec::new();
         analysis.disassemble(&mut reasm).unwrap();
         assert_eq!(src, String::from_utf8(reasm).unwrap());

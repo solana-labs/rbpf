@@ -5,7 +5,7 @@ use crate::disassembler::disassemble_instruction;
 use crate::{
     ebpf,
     elf::{self, Executable},
-    error::UserDefinedError,
+    error::{EbpfError, UserDefinedError},
     vm::{DynamicAnalysis, InstructionMeter},
 };
 use rustc_demangle::demangle;
@@ -142,7 +142,7 @@ pub struct Analysis<'a, E: UserDefinedError, I: InstructionMeter> {
 
 impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
     /// Analyze an executable statically
-    pub fn from_executable(executable: &'a Executable<E, I>) -> Self {
+    pub fn from_executable(executable: &'a Executable<E, I>) -> Result<Self, EbpfError<E>> {
         let (_program_vm_addr, program) = executable.get_text_bytes();
         let functions = executable.get_function_symbols();
         debug_assert!(
@@ -171,7 +171,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
             functions,
             cfg_nodes: BTreeMap::new(),
             topological_order: Vec::new(),
-            entrypoint: executable.get_entrypoint_instruction_offset().unwrap(),
+            entrypoint: executable.get_entrypoint_instruction_offset()?,
             super_root: insn_ptr,
             dfg_forward_edges: BTreeMap::new(),
             dfg_reverse_edges: BTreeMap::new(),
@@ -182,7 +182,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
         result.label_basic_blocks();
         let basic_block_outputs = result.intra_basic_block_data_flow();
         result.inter_basic_block_data_flow(basic_block_outputs);
-        result
+        Ok(result)
     }
 
     fn link_cfg_edges(&mut self, cfg_edges: Vec<(usize, Vec<usize>)>, both_directions: bool) {

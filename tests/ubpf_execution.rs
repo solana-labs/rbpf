@@ -71,7 +71,8 @@ macro_rules! test_interpreter_and_jit {
                         || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit)
                     {
                         let analysis =
-                            solana_rbpf::static_analysis::Analysis::from_executable(&$executable);
+                            solana_rbpf::static_analysis::Analysis::from_executable(&$executable)
+                                .unwrap();
                         let stdout = std::io::stdout();
                         _tracer_interpreter
                             .write(&mut stdout.lock(), &analysis)
@@ -4244,7 +4245,8 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     if result_interpreter != result_jit
         || !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit)
     {
-        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(&executable);
+        let analysis =
+            solana_rbpf::static_analysis::Analysis::from_executable(&executable).unwrap();
         println!("result_interpreter={:?}", result_interpreter);
         println!("result_jit={:?}", result_jit);
         let stdout = std::io::stdout();

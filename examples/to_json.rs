@@ -37,7 +37,7 @@ fn to_json(program: &[u8]) -> String {
         BTreeMap::default(),
     )
     .unwrap();
-    let analysis = Analysis::from_executable(&executable);
+    let analysis = Analysis::from_executable(&executable).unwrap();
 
     let mut json_insns = vec![];
     for insn in analysis.instructions.iter() {
