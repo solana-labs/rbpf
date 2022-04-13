@@ -12,7 +12,7 @@ extern crate test_utils;
 
 use solana_rbpf::{
     elf::Executable,
-    syscalls::BpfSyscallU64,
+    syscalls::{BpfSyscallContext, BpfSyscallU64},
     user_error::UserError,
     vm::{Config, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
@@ -22,7 +22,11 @@ use test::Bencher;
 fn syscall_registry() -> SyscallRegistry {
     let mut syscall_registry = SyscallRegistry::default();
     syscall_registry
-        .register_syscall_by_name::<UserError, _>(b"log_64", BpfSyscallU64::call)
+        .register_syscall_by_name(
+            b"log_64",
+            BpfSyscallU64::init::<BpfSyscallContext, UserError>,
+            BpfSyscallU64::call,
+        )
         .unwrap();
     syscall_registry
 }
