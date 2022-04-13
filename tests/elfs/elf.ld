@@ -9,7 +9,7 @@ SECTIONS
 {
   . = SIZEOF_HEADERS;
   .text : { *(.text) } :text
-  .rodata : { *(.rodata) } :rodata
+  .rodata : { *(.rodata*) } :rodata
   .dynamic : { *(.dynamic) } :dynamic
   .dynsym : { *(.dynsym) } :dynamic
   .dynstr : { *(.dynstr) } :dynamic

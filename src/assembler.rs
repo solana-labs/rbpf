@@ -326,7 +326,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
                                 &label,
                                 Some(target_pc),
                             )?;
-                            insn(opc, 0, 0, 0, hash as i32 as i64)
+                            insn(opc, 0, 1, 0, hash as i32 as i64)
                         }
                         (CallReg, [Register(dst)]) => insn(opc, 0, 0, 0, *dst),
                         (JumpConditional, [Register(dst), Register(src), Label(label)]) => insn(
@@ -359,7 +359,7 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
                                 label,
                                 None,
                             )?;
-                            insn(opc, 0, 0, 0, hash as i32 as i64)
+                            insn(opc, 0, 1, 0, hash as i32 as i64)
                         }
                         (Endian(size), [Register(dst)]) => insn(opc, *dst, 0, 0, size),
                         (LoadImm, [Register(dst), Integer(imm)]) => {

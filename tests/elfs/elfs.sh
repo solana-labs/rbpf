@@ -54,3 +54,11 @@ rm bss_section.o
 "$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o rodata.o -c rodata.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o rodata.so rodata.o
 rm rodata.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o syscall_static.o -c syscall_static.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o syscall_static.so syscall_static.o
+rm syscall_static.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o syscall_static_unknown.o -c syscall_static_unknown.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o syscall_static_unknown.so syscall_static_unknown.o
+rm syscall_static_unknown.o

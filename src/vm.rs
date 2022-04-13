@@ -231,6 +231,8 @@ pub struct Config {
     pub enable_sdiv: bool,
     /// Avoid copying read only sections when possible
     pub optimize_rodata: bool,
+    /// Support syscalls via pseudo calls (insn.src = 0)
+    pub static_syscalls: bool,
 }
 
 impl Config {
@@ -261,6 +263,7 @@ impl Default for Config {
             dynamic_stack_frames: true,
             enable_sdiv: true,
             optimize_rodata: true,
+            static_syscalls: true,
         }
     }
 }
@@ -711,9 +714,11 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         }
 
         // Check config outside of the instruction loop
-        let instruction_meter_enabled = self.executable.get_config().enable_instruction_meter;
-        let instruction_tracing_enabled = self.executable.get_config().enable_instruction_tracing;
-        let dynamic_stack_frames = self.executable.get_config().dynamic_stack_frames;
+        let config = self.executable.get_config();
+        let instruction_meter_enabled = config.enable_instruction_meter;
+        let instruction_tracing_enabled = config.enable_instruction_tracing;
+        let dynamic_stack_frames = config.dynamic_stack_frames;
+        let static_syscalls = config.static_syscalls;
 
         // Loop on instructions
         let entry = self.executable.get_entrypoint_instruction_offset()?;
@@ -1031,36 +1036,57 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 // Do not delegate the check to the verifier, since registered functions can be
                 // changed after the program has been verified.
                 ebpf::CALL_IMM => {
-                    if let Some(syscall) = self.executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
-                        if instruction_meter_enabled {
-                            let _ = instruction_meter.consume(self.last_insn_count);
-                        }
-                        total_insn_count += self.last_insn_count;
-                        self.last_insn_count = 0;
-                        let mut result: ProgramResult<E> = Ok(0);
-                        (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
-                            self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot],
-                            reg[1],
-                            reg[2],
-                            reg[3],
-                            reg[4],
-                            reg[5],
-                            &self.memory_mapping,
-                            &mut result,
-                        );
-                        reg[0] = result?;
-                        if instruction_meter_enabled {
-                            remaining_insn_count = instruction_meter.get_remaining();
-                        }
-                    } else if let Some(target_pc) = self.executable.lookup_bpf_function(insn.imm as u32) {
-                        // make BPF to BPF call
-                        reg[ebpf::FRAME_PTR_REG] =
-                            self.stack.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
-                        next_pc = self.check_pc(pc, target_pc)?;
-                    } else if self.executable.get_config().disable_unresolved_symbols_at_runtime {
-                        return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    let mut resolved = false;
+                    let (syscalls, calls) = if static_syscalls {
+                        (insn.src == 0, insn.src != 0)
                     } else {
-                        self.executable.report_unresolved_symbol(pc)?;
+                        (true, true)
+                    };
+
+                    if syscalls {
+                        if let Some(syscall) = self.executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
+                            resolved = true;
+
+                            if instruction_meter_enabled {
+                                let _ = instruction_meter.consume(self.last_insn_count);
+                            }
+                            total_insn_count += self.last_insn_count;
+                            self.last_insn_count = 0;
+                            let mut result: ProgramResult<E> = Ok(0);
+                            (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
+                                self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot],
+                                reg[1],
+                                reg[2],
+                                reg[3],
+                                reg[4],
+                                reg[5],
+                                &self.memory_mapping,
+                                &mut result,
+                            );
+                            reg[0] = result?;
+                            if instruction_meter_enabled {
+                                remaining_insn_count = instruction_meter.get_remaining();
+                            }
+                        }
+                    }
+
+                    if calls {
+                        if let Some(target_pc) = self.executable.lookup_bpf_function(insn.imm as u32) {
+                            resolved = true;
+
+                            // make BPF to BPF call
+                            reg[ebpf::FRAME_PTR_REG] =
+                                self.stack.push(&reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], next_pc)?;
+                            next_pc = self.check_pc(pc, target_pc)?;
+                        }
+                    }
+
+                    if !resolved {
+                        if config.disable_unresolved_symbols_at_runtime {
+                            return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                        } else {
+                            self.executable.report_unresolved_symbol(pc)?;
+                        }
                     }
                 }
 

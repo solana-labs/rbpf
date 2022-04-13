@@ -1329,36 +1329,57 @@ impl JitCompiler {
                     // For JIT, syscalls MUST be registered at compile time. They can be
                     // updated later, but not created after compiling (we need the address of the
                     // syscall function in the JIT-compiled program).
-                    if let Some(syscall) = executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
-                        if self.config.enable_instruction_meter {
-                            emit_validate_and_profile_instruction_count(self, true, Some(0))?;
-                        }
-                        X86Instruction::load_immediate(OperandSize::S64, R11, syscall.function as *const u8 as i64).emit(self)?;
-                        X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset((SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8 + self.program_argument_key)).emit(self)?;
-                        emit_call(self, TARGET_PC_SYSCALL)?;
-                        if self.config.enable_instruction_meter {
-                            emit_undo_profile_instruction_count(self, 0)?;
-                        }
-                        // Throw error if the result indicates one
-                        X86Instruction::cmp_immediate(OperandSize::S64, R11, 0, Some(X86IndirectAccess::Offset(0))).emit(self)?;
-                        X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
-                        emit_jcc(self, 0x85, TARGET_PC_RUST_EXCEPTION)?;
-                    } else if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
-                        emit_bpf_call(self, Value::Constant64(target_pc as i64, false))?;
-                    } else if self.config.disable_unresolved_symbols_at_runtime {
-                        X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
-                        emit_jmp(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION)?;
+
+                    let mut resolved = false;
+                    let (syscalls, calls) = if self.config.static_syscalls {
+                        (insn.src == 0, insn.src != 0)
                     } else {
-                        emit_validate_instruction_count(self, true, Some(self.pc))?;
-                        // executable.report_unresolved_symbol(self.pc)?;
-                        // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
-                        emit_rust_call(self, Value::Constant64(Executable::<E, I>::report_unresolved_symbol as *const u8 as i64, false), &[
-                            Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
-                            Argument { index: 1, value: Value::Constant64(&*executable.as_ref() as *const _ as i64, false) },
-                            Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
-                        ], None, true)?;
-                        X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
-                        emit_jmp(self, TARGET_PC_RUST_EXCEPTION)?;
+                        (true, true)
+                    };
+
+                    if syscalls {
+                        if let Some(syscall) = executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
+                            if self.config.enable_instruction_meter {
+                                emit_validate_and_profile_instruction_count(self, true, Some(0))?;
+                            }
+                            X86Instruction::load_immediate(OperandSize::S64, R11, syscall.function as *const u8 as i64).emit(self)?;
+                            X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset((SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8 + self.program_argument_key)).emit(self)?;
+                            emit_call(self, TARGET_PC_SYSCALL)?;
+                            if self.config.enable_instruction_meter {
+                                emit_undo_profile_instruction_count(self, 0)?;
+                            }
+                            // Throw error if the result indicates one
+                            X86Instruction::cmp_immediate(OperandSize::S64, R11, 0, Some(X86IndirectAccess::Offset(0))).emit(self)?;
+                            X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
+                            emit_jcc(self, 0x85, TARGET_PC_RUST_EXCEPTION)?;
+
+                            resolved = true;
+                        }
+                    }
+
+                    if calls {
+                        if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
+                            emit_bpf_call(self, Value::Constant64(target_pc as i64, false))?;
+                            resolved = true;
+                        }
+                    }
+
+                    if !resolved {
+                        if self.config.disable_unresolved_symbols_at_runtime {
+                            X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
+                            emit_jmp(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION)?;
+                        } else {
+                            emit_validate_instruction_count(self, true, Some(self.pc))?;
+                            // executable.report_unresolved_symbol(self.pc)?;
+                            // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
+                            emit_rust_call(self, Value::Constant64(Executable::<E, I>::report_unresolved_symbol as *const u8 as i64, false), &[
+                                Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
+                                Argument { index: 1, value: Value::Constant64(&*executable.as_ref() as *const _ as i64, false) },
+                                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
+                            ], None, true)?;
+                            X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64).emit(self)?;
+                            emit_jmp(self, TARGET_PC_RUST_EXCEPTION)?;
+                        }
                     }
                 },
                 ebpf::CALL_REG  => {

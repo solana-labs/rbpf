@@ -561,7 +561,10 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             .ok_or(ElfError::ValueOutOfBounds)?;
         for i in 0..instruction_count {
             let mut insn = ebpf::get_insn(elf_bytes, i);
-            if insn.opc == ebpf::CALL_IMM && insn.imm != -1 {
+            if insn.opc == ebpf::CALL_IMM
+                && insn.imm != -1
+                && !(config.static_syscalls && insn.src == 0)
+            {
                 let target_pc = (i as isize)
                     .saturating_add(1)
                     .saturating_add(insn.imm as isize);
@@ -1792,6 +1795,25 @@ mod test {
             std::fs::read("tests/elfs/bss_section.so").expect("failed to read elf file");
         ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
+    }
+
+    #[test]
+    #[should_panic(expected = r#"validation failed: RelativeJumpOutOfBounds(29)"#)]
+    fn test_static_syscall_disabled() {
+        let elf_bytes =
+            std::fs::read("tests/elfs/syscall_static_unknown.so").expect("failed to read elf file");
+
+        // when config.static_syscalls=false, all CALL_IMMs are treated as relative
+        // calls for backwards compatibility
+        ElfExecutable::load(
+            Config {
+                static_syscalls: false,
+                ..Config::default()
+            },
+            &elf_bytes,
+            syscall_registry(),
+        )
+        .expect("validation failed");
     }
 
     #[cfg(all(not(windows), target_arch = "x86_64"))]
