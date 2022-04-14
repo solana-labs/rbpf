@@ -232,7 +232,7 @@ fn main() {
     }
     if matches.is_present("profile") {
         let tracer = &vm.get_tracer();
-        let dynamic_analysis = DynamicAnalysis::new(&tracer, analysis.as_ref().unwrap());
+        let dynamic_analysis = DynamicAnalysis::new(tracer, analysis.as_ref().unwrap());
         let mut file = File::create("profile.dot").unwrap();
         analysis
             .as_ref()

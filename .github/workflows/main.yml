@@ -38,6 +38,14 @@ jobs:
         cargo build --verbose
         cargo test --verbose
       shell: bash
+    - name: Check CLI
+      run: |
+        export RUSTFLAGS="-D warnings"
+        cargo fmt --all --manifest-path cli/Cargo.toml -- --check
+        cargo clippy --all --tests --manifest-path cli/Cargo.toml -- --deny=warnings --deny=clippy::integer_arithmetic
+        cargo build --manifest-path cli/Cargo.toml --verbose
+        cargo test --manifest-path cli/Cargo.toml --verbose
+      shell: bash
     - name: Benchmark
       run: RUSTFLAGS="-D warnings" cargo bench -- --nocapture
       if: matrix.rust == 'nightly'
