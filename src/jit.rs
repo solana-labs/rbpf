@@ -34,6 +34,9 @@ use crate::{
     x86::*,
 };
 
+const MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH: usize = 4096;
+const MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION: usize = 110;
+
 /// Argument for executing a eBPF JIT-compiled program
 pub struct JitProgramArgument<'a> {
     /// The MemoryMapping to be used to run the compiled code
@@ -176,9 +179,13 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
         })
     }
 
-    pub fn mem_size(&self) ->usize{
+    pub fn mem_size(&self) -> usize {
         mem::size_of::<Self>() +
         self.sections.mem_size()
+    }
+
+    pub fn machine_code_length(&self) -> usize {
+        self.sections.text_section.len()
     }
 }
 
@@ -1010,7 +1017,7 @@ impl JitCompiler {
             };
         }
 
-        let mut code_length_estimate = pc * 110 + 4096;
+        let mut code_length_estimate = MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION * pc;
         code_length_estimate += (code_length_estimate as f64 * config.noop_instruction_ratio) as usize;
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
         let (environment_stack_key, program_argument_key) =
@@ -1819,6 +1826,85 @@ impl JitCompiler {
                 *offset = *callx_unsupported_instruction as u64;
             }
             *offset = unsafe { (self.result.text_section.as_ptr() as *const u8).add(*offset as usize) } as u64;
+        }
+    }
+}
+
+#[cfg(all(test, target_arch = "x86_64", not(target_os = "windows")))]
+mod tests {
+    use super::*;
+    use crate::{syscalls, vm::{SyscallRegistry, SyscallObject, TestInstructionMeter}, elf::register_bpf_function};
+    use std::collections::BTreeMap;
+    use byteorder::{LittleEndian, ByteOrder};
+
+    fn create_mockup_executable(program: &[u8]) -> Pin<Box<Executable::<UserError, TestInstructionMeter>>> {
+        let config = Config {
+            noop_instruction_ratio: 0.0,
+            ..Config::default()
+        };
+        let mut syscall_registry = SyscallRegistry::default();
+        syscall_registry
+            .register_syscall_by_hash(
+                0xFFFFFFFF,
+                syscalls::BpfGatherBytes::init::<syscalls::BpfSyscallContext, UserError>,
+                syscalls::BpfGatherBytes::call,
+            )
+            .unwrap();
+        let mut bpf_functions = BTreeMap::new();
+        register_bpf_function(
+            &config,
+            &mut bpf_functions,
+            &syscall_registry,
+            0,
+            "entrypoint",
+        )
+        .unwrap();
+        bpf_functions.insert(0xFFFFFFFF, (8, "foo".to_string()));
+        Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+            program,
+            None,
+            config,
+            syscall_registry,
+            bpf_functions,
+        )
+        .unwrap()
+    }
+    
+    #[test]
+    fn test_code_length_estimate() {
+        const INSTRUCTION_COUNT: usize = 256;
+        let mut prog = [0; ebpf::INSN_SIZE * INSTRUCTION_COUNT];
+    
+        let empty_program_machine_code_length = {
+            prog[0] = ebpf::EXIT;
+            let mut executable = create_mockup_executable(&[]);
+            Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
+            executable.get_compiled_program().unwrap().machine_code_length()
+        };
+        assert!(empty_program_machine_code_length <= MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH);
+    
+        for opcode in 0..255 {
+            for pc in 0..INSTRUCTION_COUNT {
+                prog[pc * ebpf::INSN_SIZE] = opcode;
+                prog[pc * ebpf::INSN_SIZE + 1] = 0x88;
+                prog[pc * ebpf::INSN_SIZE + 2] = 0xFF;
+                prog[pc * ebpf::INSN_SIZE + 3] = 0xFF;
+                LittleEndian::write_u32(&mut prog[pc * ebpf::INSN_SIZE + 4..], match opcode {
+                    0x8D => 8,
+                    0xD4 | 0xDC => 16,
+                    _ => 0xFFFFFFFF,
+                });
+            }
+            let mut executable = create_mockup_executable(&prog);
+            let result = Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable);
+            if result.is_err() {
+                assert!(matches!(result.unwrap_err(), EbpfError::UnsupportedInstruction(_)));
+                continue;
+            }
+            let machine_code_length = executable.get_compiled_program().unwrap().machine_code_length() - empty_program_machine_code_length;
+            let instruction_count = if opcode == 0x18 { INSTRUCTION_COUNT / 2 } else { INSTRUCTION_COUNT };
+            let machine_code_length_per_instruction = (machine_code_length as f64 / instruction_count as f64 + 0.5) as usize;
+            assert!(machine_code_length_per_instruction <= MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION);
         }
     }
 }
