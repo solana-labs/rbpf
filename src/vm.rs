@@ -233,6 +233,9 @@ pub struct Config {
     pub optimize_rodata: bool,
     /// Support syscalls via pseudo calls (insn.src = 0)
     pub static_syscalls: bool,
+    /// Allow sh_addr != sh_offset in elf sections. Used in SBFv2 to align
+    /// section vaddrs to MM_PROGRAM_START.
+    pub enable_elf_vaddr: bool,
 }
 
 impl Config {
@@ -264,6 +267,7 @@ impl Default for Config {
             enable_sdiv: true,
             optimize_rodata: true,
             static_syscalls: true,
+            enable_elf_vaddr: true,
         }
     }
 }

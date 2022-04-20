@@ -3563,6 +3563,18 @@ fn test_load_elf_rodata() {
 }
 
 #[test]
+fn test_load_elf_rodata_high_vaddr() {
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/rodata_high_vaddr.so",
+        [1],
+        (),
+        0,
+        { |_vm, res: Result| { res.unwrap() == 42 } },
+        3
+    );
+}
+
+#[test]
 fn test_custom_entrypoint() {
     let mut file = File::open("tests/elfs/unresolved_syscall.so").expect("file open failed");
     let mut elf = Vec::new();
@@ -4046,6 +4058,130 @@ fn test_syscall_unknown_static() {
         0,
         { |_vm, res: Result| { matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(29)) } },
         1
+    );
+}
+
+#[test]
+fn test_reloc_64_64() {
+    // Tests the correctness of R_BPF_64_64 relocations. The program returns the
+    // address of the entrypoint.
+    //   [ 1] .text             PROGBITS        00000000000000e8 0000e8 000018 00  AX  0   0  8
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/reloc_64_64.so",
+        [],
+        (),
+        0,
+        { |_vm, res: Result| { res.unwrap() == ebpf::MM_PROGRAM_START + 0xe8 } },
+        2
+    );
+}
+
+#[test]
+fn test_reloc_64_64_high_vaddr() {
+    // Same as test_reloc_64_64, but with .text already alinged to
+    // MM_PROGRAM_START by the linker
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/reloc_64_64_high_vaddr.so",
+        [],
+        (),
+        0,
+        { |_vm, res: Result| { res.unwrap() == ebpf::MM_PROGRAM_START } },
+        2
+    );
+}
+
+#[test]
+fn test_reloc_64_relative() {
+    // Tests the correctness of R_BPF_64_RELATIVE relocations. The program
+    // returns the address of the first .rodata byte.
+    //   [ 1] .text             PROGBITS        00000000000000e8 0000e8 000018 00  AX  0   0  8
+    //   [ 2] .rodata           PROGBITS        0000000000000100 000100 00000b 01 AMS  0   0  1
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/reloc_64_relative.so",
+        [],
+        (),
+        0,
+        { |_vm, res: Result| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x100 } },
+        2
+    );
+}
+
+#[test]
+fn test_reloc_64_relative_high_vaddr() {
+    // Same as test_reloc_64_relative, but with .text placed already within
+    // MM_PROGRAM_START by the linker
+    // [ 1] .text             PROGBITS        0000000100000000 001000 000018 00  AX  0   0  8
+    // [ 2] .rodata           PROGBITS        0000000100000018 001018 00000b 01 AMS  0   0  1
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/reloc_64_relative_high_vaddr.so",
+        [],
+        (),
+        0,
+        { |_vm, res: Result| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x18 } },
+        2
+    );
+}
+
+#[test]
+fn test_reloc_64_relative_data() {
+    // Tests the correctness of R_BPF_64_RELATIVE relocations in sections other
+    // than .text. The program returns the address of the first .rodata byte.
+    // [ 1] .text             PROGBITS        00000000000000e8 0000e8 000020 00  AX  0   0  8
+    // [ 2] .rodata           PROGBITS        0000000000000108 000108 000019 01 AMS  0   0  1
+    //
+    // 00000000000001f8 <FILE>:
+    // 63:       08 01 00 00 00 00 00 00
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/reloc_64_relative_data.so",
+        [],
+        (),
+        0,
+        { |_vm, res: Result| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x108 } },
+        3
+    );
+}
+
+#[test]
+fn test_reloc_64_relative_data_high_vaddr() {
+    // Same as test_reloc_64_relative_data, but with rodata already placed
+    // within MM_PROGRAM_START by the linker
+    // [ 1] .text             PROGBITS        0000000100000000 001000 000020 00  AX  0   0  8
+    // [ 2] .rodata           PROGBITS        0000000100000020 001020 000019 01 AMS  0   0  1
+    //
+    // 0000000100000110 <FILE>:
+    // 536870946:      20 00 00 00 01 00 00 00
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/reloc_64_relative_data_high_vaddr.so",
+        [],
+        (),
+        0,
+        { |_vm, res: Result| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x20 } },
+        3
+    );
+}
+
+#[test]
+fn test_reloc_64_relative_data_pre_sbfv2() {
+    // Before https://github.com/solana-labs/llvm-project/pull/35, we used to
+    // generate invalid R_BPF_64_RELATIVE relocations in sections other than
+    // .text.
+    //
+    // This test checks that the old behaviour is maintained for backwards
+    // compatibility when dealing with non-sbfv2 files. See also Elf::relocate().
+    //
+    // The program returns the address of the first .rodata byte.
+    // [ 1] .text             PROGBITS        00000000000000e8 0000e8 000020 00  AX  0   0  8
+    // [ 2] .rodata           PROGBITS        0000000000000108 000108 000019 01 AMS  0   0  1
+    //
+    // 00000000000001f8 <FILE>:
+    // 63:       00 00 00 00 08 01 00 00
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/reloc_64_relative_data_pre_sbfv2.so",
+        [],
+        (),
+        0,
+        { |_vm, res: Result| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x108 } },
+        3
     );
 }
 

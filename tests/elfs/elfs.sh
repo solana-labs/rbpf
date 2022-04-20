@@ -31,9 +31,33 @@ rm syscall.o
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o relative_call.so relative_call.o
 rm relative_call.o
 
-"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o reloc.o -c reloc.c
-"$LLVM_DIR"ld.lld -script elf.ld -z notext -shared --Bdynamic -entry entrypoint -o reloc.so reloc.o
-rm reloc.o
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o reloc_64_64.o -c reloc_64_64.c
+"$LLVM_DIR"ld.lld -script elf.ld -z notext -shared --Bdynamic -entry entrypoint -o reloc_64_64.so reloc_64_64.o
+rm reloc_64_64.o
+
+"$LLVM_DIR"clang -Werror -target sbf -mcpu=sbfv2 -O2 -fno-builtin -fPIC -o reloc_64_64_high_vaddr.o -c reloc_64_64.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --nmagic --section-start=.text=0x100000000 -o reloc_64_64_high_vaddr.so reloc_64_64_high_vaddr.o
+rm reloc_64_64_high_vaddr.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o reloc_64_relative.o -c reloc_64_relative.c
+"$LLVM_DIR"ld.lld -script elf.ld -z notext -shared --Bdynamic -entry entrypoint -o reloc_64_relative.so reloc_64_relative.o
+rm reloc_64_relative.o
+
+"$LLVM_DIR"clang -Werror -target sbf -mcpu=sbfv2 -O2 -fno-builtin -fPIC -o reloc_64_relative_high_vaddr.o -c reloc_64_relative.c
+"$LLVM_DIR"ld.lld -script elf.ld -z notext -shared --Bdynamic -entry entrypoint --section-start=.text=0x100000000 -o reloc_64_relative_high_vaddr.so reloc_64_relative_high_vaddr.o
+rm reloc_64_relative_high_vaddr.o
+
+"$LLVM_DIR"clang -Werror -target sbf -O2 -mcpu=sbfv2 -fno-builtin -fPIC -o reloc_64_relative_data.o -c reloc_64_relative_data.c
+"$LLVM_DIR"ld.lld -script elf.ld -z notext -shared --Bdynamic -entry entrypoint -o reloc_64_relative_data.so reloc_64_relative_data.o
+rm reloc_64_relative_data.o
+
+"$LLVM_DIR"clang -Werror -target sbf -mcpu=sbfv2 -O2 -fno-builtin -fPIC -o reloc_64_relative_data_high_vaddr.o -c reloc_64_relative_data.c
+"$LLVM_DIR"ld.lld -script elf.ld -z notext -shared --Bdynamic -entry entrypoint --section-start=.text=0x100000000 -o reloc_64_relative_data_high_vaddr.so reloc_64_relative_data_high_vaddr.o
+rm reloc_64_relative_data_high_vaddr.o
+
+"$LLVM_DIR"clang -Werror -target sbf -O2 -fno-builtin -fPIC -o reloc_64_relative_data_pre_sbfv2.o -c reloc_64_relative_data.c
+"$LLVM_DIR"ld.lld -script elf.ld -z notext -shared --Bdynamic -entry entrypoint -o reloc_64_relative_data_pre_sbfv2.so reloc_64_relative_data_pre_sbfv2.o
+rm reloc_64_relative_data_pre_sbfv2.o
 
 "$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o scratch_registers.o -c scratch_registers.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint -o scratch_registers.so scratch_registers.o
@@ -55,10 +79,14 @@ rm bss_section.o
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o rodata.so rodata.o
 rm rodata.o
 
-"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o syscall_static.o -c syscall_static.c
-"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o syscall_static.so syscall_static.o
-rm syscall_static.o
+"$LLVM_DIR"clang -Werror -target sbf -mcpu=sbfv2 -O2 -fno-builtin -fPIC -o rodata_high_vaddr.o -c rodata.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --nmagic --section-start=.text=0x100000000 --section-start=.rodata=0x100000020 -o rodata_high_vaddr.so rodata_high_vaddr.o
+rm rodata_high_vaddr.o
 
 "$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o syscall_static_unknown.o -c syscall_static_unknown.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o syscall_static_unknown.so syscall_static_unknown.o
 rm syscall_static_unknown.o
+
+"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o syscall_static.o -c syscall_static.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o syscall_static.so syscall_static.o
+rm syscall_static.o

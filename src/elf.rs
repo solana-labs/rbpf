@@ -11,7 +11,7 @@ extern crate scroll;
 
 use crate::{
     aligned_memory::AlignedMemory,
-    ebpf::{self, EF_SBF_V2},
+    ebpf::{self, EF_SBF_V2, INSN_SIZE},
     error::{EbpfError, UserDefinedError},
     jit::JitProgram,
     memory_region::MemoryRegion,
@@ -19,7 +19,7 @@ use crate::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 use goblin::{
-    elf::{header::*, reloc::*, section_header::*, Elf},
+    elf::{header::*, reloc::*, section_header::*, Elf, ProgramHeader},
     error::Error as GoblinError,
 };
 use std::{
@@ -252,12 +252,16 @@ impl SectionInfo {
 #[derive(Debug, PartialEq)]
 pub(crate) enum Section {
     /// Owned section data.
+    ///
+    /// The first field is the offset of the section from MM_PROGRAM_START. The
+    /// second field is the actual section data.
     Owned(usize, Vec<u8>),
     /// Borrowed section data.
     ///
-    /// The borrowed section data can be retrieved indexing the input ELF buffer
-    /// with the given range.
-    Borrowed(Range<usize>),
+    /// The first field is the offset of the section from MM_PROGRAM_START. The
+    /// second field an be used to index the input ELF buffer to retrieve the
+    /// section data.
+    Borrowed(usize, Range<usize>),
 }
 
 /// Elf loader/relocator
@@ -291,7 +295,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     pub fn get_text_bytes(&self) -> (u64, &[u8]) {
         let (ro_offset, ro_section) = match &self.ro_section {
             Section::Owned(offset, data) => (*offset, data.as_slice()),
-            Section::Borrowed(range) => (range.start, &self.elf_bytes.as_slice()[range.clone()]),
+            Section::Borrowed(offset, byte_range) => {
+                (*offset, &self.elf_bytes.as_slice()[byte_range.clone()])
+            }
         };
 
         let offset = self
@@ -309,7 +315,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     pub fn get_ro_section(&self) -> &[u8] {
         match &self.ro_section {
             Section::Owned(_offset, data) => data.as_slice(),
-            Section::Borrowed(range) => &self.elf_bytes.as_slice()[range.clone()],
+            Section::Borrowed(_offset, byte_range) => {
+                &self.elf_bytes.as_slice()[byte_range.clone()]
+            }
         }
     }
 
@@ -411,7 +419,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         Self {
             config,
             elf_bytes,
-            ro_section: Section::Borrowed(0..text_bytes.len()),
+            ro_section: Section::Borrowed(0, 0..text_bytes.len()),
             text_section_info: SectionInfo {
                 name: if enable_symbol_and_section_labels {
                     ".text".to_string()
@@ -450,10 +458,16 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             } else {
                 String::default()
             },
-            vaddr: text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START),
+            vaddr: if config.optimize_rodata && text_section.sh_addr >= ebpf::MM_PROGRAM_START {
+                text_section.sh_addr
+            } else {
+                text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START)
+            },
             offset_range: text_section.file_range().unwrap_or_default(),
         };
-        if (config.reject_broken_elfs && text_section.sh_addr != text_section.sh_offset)
+        if (config.reject_broken_elfs
+            && !config.optimize_rodata
+            && text_section.sh_addr != text_section.sh_offset)
             || text_section_info.vaddr > ebpf::MM_STACK_START
         {
             return Err(ElfError::ValueOutOfBounds);
@@ -518,7 +532,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             // ro section
             .saturating_add(match &self.ro_section {
                 Section::Owned(_, data) => data.capacity(),
-                Section::Borrowed(_) => 0,
+                Section::Borrowed(_, _) => 0,
             })
             // text section info
             .saturating_add(self.text_section_info.mem_size())
@@ -621,6 +635,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             }
         } else {
             config.dynamic_stack_frames = false;
+            config.enable_elf_vaddr = false;
         }
 
         let num_text_sections =
@@ -686,9 +701,11 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         let mut highest_addr = 0;
         // the aggregated section length, not including gaps between sections
         let mut ro_fill_length = 0usize;
-        // whether at least one ro section has non-matching sh_addr and
-        // sh_offset
-        let mut have_offsets = false;
+        let mut invalid_offsets = false;
+        // when config.enable_elf_vaddr=true, we allow section_addr != sh_offset
+        // if section_addr - sh_offset is constant across all sections. That is,
+        // we allow sections to be translated by a fixed virtual offset.
+        let mut addr_file_offset = None;
 
         // keep track of where ro sections are so we can tell whether they're
         // contiguous
@@ -714,9 +731,42 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             n_ro_sections = n_ro_sections.saturating_add(1);
 
             let section_addr = section_header.sh_addr;
-            let vaddr = section_addr.saturating_add(ebpf::MM_PROGRAM_START);
-            have_offsets = have_offsets || section_addr != section_header.sh_offset;
-            if (config.reject_broken_elfs && have_offsets) || vaddr > ebpf::MM_STACK_START {
+            let vaddr = if config.enable_elf_vaddr && section_addr >= ebpf::MM_PROGRAM_START {
+                section_addr
+            } else {
+                section_addr.saturating_add(ebpf::MM_PROGRAM_START)
+            };
+
+            // sh_offset handling:
+            //
+            // If config.enable_elf_vaddr=true, we allow section_addr >
+            // sh_offset, if section_addr - sh_offset is constant across all
+            // sections. That is, we allow the linker to align rodata to a
+            // positive base address (MM_PROGRAM_START) as long as the mapping
+            // to sh_offset(s) stays linear.
+            //
+            // If config.enable_elf_vaddr=false, section_addr must match
+            // sh_offset for backwards compatibility
+            if !invalid_offsets {
+                if config.enable_elf_vaddr {
+                    if section_addr < section_header.sh_offset {
+                        invalid_offsets = true;
+                    } else {
+                        let offset = section_addr.saturating_sub(section_header.sh_offset);
+                        if *addr_file_offset.get_or_insert(offset) != offset {
+                            // The sections are not all translated by the same
+                            // constant. We won't be able to borrow, but unless
+                            // config.reject_broken_elf=true, we're still going
+                            // to accept this file for backwards compatibility.
+                            invalid_offsets = true;
+                        }
+                    }
+                } else if section_addr != section_header.sh_offset {
+                    invalid_offsets = true;
+                }
+            }
+
+            if (config.reject_broken_elfs && invalid_offsets) || vaddr > ebpf::MM_STACK_START {
                 return Err(ElfError::ValueOutOfBounds);
             }
 
@@ -734,14 +784,11 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             ro_slices.push((section_addr, section_data));
         }
 
-        if highest_addr > elf_bytes.len()
-            || (config.reject_broken_elfs
-                && lowest_addr.saturating_add(ro_fill_length) > highest_addr)
-        {
+        if config.reject_broken_elfs && lowest_addr.saturating_add(ro_fill_length) > highest_addr {
             return Err(ElfError::ValueOutOfBounds);
         }
 
-        let can_borrow = !have_offsets
+        let can_borrow = !invalid_offsets
             && last_ro_section
                 .saturating_add(1)
                 .saturating_sub(first_ro_section)
@@ -749,14 +796,33 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         let ro_section = if config.optimize_rodata && can_borrow {
             // Read only sections are grouped together with no intermixed non-ro
             // sections. We can borrow.
-            Section::Borrowed(lowest_addr..highest_addr as usize)
+
+            // When config.enable_elf_vaddr=true, section addresses and their
+            // corresponding buffer offsets can be translated by a constant
+            // amount. Subtract the constant to get buffer positions.
+            let buf_offset_start =
+                lowest_addr.saturating_sub(addr_file_offset.unwrap_or(0) as usize);
+            let buf_offset_end =
+                highest_addr.saturating_sub(addr_file_offset.unwrap_or(0) as usize);
+
+            let addr_offset = if lowest_addr >= ebpf::MM_PROGRAM_START as usize {
+                // The first field of Section::Borrowed is an offset from
+                // ebpf::MM_PROGRAM_START so if the linker has already put the
+                // sections within ebpf::MM_PROGRAM_START, we need to subtract
+                // it now.
+                lowest_addr.saturating_sub(ebpf::MM_PROGRAM_START as usize)
+            } else {
+                lowest_addr
+            };
+
+            Section::Borrowed(addr_offset, buf_offset_start..buf_offset_end as usize)
         } else {
             // Read only and other non-ro sections are mixed. Zero the non-ro
             // sections and and copy the ro ones at their intended offsets.
 
             if config.optimize_rodata {
-                // The rodata region starts at MM_PROGRAM_START + lowest_addr,
-                // [MM_PROGRAM_START, MM_PROGRAM_START + lowest_addr) is not
+                // The rodata region starts at MM_PROGRAM_START + offset,
+                // [MM_PROGRAM_START, MM_PROGRAM_START + offset) is not
                 // mappable. We only need to allocate highest_addr - lowest_addr
                 // bytes.
                 highest_addr = highest_addr.saturating_sub(lowest_addr);
@@ -767,14 +833,24 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                 lowest_addr = 0;
             };
 
-            let mut ro_section = vec![0; highest_addr];
-            for (mut section_addr, slice) in ro_slices.iter() {
-                section_addr = section_addr.saturating_sub(lowest_addr);
-                ro_section[section_addr..section_addr.saturating_add(slice.len())]
+            let buf_len = highest_addr;
+            if buf_len > elf_bytes.len() {
+                return Err(ElfError::ValueOutOfBounds);
+            }
+
+            let mut ro_section = vec![0; buf_len];
+            for (section_addr, slice) in ro_slices.iter() {
+                let buf_offset_start = section_addr.saturating_sub(lowest_addr);
+                ro_section[buf_offset_start..buf_offset_start.saturating_add(slice.len())]
                     .copy_from_slice(slice);
             }
 
-            Section::Owned(lowest_addr, ro_section)
+            let addr_offset = if lowest_addr >= ebpf::MM_PROGRAM_START as usize {
+                lowest_addr.saturating_sub(ebpf::MM_PROGRAM_START as usize)
+            } else {
+                lowest_addr
+            };
+            Section::Owned(addr_offset, ro_section)
         };
 
         Ok(ro_section)
@@ -817,88 +893,181 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                 .ok_or(ElfError::ValueOutOfBounds)?,
         )?;
 
+        let mut program_header: Option<&ProgramHeader> = None;
+
         // Fixup all the relocations in the relocation section if exists
         for relocation in &elf.dynrels {
-            let r_offset = relocation.r_offset as usize;
+            let mut r_offset = relocation.r_offset as usize;
+
+            // When config.enable_elf_vaddr=true, we allow section.sh_addr !=
+            // section.sh_offset so we need to bring r_offset to the correct
+            // byte offset.
+            if config.enable_elf_vaddr {
+                match program_header {
+                    Some(header) if header.vm_range().contains(&r_offset) => {}
+                    _ => {
+                        program_header = elf
+                            .program_headers
+                            .iter()
+                            .find(|header| header.vm_range().contains(&r_offset))
+                    }
+                }
+                let header = program_header.as_ref().ok_or(ElfError::ValueOutOfBounds)?;
+                r_offset = r_offset
+                    .saturating_sub(header.p_vaddr as usize)
+                    .saturating_add(header.p_offset as usize);
+            }
 
             // Offset of the immediate field
             let imm_offset = r_offset.saturating_add(BYTE_OFFSET_IMMEDIATE);
+
             match BpfRelocationType::from_x86_relocation_type(relocation.r_type) {
                 Some(BpfRelocationType::R_Bpf_64_64) => {
+                    let imm_low_offset = imm_offset;
+                    let imm_high_offset = imm_low_offset.saturating_add(INSN_SIZE);
+
                     // Read the instruction's immediate field which contains virtual
                     // address to convert to physical
                     let checked_slice = elf_bytes
                         .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
-                    let refd_va = LittleEndian::read_u32(checked_slice) as u64;
-                    // final "physical address" from the VM's perspetive is rooted at `MM_PROGRAM_START`
-                    let refd_pa = ebpf::MM_PROGRAM_START.saturating_add(refd_va);
+                    let refd_addr = LittleEndian::read_u32(checked_slice) as u64;
 
-                    // The .text section has an unresolved load symbol instruction.
                     let symbol = elf
                         .dynsyms
                         .get(relocation.r_sym)
                         .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
-                    let addr = symbol.st_value.saturating_add(refd_pa) as u64;
-                    let checked_slice = elf_bytes
+
+                    // The relocated address is relative to the address of the
+                    // symbol at index `r_sym`
+                    let mut addr = symbol.st_value.saturating_add(refd_addr) as u64;
+
+                    // The "physical address" from the VM's perspetive is rooted
+                    // at `MM_PROGRAM_START`. If the linker hasn't already put
+                    // the symbol within `MM_PROGRAM_START`, we need to do so
+                    // now.
+                    if addr < ebpf::MM_PROGRAM_START {
+                        addr = ebpf::MM_PROGRAM_START.saturating_add(addr);
+                    }
+
+                    // Write the low side of the relocate address
+                    let imm_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
-                    LittleEndian::write_u32(checked_slice, (addr & 0xFFFFFFFF) as u32);
-                    let file_offset = imm_offset.saturating_add(ebpf::INSN_SIZE);
-                    let checked_slice = elf_bytes
-                        .get_mut(file_offset..file_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
+                    LittleEndian::write_u32(imm_slice, (addr & 0xFFFFFFFF) as u32);
+
+                    // Write the high side of the relocate address
+                    let imm_slice = elf_bytes
+                        .get_mut(
+                            imm_high_offset..imm_high_offset.saturating_add(BYTE_LENGTH_IMMEDIATE),
+                        )
                         .ok_or(ElfError::ValueOutOfBounds)?;
                     LittleEndian::write_u32(
-                        checked_slice,
+                        imm_slice,
                         addr.checked_shr(32).unwrap_or_default() as u32,
                     );
                 }
                 Some(BpfRelocationType::R_Bpf_64_Relative) => {
-                    // Raw relocation between sections.  The instruction being relocated contains
-                    // the virtual address that it needs turned into a physical address.  Read it,
-                    // locate it in the ELF, convert to physical address
+                    // Relocation between different sections, where the target
+                    // memory is not associated to a symbol (eg some compiler
+                    // generated rodata that doesn't have an explicit symbol).
 
-                    // Read the instruction's immediate field which contains virtual
-                    // address to convert to physical
-                    let checked_slice = elf_bytes
-                        .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
-                        .ok_or(ElfError::ValueOutOfBounds)?;
-                    let refd_va = LittleEndian::read_u32(checked_slice) as u64;
-
-                    if refd_va == 0 {
-                        return Err(ElfError::InvalidVirtualAddress(refd_va));
-                    }
-
-                    // final "physical address" from the VM's perspetive is rooted at `MM_PROGRAM_START`
-                    let refd_pa = ebpf::MM_PROGRAM_START.saturating_add(refd_va);
-
-                    // Write the physical address back into the target location
                     if text_section
                         .file_range()
                         .unwrap_or_default()
                         .contains(&r_offset)
                     {
-                        // Instruction lddw spans two instruction slots, split the
-                        // physical address into a high and low and write into both slot's imm field
+                        // We're relocating a lddw instruction, which spans two
+                        // instruction slots. The address to be relocated is
+                        // split in two halves in the two imms of the
+                        // instruction slots.
+                        let imm_low_offset = imm_offset;
+                        let imm_high_offset = r_offset
+                            .saturating_add(INSN_SIZE)
+                            .saturating_add(BYTE_OFFSET_IMMEDIATE);
 
-                        let checked_slice = elf_bytes
-                            .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
+                        // Read the low side of the address
+                        let imm_slice = elf_bytes
+                            .get(
+                                imm_low_offset
+                                    ..imm_low_offset.saturating_add(BYTE_LENGTH_IMMEDIATE),
+                            )
                             .ok_or(ElfError::ValueOutOfBounds)?;
-                        LittleEndian::write_u32(checked_slice, (refd_pa & 0xFFFFFFFF) as u32);
-                        let file_offset = imm_offset.saturating_add(ebpf::INSN_SIZE);
-                        let checked_slice = elf_bytes
-                            .get_mut(file_offset..file_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
+                        let va_low = LittleEndian::read_u32(imm_slice) as u64;
+
+                        // Read the high side of the address
+                        let imm_slice = elf_bytes
+                            .get(
+                                imm_high_offset
+                                    ..imm_high_offset.saturating_add(BYTE_LENGTH_IMMEDIATE),
+                            )
+                            .ok_or(ElfError::ValueOutOfBounds)?;
+                        let va_high = LittleEndian::read_u32(imm_slice) as u64;
+
+                        // Put the address back together
+                        let mut refd_addr = va_high.checked_shl(32).unwrap_or_default() | va_low;
+
+                        if refd_addr == 0 {
+                            return Err(ElfError::InvalidVirtualAddress(refd_addr));
+                        }
+
+                        if refd_addr < ebpf::MM_PROGRAM_START {
+                            // The linker hasn't already placed rodata within
+                            // MM_PROGRAM_START, so we do so now
+                            refd_addr = ebpf::MM_PROGRAM_START.saturating_add(refd_addr);
+                        }
+
+                        // Write back the low half
+                        let imm_slice = elf_bytes
+                            .get_mut(
+                                imm_low_offset
+                                    ..imm_low_offset.saturating_add(BYTE_LENGTH_IMMEDIATE),
+                            )
+                            .ok_or(ElfError::ValueOutOfBounds)?;
+                        LittleEndian::write_u32(imm_slice, (refd_addr & 0xFFFFFFFF) as u32);
+
+                        // Write back the high half
+                        let imm_slice = elf_bytes
+                            .get_mut(
+                                imm_high_offset
+                                    ..imm_high_offset.saturating_add(BYTE_LENGTH_IMMEDIATE),
+                            )
                             .ok_or(ElfError::ValueOutOfBounds)?;
                         LittleEndian::write_u32(
-                            checked_slice,
-                            refd_pa.checked_shr(32).unwrap_or_default() as u32,
+                            imm_slice,
+                            refd_addr.checked_shr(32).unwrap_or_default() as u32,
                         );
                     } else {
-                        // 64 bit memory location, write entire 64 bit physical address directly
-                        let checked_slice = elf_bytes
+                        let refd_addr = if elf.header.e_flags == EF_SBF_V2 {
+                            // We're relocating an address inside a data section (eg .rodata). The
+                            // address is encoded as a simple u64.
+
+                            let addr_slice = elf_bytes
+                                .get(r_offset..r_offset.saturating_add(mem::size_of::<u64>()))
+                                .ok_or(ElfError::ValueOutOfBounds)?;
+                            let mut refd_addr = LittleEndian::read_u64(addr_slice) as u64;
+                            if refd_addr < ebpf::MM_PROGRAM_START {
+                                // Not within MM_PROGRAM_START, do it now
+                                refd_addr = ebpf::MM_PROGRAM_START.saturating_add(refd_addr);
+                            }
+                            refd_addr
+                        } else {
+                            // There used to be a bug in toolchains before
+                            // https://github.com/solana-labs/llvm-project/pull/35 where for 64 bit
+                            // relocations we were encoding only the low 32 bits, shifted 32 bits to
+                            // the left. Our relocation code used to be compatible with that, so we
+                            // need to keep supporting this case for backwards compatibility.
+                            let addr_slice = elf_bytes
+                                .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
+                                .ok_or(ElfError::ValueOutOfBounds)?;
+                            let refd_addr = LittleEndian::read_u32(addr_slice) as u64;
+                            ebpf::MM_PROGRAM_START.saturating_add(refd_addr)
+                        };
+
+                        let addr_slice = elf_bytes
                             .get_mut(r_offset..r_offset.saturating_add(mem::size_of::<u64>()))
                             .ok_or(ElfError::ValueOutOfBounds)?;
-                        LittleEndian::write_u64(checked_slice, refd_pa);
+                        LittleEndian::write_u64(addr_slice, refd_addr);
                     }
                 }
                 Some(BpfRelocationType::R_Bpf_64_32) => {
@@ -910,12 +1079,14 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         .dynsyms
                         .get(relocation.r_sym)
                         .ok_or(ElfError::UnknownSymbol(relocation.r_sym))?;
+
                     let name = elf
                         .dynstrtab
                         .get_at(symbol.st_name)
                         .ok_or(ElfError::UnknownSymbol(symbol.st_name))?;
+
+                    // If the symbol is defined, this is a bpf-to-bpf call
                     let hash = if symbol.is_function() && symbol.st_value != 0 {
-                        // bpf call
                         if !text_section
                             .vm_range()
                             .contains(&(symbol.st_value as usize))
@@ -934,7 +1105,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                             name,
                         )?
                     } else {
-                        // syscall
+                        // Else it's a syscall
                         let hash = syscall_cache
                             .entry(symbol.st_name)
                             .or_insert_with(|| (ebpf::hash_symbol_name(name.as_bytes()), name))
@@ -955,6 +1126,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                         }
                         hash
                     };
+
                     let checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
@@ -1014,7 +1186,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 pub(crate) fn get_ro_region(ro_section: &Section, elf: &[u8]) -> MemoryRegion {
     let (offset, ro_data) = match ro_section {
         Section::Owned(offset, data) => (*offset, data.as_slice()),
-        Section::Borrowed(range) => (range.start, &elf[range.clone()]),
+        Section::Borrowed(offset, byte_range) => (*offset, &elf[byte_range.clone()]),
     };
 
     // If offset > 0, the region will start at MM_PROGRAM_START + the offset of
@@ -1437,16 +1609,6 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_relocs() {
-        let mut file = File::open("tests/elfs/reloc.so").expect("file open failed");
-        let mut elf_bytes = Vec::new();
-        file.read_to_end(&mut elf_bytes)
-            .expect("failed to read elf file");
-        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
-            .expect("validation failed");
-    }
-
     fn new_section(sh_addr: u64, sh_size: u64) -> SectionHeader {
         SectionHeader {
             sh_addr,
@@ -1478,7 +1640,10 @@ mod test {
 
     #[test]
     fn test_owned_ro_sections_with_sh_offset() {
-        let config = Config::default();
+        let config = Config {
+            reject_broken_elfs: false,
+            ..Config::default()
+        };
         let elf_bytes = [0u8; 512];
 
         // s2 is at a custom sh_offset. We need to merge into an owned buffer so
@@ -1495,6 +1660,80 @@ mod test {
             ),
             Ok(Section::Owned(offset, data)) if offset == 10 && data.len() == 20
         ));
+    }
+
+    #[test]
+    fn test_reject_sh_offset() {
+        let config = Config {
+            reject_broken_elfs: true,
+            ..Config::default()
+        };
+        let elf_bytes = [0u8; 512];
+
+        // s2 is at a custom sh_offset. We need to merge into an owned buffer so
+        // s2 can be moved to the right address offset.
+        let s1 = new_section(10, 10);
+        let mut s2 = new_section(20, 10);
+        s2.sh_offset = 30;
+
+        assert_eq!(
+            ElfExecutable::parse_ro_sections(
+                &config,
+                [(Some(".text"), &s1), (Some(".rodata"), &s2)],
+                &elf_bytes,
+            ),
+            Err(ElfError::ValueOutOfBounds)
+        );
+    }
+
+    #[test]
+    fn test_reject_non_constant_sh_offset() {
+        let config = Config {
+            reject_broken_elfs: true,
+            ..Config::default()
+        };
+        let elf_bytes = [0u8; 512];
+
+        let mut s1 = new_section(ebpf::MM_PROGRAM_START + 10, 10);
+        let mut s2 = new_section(ebpf::MM_PROGRAM_START + 20, 10);
+        // The sections don't have a constant offset. This is rejected since it
+        // makes it impossible to efficiently map virtual addresses to byte
+        // offsets
+        s1.sh_offset = 100;
+        s2.sh_offset = 120;
+
+        assert_eq!(
+            ElfExecutable::parse_ro_sections(
+                &config,
+                [(Some(".text"), &s1), (Some(".rodata"), &s2)],
+                &elf_bytes,
+            ),
+            Err(ElfError::ValueOutOfBounds)
+        );
+    }
+
+    #[test]
+    fn test_borrowed_ro_sections_with_constant_sh_offset() {
+        let config = Config {
+            reject_broken_elfs: true,
+            ..Config::default()
+        };
+        let elf_bytes = [0u8; 512];
+
+        let mut s1 = new_section(ebpf::MM_PROGRAM_START + 10, 10);
+        let mut s2 = new_section(ebpf::MM_PROGRAM_START + 20, 10);
+        // the sections have a constant offset (100)
+        s1.sh_offset = 100;
+        s2.sh_offset = 110;
+
+        assert_eq!(
+            ElfExecutable::parse_ro_sections(
+                &config,
+                [(Some(".text"), &s1), (Some(".rodata"), &s2)],
+                &elf_bytes,
+            ),
+            Ok(Section::Borrowed(10, 100..120))
+        );
     }
 
     #[test]
@@ -1686,7 +1925,7 @@ mod test {
                 ],
                 &elf_bytes,
             ),
-            Ok(Section::Borrowed(20..50))
+            Ok(Section::Borrowed(20, 20..50))
         );
     }
 
