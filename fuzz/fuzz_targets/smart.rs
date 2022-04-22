@@ -10,6 +10,7 @@ use grammar_aware::*;
 use solana_rbpf::{
     elf::{register_bpf_function, Executable},
     insn_builder::{Arch, IntoBytes},
+    memory_region::MemoryRegion,
     user_error::UserError,
     verifier::check,
     vm::{EbpfVm, SyscallRegistry, TestInstructionMeter},
@@ -47,8 +48,9 @@ fuzz_target!(|data: FuzzData| {
         bpf_functions,
     )
     .unwrap();
+    let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
     let mut vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut mem).unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![mem_region]).unwrap();
 
     drop(black_box(vm.execute_program_interpreted(
         &mut TestInstructionMeter { remaining: 1 << 16 },

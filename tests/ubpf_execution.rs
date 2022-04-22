@@ -19,8 +19,7 @@ use solana_rbpf::{
     ebpf,
     elf::{register_bpf_function, ElfError, Executable},
     error::EbpfError,
-    memory_region::AccessType,
-    memory_region::MemoryMapping,
+    memory_region::{AccessType, MemoryMapping, MemoryRegion},
     syscalls::{self, BpfSyscallContext, Result},
     user_error::UserError,
     vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
@@ -43,7 +42,8 @@ macro_rules! test_interpreter_and_jit {
         let mut check_closure = $check;
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
-            let mut vm = EbpfVm::new(&$executable, &mut [], &mut mem).unwrap();
+            let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
+            let mut vm = EbpfVm::new(&$executable, &mut [], vec![mem_region]).unwrap();
             test_interpreter_and_jit!(bind, vm, $syscall_context);
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter {
                 remaining: $expected_instruction_count,
@@ -58,7 +58,8 @@ macro_rules! test_interpreter_and_jit {
             let compilation_result =
                 Executable::<UserError, TestInstructionMeter>::jit_compile(&mut $executable);
             let mut mem = $mem;
-            let mut vm = EbpfVm::new(&$executable, &mut [], &mut mem).unwrap();
+            let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
+            let mut vm = EbpfVm::new(&$executable, &mut [], vec![mem_region]).unwrap();
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, Err(err))),
                 Ok(()) => {
@@ -4225,7 +4226,8 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     }
     let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {
         let mut mem = vec![0u8; mem_size];
-        let mut vm = EbpfVm::new(&executable, &mut [], &mut mem).unwrap();
+        let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
+        let mut vm = EbpfVm::new(&executable, &mut [], vec![mem_region]).unwrap();
         let result_interpreter = vm.execute_program_interpreted(&mut TestInstructionMeter {
             remaining: max_instruction_count,
         });
@@ -4237,7 +4239,8 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         )
     };
     let mut mem = vec![0u8; mem_size];
-    let mut vm = EbpfVm::new(&executable, &mut [], &mut mem).unwrap();
+    let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
+    let mut vm = EbpfVm::new(&executable, &mut [], vec![mem_region]).unwrap();
     let result_jit = vm.execute_program_jit(&mut TestInstructionMeter {
         remaining: max_instruction_count,
     });

@@ -133,9 +133,12 @@ fn test_fuzz_execute() {
                 Config::default(),
                 syscall_registry,
             ) {
-                let mut vm =
-                    EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut [])
-                        .unwrap();
+                let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(
+                    &executable,
+                    &mut [],
+                    Vec::new(),
+                )
+                .unwrap();
                 vm.bind_syscall_context_objects(0, None).unwrap();
                 vm.bind_syscall_context_objects(0, None).unwrap();
                 let _ = vm.execute_program_interpreted(&mut TestInstructionMeter {

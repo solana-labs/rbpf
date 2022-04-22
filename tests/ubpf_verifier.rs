@@ -54,7 +54,7 @@ fn test_verifier_success() {
     )
     .unwrap();
     let _vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut []).unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], Vec::new()).unwrap();
 }
 
 #[test]

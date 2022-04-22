@@ -179,7 +179,8 @@ fn main() {
     if matches.value_of("use") == Some("jit") {
         Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
     }
-    let mut vm = EbpfVm::new(&executable, &mut mem, &mut heap).unwrap();
+    let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
+    let mut vm = EbpfVm::new(&executable, &mut heap, vec![mem_region]).unwrap();
 
     let analysis = if matches.value_of("use") == Some("cfg")
         || matches.value_of("use") == Some("disassembler")

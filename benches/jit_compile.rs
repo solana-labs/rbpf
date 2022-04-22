@@ -30,7 +30,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
     )
     .unwrap();
     bencher.iter(|| {
-        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], &mut []).unwrap()
+        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], Vec::new()).unwrap()
     });
 }
 
