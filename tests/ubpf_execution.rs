@@ -42,7 +42,7 @@ macro_rules! test_interpreter_and_jit {
         let mut check_closure = $check;
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
-            let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
+            let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
             let mut vm = EbpfVm::new(&$executable, &mut [], vec![mem_region]).unwrap();
             test_interpreter_and_jit!(bind, vm, $syscall_context);
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter {
@@ -58,7 +58,7 @@ macro_rules! test_interpreter_and_jit {
             let compilation_result =
                 Executable::<UserError, TestInstructionMeter>::jit_compile(&mut $executable);
             let mut mem = $mem;
-            let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
+            let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
             let mut vm = EbpfVm::new(&$executable, &mut [], vec![mem_region]).unwrap();
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, Err(err))),
@@ -4226,7 +4226,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     }
     let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {
         let mut mem = vec![0u8; mem_size];
-        let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
+        let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
         let mut vm = EbpfVm::new(&executable, &mut [], vec![mem_region]).unwrap();
         let result_interpreter = vm.execute_program_interpreted(&mut TestInstructionMeter {
             remaining: max_instruction_count,
@@ -4239,7 +4239,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         )
     };
     let mut mem = vec![0u8; mem_size];
-    let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
+    let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut vm = EbpfVm::new(&executable, &mut [], vec![mem_region]).unwrap();
     let result_jit = vm.execute_program_jit(&mut TestInstructionMeter {
         remaining: max_instruction_count,

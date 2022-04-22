@@ -1017,11 +1017,9 @@ pub(crate) fn get_ro_region(ro_section: &Section, elf: &[u8]) -> MemoryRegion {
     // If offset > 0, the region will start at MM_PROGRAM_START + the offset of
     // the first read only byte. [MM_PROGRAM_START, MM_PROGRAM_START + offset)
     // will be unmappable, see MemoryRegion::vm_to_host.
-    MemoryRegion::new_from_slice(
+    MemoryRegion::new_readonly(
         ro_data,
         ebpf::MM_PROGRAM_START.saturating_add(offset as u64),
-        0,
-        false,
     )
 }
 

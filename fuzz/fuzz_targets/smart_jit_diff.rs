@@ -57,11 +57,11 @@ fuzz_target!(|data: FuzzData| {
     )
     .unwrap();
     if Executable::jit_compile(&mut executable).is_ok() {
-        let interp_mem_region = MemoryRegion::new_from_slice(&mut interp_mem, ebpf::MM_INPUT_START, 0, true);
+        let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
         let mut interp_vm =
             EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![interp_mem])
                 .unwrap();
-        let jit_mem_region = MemoryRegion::new_from_slice(&mut jit_mem, ebpf::MM_INPUT_START, 0, true);
+        let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
         let mut jit_vm =
             EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![jit_mem_region])
                 .unwrap();

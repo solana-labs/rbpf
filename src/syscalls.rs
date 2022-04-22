@@ -179,16 +179,16 @@ impl SyscallObject<UserError> for BpfGatherBytes {
 /// use solana_rbpf::vm::{Config, SyscallObject};
 /// use solana_rbpf::user_error::UserError;
 ///
-/// let val = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
+/// let mut val = &mut [0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
 /// let val_va = 0x100000000;
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_from_slice(&val, val_va, 0, true)], &config).unwrap();
+/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_writable(val, val_va)], &config).unwrap();
 /// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &memory_mapping, &mut result);
-/// assert_eq!(val, vec![0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
+/// assert_eq!(val, &[0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
 /// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &memory_mapping, &mut result);
-/// assert_eq!(val, vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
+/// assert_eq!(val, &[0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
 /// ```
 pub struct BpfMemFrob {}
 impl BpfMemFrob {
@@ -275,11 +275,11 @@ impl SyscallObject<UserError> for BpfSqrtI {
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, 0, false)], &config).unwrap();
+/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_readonly(foo.as_bytes(), va_foo)], &config).unwrap();
 /// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_foo, 0, 0, 0, &memory_mapping, &mut result);
 /// assert!(result.unwrap() == 0);
 /// let mut result: Result = Ok(0);
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_from_slice(foo.as_bytes(), va_foo, 0, false), MemoryRegion::new_from_slice(bar.as_bytes(), va_bar, 0, false)], &config).unwrap();
+/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_readonly(foo.as_bytes(), va_foo), MemoryRegion::new_readonly(bar.as_bytes(), va_bar)], &config).unwrap();
 /// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_bar, 0, 0, 0, &memory_mapping, &mut result);
 /// assert!(result.unwrap() != 0);
 /// ```

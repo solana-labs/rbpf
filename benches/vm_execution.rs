@@ -10,7 +10,9 @@ extern crate solana_rbpf;
 extern crate test;
 
 use solana_rbpf::{
+    ebpf,
     elf::Executable,
+    memory_region::MemoryRegion,
     user_error::UserError,
     vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter},
 };
@@ -75,7 +77,7 @@ fn bench_jit_vs_interpreter(
     )
     .unwrap();
     Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
-    let mem_region = MemoryRegion::new_from_slice(mem, ebpf::MM_INPUT_START, 0, true);
+    let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
     let mut vm = EbpfVm::new(&executable, &mut [], vec![mem_region]).unwrap();
     let interpreter_summary = bencher
         .bench(|bencher| {

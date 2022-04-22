@@ -478,7 +478,7 @@ macro_rules! translate_memory_access {
 /// let syscall_registry = SyscallRegistry::default();
 /// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
 /// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, None, config, syscall_registry, bpf_functions).unwrap();
-/// let mem_region = MemoryRegion::new_from_slice(mem, ebpf::MM_INPUT_START, 0, true);
+/// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
 /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![mem_region]).unwrap();
 ///
 /// // Provide a reference to the packet data.
@@ -525,12 +525,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         additional_regions: Vec<MemoryRegion>,
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
         let config = executable.get_config();
-        let stack = CallFrames::new(config);
+        let mut stack = CallFrames::new(config);
         let regions: Vec<MemoryRegion> = vec![
-            MemoryRegion::new_from_slice(&[], 0, 0, false),
+            MemoryRegion::new_readonly(&[], 0),
             executable.get_ro_region(),
             stack.get_memory_region(),
-            MemoryRegion::new_from_slice(heap_region, ebpf::MM_HEAP_START, 0, true),
+            MemoryRegion::new_writable(heap_region, ebpf::MM_HEAP_START),
         ]
         .into_iter()
         .chain(additional_regions.into_iter())
@@ -685,7 +685,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let syscall_registry = SyscallRegistry::default();
     /// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
     /// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, None, config, syscall_registry, bpf_functions).unwrap();
-    /// let mem_region = MemoryRegion::new_from_slice(mem, ebpf::MM_INPUT_START, 0, true);
+    /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
     /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![mem_region]).unwrap();
     ///
     /// // Provide a reference to the packet data.

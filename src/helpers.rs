@@ -182,7 +182,7 @@ pub fn gather_bytes<E: UserDefinedError> (
 ///
 /// let val = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
 /// let val_va = 0x1000;
-/// let regions = [MemoryRegion::new_from_slice(&val, val_va)];
+/// let regions = [MemoryRegion::new_readonly(&val, val_va, 0)];
 ///
 /// memfrob::<UserError>(val_va, 8, 0, 0, 0, &regions, &regions);
 /// assert_eq!(val, vec![0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
@@ -271,10 +271,10 @@ pub fn sqrti<E: UserDefinedError> (
 /// let bar = "This is another sting.";
 /// let va_foo = 0x1000;
 /// let va_bar = 0x2000;
-/// let regions = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo)];
+/// let regions = [MemoryRegion::new_readonly(foo.as_bytes(), va_foo, 0)];
 /// assert!(strcmp::<UserError>(va_foo, va_foo, 0, 0, 0, &regions, &regions).unwrap() == 0);
-/// let regions = [MemoryRegion::new_from_slice(foo.as_bytes(), va_foo),
-///                MemoryRegion::new_from_slice(bar.as_bytes(), va_bar)];
+/// let regions = [MemoryRegion::new_readonly(foo.as_bytes(), va_foo, 0),
+///                MemoryRegion::new_readonly(bar.as_bytes(), va_bar, 0)];
 /// assert!(strcmp::<UserError>(va_foo, va_bar, 0, 0, 0, &regions, &regions).unwrap() != 0);
 /// ```
 #[allow(dead_code)]

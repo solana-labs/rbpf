@@ -68,16 +68,15 @@ impl<'a> CallFrames<'a> {
     }
 
     /// Get stack memory region
-    pub fn get_memory_region(&self) -> MemoryRegion {
-        MemoryRegion::new_from_slice(
-            self.stack.as_slice(),
+    pub fn get_memory_region(&mut self) -> MemoryRegion {
+        MemoryRegion::new_writable_gapped(
+            self.stack.as_slice_mut(),
             MM_STACK_START,
             if !self.config.dynamic_stack_frames && self.config.enable_stack_frame_gaps {
                 self.config.stack_frame_size as u64
             } else {
                 0
             },
-            true,
         )
     }
 

@@ -48,7 +48,7 @@ fuzz_target!(|data: FuzzData| {
         bpf_functions,
     )
     .unwrap();
-    let mem_region = MemoryRegion::new_from_slice(&mem, ebpf::MM_INPUT_START, 0, true);
+    let mem_region = MemoryRegion::new_writable(&mem, ebpf::MM_INPUT_START);
     let mut vm =
         EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![mem_region]).unwrap();
 

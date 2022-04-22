@@ -32,7 +32,7 @@ fn generate_memory_regions(
             None => 4,
         };
         let content = vec![0; length as usize];
-        memory_regions.push(MemoryRegion::new_from_slice(
+        memory_regions.push(MemoryRegion::new_for_testing(
             &content[..],
             offset,
             0,
@@ -62,7 +62,7 @@ fn bench_gapped_randomized_access_with_1024_entries(bencher: &mut Bencher) {
     let content = vec![0; (frame_size * frame_count * 2) as usize];
     let memory_regions = vec![
         MemoryRegion::default(),
-        MemoryRegion::new_from_slice(&content[..], 0x100000000, frame_size, false),
+        MemoryRegion::new_for_testing(&content[..], 0x100000000, frame_size, false),
     ];
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
@@ -83,7 +83,7 @@ fn bench_randomized_access_with_0001_entry(bencher: &mut Bencher) {
     let content = vec![0; 1024 * 2];
     let memory_regions = vec![
         MemoryRegion::default(),
-        MemoryRegion::new_from_slice(&content[..], 0x100000000, 0, false),
+        MemoryRegion::new_readonly(&content[..], 0x100000000),
     ];
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();

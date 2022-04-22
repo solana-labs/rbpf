@@ -50,8 +50,7 @@ impl MemoryRegion {
     pub(crate) const IS_WRITABLE_OFFSET: i32 =
         MemoryRegion::VM_GAP_SHIFT_OFFSET + std::mem::size_of::<u8>() as i32;
 
-    /// Creates a new MemoryRegion structure from a slice
-    pub fn new_from_slice(slice: &[u8], vm_addr: u64, vm_gap_size: u64, is_writable: bool) -> Self {
+    fn new(slice: &[u8], vm_addr: u64, vm_gap_size: u64, is_writable: bool) -> Self {
         let mut vm_gap_shift = (std::mem::size_of::<u64>() as u8)
             .saturating_mul(8)
             .saturating_sub(1);
@@ -66,6 +65,31 @@ impl MemoryRegion {
             vm_gap_shift,
             is_writable,
         }
+    }
+
+    /// Only to be used in tests and benches
+    pub fn new_for_testing(
+        slice: &[u8],
+        vm_addr: u64,
+        vm_gap_size: u64,
+        is_writable: bool,
+    ) -> Self {
+        Self::new(slice, vm_addr, vm_gap_size, is_writable)
+    }
+
+    /// Creates a new readonly MemoryRegion from a slice
+    pub fn new_readonly(slice: &[u8], vm_addr: u64) -> Self {
+        Self::new(slice, vm_addr, 0, false)
+    }
+
+    /// Creates a new writable MemoryRegion from a mutable slice
+    pub fn new_writable(slice: &mut [u8], vm_addr: u64) -> Self {
+        Self::new(slice, vm_addr, 0, true)
+    }
+
+    /// Creates a new writable gapped MemoryRegion from a mutable slice
+    pub fn new_writable_gapped(slice: &mut [u8], vm_addr: u64, vm_gap_size: u64) -> Self {
+        Self::new(slice, vm_addr, vm_gap_size, true)
     }
 
     /// Convert a virtual machine address into a host address
