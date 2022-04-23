@@ -20,8 +20,6 @@
 //! value. Hence some syscalls have unused arguments, or return a 0 value in all cases, in order to
 //! respect this convention.
 
-extern crate libc;
-
 use crate::{
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
@@ -29,7 +27,6 @@ use crate::{
     user_error::UserError,
     vm::SyscallObject,
 };
-use libc::c_char;
 use std::{slice::from_raw_parts, str::from_utf8, u64};
 
 /// Test syscall context
@@ -219,45 +216,6 @@ impl SyscallObject<UserError> for BpfMemFrob {
     }
 }
 
-/// Compute and return the square root of argument 1, cast as a float. Arguments 2 to 5 are
-/// unused.
-///
-/// # Examples
-///
-/// ```
-/// use solana_rbpf::syscalls::{BpfSqrtI, Result};
-/// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
-/// use solana_rbpf::vm::{Config, SyscallObject};
-/// use solana_rbpf::user_error::UserError;
-///
-/// let mut result: Result = Ok(0);
-/// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
-/// BpfSqrtI::call(&mut BpfSqrtI {}, 9, 0, 0, 0, 0, &memory_mapping, &mut result);
-/// assert_eq!(result.unwrap(), 3);
-/// ```
-pub struct BpfSqrtI {}
-impl BpfSqrtI {
-    /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
-        Box::new(Self {})
-    }
-}
-impl SyscallObject<UserError> for BpfSqrtI {
-    fn call(
-        &mut self,
-        arg1: u64,
-        _arg2: u64,
-        _arg3: u64,
-        _arg4: u64,
-        _arg5: u64,
-        _memory_mapping: &MemoryMapping,
-        result: &mut Result,
-    ) {
-        *result = Result::Ok((arg1 as f64).sqrt() as u64);
-    }
-}
-
 /// C-like `strcmp`, return 0 if the strings are equal, and a non-null value otherwise.
 ///
 /// # Examples
@@ -328,56 +286,6 @@ impl SyscallObject<UserError> for BpfStrCmp {
 
 // Some additional syscalls
 
-/// Returns a random u64 value comprised between `min` and `max` values (inclusive). Arguments 3 to
-/// 5 are unused.
-///
-/// Relies on `rand()` function from libc, so `libc::srand()` should be called once before this
-/// syscall is used.
-///
-/// # Examples
-///
-/// ```
-/// extern crate libc;
-/// extern crate solana_rbpf;
-///
-/// use solana_rbpf::syscalls::{BpfRand, Result};
-/// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
-/// use solana_rbpf::vm::{Config, SyscallObject};
-/// use solana_rbpf::user_error::UserError;
-//////
-/// let mut result: Result = Ok(0);
-/// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
-/// BpfRand::call(&mut BpfRand {}, 3, 6, 0, 0, 0, &memory_mapping, &mut result);
-/// let n = result.unwrap();
-/// assert!(3 <= n && n <= 6);
-/// ```
-pub struct BpfRand {}
-impl BpfRand {
-    /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
-        Box::new(Self {})
-    }
-}
-impl SyscallObject<UserError> for BpfRand {
-    fn call(
-        &mut self,
-        min: u64,
-        max: u64,
-        _arg3: u64,
-        _arg4: u64,
-        _arg5: u64,
-        _memory_mapping: &MemoryMapping,
-        result: &mut Result,
-    ) {
-        let mut n = unsafe { (libc::rand() as u64).wrapping_shl(32) + libc::rand() as u64 };
-        if min < max {
-            n = n % (max + 1 - min) + min;
-        };
-        *result = Result::Ok(n);
-    }
-}
-
 /// Prints a NULL-terminated UTF-8 string.
 pub struct BpfSyscallString {}
 impl BpfSyscallString {
@@ -398,7 +306,7 @@ impl SyscallObject<UserError> for BpfSyscallString {
         result: &mut Result,
     ) {
         let host_addr = question_mark!(memory_mapping.map(AccessType::Load, vm_addr, len), result);
-        let c_buf: *const c_char = host_addr as *const c_char;
+        let c_buf: *const i8 = host_addr as *const i8;
         unsafe {
             for i in 0..len {
                 let c = std::ptr::read(c_buf.offset(i as isize));
