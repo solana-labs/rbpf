@@ -29,9 +29,6 @@ use crate::{
 };
 use std::{slice::from_raw_parts, str::from_utf8, u64};
 
-/// Test syscall context
-pub type BpfSyscallContext = u64;
-
 /// Return type of syscalls
 pub type Result = std::result::Result<u64, EbpfError<UserError>>;
 
@@ -83,12 +80,6 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// This would equally print the three numbers in `/sys/kernel/debug/tracing` file each time the
 /// program is run.
 pub struct BpfTracePrintf {}
-impl BpfTracePrintf {
-    /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
-        Box::new(Self {})
-    }
-}
 impl SyscallObject<UserError> for BpfTracePrintf {
     fn call(
         &mut self,
@@ -137,12 +128,6 @@ impl SyscallObject<UserError> for BpfTracePrintf {
 /// assert_eq!(result.unwrap(), 0x1122334455);
 /// ```
 pub struct BpfGatherBytes {}
-impl BpfGatherBytes {
-    /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
-        Box::new(Self {})
-    }
-}
 impl SyscallObject<UserError> for BpfGatherBytes {
     fn call(
         &mut self,
@@ -188,12 +173,6 @@ impl SyscallObject<UserError> for BpfGatherBytes {
 /// assert_eq!(val, &[0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
 /// ```
 pub struct BpfMemFrob {}
-impl BpfMemFrob {
-    /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
-        Box::new(Self {})
-    }
-}
 impl SyscallObject<UserError> for BpfMemFrob {
     fn call(
         &mut self,
@@ -242,12 +221,6 @@ impl SyscallObject<UserError> for BpfMemFrob {
 /// assert!(result.unwrap() != 0);
 /// ```
 pub struct BpfStrCmp {}
-impl BpfStrCmp {
-    /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
-        Box::new(Self {})
-    }
-}
 impl SyscallObject<UserError> for BpfStrCmp {
     fn call(
         &mut self,
@@ -288,12 +261,6 @@ impl SyscallObject<UserError> for BpfStrCmp {
 
 /// Prints a NULL-terminated UTF-8 string.
 pub struct BpfSyscallString {}
-impl BpfSyscallString {
-    /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
-        Box::new(Self {})
-    }
-}
 impl SyscallObject<UserError> for BpfSyscallString {
     fn call(
         &mut self,
@@ -324,12 +291,6 @@ impl SyscallObject<UserError> for BpfSyscallString {
 
 /// Prints the five arguments formated as u64 in decimal.
 pub struct BpfSyscallU64 {}
-impl BpfSyscallU64 {
-    /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
-        Box::new(Self {})
-    }
-}
 impl SyscallObject<UserError> for BpfSyscallU64 {
     fn call(
         &mut self,
@@ -352,13 +313,7 @@ impl SyscallObject<UserError> for BpfSyscallU64 {
 /// Example of a syscall with internal state.
 pub struct SyscallWithContext {
     /// Mutable state
-    pub context: BpfSyscallContext,
-}
-impl SyscallWithContext {
-    /// new
-    pub fn init<C, E>(context: BpfSyscallContext) -> Box<dyn SyscallObject<UserError>> {
-        Box::new(Self { context })
-    }
+    pub context: u64,
 }
 impl SyscallObject<UserError> for SyscallWithContext {
     fn call(

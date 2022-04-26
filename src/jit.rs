@@ -1846,7 +1846,6 @@ mod tests {
         syscall_registry
             .register_syscall_by_hash(
                 0xFFFFFFFF,
-                syscalls::BpfGatherBytes::init::<syscalls::BpfSyscallContext, UserError>,
                 syscalls::BpfGatherBytes::call,
             )
             .unwrap();

@@ -215,7 +215,7 @@ fn main() {
     }
 
     for (hash, name) in executable.get_syscall_symbols() {
-        vm.bind_syscall_context_objects(Box::new(MockSyscall { name: name.clone() }), Some(*hash))
+        vm.bind_syscall_context_object(Box::new(MockSyscall { name: name.clone() }), Some(*hash))
             .unwrap();
     }
     let result = if matches.value_of("use").unwrap() == "interpreter" {

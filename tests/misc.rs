@@ -24,7 +24,7 @@ extern crate test_utils;
 use solana_rbpf::{
     elf::Executable,
     fuzz::fuzz,
-    syscalls::{BpfSyscallContext, BpfSyscallString, BpfSyscallU64},
+    syscalls::{BpfSyscallString, BpfSyscallU64},
     user_error::UserError,
     verifier::check,
     vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
@@ -114,18 +114,10 @@ fn test_fuzz_execute() {
         |bytes: &mut [u8]| {
             let mut syscall_registry = SyscallRegistry::default();
             syscall_registry
-                .register_syscall_by_name(
-                    b"log",
-                    BpfSyscallString::init::<BpfSyscallContext, UserError>,
-                    BpfSyscallString::call,
-                )
+                .register_syscall_by_name::<UserError, _>(b"log", BpfSyscallString::call)
                 .unwrap();
             syscall_registry
-                .register_syscall_by_name(
-                    b"log_64",
-                    BpfSyscallU64::init::<BpfSyscallContext, UserError>,
-                    BpfSyscallU64::call,
-                )
+                .register_syscall_by_name::<UserError, _>(b"log_64", BpfSyscallU64::call)
                 .unwrap();
             if let Ok(executable) = Executable::<UserError, TestInstructionMeter>::from_elf(
                 bytes,
@@ -139,8 +131,10 @@ fn test_fuzz_execute() {
                     Vec::new(),
                 )
                 .unwrap();
-                vm.bind_syscall_context_objects(0, None).unwrap();
-                vm.bind_syscall_context_objects(0, None).unwrap();
+                vm.bind_syscall_context_object(Box::new(BpfSyscallString {}), None)
+                    .unwrap();
+                vm.bind_syscall_context_object(Box::new(BpfSyscallU64 {}), None)
+                    .unwrap();
                 let _ = vm.execute_program_interpreted(&mut TestInstructionMeter {
                     remaining: 1_000_000,
                 });

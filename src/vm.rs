@@ -61,9 +61,6 @@ macro_rules! question_mark {
     }};
 }
 
-/// Syscall initialization function
-pub type SyscallInit<'a, C, E> = fn(C) -> Box<(dyn SyscallObject<E> + 'a)>;
-
 /// Syscall function without context
 pub type SyscallFunction<E, O> =
     fn(O, u64, u64, u64, u64, u64, &MemoryMapping, &mut ProgramResult<E>);
@@ -87,8 +84,6 @@ pub trait SyscallObject<E: UserDefinedError> {
 /// Syscall function and binding slot for a context object
 #[derive(Debug, PartialEq)]
 pub struct Syscall {
-    /// Syscall init
-    pub init: u64,
     /// Call the syscall function
     pub function: u64,
     /// Slot of context object
@@ -128,13 +123,11 @@ pub struct SyscallRegistry {
 
 impl SyscallRegistry {
     /// Register a syscall function by its symbol hash
-    pub fn register_syscall_by_hash<'a, C, E: UserDefinedError, O: SyscallObject<E>>(
+    pub fn register_syscall_by_hash<E: UserDefinedError, O: SyscallObject<E>>(
         &mut self,
         hash: u32,
-        init: SyscallInit<'a, C, E>,
         function: SyscallFunction<E, &mut O>,
     ) -> Result<(), EbpfError<E>> {
-        let init = init as *const u8 as u64;
         let function = function as *const u8 as u64;
         let context_object_slot = self.entries.len();
         if self
@@ -142,7 +135,6 @@ impl SyscallRegistry {
             .insert(
                 hash,
                 Syscall {
-                    init,
                     function,
                     context_object_slot,
                 },
@@ -160,13 +152,12 @@ impl SyscallRegistry {
     }
 
     /// Register a syscall function by its symbol name
-    pub fn register_syscall_by_name<'a, C, E: UserDefinedError, O: SyscallObject<E>>(
+    pub fn register_syscall_by_name<E: UserDefinedError, O: SyscallObject<E>>(
         &mut self,
         name: &[u8],
-        init: SyscallInit<'a, C, E>,
         function: SyscallFunction<E, &mut O>,
     ) -> Result<(), EbpfError<E>> {
-        self.register_syscall_by_hash::<C, E, O>(ebpf::hash_symbol_name(name), init, function)
+        self.register_syscall_by_hash(ebpf::hash_symbol_name(name), function)
     }
 
     /// Get a symbol's function pointer and context object slot
@@ -577,7 +568,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         &self.tracer
     }
 
-    /// Bind a context objects instance to a previously registered syscalls
+    /// Bind a context object instance to a previously registered syscall
     ///
     /// # Examples
     ///
@@ -603,7 +594,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
     /// // standard output.
     /// let mut syscall_registry = SyscallRegistry::default();
-    /// syscall_registry.register_syscall_by_hash(6, BpfTracePrintf::init::<u64, UserError>, BpfTracePrintf::call).unwrap();
+    /// syscall_registry.register_syscall_by_hash(6, BpfTracePrintf::call).unwrap();
     /// // Instantiate an Executable and VM
     /// let config = Config::default();
     /// let mut bpf_functions = std::collections::BTreeMap::new();
@@ -611,47 +602,37 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, None, config, syscall_registry, bpf_functions).unwrap();
     /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], Vec::new()).unwrap();
     /// // Bind a context object instance to the previously registered syscall
-    /// vm.bind_syscall_context_objects(0, None);
+    /// vm.bind_syscall_context_object(Box::new(BpfTracePrintf {}), None);
     /// ```
-    pub fn bind_syscall_context_objects<C: Clone>(
+    pub fn bind_syscall_context_object(
         &mut self,
-        syscall_context: C,
+        syscall_context_object: Box<dyn SyscallObject<E> + 'a>,
         hash: Option<u32>,
     ) -> Result<(), EbpfError<E>> {
+        let fat_ptr: DynTraitFatPointer = unsafe { std::mem::transmute(&*syscall_context_object) };
         let syscall_registry = self.executable.get_syscall_registry();
-
-        for (_hash, syscall) in syscall_registry.entries.iter() {
-            let syscall_object_init_fn: SyscallInit<C, E> =
-                unsafe { std::mem::transmute(syscall.init) };
-            let syscall_context_object: Box<dyn SyscallObject<E> + 'a> =
-                syscall_object_init_fn(syscall_context.clone());
-            let fat_ptr: DynTraitFatPointer =
-                unsafe { std::mem::transmute(&*syscall_context_object) };
-
-            let slot = match hash {
-                Some(hash) => {
-                    syscall_registry
-                        .lookup_syscall(hash)
-                        .ok_or(EbpfError::SyscallNotRegistered(hash as usize))?
-                        .context_object_slot
-                }
-                None => syscall_registry
-                    .lookup_context_object_slot(fat_ptr.vtable.methods[0] as u64)
-                    .ok_or(EbpfError::SyscallNotRegistered(
-                        fat_ptr.vtable.methods[0] as usize,
-                    ))?,
-            };
-            if !self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot].is_null() {
-                return Err(EbpfError::SyscallAlreadyBound(slot));
-            } else {
-                self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot] = fat_ptr.data;
-                // Keep the dyn trait objects so that they can be dropped properly later
-                self.syscall_context_object_pool
-                    .push(syscall_context_object);
+        let slot = match hash {
+            Some(hash) => {
+                syscall_registry
+                    .lookup_syscall(hash)
+                    .ok_or(EbpfError::SyscallNotRegistered(hash as usize))?
+                    .context_object_slot
             }
+            None => syscall_registry
+                .lookup_context_object_slot(fat_ptr.vtable.methods[0] as u64)
+                .ok_or(EbpfError::SyscallNotRegistered(
+                    fat_ptr.vtable.methods[0] as usize,
+                ))?,
+        };
+        if !self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot].is_null() {
+            Err(EbpfError::SyscallAlreadyBound(slot))
+        } else {
+            self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot] = fat_ptr.data;
+            // Keep the dyn trait objects so that they can be dropped properly later
+            self.syscall_context_object_pool
+                .push(syscall_context_object);
+            Ok(())
         }
-
-        Ok(())
     }
 
     /// Lookup a syscall context object by its function pointer. Used for testing and validation.
