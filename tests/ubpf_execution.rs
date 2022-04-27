@@ -20,7 +20,7 @@ use solana_rbpf::{
     elf::{register_bpf_function, ElfError, Executable},
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
-    syscalls::{self, Result},
+    syscalls::{self, BpfSyscallContext, Result},
     user_error::UserError,
     vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
@@ -28,21 +28,26 @@ use std::{collections::BTreeMap, fs::File, io::Read};
 use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 
 macro_rules! test_interpreter_and_jit {
-    (register, $syscall_registry:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
-        $syscall_registry.register_syscall_by_name::<UserError, _>($location, $syscall_function).unwrap();
+    (register, $syscall_registry:expr, $location:expr => $syscall_init:expr; $syscall_function:expr) => {
+        $syscall_registry
+            .register_syscall_by_name($location, $syscall_init, $syscall_function)
+            .unwrap();
     };
-    (bind, $vm:expr, $location:expr => $syscall_function:expr; $syscall_context_object:expr) => {
-        $vm.bind_syscall_context_object(Box::new($syscall_context_object), None).unwrap();
+    (bind, $vm:expr, $syscall_context:expr) => {
+        $vm.bind_syscall_context_objects($syscall_context, None)
+            .unwrap();
     };
-    ($executable:expr, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
+    ($executable:expr, $mem:tt, $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
         #[allow(unused_mut)]
         let mut check_closure = $check;
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
             let mut vm = EbpfVm::new(&$executable, &mut [], vec![mem_region]).unwrap();
-            $(test_interpreter_and_jit!(bind, vm, $location => $syscall_function; $syscall_context_object);)*
-            let result = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: $expected_instruction_count });
+            test_interpreter_and_jit!(bind, vm, $syscall_context);
+            let result = vm.execute_program_interpreted(&mut TestInstructionMeter {
+                remaining: $expected_instruction_count,
+            });
             assert!(check_closure(&vm, result));
             (vm.get_total_instruction_count(), vm.get_tracer().clone())
         };
@@ -50,15 +55,18 @@ macro_rules! test_interpreter_and_jit {
         {
             #[allow(unused_mut)]
             let mut check_closure = $check;
-            let compilation_result = Executable::<UserError, TestInstructionMeter>::jit_compile(&mut $executable);
+            let compilation_result =
+                Executable::<UserError, TestInstructionMeter>::jit_compile(&mut $executable);
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
             let mut vm = EbpfVm::new(&$executable, &mut [], vec![mem_region]).unwrap();
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, Err(err))),
                 Ok(()) => {
-                    $(test_interpreter_and_jit!(bind, vm, $location => $syscall_function; $syscall_context_object);)*
-                    let result = vm.execute_program_jit(&mut TestInstructionMeter { remaining: $expected_instruction_count });
+                    test_interpreter_and_jit!(bind, vm, $syscall_context);
+                    let result = vm.execute_program_jit(&mut TestInstructionMeter {
+                        remaining: $expected_instruction_count,
+                    });
                     let tracer_jit = vm.get_tracer();
                     if !check_closure(&vm, result)
                         || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit)
@@ -67,7 +75,9 @@ macro_rules! test_interpreter_and_jit {
                             solana_rbpf::static_analysis::Analysis::from_executable(&$executable)
                                 .unwrap();
                         let stdout = std::io::stdout();
-                        _tracer_interpreter.write(&mut stdout.lock(), &analysis).unwrap();
+                        _tracer_interpreter
+                            .write(&mut stdout.lock(), &analysis)
+                            .unwrap();
                         tracer_jit.write(&mut stdout.lock(), &analysis).unwrap();
                         panic!();
                     }
@@ -75,7 +85,7 @@ macro_rules! test_interpreter_and_jit {
                         let instruction_count_jit = vm.get_total_instruction_count();
                         assert_eq!(instruction_count_interpreter, instruction_count_jit);
                     }
-                },
+                }
             }
         }
         if $executable.get_config().enable_instruction_meter {
@@ -85,46 +95,46 @@ macro_rules! test_interpreter_and_jit {
 }
 
 macro_rules! test_interpreter_and_jit_asm {
-    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
+    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_init:expr; $syscall_function:expr),* $(,)?), $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
         #[allow(unused_mut)]
         {
             let mut syscall_registry = SyscallRegistry::default();
-            $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function; $syscall_context_object);)*
+            $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
             let mut executable = assemble($source, None, $config, syscall_registry).unwrap();
-            test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
+            test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
-    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
+    ($source:tt, $mem:tt, ($($location:expr => $syscall_init:expr; $syscall_function:expr),* $(,)?), $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
         #[allow(unused_mut)]
         {
             let config = Config {
                 enable_instruction_tracing: true,
                 ..Config::default()
             };
-            test_interpreter_and_jit_asm!($source, config, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
+            test_interpreter_and_jit_asm!($source, config, $mem, ($($location => $syscall_init; $syscall_function),*), $syscall_context, $check, $expected_instruction_count);
         }
     };
 }
 
 macro_rules! test_interpreter_and_jit_elf {
-    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
+    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_init:expr; $syscall_function:expr),* $(,)?), $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
         #[allow(unused_mut)]
         {
             let mut syscall_registry = SyscallRegistry::default();
-            $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function; $syscall_context_object);)*
+            $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
             let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, $config, syscall_registry).unwrap();
-            test_interpreter_and_jit!(executable, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
+            test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
-    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr; $syscall_context_object:expr),* $(,)?), $check:block, $expected_instruction_count:expr) => {
+    ($source:tt, $mem:tt, ($($location:expr => $syscall_init:expr; $syscall_function:expr),* $(,)?), $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
         let config = Config {
             enable_instruction_tracing: true,
             ..Config::default()
         };
-        test_interpreter_and_jit_elf!($source, config, $mem, ($($location => $syscall_function; $syscall_context_object),*), $check, $expected_instruction_count);
+        test_interpreter_and_jit_elf!($source, config, $mem, ($($location => $syscall_init; $syscall_function),*), $syscall_context, $check, $expected_instruction_count);
     };
 }
 
@@ -139,6 +149,7 @@ fn test_mov() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         3
     );
@@ -152,6 +163,7 @@ fn test_mov32_imm_large() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xffffffff } },
         2
     );
@@ -166,6 +178,7 @@ fn test_mov_large() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xffffffff } },
         3
     );
@@ -184,6 +197,7 @@ fn test_bounce() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -200,6 +214,7 @@ fn test_add32() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x3 } },
         5
     );
@@ -214,6 +229,7 @@ fn test_neg32() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xfffffffe } },
         3
     );
@@ -228,6 +244,7 @@ fn test_neg64() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xfffffffffffffffe } },
         3
     );
@@ -258,6 +275,7 @@ fn test_alu32_arithmetic() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x2a } },
         19
     );
@@ -288,6 +306,7 @@ fn test_alu64_arithmetic() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x2a } },
         19
     );
@@ -341,6 +360,7 @@ fn test_mul128() {
         exit",
         [0; 16],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 600 } },
         42
     );
@@ -373,6 +393,7 @@ fn test_alu32_logic() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x11 } },
         21
     );
@@ -407,6 +428,7 @@ fn test_alu64_logic() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x11 } },
         23
     );
@@ -422,6 +444,7 @@ fn test_arsh32_high_shift() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x4 } },
         4
     );
@@ -437,6 +460,7 @@ fn test_arsh32_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xffff8000 } },
         4
     );
@@ -453,6 +477,7 @@ fn test_arsh32_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xffff8000 } },
         5
     );
@@ -470,6 +495,7 @@ fn test_arsh64() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xfffffffffffffff8 } },
         6
     );
@@ -485,6 +511,7 @@ fn test_lsh64_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x10 } },
         4
     );
@@ -500,6 +527,7 @@ fn test_rhs32_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x00ffffff } },
         4
     );
@@ -515,6 +543,7 @@ fn test_rsh64_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         4
     );
@@ -529,6 +558,7 @@ fn test_be16() {
         exit",
         [0x11, 0x22],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1122 } },
         3
     );
@@ -543,6 +573,7 @@ fn test_be16_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1122 } },
         3
     );
@@ -557,6 +588,7 @@ fn test_be32() {
         exit",
         [0x11, 0x22, 0x33, 0x44],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x11223344 } },
         3
     );
@@ -571,6 +603,7 @@ fn test_be32_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x11223344 } },
         3
     );
@@ -585,6 +618,7 @@ fn test_be64() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1122334455667788 } },
         3
     );
@@ -599,6 +633,7 @@ fn test_le16() {
         exit",
         [0x22, 0x11],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1122 } },
         3
     );
@@ -613,6 +648,7 @@ fn test_le16_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x2211 } },
         3
     );
@@ -627,6 +663,7 @@ fn test_le32() {
         exit",
         [0x44, 0x33, 0x22, 0x11],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x11223344 } },
         3
     );
@@ -641,6 +678,7 @@ fn test_le32_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x44332211 } },
         3
     );
@@ -655,6 +693,7 @@ fn test_le64() {
         exit",
         [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1122334455667788 } },
         3
     );
@@ -669,6 +708,7 @@ fn test_mul32_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xc } },
         3
     );
@@ -684,6 +724,7 @@ fn test_mul32_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xc } },
         4
     );
@@ -699,6 +740,7 @@ fn test_mul32_reg_overflow() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x4 } },
         4
     );
@@ -713,6 +755,7 @@ fn test_mul64_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x100000004 } },
         3
     );
@@ -728,6 +771,7 @@ fn test_mul64_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x100000004 } },
         4
     );
@@ -743,6 +787,7 @@ fn test_div32_high_divisor() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x3 } },
         4
     );
@@ -757,6 +802,7 @@ fn test_div32_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x3 } },
         3
     );
@@ -772,6 +818,7 @@ fn test_div32_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x3 } },
         4
     );
@@ -786,6 +833,7 @@ fn test_sdiv32_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x3 } },
         3
     );
@@ -801,6 +849,7 @@ fn test_sdiv32_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x3 } },
         4
     );
@@ -816,6 +865,7 @@ fn test_div64_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x300000000 } },
         4
     );
@@ -832,6 +882,7 @@ fn test_div64_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x300000000 } },
         5
     );
@@ -847,6 +898,7 @@ fn test_sdiv64_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x300000000 } },
         4
     );
@@ -863,6 +915,7 @@ fn test_sdiv64_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x300000000 } },
         5
     );
@@ -878,6 +931,7 @@ fn test_err_div64_by_zero_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
     );
@@ -893,6 +947,7 @@ fn test_err_div32_by_zero_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
     );
@@ -908,6 +963,7 @@ fn test_err_sdiv64_by_zero_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
     );
@@ -923,6 +979,7 @@ fn test_err_sdiv32_by_zero_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
     );
@@ -938,6 +995,7 @@ fn test_err_sdiv64_overflow_imm() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 31)
         },
@@ -956,6 +1014,7 @@ fn test_err_sdiv64_overflow_reg() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 32)
         },
@@ -973,6 +1032,7 @@ fn test_err_sdiv32_overflow_imm() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 31)
         },
@@ -991,6 +1051,7 @@ fn test_err_sdiv32_overflow_reg() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 32)
         },
@@ -1009,6 +1070,7 @@ fn test_mod32() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x5 } },
         5
     );
@@ -1023,6 +1085,7 @@ fn test_mod32_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x0 } },
         3
     );
@@ -1043,6 +1106,7 @@ fn test_mod64() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x30ba5a04 } },
         9
     );
@@ -1058,6 +1122,7 @@ fn test_err_mod64_by_zero_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
     );
@@ -1073,6 +1138,7 @@ fn test_err_mod_by_zero_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31) },
         3
     );
@@ -1091,6 +1157,7 @@ fn test_ldabsb() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x33 } },
         2
     );
@@ -1107,6 +1174,7 @@ fn test_ldabsh() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x4433 } },
         2
     );
@@ -1123,6 +1191,7 @@ fn test_ldabsw() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x66554433 } },
         2
     );
@@ -1139,6 +1208,7 @@ fn test_ldabsdw() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xaa99887766554433 } },
         2
     );
@@ -1155,6 +1225,7 @@ fn test_err_ldabsb_oob() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -1175,6 +1246,7 @@ fn test_err_ldabsb_nomem() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -1199,6 +1271,7 @@ fn test_ldindb() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x88 } },
         3
     );
@@ -1216,6 +1289,7 @@ fn test_ldindh() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x9988 } },
         3
     );
@@ -1233,6 +1307,7 @@ fn test_ldindw() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x88776655 } },
         3
     );
@@ -1250,6 +1325,7 @@ fn test_ldinddw() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xccbbaa9988776655 } },
         3
     );
@@ -1267,6 +1343,7 @@ fn test_err_ldindb_oob() {
             0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
         ],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -1288,6 +1365,7 @@ fn test_err_ldindb_nomem() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -1308,6 +1386,7 @@ fn test_ldxb() {
         exit",
         [0xaa, 0xbb, 0x11, 0xcc, 0xdd],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x11 } },
         2
     );
@@ -1321,6 +1400,7 @@ fn test_ldxh() {
         exit",
         [0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x2211 } },
         2
     );
@@ -1336,6 +1416,7 @@ fn test_ldxw() {
             0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0xcc, 0xdd, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x44332211 } },
         2
     );
@@ -1351,6 +1432,7 @@ fn test_ldxh_same_reg() {
         exit",
         [0xff, 0xff],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1234 } },
         4
     );
@@ -1367,6 +1449,7 @@ fn test_lldxdw() {
             0x77, 0x88, 0xcc, 0xdd, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x8877665544332211 } },
         2
     );
@@ -1383,6 +1466,7 @@ fn test_err_ldxdw_oob() {
             0x77, 0x88, 0xcc, 0xdd, //
         ],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -1435,6 +1519,7 @@ fn test_ldxb_all() {
             0x08, 0x09, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x9876543210 } },
         31
     );
@@ -1491,6 +1576,7 @@ fn test_ldxh_all() {
             0x00, 0x08, 0x00, 0x09, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x9876543210 } },
         41
     );
@@ -1537,6 +1623,7 @@ fn test_ldxh_all2() {
             0x01, 0x00, 0x02, 0x00, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x3ff } },
         31
     );
@@ -1585,6 +1672,7 @@ fn test_ldxw_all() {
             0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x030f0f } },
         31
     );
@@ -1598,6 +1686,7 @@ fn test_lddw() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1122334455667788 } },
         2
     );
@@ -1607,6 +1696,7 @@ fn test_lddw() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x80000000 } },
         2
     );
@@ -1621,6 +1711,7 @@ fn test_stb() {
         exit",
         [0xaa, 0xbb, 0xff, 0xcc, 0xdd],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x11 } },
         3
     );
@@ -1637,6 +1728,7 @@ fn test_sth() {
             0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x2211 } },
         3
     );
@@ -1653,6 +1745,7 @@ fn test_stw() {
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x44332211 } },
         3
     );
@@ -1670,6 +1763,7 @@ fn test_stdw() {
             0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x44332211 } },
         3
     );
@@ -1687,6 +1781,7 @@ fn test_stxb() {
             0xaa, 0xbb, 0xff, 0xcc, 0xdd, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x11 } },
         4
     );
@@ -1704,6 +1799,7 @@ fn test_stxh() {
             0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x2211 } },
         4
     );
@@ -1721,6 +1817,7 @@ fn test_stxw() {
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x44332211 } },
         4
     );
@@ -1741,6 +1838,7 @@ fn test_stxdw() {
             0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x8877665544332211 } },
         6
     );
@@ -1773,6 +1871,7 @@ fn test_stxb_all() {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xf0f2f3f4f5f6f7f8 } },
         19
     );
@@ -1792,6 +1891,7 @@ fn test_stxb_all2() {
         exit",
         [0xff, 0xff],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xf1f9 } },
         8
     );
@@ -1827,6 +1927,7 @@ fn test_stxb_chain() {
             0x00, 0x00, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x2a } },
         21
     );
@@ -1841,6 +1942,7 @@ fn test_exit_without_value() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x0 } },
         1
     );
@@ -1854,6 +1956,7 @@ fn test_exit() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x0 } },
         2
     );
@@ -1869,6 +1972,7 @@ fn test_early_exit() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x3 } },
         2
     );
@@ -1884,6 +1988,7 @@ fn test_ja() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         3
     );
@@ -1903,6 +2008,7 @@ fn test_jeq_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -1923,6 +2029,7 @@ fn test_jeq_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         8
     );
@@ -1942,6 +2049,7 @@ fn test_jge_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -1962,6 +2070,7 @@ fn test_jge_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         8
     );
@@ -1982,6 +2091,7 @@ fn test_jle_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -2004,6 +2114,7 @@ fn test_jle_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         9
     );
@@ -2023,6 +2134,7 @@ fn test_jgt_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -2044,6 +2156,7 @@ fn test_jgt_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         9
     );
@@ -2063,6 +2176,7 @@ fn test_jlt_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -2084,6 +2198,7 @@ fn test_jlt_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         9
     );
@@ -2103,6 +2218,7 @@ fn test_jne_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -2123,6 +2239,7 @@ fn test_jne_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         8
     );
@@ -2142,6 +2259,7 @@ fn test_jset_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -2162,6 +2280,7 @@ fn test_jset_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         8
     );
@@ -2182,6 +2301,7 @@ fn test_jsge_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         8
     );
@@ -2204,6 +2324,7 @@ fn test_jsge_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         10
     );
@@ -2224,6 +2345,7 @@ fn test_jsle_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -2247,6 +2369,7 @@ fn test_jsle_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         10
     );
@@ -2266,6 +2389,7 @@ fn test_jsgt_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -2286,6 +2410,7 @@ fn test_jsgt_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         8
     );
@@ -2305,6 +2430,7 @@ fn test_jslt_imm() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         7
     );
@@ -2326,6 +2452,7 @@ fn test_jslt_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         9
     );
@@ -2348,6 +2475,7 @@ fn test_stack1() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0xcd } },
         9
     );
@@ -2375,9 +2503,10 @@ fn test_stack2() {
         exit",
         [],
         (
-            b"BpfMemFrob" => syscalls::BpfMemFrob::call; syscalls::BpfMemFrob {},
-            b"BpfGatherBytes" => syscalls::BpfGatherBytes::call; syscalls::BpfGatherBytes {},
+            b"BpfMemFrob" => syscalls::BpfMemFrob::init::<BpfSyscallContext, UserError>; syscalls::BpfMemFrob::call,
+            b"BpfGatherBytes" => syscalls::BpfGatherBytes::init::<BpfSyscallContext, UserError>; syscalls::BpfGatherBytes::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x01020304 } },
         16
     );
@@ -2417,8 +2546,9 @@ fn test_string_stack() {
         exit",
         [],
         (
-            b"BpfStrCmp" => syscalls::BpfStrCmp::call; syscalls::BpfStrCmp {},
+            b"BpfStrCmp" => syscalls::BpfStrCmp::init::<BpfSyscallContext, UserError>; syscalls::BpfStrCmp::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x0 } },
         28
     );
@@ -2438,6 +2568,7 @@ fn test_err_fixed_stack_out_of_bound() {
         config,
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2468,6 +2599,7 @@ fn test_err_dynamic_stack_out_of_bound() {
         config,
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2487,6 +2619,7 @@ fn test_err_dynamic_stack_out_of_bound() {
         config,
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2525,6 +2658,7 @@ fn test_err_dynamic_stack_ptr_overflow() {
         config,
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2555,6 +2689,7 @@ fn test_dynamic_stack_frames_empty() {
         config,
         [],
         (),
+        0,
         { |_vm, res: Result| res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64 },
         4
     );
@@ -2580,6 +2715,7 @@ fn test_dynamic_frame_ptr() {
         config,
         [],
         (),
+        0,
         {
             |_vm, res: Result| res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64 - 8
         },
@@ -2600,6 +2736,7 @@ fn test_dynamic_frame_ptr() {
         config,
         [],
         (),
+        0,
         { |_vm, res: Result| res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64 },
         5
     );
@@ -2633,6 +2770,7 @@ fn test_entrypoint_exit() {
             config,
             [],
             (),
+            0,
             { |_vm, res: Result| { res.unwrap() == 42 } },
             5
         );
@@ -2663,6 +2801,7 @@ fn test_stack_call_depth_tracking() {
             config,
             [],
             (),
+            0,
             { |_vm, res: Result| { res.is_ok() } },
             5
         );
@@ -2682,6 +2821,7 @@ fn test_stack_call_depth_tracking() {
             config,
             [],
             (),
+            0,
             {
                 |_vm, res: Result| {
                     matches!(res.unwrap_err(),
@@ -2728,7 +2868,7 @@ fn test_err_mem_access_out_of_bound() {
         test_interpreter_and_jit!(
             executable,
             mem,
-            (),
+            0,
             {
                 |_vm, res: Result| {
                     matches!(res.unwrap_err(),
@@ -2750,8 +2890,9 @@ fn test_relative_call() {
         "tests/elfs/relative_call.so",
         [1],
         (
-            b"log" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
+            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 2 } },
         14
     );
@@ -2763,8 +2904,9 @@ fn test_bpf_to_bpf_scratch_registers() {
         "tests/elfs/scratch_registers.so",
         [1],
         (
-            b"log_64" => syscalls::BpfSyscallU64::call; syscalls::BpfSyscallU64 {},
+            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 112 } },
         41
     );
@@ -2776,6 +2918,7 @@ fn test_bpf_to_bpf_pass_stack_reference() {
         "tests/elfs/pass_stack_reference.so",
         [],
         (),
+        0,
         { |_vm, res: Result| res.unwrap() == 42 },
         29
     );
@@ -2793,8 +2936,9 @@ fn test_syscall_parameter_on_stack() {
         exit",
         [],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
         6
     );
@@ -2814,6 +2958,7 @@ fn test_call_reg() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 42 } },
         8
     );
@@ -2828,6 +2973,7 @@ fn test_err_callx_oob_low() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2851,6 +2997,7 @@ fn test_err_callx_oob_high() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2874,6 +3021,7 @@ fn test_err_static_jmp_lddw() {
         ",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2898,6 +3046,7 @@ fn test_err_static_jmp_lddw() {
         ",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x2 } },
         9
     );
@@ -2909,6 +3058,7 @@ fn test_err_static_jmp_lddw() {
         ",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2928,6 +3078,7 @@ fn test_err_static_jmp_lddw() {
         ",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2951,6 +3102,7 @@ fn test_err_dynamic_jmp_lddw() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2973,6 +3125,7 @@ fn test_err_dynamic_jmp_lddw() {
         ",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -2994,6 +3147,7 @@ fn test_err_dynamic_jmp_lddw() {
         ",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3013,8 +3167,9 @@ fn test_bpf_to_bpf_depth() {
             "tests/elfs/multiple_file.so",
             [i as u8],
             (
-                b"log" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
+                b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
             ),
+            0,
             { |_vm, res: Result| { res.unwrap() == 0 } },
             if i == 0 { 4 } else { 3 + 10 * i as u64 }
         );
@@ -3028,8 +3183,9 @@ fn test_err_bpf_to_bpf_too_deep() {
         "tests/elfs/multiple_file.so",
         [config.max_call_depth as u8],
         (
-            b"log" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
+            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
         ),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3053,6 +3209,7 @@ fn test_err_reg_stack_depth() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3102,8 +3259,9 @@ fn test_err_syscall_string() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
         ),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3126,8 +3284,9 @@ fn test_syscall_string() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
         4
     );
@@ -3147,8 +3306,9 @@ fn test_syscall() {
         exit",
         [],
         (
-            b"BpfSyscallU64" => syscalls::BpfSyscallU64::call; syscalls::BpfSyscallU64 {},
+            b"BpfSyscallU64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
         8
     );
@@ -3167,8 +3327,9 @@ fn test_call_gather_bytes() {
         exit",
         [],
         (
-            b"BpfGatherBytes" => syscalls::BpfGatherBytes::call; syscalls::BpfGatherBytes {},
+            b"BpfGatherBytes" => syscalls::BpfGatherBytes::init::<BpfSyscallContext, UserError>; syscalls::BpfGatherBytes::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x0102030405 } },
         7
     );
@@ -3189,8 +3350,9 @@ fn test_call_memfrob() {
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, //
         ],
         (
-            b"BpfMemFrob" => syscalls::BpfMemFrob::call; syscalls::BpfMemFrob {},
+            b"BpfMemFrob" => syscalls::BpfMemFrob::init::<BpfSyscallContext, UserError>; syscalls::BpfMemFrob::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x102292e2f2c0708 } },
         7
     );
@@ -3210,8 +3372,9 @@ fn test_syscall_with_context() {
         exit",
         [],
         (
-            b"SyscallWithContext" => syscalls::SyscallWithContext::call; syscalls::SyscallWithContext { context: 42 },
+            b"SyscallWithContext" => syscalls::SyscallWithContext::init::< syscalls::BpfSyscallContext, UserError>; syscalls::SyscallWithContext::call
         ),
+        42,
         { |vm: &EbpfVm<UserError, TestInstructionMeter>, res: Result| {
             let syscall_context_object = unsafe { &*(vm.get_syscall_context_object(syscalls::SyscallWithContext::call as usize).unwrap() as *const syscalls::SyscallWithContext) };
             assert_eq!(syscall_context_object.context, 84);
@@ -3221,7 +3384,13 @@ fn test_syscall_with_context() {
     );
 }
 
+type UserContext = u64;
 pub struct NestedVmSyscall {}
+impl NestedVmSyscall {
+    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
+        Box::new(Self {})
+    }
+}
 impl SyscallObject<UserError> for NestedVmSyscall {
     fn call(
         &mut self,
@@ -3237,7 +3406,11 @@ impl SyscallObject<UserError> for NestedVmSyscall {
         if depth > 0 {
             let mut syscall_registry = SyscallRegistry::default();
             syscall_registry
-                .register_syscall_by_name::<UserError, _>(b"NestedVmSyscall", NestedVmSyscall::call)
+                .register_syscall_by_name(
+                    b"NestedVmSyscall",
+                    NestedVmSyscall::init::<UserContext, UserError>,
+                    NestedVmSyscall::call,
+                )
                 .unwrap();
             let mem = [depth as u8 - 1, throw as u8];
             let mut executable = assemble::<UserError, TestInstructionMeter>(
@@ -3253,7 +3426,18 @@ impl SyscallObject<UserError> for NestedVmSyscall {
                 syscall_registry,
             )
             .unwrap();
-            test_interpreter_and_jit!(executable, mem, (b"NestedVmSyscall" => NestedVmSyscall::call; NestedVmSyscall {}), { |_vm, res: Result| { *result = res; true } }, if throw == 0 { 6 } else { 5 });
+            test_interpreter_and_jit!(
+                executable,
+                mem,
+                0,
+                {
+                    |_vm, res: Result| {
+                        *result = res;
+                        true
+                    }
+                },
+                if throw == 0 { 6 } else { 5 }
+            );
         } else {
             *result = if throw == 0 {
                 Ok(42)
@@ -3288,9 +3472,10 @@ fn test_load_elf() {
         "tests/elfs/noop.so",
         [],
         (
-            b"log" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
-            b"log_64" => syscalls::BpfSyscallU64::call; syscalls::BpfSyscallU64 {},
+            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
         11
     );
@@ -3302,8 +3487,9 @@ fn test_load_elf_empty_noro() {
         "tests/elfs/noro.so",
         [],
         (
-            b"log_64" => syscalls::BpfSyscallU64::call; syscalls::BpfSyscallU64 {},
+            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
         8
     );
@@ -3315,8 +3501,9 @@ fn test_load_elf_empty_rodata() {
         "tests/elfs/empty_rodata.so",
         [],
         (
-            b"log_64" => syscalls::BpfSyscallU64::call; syscalls::BpfSyscallU64 {},
+            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
         8
     );
@@ -3336,6 +3523,7 @@ fn test_load_elf_rodata() {
             config,
             [],
             (),
+            0,
             { |_vm, res: Result| { res.unwrap() == 42 } },
             3
         );
@@ -3353,8 +3541,9 @@ fn test_custom_entrypoint() {
         ..Config::default()
     };
     let mut syscall_registry = SyscallRegistry::default();
-    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {});
-    test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::BpfSyscallU64::call; syscalls::BpfSyscallU64 {});
+    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call);
+    let mut syscall_registry = SyscallRegistry::default();
+    test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call);
     #[allow(unused_mut)]
     let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(
         &elf,
@@ -3366,10 +3555,7 @@ fn test_custom_entrypoint() {
     test_interpreter_and_jit!(
         executable,
         [],
-        (
-            b"log" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
-            b"log_64" => syscalls::BpfSyscallU64::call; syscalls::BpfSyscallU64 {},
-        ),
+        syscalls::BpfSyscallContext::default(),
         { |_vm, res: Result| { res.unwrap() == 0 } },
         2
     );
@@ -3385,6 +3571,7 @@ fn test_tight_infinite_loop_conditional() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3405,6 +3592,7 @@ fn test_tight_infinite_loop_unconditional() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3427,6 +3615,7 @@ fn test_tight_infinite_recursion() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3451,6 +3640,7 @@ fn test_tight_infinite_recursion_callx() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3473,8 +3663,9 @@ fn test_instruction_count_syscall() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
         4
     );
@@ -3490,8 +3681,9 @@ fn test_err_instruction_count_syscall_capped() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
         ),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3515,6 +3707,7 @@ fn test_err_instruction_count_lddw_capped() {
         ",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3543,6 +3736,7 @@ fn test_non_terminate_early() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3571,8 +3765,9 @@ fn test_err_non_terminate_capped() {
         exit",
         [],
         (
-            b"BpfTracePrintf" => syscalls::BpfTracePrintf::call; syscalls::BpfTracePrintf {},
+            b"BpfTracePrintf" => syscalls::BpfTracePrintf::init::<BpfSyscallContext, UserError>; syscalls::BpfTracePrintf::call,
         ),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3597,8 +3792,9 @@ fn test_err_non_terminate_capped() {
         exit",
         [],
         (
-            b"BpfTracePrintf" => syscalls::BpfTracePrintf::call; syscalls::BpfTracePrintf {},
+            b"BpfTracePrintf" => syscalls::BpfTracePrintf::init::<BpfSyscallContext, UserError>; syscalls::BpfTracePrintf::call,
         ),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3624,6 +3820,7 @@ fn test_err_capped_before_exception() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3645,6 +3842,7 @@ fn test_err_capped_before_exception() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3669,6 +3867,7 @@ fn test_err_exit_capped() {
         ",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3689,6 +3888,7 @@ fn test_err_exit_capped() {
         ",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3706,6 +3906,7 @@ fn test_err_exit_capped() {
         ",
         [],
         (),
+        0,
         {
             |_vm, res: Result| {
                 matches!(res.unwrap_err(),
@@ -3731,8 +3932,9 @@ fn test_symbol_relocation() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {},
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call
         ),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
         6
     );
@@ -3752,6 +3954,7 @@ fn test_err_call_unresolved() {
         exit",
         [],
         (),
+        0,
         {
             |_vm, res: Result| matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(pc) if pc == 34)
         },
@@ -3762,7 +3965,7 @@ fn test_err_call_unresolved() {
 #[test]
 fn test_err_unresolved_elf() {
     let mut syscall_registry = SyscallRegistry::default();
-    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::BpfSyscallString::call; syscalls::BpfSyscallString {});
+    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call);
     let mut file = File::open("tests/elfs/unresolved_syscall.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
@@ -3793,6 +3996,7 @@ fn test_mul_loop() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x75db9c97 } },
         37
     );
@@ -3820,6 +4024,7 @@ fn test_prime() {
         exit",
         [],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         655
     );
@@ -3856,6 +4061,7 @@ fn test_subnet() {
             0x03, 0x00, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         11
     );
@@ -3881,6 +4087,7 @@ fn test_tcp_port80_match() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x1 } },
         17
     );
@@ -3906,6 +4113,7 @@ fn test_tcp_port80_nomatch() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x0 } },
         18
     );
@@ -3931,6 +4139,7 @@ fn test_tcp_port80_nomatch_ethertype() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x0 } },
         7
     );
@@ -3956,6 +4165,7 @@ fn test_tcp_port80_nomatch_proto() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
+        0,
         { |_vm, res: Result| { res.unwrap() == 0x0 } },
         9
     );
@@ -3967,6 +4177,7 @@ fn test_tcp_sack_match() {
         TCP_SACK_ASM,
         TCP_SACK_MATCH,
         (),
+        0,
         { |_vm, res: Result| res.unwrap() == 0x1 },
         79
     );
@@ -3978,6 +4189,7 @@ fn test_tcp_sack_nomatch() {
         TCP_SACK_ASM,
         TCP_SACK_NOMATCH,
         (),
+        0,
         { |_vm, res: Result| res.unwrap() == 0x0 },
         55
     );
