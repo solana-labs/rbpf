@@ -139,8 +139,8 @@ fn test_fuzz_execute() {
                     Vec::new(),
                 )
                 .unwrap();
-                vm.bind_syscall_context_objects(0, None).unwrap();
-                vm.bind_syscall_context_objects(0, None).unwrap();
+                vm.bind_syscall_context_objects(0).unwrap();
+                vm.bind_syscall_context_objects(0).unwrap();
                 let _ = vm.execute_program_interpreted(&mut TestInstructionMeter {
                     remaining: 1_000_000,
                 });

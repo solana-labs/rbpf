@@ -214,10 +214,7 @@ fn main() {
         _ => {}
     }
 
-    for (hash, name) in executable.get_syscall_symbols() {
-        vm.bind_syscall_context_objects(Box::new(MockSyscall { name: name.clone() }), Some(*hash))
-            .unwrap();
-    }
+    vm.bind_syscall_context_objects(0).unwrap();
     let result = if matches.value_of("use").unwrap() == "interpreter" {
         vm.execute_program_interpreted(&mut instruction_meter)
     } else {

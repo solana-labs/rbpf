@@ -34,8 +34,7 @@ macro_rules! test_interpreter_and_jit {
             .unwrap();
     };
     (bind, $vm:expr, $syscall_context:expr) => {
-        $vm.bind_syscall_context_objects($syscall_context, None)
-            .unwrap();
+        $vm.bind_syscall_context_objects($syscall_context).unwrap();
     };
     ($executable:expr, $mem:tt, $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
         #[allow(unused_mut)]
