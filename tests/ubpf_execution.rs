@@ -2426,10 +2426,16 @@ fn test_string_stack() {
 
 #[test]
 fn test_err_fixed_stack_out_of_bound() {
+    let config = Config {
+        dynamic_stack_frames: false,
+        max_call_depth: 3,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         stb [r10-0x4000], 0
         exit",
+        config,
         [],
         (),
         {

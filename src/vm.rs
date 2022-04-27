@@ -249,7 +249,7 @@ impl Default for Config {
             disable_deprecated_load_instructions: true,
             syscall_bpf_function_hash_collision: true,
             reject_callx_r10: true,
-            dynamic_stack_frames: false,
+            dynamic_stack_frames: true,
             enable_sdiv: true,
             optimize_rodata: true,
         }
