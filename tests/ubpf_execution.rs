@@ -839,6 +839,21 @@ fn test_sdiv32_imm() {
 }
 
 #[test]
+fn test_sdiv32_neg_imm() {
+    test_interpreter_and_jit_asm!(
+        "
+        lddw r0, 0x10000000c
+        sdiv32 r0, -4
+        exit",
+        [],
+        (),
+        0,
+        { |_vm, res: Result| { res.unwrap() as i64 == -3 } },
+        3
+    );
+}
+
+#[test]
 fn test_sdiv32_reg() {
     test_interpreter_and_jit_asm!(
         "
@@ -850,6 +865,22 @@ fn test_sdiv32_reg() {
         (),
         0,
         { |_vm, res: Result| { res.unwrap() == 0x3 } },
+        4
+    );
+}
+
+#[test]
+fn test_sdiv32_neg_reg() {
+    test_interpreter_and_jit_asm!(
+        "
+        lddw r0, 0x10000000c
+        mov r1, -4
+        sdiv32 r0, r1
+        exit",
+        [],
+        (),
+        0,
+        { |_vm, res: Result| { res.unwrap() as i64 == -0x3 } },
         4
     );
 }

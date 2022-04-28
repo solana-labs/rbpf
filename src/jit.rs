@@ -913,7 +913,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
         X86Instruction::pop(RAX).emit(jit)?;
     }
 
-    if size == OperandSize::S32 && opc & ebpf::BPF_ALU_OP_MASK == ebpf::BPF_MUL {
+    if size == OperandSize::S32 && (mul || sdiv)  {
         X86Instruction::sign_extend_i32_to_i64(dst, dst).emit(jit)?;
     }
     Ok(())
