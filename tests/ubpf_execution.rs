@@ -2885,13 +2885,8 @@ fn test_err_mem_access_out_of_bound() {
 
 #[test]
 fn test_relative_call() {
-    let config = Config {
-        static_syscalls: false,
-        ..Config::default()
-    };
     test_interpreter_and_jit_elf!(
         "tests/elfs/relative_call.so",
-        config,
         [1],
         (
             b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
@@ -2904,13 +2899,8 @@ fn test_relative_call() {
 
 #[test]
 fn test_bpf_to_bpf_scratch_registers() {
-    let config = Config {
-        static_syscalls: false,
-        ..Config::default()
-    };
     test_interpreter_and_jit_elf!(
         "tests/elfs/scratch_registers.so",
-        config,
         [1],
         (
             b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
@@ -3170,10 +3160,7 @@ fn test_err_dynamic_jmp_lddw() {
 
 #[test]
 fn test_bpf_to_bpf_depth() {
-    let config = Config {
-        static_syscalls: false,
-        ..Config::default()
-    };
+    let config = Config::default();
     for i in 0..config.max_call_depth {
         test_interpreter_and_jit_elf!(
             "tests/elfs/multiple_file.so",
@@ -3191,10 +3178,7 @@ fn test_bpf_to_bpf_depth() {
 
 #[test]
 fn test_err_bpf_to_bpf_too_deep() {
-    let config = Config {
-        static_syscalls: false,
-        ..Config::default()
-    };
+    let config = Config::default();
     test_interpreter_and_jit_elf!(
         "tests/elfs/multiple_file.so",
         config,
@@ -3485,13 +3469,8 @@ fn test_nested_vm_syscall() {
 
 #[test]
 fn test_load_elf() {
-    let config = Config {
-        static_syscalls: false,
-        ..Config::default()
-    };
     test_interpreter_and_jit_elf!(
         "tests/elfs/noop.so",
-        config,
         [],
         (
             b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
@@ -3505,13 +3484,8 @@ fn test_load_elf() {
 
 #[test]
 fn test_load_elf_empty_noro() {
-    let config = Config {
-        static_syscalls: false,
-        ..Config::default()
-    };
     test_interpreter_and_jit_elf!(
         "tests/elfs/noro.so",
-        config,
         [],
         (
             b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
@@ -3524,13 +3498,8 @@ fn test_load_elf_empty_noro() {
 
 #[test]
 fn test_load_elf_empty_rodata() {
-    let config = Config {
-        static_syscalls: false,
-        ..Config::default()
-    };
     test_interpreter_and_jit_elf!(
         "tests/elfs/empty_rodata.so",
-        config,
         [],
         (
             b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
@@ -3717,17 +3686,12 @@ fn test_instruction_count_syscall() {
 
 #[test]
 fn test_err_instruction_count_syscall_capped() {
-    let config = Config {
-        static_syscalls: false,
-        ..Config::default()
-    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
         call 0
         mov64 r0, 0x0
         exit",
-        config,
         [72, 101, 108, 108, 111],
         (
             b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,

@@ -636,6 +636,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         } else {
             config.dynamic_stack_frames = false;
             config.enable_elf_vaddr = false;
+            config.static_syscalls = false;
         }
 
         let num_text_sections =

@@ -83,10 +83,10 @@ rm rodata.o
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --nmagic --section-start=.text=0x100000000 --section-start=.rodata=0x100000020 -o rodata_high_vaddr.so rodata_high_vaddr.o
 rm rodata_high_vaddr.o
 
-"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o syscall_static_unknown.o -c syscall_static_unknown.c
+"$LLVM_DIR"clang -Werror -target sbf -mcpu=sbfv2 -O2 -fno-builtin -fPIC -o syscall_static_unknown.o -c syscall_static_unknown.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o syscall_static_unknown.so syscall_static_unknown.o
 rm syscall_static_unknown.o
 
-"$LLVM_DIR"clang -Werror -target bpf -O2 -fno-builtin -fPIC -o syscall_static.o -c syscall_static.c
+"$LLVM_DIR"clang -Werror -target sbf -mcpu=sbfv2 -O2 -fno-builtin -fPIC -o syscall_static.o -c syscall_static.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o syscall_static.so syscall_static.o
 rm syscall_static.o
