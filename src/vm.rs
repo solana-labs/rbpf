@@ -712,10 +712,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
 
         // R1 points to beginning of input memory, R10 to the stack of the first frame
         let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.stack.get_frame_ptr()];
-
-        if self.memory_mapping.map::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1).is_ok() {
-            reg[1] = ebpf::MM_INPUT_START;
-        }
+        reg[1] = ebpf::MM_INPUT_START;
 
         // Check config outside of the instruction loop
         let config = self.executable.get_config();
@@ -1154,15 +1151,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// the program works with the interpreter before running the JIT-compiled version of it.
     ///
     pub fn execute_program_jit(&mut self, instruction_meter: &mut I) -> ProgramResult<E> {
-        let reg1 = if self
-            .memory_mapping
-            .map::<UserError>(AccessType::Store, ebpf::MM_INPUT_START, 1)
-            .is_ok()
-        {
-            ebpf::MM_INPUT_START
-        } else {
-            0
-        };
         let initial_insn_count = if self.executable.get_config().enable_instruction_meter {
             instruction_meter.get_remaining()
         } else {
@@ -1178,7 +1166,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 &mut self.tracer as *mut _ as *mut u8;
             self.last_insn_count = (compiled_program.main)(
                 &result,
-                reg1,
+                ebpf::MM_INPUT_START,
                 &*(self.syscall_context_objects.as_ptr() as *const JitProgramArgument),
                 instruction_meter,
             )
