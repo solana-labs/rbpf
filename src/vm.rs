@@ -500,7 +500,6 @@ pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
     syscall_context_objects: Vec<*mut u8>,
     syscall_context_object_pool: Vec<Box<dyn SyscallObject<E> + 'a>>,
     stack: CallFrames<'a>,
-    last_insn_count: u64,
     total_insn_count: u64,
 }
 
@@ -555,7 +554,6 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             ],
             syscall_context_object_pool: Vec::with_capacity(number_of_syscalls),
             stack,
-            last_insn_count: 0,
             total_insn_count: 0,
         };
         unsafe {
@@ -694,9 +692,14 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         } else {
             0
         };
-        let result = self.execute_program_interpreted_inner(instruction_meter);
+        let mut last_insn_count = 0;
+        let result = self.execute_program_interpreted_inner(
+            instruction_meter,
+            initial_insn_count,
+            &mut last_insn_count,
+        );
         if self.executable.get_config().enable_instruction_meter {
-            instruction_meter.consume(self.last_insn_count);
+            instruction_meter.consume(last_insn_count);
             self.total_insn_count = initial_insn_count - instruction_meter.get_remaining();
         }
         result
@@ -706,6 +709,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     fn execute_program_interpreted_inner(
         &mut self,
         instruction_meter: &mut I,
+        initial_insn_count: u64,
+        last_insn_count: &mut u64,
     ) -> ProgramResult<E> {
         // R1 points to beginning of input memory, R10 to the stack of the first frame
         let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.stack.get_frame_ptr()];
@@ -714,17 +719,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         // Loop on instructions
         let config = self.executable.get_config();
         let mut next_pc: usize = self.executable.get_entrypoint_instruction_offset()?;
-        let mut remaining_insn_count = if config.enable_instruction_meter { instruction_meter.get_remaining() } else { 0 };
-        let initial_insn_count = remaining_insn_count;
-        self.last_insn_count = 0;
+        let mut remaining_insn_count = initial_insn_count;
         while (next_pc + 1) * ebpf::INSN_SIZE <= self.program.len() {
+            *last_insn_count += 1;
             let pc = next_pc;
             next_pc += 1;
             let mut instruction_width = 1;
             let mut insn = ebpf::get_insn_unchecked(self.program, pc);
             let dst = insn.dst as usize;
             let src = insn.src as usize;
-            self.last_insn_count += 1;
 
             if config.enable_instruction_tracing {
                 let mut state = [0u64; 12];
@@ -1037,9 +1040,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                             resolved = true;
 
                             if config.enable_instruction_meter {
-                                let _ = instruction_meter.consume(self.last_insn_count);
+                                let _ = instruction_meter.consume(*last_insn_count);
                             }
-                            self.last_insn_count = 0;
+                            *last_insn_count = 0;
                             let mut result: ProgramResult<E> = Ok(0);
                             (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
                                 self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot],
@@ -1096,7 +1099,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
             }
 
-            if config.enable_instruction_meter && self.last_insn_count >= remaining_insn_count {
+            if config.enable_instruction_meter && *last_insn_count >= remaining_insn_count {
                 // Use `pc + instruction_width` instead of `next_pc` here because jumps and calls don't continue at the end of this instruction
                 return Err(EbpfError::ExceededMaxInstructions(pc + instruction_width + ebpf::ELF_INSN_DUMP_OFFSET, initial_insn_count));
             }
@@ -1143,22 +1146,24 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             .executable
             .get_compiled_program()
             .ok_or(EbpfError::JitNotCompiled)?;
-        unsafe {
+        let instruction_meter_final = unsafe {
             self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET - 1] =
                 &mut self.tracer as *mut _ as *mut u8;
-            self.last_insn_count = (compiled_program.main)(
+            (compiled_program.main)(
                 &result,
                 ebpf::MM_INPUT_START,
                 &*(self.syscall_context_objects.as_ptr() as *const JitProgramArgument),
                 instruction_meter,
             )
-            .max(0) as u64;
-        }
+            .max(0) as u64
+        };
         if self.executable.get_config().enable_instruction_meter {
             let remaining_insn_count = instruction_meter.get_remaining();
-            self.total_insn_count = remaining_insn_count - self.last_insn_count;
-            instruction_meter.consume(self.total_insn_count);
-            self.total_insn_count += initial_insn_count - remaining_insn_count;
+            let last_insn_count = remaining_insn_count - instruction_meter_final;
+            instruction_meter.consume(last_insn_count);
+            self.total_insn_count = initial_insn_count + last_insn_count - remaining_insn_count;
+            // Same as:
+            // self.total_insn_count = initial_insn_count - instruction_meter.get_remaining();
         }
         match result {
             Err(EbpfError::ExceededMaxInstructions(pc, _)) => {
