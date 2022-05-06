@@ -714,20 +714,13 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         let mut reg: [u64; 11] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self.stack.get_frame_ptr()];
         reg[1] = ebpf::MM_INPUT_START;
 
-        // Check config outside of the instruction loop
-        let config = self.executable.get_config();
-        let instruction_meter_enabled = config.enable_instruction_meter;
-        let instruction_tracing_enabled = config.enable_instruction_tracing;
-        let dynamic_stack_frames = config.dynamic_stack_frames;
-        let static_syscalls = config.static_syscalls;
-
         // Loop on instructions
-        let entry = self.executable.get_entrypoint_instruction_offset()?;
-        let mut next_pc: usize = entry;
-        let mut remaining_insn_count = if instruction_meter_enabled { instruction_meter.get_remaining() } else { 0 };
+        let config = self.executable.get_config();
+        let mut next_pc: usize = self.executable.get_entrypoint_instruction_offset()?;
+        let mut remaining_insn_count = if config.enable_instruction_meter { instruction_meter.get_remaining() } else { 0 };
         let initial_insn_count = remaining_insn_count;
-        self.last_insn_count = 0;
         let mut total_insn_count = 0;
+        self.last_insn_count = 0;
         while (next_pc + 1) * ebpf::INSN_SIZE <= self.program.len() {
             let pc = next_pc;
             next_pc += 1;
@@ -737,16 +730,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             let src = insn.src as usize;
             self.last_insn_count += 1;
 
-            if instruction_tracing_enabled {
+            if config.enable_instruction_tracing {
                 let mut state = [0u64; 12];
                 state[0..11].copy_from_slice(&reg);
                 state[11] = pc as u64;
                 self.tracer.trace(state);
             }
 
-
             match insn.opc {
-                _ if dst == STACK_PTR_REG && dynamic_stack_frames => {
+                _ if dst == STACK_PTR_REG && config.dynamic_stack_frames => {
                     match insn.opc {
                         ebpf::SUB64_IMM => self.stack.resize_stack(-insn.imm),
                         ebpf::ADD64_IMM => self.stack.resize_stack(insn.imm),
@@ -1038,7 +1030,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 // changed after the program has been verified.
                 ebpf::CALL_IMM => {
                     let mut resolved = false;
-                    let (syscalls, calls) = if static_syscalls {
+                    let (syscalls, calls) = if config.static_syscalls {
                         (insn.src == 0, insn.src != 0)
                     } else {
                         (true, true)
@@ -1048,7 +1040,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                         if let Some(syscall) = self.executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
                             resolved = true;
 
-                            if instruction_meter_enabled {
+                            if config.enable_instruction_meter {
                                 let _ = instruction_meter.consume(self.last_insn_count);
                             }
                             total_insn_count += self.last_insn_count;
@@ -1065,7 +1057,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                                 &mut result,
                             );
                             reg[0] = result?;
-                            if instruction_meter_enabled {
+                            if config.enable_instruction_meter {
                                 remaining_insn_count = instruction_meter.get_remaining();
                             }
                         }
@@ -1114,7 +1106,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
                 _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
             }
 
-            if instruction_meter_enabled && self.last_insn_count >= remaining_insn_count {
+            if config.enable_instruction_meter && self.last_insn_count >= remaining_insn_count {
                 // Use `pc + instruction_width` instead of `next_pc` here because jumps and calls don't continue at the end of this instruction
                 return Err(EbpfError::ExceededMaxInstructions(pc + instruction_width + ebpf::ELF_INSN_DUMP_OFFSET, initial_insn_count));
             }
