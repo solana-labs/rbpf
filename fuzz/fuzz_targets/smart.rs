@@ -8,6 +8,7 @@ use libfuzzer_sys::fuzz_target;
 
 use grammar_aware::*;
 use solana_rbpf::{
+    ebpf,
     elf::{register_bpf_function, Executable},
     insn_builder::{Arch, IntoBytes},
     memory_region::MemoryRegion,
@@ -48,7 +49,7 @@ fuzz_target!(|data: FuzzData| {
         bpf_functions,
     )
     .unwrap();
-    let mem_region = MemoryRegion::new_writable(&mem, ebpf::MM_INPUT_START);
+    let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut vm =
         EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![mem_region]).unwrap();
 

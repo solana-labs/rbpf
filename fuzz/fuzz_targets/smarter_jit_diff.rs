@@ -6,6 +6,7 @@ use libfuzzer_sys::fuzz_target;
 
 use semantic_aware::*;
 use solana_rbpf::{
+    ebpf,
     elf::{register_bpf_function, Executable},
     error::{EbpfError, UserDefinedError},
     insn_builder::IntoBytes,
@@ -29,7 +30,7 @@ struct FuzzData {
 }
 
 fn dump_insns<E: UserDefinedError, I: InstructionMeter>(executable: &Executable<E, I>) {
-    let analysis = Analysis::from_executable(executable);
+    let analysis = Analysis::from_executable(executable).unwrap();
     eprint!("Using the following disassembly");
     analysis.disassemble(&mut std::io::stderr().lock()).unwrap();
 }
@@ -57,7 +58,7 @@ fuzz_target!(|data: FuzzData| {
     if Executable::jit_compile(&mut executable).is_ok() {
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
         let mut interp_vm =
-            EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![interp_mem])
+            EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![interp_mem_region])
                 .unwrap();
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
         let mut jit_vm =

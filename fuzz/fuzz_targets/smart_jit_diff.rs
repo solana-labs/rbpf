@@ -6,6 +6,7 @@ use libfuzzer_sys::fuzz_target;
 
 use grammar_aware::*;
 use solana_rbpf::{
+    ebpf,
     elf::{register_bpf_function, Executable},
     insn_builder::{Arch, Instruction, IntoBytes},
     memory_region::MemoryRegion,
@@ -59,7 +60,7 @@ fuzz_target!(|data: FuzzData| {
     if Executable::jit_compile(&mut executable).is_ok() {
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
         let mut interp_vm =
-            EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![interp_mem])
+            EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![interp_mem_region])
                 .unwrap();
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
         let mut jit_vm =

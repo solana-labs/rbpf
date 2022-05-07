@@ -7,6 +7,7 @@ use std::hint::black_box;
 use libfuzzer_sys::fuzz_target;
 
 use solana_rbpf::{
+    ebpf,
     elf::{register_bpf_function, Executable},
     memory_region::MemoryRegion,
     user_error::UserError,
@@ -44,7 +45,7 @@ fuzz_target!(|data: DumbFuzzData| {
         bpf_functions,
     )
     .unwrap();
-    let mem_region = MemoryRegion::new_writable(&mem, ebpf::MM_INPUT_START);
+    let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut vm =
         EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![mem_region]).unwrap();
 
