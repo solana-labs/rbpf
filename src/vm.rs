@@ -656,15 +656,15 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// ```
     pub fn execute_program_interpreted(&mut self, instruction_meter: &mut I) -> ProgramResult<E> {
         let mut result = Ok(None);
-        let (initial_insn_count, last_insn_count) = {
+        let (initial_insn_count, due_insn_count) = {
             let mut interpreter = Interpreter::new(self, instruction_meter)?;
             while let Ok(None) = result {
                 result = interpreter.step();
             }
-            (interpreter.initial_insn_count, interpreter.last_insn_count)
+            (interpreter.initial_insn_count, interpreter.due_insn_count)
         };
         if self.executable.get_config().enable_instruction_meter {
-            instruction_meter.consume(last_insn_count);
+            instruction_meter.consume(due_insn_count);
             self.total_insn_count = initial_insn_count - instruction_meter.get_remaining();
         }
         Ok(result?.unwrap_or(0))
@@ -702,9 +702,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         };
         if self.executable.get_config().enable_instruction_meter {
             let remaining_insn_count = instruction_meter.get_remaining();
-            let last_insn_count = remaining_insn_count - instruction_meter_final;
-            instruction_meter.consume(last_insn_count);
-            self.total_insn_count = initial_insn_count + last_insn_count - remaining_insn_count;
+            let due_insn_count = remaining_insn_count - instruction_meter_final;
+            instruction_meter.consume(due_insn_count);
+            self.total_insn_count = initial_insn_count + due_insn_count - remaining_insn_count;
             // Same as:
             // self.total_insn_count = initial_insn_count - instruction_meter.get_remaining();
         }

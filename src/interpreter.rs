@@ -63,7 +63,7 @@ pub struct Interpreter<'a, 'b, E: UserDefinedError, I: InstructionMeter> {
     instruction_meter: &'a mut I,
     pub(crate) initial_insn_count: u64,
     remaining_insn_count: u64,
-    pub(crate) last_insn_count: u64,
+    pub(crate) due_insn_count: u64,
 
     /// General purpose self.registers
     pub reg: [u64; 11],
@@ -102,7 +102,7 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
             instruction_meter,
             initial_insn_count,
             remaining_insn_count: initial_insn_count,
-            last_insn_count: 0,
+            due_insn_count: 0,
             reg,
             pc,
         })
@@ -133,7 +133,7 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
         let config = &self.vm.executable.get_config();
 
         let mut instruction_width = 1;
-        self.last_insn_count += 1;
+        self.due_insn_count += 1;
         let pc = self.pc;
         self.pc += instruction_width;
         if self.pc * ebpf::INSN_SIZE > self.vm.program.len() {
@@ -455,9 +455,9 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
                         resolved = true;
 
                         if config.enable_instruction_meter {
-                            let _ = self.instruction_meter.consume(self.last_insn_count);
+                            let _ = self.instruction_meter.consume(self.due_insn_count);
                         }
-                        self.last_insn_count = 0;
+                        self.due_insn_count = 0;
                         let mut result: ProgramResult<E> = Ok(0);
                         (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
                             self.vm.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot],
@@ -514,7 +514,7 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
             _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
         }
 
-        if config.enable_instruction_meter && self.last_insn_count >= self.remaining_insn_count {
+        if config.enable_instruction_meter && self.due_insn_count >= self.remaining_insn_count {
             // Use `pc + instruction_width` instead of `self.pc` here because jumps and calls don't continue at the end of this instruction
             return Err(EbpfError::ExceededMaxInstructions(pc + instruction_width + ebpf::ELF_INSN_DUMP_OFFSET, self.initial_insn_count));
         }
