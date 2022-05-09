@@ -32,6 +32,7 @@ pub mod elf;
 pub mod error;
 pub mod fuzz;
 pub mod insn_builder;
+pub mod interpreter;
 mod jit;
 pub mod memory_region;
 pub mod static_analysis;
