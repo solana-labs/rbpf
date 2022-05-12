@@ -156,6 +156,7 @@ pub enum AccessType {
 }
 
 /// Indirection to use instead of a slice to make handling easier
+#[derive(Debug)]
 pub struct MemoryMapping<'a> {
     /// Mapped memory regions
     regions: Box<[MemoryRegion]>,
@@ -245,25 +246,33 @@ impl<'a> MemoryMapping<'a> {
         }
     }
 
-    /// Resize the memory_region at the given index
-    pub fn resize_region<E: UserDefinedError>(
+    /// Returns the `MemoryRegion`s in this mapping
+    pub fn get_regions(&self) -> &[MemoryRegion] {
+        &self.regions
+    }
+
+    /// Replaces the `MemoryRegion` at the given index
+    pub fn replace_region<E: UserDefinedError>(
         &mut self,
         index: usize,
-        new_len: u64,
+        region: MemoryRegion,
     ) -> Result<(), EbpfError<E>> {
-        if index >= self.regions.len()
-            || (new_len > 0
-                && self.regions[index]
-                    .vm_addr
-                    .saturating_add(new_len)
-                    .saturating_sub(1)
-                    .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
-                    .unwrap_or(0) as usize
-                    != index)
-        {
+        if index >= self.regions.len() {
             return Err(EbpfError::InvalidMemoryRegion(index));
         }
-        self.regions[index].len = new_len;
+        let begin_index = region
+            .vm_addr
+            .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
+            .unwrap_or(0) as usize;
+        let end_index = region
+            .vm_addr
+            .saturating_add(region.len.saturating_sub(1))
+            .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
+            .unwrap_or(0) as usize;
+        if begin_index != index || end_index != index {
+            return Err(EbpfError::InvalidMemoryRegion(index));
+        }
+        self.regions[index] = region;
         Ok(())
     }
 }
