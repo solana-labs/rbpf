@@ -3431,7 +3431,7 @@ impl SyscallObject<UserError> for NestedVmSyscall {
         _arg3: u64,
         _arg4: u64,
         _arg5: u64,
-        _memory_mapping: &MemoryMapping,
+        _memory_mapping: &mut MemoryMapping,
         result: &mut Result,
     ) {
         #[allow(unused_mut)]
@@ -3484,12 +3484,12 @@ impl SyscallObject<UserError> for NestedVmSyscall {
 fn test_nested_vm_syscall() {
     let config = Config::default();
     let mut nested_vm_syscall = NestedVmSyscall {};
-    let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
+    let mut memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
     let mut result = Ok(0);
-    nested_vm_syscall.call(1, 0, 0, 0, 0, &memory_mapping, &mut result);
+    nested_vm_syscall.call(1, 0, 0, 0, 0, &mut memory_mapping, &mut result);
     assert!(result.unwrap() == 42);
     let mut result = Ok(0);
-    nested_vm_syscall.call(1, 1, 0, 0, 0, &memory_mapping, &mut result);
+    nested_vm_syscall.call(1, 1, 0, 0, 0, &mut memory_mapping, &mut result);
     assert!(matches!(result.unwrap_err(),
         EbpfError::CallDepthExceeded(pc, depth)
         if pc == 33 && depth == 0

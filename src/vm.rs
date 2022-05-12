@@ -65,7 +65,7 @@ pub type SyscallInit<'a, C, E> = fn(C) -> Box<(dyn SyscallObject<E> + 'a)>;
 
 /// Syscall function without context
 pub type SyscallFunction<E, O> =
-    fn(O, u64, u64, u64, u64, u64, &MemoryMapping, &mut ProgramResult<E>);
+    fn(O, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult<E>);
 
 /// Syscall with context
 pub trait SyscallObject<E: UserDefinedError> {
@@ -78,7 +78,7 @@ pub trait SyscallObject<E: UserDefinedError> {
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        memory_mapping: &MemoryMapping,
+        memory_mapping: &mut MemoryMapping,
         result: &mut ProgramResult<E>,
     );
 }

@@ -24,7 +24,7 @@ impl SyscallObject<UserError> for MockSyscall {
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        _memory_mapping: &MemoryMapping,
+        _memory_mapping: &mut MemoryMapping,
         result: &mut Result,
     ) {
         println!(

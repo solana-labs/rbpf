@@ -57,8 +57,8 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
-/// BpfTracePrintf::call(&mut BpfTracePrintf {}, 0, 0, 1, 15, 32, &memory_mapping, &mut result);
+/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
+/// BpfTracePrintf::call(&mut BpfTracePrintf {}, 0, 0, 1, 15, 32, &mut memory_mapping, &mut result);
 /// assert_eq!(result.unwrap() as usize, "BpfTracePrintf: 0x1, 0xf, 0x20\n".len());
 /// ```
 ///
@@ -97,7 +97,7 @@ impl SyscallObject<UserError> for BpfTracePrintf {
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        _memory_mapping: &MemoryMapping,
+        _memory_mapping: &mut MemoryMapping,
         result: &mut Result,
     ) {
         println!("BpfTracePrintf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
@@ -132,8 +132,8 @@ impl SyscallObject<UserError> for BpfTracePrintf {
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
-/// BpfGatherBytes::call(&mut BpfGatherBytes {}, 0x11, 0x22, 0x33, 0x44, 0x55, &memory_mapping, &mut result);
+/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
+/// BpfGatherBytes::call(&mut BpfGatherBytes {}, 0x11, 0x22, 0x33, 0x44, 0x55, &mut memory_mapping, &mut result);
 /// assert_eq!(result.unwrap(), 0x1122334455);
 /// ```
 pub struct BpfGatherBytes {}
@@ -151,7 +151,7 @@ impl SyscallObject<UserError> for BpfGatherBytes {
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        _memory_mapping: &MemoryMapping,
+        _memory_mapping: &mut MemoryMapping,
         result: &mut Result,
     ) {
         *result = Result::Ok(
@@ -181,10 +181,10 @@ impl SyscallObject<UserError> for BpfGatherBytes {
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_writable(val, val_va)], &config).unwrap();
-/// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &memory_mapping, &mut result);
+/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_writable(val, val_va)], &config).unwrap();
+/// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert_eq!(val, &[0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
-/// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &memory_mapping, &mut result);
+/// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert_eq!(val, &[0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
 /// ```
 pub struct BpfMemFrob {}
@@ -202,7 +202,7 @@ impl SyscallObject<UserError> for BpfMemFrob {
         _arg3: u64,
         _arg4: u64,
         _arg5: u64,
-        memory_mapping: &MemoryMapping,
+        memory_mapping: &mut MemoryMapping,
         result: &mut Result,
     ) {
         let host_addr = question_mark!(memory_mapping.map(AccessType::Store, vm_addr, len), result);
@@ -233,12 +233,12 @@ impl SyscallObject<UserError> for BpfMemFrob {
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_readonly(foo.as_bytes(), va_foo)], &config).unwrap();
-/// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_foo, 0, 0, 0, &memory_mapping, &mut result);
+/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_readonly(foo.as_bytes(), va_foo)], &config).unwrap();
+/// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_foo, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert!(result.unwrap() == 0);
 /// let mut result: Result = Ok(0);
-/// let memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_readonly(foo.as_bytes(), va_foo), MemoryRegion::new_readonly(bar.as_bytes(), va_bar)], &config).unwrap();
-/// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_bar, 0, 0, 0, &memory_mapping, &mut result);
+/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_readonly(foo.as_bytes(), va_foo), MemoryRegion::new_readonly(bar.as_bytes(), va_bar)], &config).unwrap();
+/// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_bar, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert!(result.unwrap() != 0);
 /// ```
 pub struct BpfStrCmp {}
@@ -256,7 +256,7 @@ impl SyscallObject<UserError> for BpfStrCmp {
         _arg3: u64,
         _arg4: u64,
         _arg5: u64,
-        memory_mapping: &MemoryMapping,
+        memory_mapping: &mut MemoryMapping,
         result: &mut Result,
     ) {
         // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
@@ -302,7 +302,7 @@ impl SyscallObject<UserError> for BpfSyscallString {
         _arg3: u64,
         _arg4: u64,
         _arg5: u64,
-        memory_mapping: &MemoryMapping,
+        memory_mapping: &mut MemoryMapping,
         result: &mut Result,
     ) {
         let host_addr = question_mark!(memory_mapping.map(AccessType::Load, vm_addr, len), result);
@@ -338,7 +338,7 @@ impl SyscallObject<UserError> for BpfSyscallU64 {
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        memory_mapping: &MemoryMapping,
+        memory_mapping: &mut MemoryMapping,
         result: &mut Result,
     ) {
         println!(
@@ -368,7 +368,7 @@ impl SyscallObject<UserError> for SyscallWithContext {
         arg3: u64,
         arg4: u64,
         arg5: u64,
-        memory_mapping: &MemoryMapping,
+        memory_mapping: &mut MemoryMapping,
         result: &mut Result,
     ) {
         println!(

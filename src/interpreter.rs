@@ -466,7 +466,7 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
                             self.reg[3],
                             self.reg[4],
                             self.reg[5],
-                            &self.vm.memory_mapping,
+                            &mut self.vm.memory_mapping,
                             &mut result,
                         );
                         self.reg[0] = result?;
