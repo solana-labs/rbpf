@@ -152,7 +152,7 @@ impl SyscallRegistry {
                 .insert(function, context_object_slot)
                 .is_some()
         {
-            Err(EbpfError::SycallAlreadyRegistered(hash as usize))
+            Err(EbpfError::SyscallAlreadyRegistered(hash as usize))
         } else {
             Ok(())
         }

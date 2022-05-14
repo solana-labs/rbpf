@@ -33,7 +33,7 @@ pub enum EbpfError<E: UserDefinedError> {
     ElfError(#[from] ElfError),
     /// Syscall was already registered before
     #[error("syscall #{0} was already registered before")]
-    SycallAlreadyRegistered(usize),
+    SyscallAlreadyRegistered(usize),
     /// Syscall was not registered before bind
     #[error("syscall #{0} was not registered before bind")]
     SyscallNotRegistered(usize),
