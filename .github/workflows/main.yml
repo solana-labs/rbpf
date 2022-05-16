@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-        rust: [stable, beta]
+        rust: [stable, beta, nightly]
     steps:
     - uses: actions/checkout@v1
     - name: Setup Rust (rustup)
@@ -31,12 +31,14 @@ jobs:
       run: |
         cargo fmt --all -- --check
         cargo clippy --all --tests -- --deny=warnings --deny=clippy::integer_arithmetic
+      if: matrix.rust != 'nightly'
       shell: bash
     - name: Build and test
       run: |
         export RUSTFLAGS="-D warnings"
         cargo build --verbose
         cargo test --verbose
+      if: matrix.rust != 'nightly'
       shell: bash
     - name: Check CLI
       run: |
@@ -45,10 +47,18 @@ jobs:
         cargo clippy --all --tests --manifest-path cli/Cargo.toml -- --deny=warnings --deny=clippy::integer_arithmetic
         cargo build --manifest-path cli/Cargo.toml --verbose
         cargo test --manifest-path cli/Cargo.toml --verbose
+      if: matrix.rust != 'nightly'
+      shell: bash
+    - name: Check fuzz
+      run: |
+        export RUSTFLAGS="-D warnings"
+        cargo install cargo-fuzz
+        cargo fuzz build
+      if: matrix.rust == 'nightly' && matrix.os != 'windows-latest'
       shell: bash
     - name: Benchmark
       run: RUSTFLAGS="-D warnings" cargo bench -- --nocapture
-      if: matrix.rust == 'nightly'
+      if: matrix.rust == 'nightly' && matrix.os != 'windows-latest'
       shell: bash
 
   release:
