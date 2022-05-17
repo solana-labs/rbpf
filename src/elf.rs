@@ -777,9 +777,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
             let section_addr = section_addr as usize;
             lowest_addr = lowest_addr.min(section_addr);
-            highest_addr = highest_addr
-                .max(section_addr)
-                .saturating_add(section_data.len());
+            highest_addr = highest_addr.max(section_addr.saturating_add(section_data.len()));
             ro_fill_length = ro_fill_length.saturating_add(section_data.len());
 
             ro_slices.push((section_addr, section_data));
