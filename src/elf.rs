@@ -639,6 +639,22 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             config.static_syscalls = false;
         }
 
+        if config.enable_elf_vaddr {
+            // This is needed to avoid an overflow error in header.vm_range() as
+            // used by relocate(). See https://github.com/m4b/goblin/pull/306.
+            //
+            // Once we bump to a version of goblin that includes the fix, this
+            // check can be removed, and relocate() will still return
+            // ValueOutOfBounds on malformed program headers.
+            if elf
+                .program_headers
+                .iter()
+                .any(|header| header.p_vaddr.checked_add(header.p_memsz).is_none())
+            {
+                return Err(ElfError::ValueOutOfBounds);
+            }
+        }
+
         let num_text_sections =
             elf.section_headers
                 .iter()
@@ -2052,6 +2068,15 @@ mod test {
             syscall_registry(),
         )
         .expect("validation failed");
+    }
+
+    #[test]
+    #[should_panic(expected = "validation failed: ValueOutOfBounds")]
+    fn test_program_headers_overflow() {
+        let elf_bytes = std::fs::read("tests/elfs/program_headers_overflow.so")
+            .expect("failed to read elf file");
+        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+            .expect("validation failed");
     }
 
     #[cfg(all(not(windows), target_arch = "x86_64"))]

@@ -90,3 +90,7 @@ rm syscall_static_unknown.o
 "$LLVM_DIR"clang -Werror -target sbf -mcpu=sbfv2 -O2 -fno-builtin -fPIC -o syscall_static.o -c syscall_static.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld -o syscall_static.so syscall_static.o
 rm syscall_static.o
+
+"$LLVM_DIR"clang -Werror -target sbf -mcpu=sbfv2 -O2 -fno-builtin -fPIC -o program_headers_overflow.o -c rodata.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script program_headers_overflow.ld --noinhibit-exec -o program_headers_overflow.so program_headers_overflow.o
+rm program_headers_overflow.o
