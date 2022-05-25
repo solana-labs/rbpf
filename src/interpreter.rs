@@ -455,7 +455,7 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
                         resolved = true;
 
                         if config.enable_instruction_meter {
-                            let _ = self.instruction_meter.consume(self.due_insn_count);
+                            self.instruction_meter.consume(self.due_insn_count);
                         }
                         self.due_insn_count = 0;
                         let mut result: ProgramResult<E> = Ok(0);

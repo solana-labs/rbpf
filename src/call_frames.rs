@@ -220,7 +220,7 @@ mod tests {
                 // check that the size of the new frame is what we expect. We
                 // need to abs() here since dynamic frames grow down but static
                 // frames grow up.
-                let frame_size = (frame_ptrs[i] as i64 - new_ptrs[i + 1] as i64).abs() as u64;
+                let frame_size = (frame_ptrs[i] as i64 - new_ptrs[i + 1] as i64).unsigned_abs();
                 assert_eq!(frame_size, expected_frame_size);
             }
 
