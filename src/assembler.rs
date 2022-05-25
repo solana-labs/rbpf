@@ -20,7 +20,7 @@ use crate::{
     ebpf::{self, Insn},
     elf::{register_bpf_function, Executable},
     error::UserDefinedError,
-    vm::{Config, InstructionMeter, SyscallRegistry, Verifier},
+    vm::{Config, InstructionMeter, SyscallRegistry},
 };
 use std::{
     collections::{BTreeMap, HashMap},
@@ -194,7 +194,6 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///     be16 r0
 ///     neg64 r2
 ///     exit",
-///     Some(check),
 ///     Config::default(),
 ///     SyscallRegistry::default(),
 /// ).unwrap();
@@ -221,7 +220,6 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 /// ```
 pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
     src: &str,
-    verifier: Option<Verifier>,
     config: Config,
     syscall_registry: SyscallRegistry,
 ) -> Result<Pin<Box<Executable<E, I>>>, String> {
@@ -389,6 +387,6 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
         .iter()
         .flat_map(|insn| insn.to_vec())
         .collect::<Vec<_>>();
-    Executable::<E, I>::from_text_bytes(&program, verifier, config, syscall_registry, bpf_functions)
+    Executable::<E, I>::from_text_bytes(&program, config, syscall_registry, bpf_functions)
         .map_err(|err| format!("Executable constructor {:?}", err))
 }

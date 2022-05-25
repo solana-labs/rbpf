@@ -39,7 +39,6 @@ fn bench_load_elf(bencher: &mut Bencher) {
     bencher.iter(|| {
         Executable::<UserError, TestInstructionMeter>::from_elf(
             &elf,
-            None,
             Config::default(),
             syscall_registry(),
         )
@@ -55,7 +54,6 @@ fn bench_load_elf_without_syscall(bencher: &mut Bencher) {
     bencher.iter(|| {
         let executable = Executable::<UserError, TestInstructionMeter>::from_elf(
             &elf,
-            None,
             Config::default(),
             syscall_registry(),
         )
@@ -72,7 +70,6 @@ fn bench_load_elf_with_syscall(bencher: &mut Bencher) {
     bencher.iter(|| {
         let executable = Executable::<UserError, TestInstructionMeter>::from_elf(
             &elf,
-            None,
             Config::default(),
             syscall_registry(),
         )

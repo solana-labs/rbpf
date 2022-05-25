@@ -14,7 +14,7 @@ use solana_rbpf::{
     memory_region::MemoryRegion,
     user_error::UserError,
     verifier::check,
-    vm::{EbpfVm, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 
 use crate::common::ConfigTemplate;
@@ -43,15 +43,21 @@ fuzz_target!(|data: FuzzData| {
     register_bpf_function(&config, &mut bpf_functions, &registry, 0, "entrypoint").unwrap();
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog.into_bytes(),
-        None,
         config,
         SyscallRegistry::default(),
         bpf_functions,
     )
     .unwrap();
+    let verified_executable =
+        VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(()))
+            .unwrap();
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![mem_region]).unwrap();
+    let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(
+        &verified_executable,
+        &mut [],
+        vec![mem_region],
+    )
+    .unwrap();
 
     drop(black_box(vm.execute_program_interpreted(
         &mut TestInstructionMeter { remaining: 1 << 16 },

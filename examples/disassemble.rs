@@ -9,7 +9,6 @@ use solana_rbpf::{
     elf::Executable,
     static_analysis::Analysis,
     user_error::UserError,
-    verifier::check,
     vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
@@ -34,7 +33,6 @@ fn main() {
     ];
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         &program,
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
         BTreeMap::default(),

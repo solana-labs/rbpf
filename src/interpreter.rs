@@ -77,7 +77,8 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
         vm: &'a mut EbpfVm<'b, E, I>,
         instruction_meter: &'a mut I,
     ) -> Result<Self, EbpfError<E>> {
-        let initial_insn_count = if vm.executable.get_config().enable_instruction_meter {
+        let executable = vm.verified_executable.get_executable();
+        let initial_insn_count = if executable.get_config().enable_instruction_meter {
             instruction_meter.get_remaining()
         } else {
             0
@@ -96,7 +97,7 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
             0,
             vm.stack.get_frame_ptr(),
         ];
-        let pc = vm.executable.get_entrypoint_instruction_offset()?;
+        let pc = executable.get_entrypoint_instruction_offset()?;
         Ok(Self {
             vm,
             instruction_meter,
@@ -130,7 +131,8 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
     /// Advances the interpreter state by one instruction
     #[rustfmt::skip]
     pub fn step(&mut self) -> Result<Option<u64>, EbpfError<E>> {
-        let config = &self.vm.executable.get_config();
+        let executable = self.vm.verified_executable.get_executable();
+        let config = &executable.get_config();
 
         let mut instruction_width = 1;
         self.due_insn_count += 1;
@@ -451,7 +453,7 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
                 };
 
                 if syscalls {
-                    if let Some(syscall) = self.vm.executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
+                    if let Some(syscall) = executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
                         resolved = true;
 
                         if config.enable_instruction_meter {
@@ -477,7 +479,7 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
                 }
 
                 if calls {
-                    if let Some(target_pc) = self.vm.executable.lookup_bpf_function(insn.imm as u32) {
+                    if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
                         resolved = true;
 
                         // make BPF to BPF call
@@ -491,7 +493,7 @@ impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I>
                     if config.disable_unresolved_symbols_at_runtime {
                         return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     } else {
-                        self.vm.executable.report_unresolved_symbol(pc)?;
+                        executable.report_unresolved_symbol(pc)?;
                     }
                 }
             }

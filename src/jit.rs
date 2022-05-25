@@ -1821,7 +1821,6 @@ mod tests {
         bpf_functions.insert(0xFFFFFFFF, (8, "foo".to_string()));
         Executable::<UserError, TestInstructionMeter>::from_text_bytes(
             program,
-            None,
             config,
             syscall_registry,
             bpf_functions,

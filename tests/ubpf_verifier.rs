@@ -29,7 +29,7 @@ use solana_rbpf::{
     error::UserDefinedError,
     user_error::UserError,
     verifier::{check, VerifierError},
-    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -48,13 +48,16 @@ fn test_verifier_success() {
         "
         mov32 r0, 0xBEE
         exit",
-        Some(|_prog: &[u8], _config: &Config| Ok(())),
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
+    let verified_executable =
+        VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(()))
+            .unwrap();
     let _vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], Vec::new()).unwrap();
+        EbpfVm::<UserError, TestInstructionMeter>::new(&verified_executable, &mut [], Vec::new())
+            .unwrap();
 }
 
 #[test]
@@ -63,30 +66,31 @@ fn test_verifier_fail() {
     fn verifier_fail(_prog: &[u8], _config: &Config) -> Result<(), VerifierError> {
         Err(VerifierError::NoProgram)
     }
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let executable = assemble::<UserError, TestInstructionMeter>(
         "
         mov32 r0, 0xBEE
         exit",
-        Some(verifier_fail),
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
+    let _verified_executable =
+        VerifiedExecutable::from_executable(executable, verifier_fail).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "DivisionByZero(30)")]
 fn test_verifier_err_div_by_zero_imm() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let executable = assemble::<UserError, TestInstructionMeter>(
         "
         mov32 r0, 1
         div32 r0, 0
         exit",
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
+    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
 }
 
 #[test]
@@ -97,14 +101,14 @@ fn test_verifier_err_endian_size() {
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
         BTreeMap::default(),
     )
     .unwrap();
+    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
 }
 
 #[test]
@@ -115,14 +119,14 @@ fn test_verifier_err_incomplete_lddw() {
         0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
         BTreeMap::default(),
     )
     .unwrap();
+    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
 }
 
 #[test]
@@ -130,19 +134,22 @@ fn test_verifier_err_invalid_reg_dst() {
     // r11 is disabled when dynamic_stack_frames=false, and only sub and add are
     // allowed when dynamic_stack_frames=true
     for dynamic_stack_frames in [false, true] {
+        let executable = assemble::<UserError, TestInstructionMeter>(
+            "
+            mov r11, 1
+            exit",
+            Config {
+                dynamic_stack_frames,
+                ..Config::default()
+            },
+            SyscallRegistry::default(),
+        )
+        .unwrap();
+        let result = VerifiedExecutable::from_executable(executable, check)
+            .map_err(|err| format!("Executable constructor {:?}", err));
+
         assert_eq!(
-            assemble::<UserError, TestInstructionMeter>(
-                "
-                mov r11, 1
-                exit",
-                Some(check),
-                Config {
-                    dynamic_stack_frames,
-                    ..Config::default()
-                },
-                SyscallRegistry::default(),
-            )
-            .unwrap_err(),
+            result.unwrap_err(),
             "Executable constructor VerifierError(InvalidDestinationRegister(29))"
         );
     }
@@ -153,19 +160,22 @@ fn test_verifier_err_invalid_reg_src() {
     // r11 is disabled when dynamic_stack_frames=false, and only sub and add are
     // allowed when dynamic_stack_frames=true
     for dynamic_stack_frames in [false, true] {
+        let executable = assemble::<UserError, TestInstructionMeter>(
+            "
+            mov r0, r11
+            exit",
+            Config {
+                dynamic_stack_frames,
+                ..Config::default()
+            },
+            SyscallRegistry::default(),
+        )
+        .unwrap();
+        let result = VerifiedExecutable::from_executable(executable, check)
+            .map_err(|err| format!("Executable constructor {:?}", err));
+
         assert_eq!(
-            assemble::<UserError, TestInstructionMeter>(
-                "
-                mov r0, r11
-                exit",
-                Some(check),
-                Config {
-                    dynamic_stack_frames,
-                    ..Config::default()
-                },
-                SyscallRegistry::default(),
-            )
-            .unwrap_err(),
+            result.unwrap_err(),
             "Executable constructor VerifierError(InvalidSourceRegister(29))"
         );
     }
@@ -173,12 +183,11 @@ fn test_verifier_err_invalid_reg_src() {
 
 #[test]
 fn test_verifier_resize_stack_ptr_success() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let executable = assemble::<UserError, TestInstructionMeter>(
         "
         sub r11, 1
         add r11, 1
         exit",
-        Some(check),
         Config {
             dynamic_stack_frames: true,
             enable_stack_frame_gaps: false,
@@ -187,49 +196,50 @@ fn test_verifier_resize_stack_ptr_success() {
         SyscallRegistry::default(),
     )
     .unwrap();
+    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "JumpToMiddleOfLDDW(2, 29)")]
 fn test_verifier_err_jmp_lddw() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let executable = assemble::<UserError, TestInstructionMeter>(
         "
         ja +1
         lddw r0, 0x1122334455667788
         exit",
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
+    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "JumpOutOfCode(3, 29)")]
-fn test_verifier_err_jmp_out_end() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+fn test_verifier_err_jmp_out() {
+    let executable = assemble::<UserError, TestInstructionMeter>(
         "
         ja +2
         exit",
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
+    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "JumpOutOfCode(18446744073709551615, 29)")]
 fn test_verifier_err_jmp_out_start() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let executable = assemble::<UserError, TestInstructionMeter>(
         "
         ja -2
         exit",
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
+    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
 }
 
 #[test]
@@ -239,28 +249,28 @@ fn test_verifier_err_unknown_opcode() {
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
         BTreeMap::default(),
     )
     .unwrap();
+    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "CannotWriteR10(29)")]
 fn test_verifier_err_write_r10() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let executable = assemble::<UserError, TestInstructionMeter>(
         "
         mov r10, 1
         exit",
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
+    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
 }
 
 #[test]
@@ -291,12 +301,14 @@ fn test_verifier_err_all_shift_overflows() {
 
     for (overflowing_instruction, expected) in testcases {
         let assembly = format!("\n{}\nexit", overflowing_instruction);
-        let result = assemble::<UserError, TestInstructionMeter>(
+        let executable = assemble::<UserError, TestInstructionMeter>(
             &assembly,
-            Some(check),
             Config::default(),
             SyscallRegistry::default(),
-        );
+        )
+        .unwrap();
+        let result = VerifiedExecutable::from_executable(executable, check)
+            .map_err(|err| format!("Executable constructor {:?}", err));
         match expected {
             Ok(()) => assert!(result.is_ok()),
             Err(overflow_msg) => match result {
@@ -326,16 +338,17 @@ fn test_verifier_err_ldabs_ldind_disabled() {
     for (opc, instruction) in instructions {
         for disable_deprecated_load_instructions in [true, false] {
             let assembly = format!("\n{}\nexit", instruction);
-            let result = assemble::<UserError, TestInstructionMeter>(
+            let executable = assemble::<UserError, TestInstructionMeter>(
                 &assembly,
-                Some(check),
                 Config {
                     disable_deprecated_load_instructions,
                     ..Config::default()
                 },
                 SyscallRegistry::default(),
-            );
-
+            )
+            .unwrap();
+            let result = VerifiedExecutable::from_executable(executable, check)
+                .map_err(|err| format!("Executable constructor {:?}", err));
             if disable_deprecated_load_instructions {
                 assert_eq!(
                     result.unwrap_err(),
@@ -364,16 +377,17 @@ fn test_sdiv_disabled() {
     for (opc, instruction) in instructions {
         for enable_sdiv in [true, false] {
             let assembly = format!("\n{}\nexit", instruction);
-            let result = assemble::<UserError, TestInstructionMeter>(
+            let executable = assemble::<UserError, TestInstructionMeter>(
                 &assembly,
-                Some(check),
                 Config {
                     enable_sdiv,
                     ..Config::default()
                 },
                 SyscallRegistry::default(),
-            );
-
+            )
+            .unwrap();
+            let result = VerifiedExecutable::from_executable(executable, check)
+                .map_err(|err| format!("Executable constructor {:?}", err));
             if enable_sdiv {
                 assert!(result.is_ok());
             } else {

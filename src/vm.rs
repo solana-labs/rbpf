@@ -276,36 +276,54 @@ pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 4;
 
 /// Static constructors for Executable
 impl<E: UserDefinedError, I: 'static + InstructionMeter> Executable<E, I> {
-    /// Creates a verified executable from an ELF file
+    /// Creates an executable from an ELF file
     pub fn from_elf(
         elf_bytes: &[u8],
-        verifier: Option<Verifier>,
         config: Config,
         syscall_registry: SyscallRegistry,
     ) -> Result<Pin<Box<Self>>, EbpfError<E>> {
         let executable = Executable::load(config, elf_bytes, syscall_registry)?;
-        if let Some(verifier) = verifier {
-            verifier(executable.get_text_bytes().1, executable.get_config())?;
-        }
         Ok(Pin::new(Box::new(executable)))
     }
-    /// Creates a verified executable from machine code
+    /// Creates an executable from machine code
     pub fn from_text_bytes(
         text_bytes: &[u8],
-        verifier: Option<Verifier>,
         config: Config,
         syscall_registry: SyscallRegistry,
         bpf_functions: BTreeMap<u32, (usize, String)>,
     ) -> Result<Pin<Box<Self>>, EbpfError<E>> {
-        if let Some(verifier) = verifier {
-            verifier(text_bytes, &config).map_err(EbpfError::VerifierError)?;
-        }
         Ok(Pin::new(Box::new(Executable::new_from_text_bytes(
             config,
             text_bytes,
             syscall_registry,
             bpf_functions,
         ))))
+    }
+}
+
+/// Verified executable
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct VerifiedExecutable<E: UserDefinedError, I: InstructionMeter>(Pin<Box<Executable<E, I>>>);
+
+impl<E: UserDefinedError, I: InstructionMeter> VerifiedExecutable<E, I> {
+    /// Verify an executable
+    pub fn from_executable(
+        executable: Pin<Box<Executable<E, I>>>,
+        verifier: Verifier,
+    ) -> Result<Self, EbpfError<E>> {
+        verifier(executable.get_text_bytes().1, executable.get_config())?;
+        Ok(VerifiedExecutable(executable))
+    }
+
+    /// JIT compile the executable
+    pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
+        Executable::<E, I>::jit_compile(&mut self.0)
+    }
+
+    /// Get a reference to the underlying executable
+    pub fn get_executable(&self) -> &Executable<E, I> {
+        &self.0
     }
 }
 
@@ -437,7 +455,7 @@ impl Tracer {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestInstructionMeter, SyscallRegistry}, verifier::check, user_error::UserError};
+/// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestInstructionMeter, SyscallRegistry, VerifiedExecutable}, user_error::UserError};
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -451,16 +469,17 @@ impl Tracer {
 /// let mut bpf_functions = std::collections::BTreeMap::new();
 /// let syscall_registry = SyscallRegistry::default();
 /// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
-/// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, Some(check), config, syscall_registry, bpf_functions).unwrap();
+/// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
 /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
-/// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![mem_region]).unwrap();
+/// let verified_executable = VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(())).unwrap();
+/// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
 ///
 /// // Provide a reference to the packet data.
 /// let res = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 }).unwrap();
 /// assert_eq!(res, 0);
 /// ```
 pub struct EbpfVm<'a, E: UserDefinedError, I: InstructionMeter> {
-    pub(crate) executable: &'a Executable<E, I>,
+    pub(crate) verified_executable: &'a VerifiedExecutable<E, I>,
     pub(crate) program: &'a [u8],
     pub(crate) program_vm_addr: u64,
     pub(crate) memory_mapping: MemoryMapping<'a>,
@@ -478,7 +497,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, vm::{Config, EbpfVm, TestInstructionMeter, SyscallRegistry}, verifier::check, user_error::UserError};
+    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, vm::{Config, EbpfVm, TestInstructionMeter, SyscallRegistry, VerifiedExecutable}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -489,19 +508,21 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// let syscall_registry = SyscallRegistry::default();
     /// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
-    /// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, Some(check), config, syscall_registry, bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], Vec::new()).unwrap();
+    /// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
+    /// let verified_executable = VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(())).unwrap();
+    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&verified_executable, &mut [], Vec::new()).unwrap();
     /// ```
     pub fn new(
-        executable: &'a Pin<Box<Executable<E, I>>>,
+        verified_executable: &'a VerifiedExecutable<E, I>,
         heap_region: &mut [u8],
         additional_regions: Vec<MemoryRegion>,
     ) -> Result<EbpfVm<'a, E, I>, EbpfError<E>> {
+        let executable = verified_executable.get_executable();
         let config = executable.get_config();
         let mut stack = CallFrames::new(config);
         let regions: Vec<MemoryRegion> = vec![
             MemoryRegion::new_readonly(&[], 0),
-            executable.get_ro_region(),
+            verified_executable.get_executable().get_ro_region(),
             stack.get_memory_region(),
             MemoryRegion::new_writable(heap_region, ebpf::MM_HEAP_START),
         ]
@@ -511,7 +532,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         let (program_vm_addr, program) = executable.get_text_bytes();
         let number_of_syscalls = executable.get_syscall_registry().get_number_of_syscalls();
         let mut vm = EbpfVm {
-            executable,
+            verified_executable,
             program,
             program_vm_addr,
             memory_mapping: MemoryMapping::new(regions, config)?,
@@ -554,7 +575,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter}, verifier::check, syscalls::BpfTracePrintf, user_error::UserError};
+    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter, VerifiedExecutable}, syscalls::BpfTracePrintf, user_error::UserError};
     ///
     /// // This program was compiled with clang, from a C program containing the following single
     /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
@@ -580,8 +601,9 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let config = Config::default();
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
-    /// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, Some(check), config, syscall_registry, bpf_functions).unwrap();
-    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], Vec::new()).unwrap();
+    /// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
+    /// let verified_executable = VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(())).unwrap();
+    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&verified_executable, &mut [], Vec::new()).unwrap();
     /// // Bind a context object instance to the previously registered syscall
     /// vm.bind_syscall_context_objects(0);
     /// ```
@@ -589,7 +611,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
         &mut self,
         syscall_context: C,
     ) -> Result<(), EbpfError<E>> {
-        let syscall_registry = self.executable.get_syscall_registry();
+        let syscall_registry = self
+            .verified_executable
+            .get_executable()
+            .get_syscall_registry();
 
         for syscall in syscall_registry.entries.values() {
             let syscall_object_init_fn: SyscallInit<C, E> =
@@ -618,7 +643,8 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
 
     /// Lookup a syscall context object by its function pointer. Used for testing and validation.
     pub fn get_syscall_context_object(&self, syscall_function: usize) -> Option<*mut u8> {
-        self.executable
+        self.verified_executable
+            .get_executable()
             .get_syscall_registry()
             .lookup_context_object_slot(syscall_function as u64)
             .map(|slot| self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot])
@@ -632,7 +658,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestInstructionMeter, SyscallRegistry}, verifier::check, user_error::UserError};
+    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestInstructionMeter, SyscallRegistry, VerifiedExecutable}, user_error::UserError};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -646,9 +672,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// let syscall_registry = SyscallRegistry::default();
     /// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
-    /// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, Some(check), config, syscall_registry, bpf_functions).unwrap();
+    /// let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
+    /// let verified_executable = VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(())).unwrap();
     /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
-    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![mem_region]).unwrap();
+    /// let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
     ///
     /// // Provide a reference to the packet data.
     /// let res = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 }).unwrap();
@@ -663,7 +690,12 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             }
             (interpreter.initial_insn_count, interpreter.due_insn_count)
         };
-        if self.executable.get_config().enable_instruction_meter {
+        if self
+            .verified_executable
+            .get_executable()
+            .get_config()
+            .enable_instruction_meter
+        {
             instruction_meter.consume(due_insn_count);
             self.total_insn_count = initial_insn_count - instruction_meter.get_remaining();
         }
@@ -679,14 +711,14 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
     /// the program works with the interpreter before running the JIT-compiled version of it.
     ///
     pub fn execute_program_jit(&mut self, instruction_meter: &mut I) -> ProgramResult<E> {
-        let initial_insn_count = if self.executable.get_config().enable_instruction_meter {
+        let executable = self.verified_executable.get_executable();
+        let initial_insn_count = if executable.get_config().enable_instruction_meter {
             instruction_meter.get_remaining()
         } else {
             0
         };
         let result: ProgramResult<E> = Ok(0);
-        let compiled_program = self
-            .executable
+        let compiled_program = executable
             .get_compiled_program()
             .ok_or(EbpfError::JitNotCompiled)?;
         let instruction_meter_final = unsafe {
@@ -700,7 +732,7 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, E, I> {
             )
             .max(0) as u64
         };
-        if self.executable.get_config().enable_instruction_meter {
+        if executable.get_config().enable_instruction_meter {
             let remaining_insn_count = instruction_meter.get_remaining();
             let due_insn_count = remaining_insn_count - instruction_meter_final;
             instruction_meter.consume(due_insn_count);

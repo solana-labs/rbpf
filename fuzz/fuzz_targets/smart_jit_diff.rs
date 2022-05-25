@@ -12,7 +12,7 @@ use solana_rbpf::{
     memory_region::MemoryRegion,
     user_error::UserError,
     verifier::check,
-    vm::{EbpfVm, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 
 use crate::common::ConfigTemplate;
@@ -49,23 +49,31 @@ fuzz_target!(|data: FuzzData| {
     let registry = SyscallRegistry::default();
     let mut bpf_functions = BTreeMap::new();
     register_bpf_function(&config, &mut bpf_functions, &registry, 0, "entrypoint").unwrap();
-    let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog.into_bytes(),
-        None,
         config,
         SyscallRegistry::default(),
         bpf_functions,
     )
     .unwrap();
-    if Executable::jit_compile(&mut executable).is_ok() {
+    let mut verified_executable =
+        VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(()))
+            .unwrap();
+    if verified_executable.jit_compile().is_ok() {
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
-        let mut interp_vm =
-            EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![interp_mem_region])
-                .unwrap();
+        let mut interp_vm = EbpfVm::<UserError, TestInstructionMeter>::new(
+            &verified_executable,
+            &mut [],
+            vec![interp_mem_region],
+        )
+        .unwrap();
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
-        let mut jit_vm =
-            EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], vec![jit_mem_region])
-                .unwrap();
+        let mut jit_vm = EbpfVm::<UserError, TestInstructionMeter>::new(
+            &verified_executable,
+            &mut [],
+            vec![jit_mem_region],
+        )
+        .unwrap();
 
         let mut interp_meter = TestInstructionMeter { remaining: 1 << 16 };
         let interp_res = interp_vm.execute_program_interpreted(&mut interp_meter);

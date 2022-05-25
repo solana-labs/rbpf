@@ -22,8 +22,9 @@ use solana_rbpf::{
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     syscalls::{self, BpfSyscallContext, Result},
     user_error::UserError,
-    verifier::check,
-    vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
+    vm::{
+        Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
+    },
 };
 use std::{collections::BTreeMap, fs::File, io::Read};
 use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
@@ -40,10 +41,17 @@ macro_rules! test_interpreter_and_jit {
     ($executable:expr, $mem:tt, $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
         #[allow(unused_mut)]
         let mut check_closure = $check;
+        #[allow(unused_mut)]
+        let mut verified_executable =
+            VerifiedExecutable::from_executable($executable, |_prog: &[u8], _config: &Config| {
+                Ok(())
+            })
+            .unwrap();
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-            let mut vm = EbpfVm::new(&$executable, &mut [], vec![mem_region]).unwrap();
+
+            let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
             test_interpreter_and_jit!(bind, vm, $syscall_context);
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter {
                 remaining: $expected_instruction_count,
@@ -55,11 +63,10 @@ macro_rules! test_interpreter_and_jit {
         {
             #[allow(unused_mut)]
             let mut check_closure = $check;
-            let compilation_result =
-                Executable::<UserError, TestInstructionMeter>::jit_compile(&mut $executable);
+            let compilation_result = verified_executable.jit_compile();
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-            let mut vm = EbpfVm::new(&$executable, &mut [], vec![mem_region]).unwrap();
+            let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, Err(err))),
                 Ok(()) => {
@@ -71,9 +78,10 @@ macro_rules! test_interpreter_and_jit {
                     if !check_closure(&vm, result)
                         || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit)
                     {
-                        let analysis =
-                            solana_rbpf::static_analysis::Analysis::from_executable(&$executable)
-                                .unwrap();
+                        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
+                            verified_executable.get_executable(),
+                        )
+                        .unwrap();
                         let stdout = std::io::stdout();
                         _tracer_interpreter
                             .write(&mut stdout.lock(), &analysis)
@@ -81,14 +89,22 @@ macro_rules! test_interpreter_and_jit {
                         tracer_jit.write(&mut stdout.lock(), &analysis).unwrap();
                         panic!();
                     }
-                    if $executable.get_config().enable_instruction_meter {
+                    if verified_executable
+                        .get_executable()
+                        .get_config()
+                        .enable_instruction_meter
+                    {
                         let instruction_count_jit = vm.get_total_instruction_count();
                         assert_eq!(instruction_count_interpreter, instruction_count_jit);
                     }
                 }
             }
         }
-        if $executable.get_config().enable_instruction_meter {
+        if verified_executable
+            .get_executable()
+            .get_config()
+            .enable_instruction_meter
+        {
             assert_eq!(instruction_count_interpreter, $expected_instruction_count);
         }
     };
@@ -100,7 +116,7 @@ macro_rules! test_interpreter_and_jit_asm {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
-            let mut executable = assemble($source, Some(check), $config, syscall_registry).unwrap();
+            let mut executable = assemble($source, $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
@@ -126,7 +142,15 @@ macro_rules! test_interpreter_and_jit_elf {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
+<<<<<<< HEAD
             let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(check), $config, syscall_registry).unwrap();
+=======
+<<<<<<< HEAD
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(solana_rbpf::verifier::check), $config, syscall_registry).unwrap();
+=======
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, $config, syscall_registry).unwrap();
+>>>>>>> 8dba993 (Verifier is not optional)
+>>>>>>> ba982fe (Verifier is not optional)
             test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
@@ -2891,7 +2915,10 @@ fn test_err_mem_access_out_of_bound() {
         #[allow(unused_mut)]
         let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
             &prog,
+<<<<<<< HEAD
             Some(check),
+=======
+>>>>>>> ba982fe (Verifier is not optional)
             config,
             syscall_registry,
             bpf_functions,
@@ -3416,7 +3443,10 @@ impl SyscallObject<UserError> for NestedVmSyscall {
                 ldxb r1, [r1]
                 syscall NestedVmSyscall
                 exit",
+<<<<<<< HEAD
                 Some(check),
+=======
+>>>>>>> ba982fe (Verifier is not optional)
                 Config::default(),
                 syscall_registry,
             )
@@ -3552,6 +3582,7 @@ fn test_custom_entrypoint() {
     let mut syscall_registry = SyscallRegistry::default();
     test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call);
     #[allow(unused_mut)]
+<<<<<<< HEAD
     let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(
         &elf,
         Some(check),
@@ -3559,6 +3590,11 @@ fn test_custom_entrypoint() {
         syscall_registry,
     )
     .unwrap();
+=======
+    let mut executable =
+        Executable::<UserError, TestInstructionMeter>::from_elf(&elf, config, syscall_registry)
+            .unwrap();
+>>>>>>> ba982fe (Verifier is not optional)
     test_interpreter_and_jit!(
         executable,
         [],
@@ -3981,7 +4017,11 @@ fn test_err_unresolved_elf() {
         ..Config::default()
     };
     assert!(
+<<<<<<< HEAD
         matches!(Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(check), config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
+=======
+        matches!(Executable::<UserError, TestInstructionMeter>::from_elf(&elf, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
+>>>>>>> ba982fe (Verifier is not optional)
     );
 }
 
@@ -4382,23 +4422,33 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     .unwrap();
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
+<<<<<<< HEAD
         Some(check),
+=======
+>>>>>>> ba982fe (Verifier is not optional)
         config,
         syscall_registry,
         bpf_functions,
     );
-    let mut executable = if let Ok(executable) = executable {
+    let executable = if let Ok(executable) = executable {
         executable
     } else {
         return false;
     };
-    if Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).is_err() {
+    let verified_executable =
+        VerifiedExecutable::from_executable(executable, solana_rbpf::verifier::check);
+    let mut verified_executable = if let Ok(verified_executable) = verified_executable {
+        verified_executable
+    } else {
+        return false;
+    };
+    if verified_executable.jit_compile().is_err() {
         return false;
     }
     let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {
         let mut mem = vec![0u8; mem_size];
         let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-        let mut vm = EbpfVm::new(&executable, &mut [], vec![mem_region]).unwrap();
+        let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
         let result_interpreter = vm.execute_program_interpreted(&mut TestInstructionMeter {
             remaining: max_instruction_count,
         });
@@ -4411,7 +4461,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     };
     let mut mem = vec![0u8; mem_size];
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::new(&executable, &mut [], vec![mem_region]).unwrap();
+    let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
     let result_jit = vm.execute_program_jit(&mut TestInstructionMeter {
         remaining: max_instruction_count,
     });
@@ -4419,8 +4469,10 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     if result_interpreter != result_jit
         || !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit)
     {
-        let analysis =
-            solana_rbpf::static_analysis::Analysis::from_executable(&executable).unwrap();
+        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
+            verified_executable.get_executable(),
+        )
+        .unwrap();
         println!("result_interpreter={:?}", result_interpreter);
         println!("result_jit={:?}", result_jit);
         let stdout = std::io::stdout();
@@ -4430,7 +4482,11 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         tracer_jit.write(&mut stdout.lock(), &analysis).unwrap();
         panic!();
     }
-    if executable.get_config().enable_instruction_meter {
+    if verified_executable
+        .get_executable()
+        .get_config()
+        .enable_instruction_meter
+    {
         let instruction_count_jit = vm.get_total_instruction_count();
         assert_eq!(instruction_count_interpreter, instruction_count_jit);
     }

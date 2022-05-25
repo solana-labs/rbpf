@@ -27,7 +27,9 @@ use solana_rbpf::{
     syscalls::{BpfSyscallContext, BpfSyscallString, BpfSyscallU64},
     user_error::UserError,
     verifier::check,
-    vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
+    vm::{
+        Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
+    },
 };
 use std::{fs::File, io::Read};
 
@@ -129,21 +131,24 @@ fn test_fuzz_execute() {
                 .unwrap();
             if let Ok(executable) = Executable::<UserError, TestInstructionMeter>::from_elf(
                 bytes,
-                Some(check),
                 Config::default(),
                 syscall_registry,
             ) {
-                let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(
-                    &executable,
-                    &mut [],
-                    Vec::new(),
-                )
-                .unwrap();
-                vm.bind_syscall_context_objects(0).unwrap();
-                vm.bind_syscall_context_objects(0).unwrap();
-                let _ = vm.execute_program_interpreted(&mut TestInstructionMeter {
-                    remaining: 1_000_000,
-                });
+                if let Ok(verified_executable) =
+                    VerifiedExecutable::from_executable(executable, check)
+                {
+                    let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(
+                        &verified_executable,
+                        &mut [],
+                        Vec::new(),
+                    )
+                    .unwrap();
+                    vm.bind_syscall_context_objects(0).unwrap();
+                    vm.bind_syscall_context_objects(0).unwrap();
+                    let _ = vm.execute_program_interpreted(&mut TestInstructionMeter {
+                        remaining: 1_000_000,
+                    });
+                }
             }
         },
     );

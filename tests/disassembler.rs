@@ -22,13 +22,9 @@ macro_rules! disasm {
             enable_symbol_and_section_labels: true,
             ..Config::default()
         };
-        let executable = assemble::<UserError, TestInstructionMeter>(
-            src,
-            None,
-            config,
-            SyscallRegistry::default(),
-        )
-        .unwrap();
+        let executable =
+            assemble::<UserError, TestInstructionMeter>(src, config, SyscallRegistry::default())
+                .unwrap();
         let analysis = Analysis::from_executable(&executable).unwrap();
         let mut reasm = Vec::new();
         analysis.disassemble(&mut reasm).unwrap();
