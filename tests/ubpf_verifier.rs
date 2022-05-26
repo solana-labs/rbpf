@@ -206,10 +206,24 @@ fn test_verifier_err_jmp_lddw() {
 
 #[test]
 #[should_panic(expected = "JumpOutOfCode(3, 29)")]
-fn test_verifier_err_jmp_out() {
+fn test_verifier_err_jmp_out_end() {
     let _executable = assemble::<UserError, TestInstructionMeter>(
         "
         ja +2
+        exit",
+        Some(check),
+        Config::default(),
+        SyscallRegistry::default(),
+    )
+    .unwrap();
+}
+
+#[test]
+#[should_panic(expected = "JumpOutOfCode(18446744073709551615, 29)")]
+fn test_verifier_err_jmp_out_start() {
+    let _executable = assemble::<UserError, TestInstructionMeter>(
+        "
+        ja -2
         exit",
         Some(check),
         Config::default(),
