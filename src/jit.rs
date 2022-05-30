@@ -951,8 +951,8 @@ pub struct JitCompiler {
     last_instruction_meter_validation_pc: usize,
     program_vm_addr: u64,
     handler_anchors: HashMap<usize, usize>,
-    config: Config,
-    diversification_rng: SmallRng,
+    pub(crate) config: Config,
+    pub(crate) diversification_rng: SmallRng,
     stopwatch_is_active: bool,
     environment_stack_key: i32,
     program_argument_key: i32,
@@ -1019,7 +1019,7 @@ impl JitCompiler {
         }
 
         let mut code_length_estimate = MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION * pc;
-        code_length_estimate += (code_length_estimate as f64 * config.noop_instruction_ratio) as usize;
+        code_length_estimate += (code_length_estimate as f64 * (config.noop_instruction_ratio as f64 / std::u32::MAX as f64)) as usize;
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
         let (environment_stack_key, program_argument_key) =
             if config.encrypt_environment_registers {
@@ -1816,15 +1816,6 @@ impl JitCompiler {
         X86Instruction::return_near().emit(self)
     }
 
-    pub fn emit_random_noop<E: UserDefinedError>(&mut self) -> Result<(), EbpfError<E>> {
-        if self.config.noop_instruction_ratio != 0.0 && self.diversification_rng.gen_bool(self.config.noop_instruction_ratio) {
-            // X86Instruction::noop().emit(self)
-            emit::<u8, E>(self, 0x90)
-        } else {
-            Ok(())
-        }
-    }
-
     fn resolve_jumps(&mut self) {
         for jump in &self.pc_section_jumps {
             self.result.pc_section[jump.location] = jump.get_target_offset(self);
@@ -1861,7 +1852,7 @@ mod tests {
 
     fn create_mockup_executable(program: &[u8]) -> Pin<Box<Executable::<UserError, TestInstructionMeter>>> {
         let config = Config {
-            noop_instruction_ratio: 0.0,
+            noop_instruction_ratio: 0,
             ..Config::default()
         };
         let mut syscall_registry = SyscallRegistry::default();

@@ -8,7 +8,7 @@ use solana_rbpf::vm::Config;
 pub struct ConfigTemplate {
     max_call_depth: usize,
     instruction_meter_checkpoint_distance: usize,
-    noop_instruction_ratio: f64,
+    noop_instruction_ratio: u32,
     enable_stack_frame_gaps: bool,
     enable_symbol_and_section_labels: bool,
     disable_unresolved_symbols_at_runtime: bool,
@@ -27,10 +27,7 @@ impl<'a> Arbitrary<'a> for ConfigTemplate {
         Ok(ConfigTemplate {
             max_call_depth: usize::from(u8::arbitrary(u)?) + 1, // larger is unreasonable + must be non-zero
             instruction_meter_checkpoint_distance: usize::from(u16::arbitrary(u)?), // larger is unreasonable
-            noop_instruction_ratio: match f64::arbitrary(u)?.rem_euclid(1.) {
-                f if !f.is_normal() => 0.0,
-                f => f,
-            }, // map it between 0 and 1, drop NaN
+            noop_instruction_ratio: u32::arbitrary(u)?,
             enable_stack_frame_gaps: bools & (1 << 0) != 0,
             enable_symbol_and_section_labels: bools & (1 << 1) != 0,
             disable_unresolved_symbols_at_runtime: bools & (1 << 2) != 0,

@@ -212,8 +212,8 @@ pub struct Config {
     pub disable_unresolved_symbols_at_runtime: bool,
     /// Reject ELF files containing issues that the verifier did not catch before (up to v0.2.21)
     pub reject_broken_elfs: bool,
-    /// Ratio of random no-ops per instruction in JIT (0.0 = OFF)
-    pub noop_instruction_ratio: f64,
+    /// Ratio of random no-ops per instruction in JIT (0 = OFF)
+    pub noop_instruction_ratio: u32,
     /// Enable disinfection of immediate values and offsets provided by the user in JIT
     pub sanitize_user_provided_values: bool,
     /// Encrypt the environment registers in JIT
@@ -256,7 +256,7 @@ impl Default for Config {
             enable_symbol_and_section_labels: false,
             disable_unresolved_symbols_at_runtime: true,
             reject_broken_elfs: false,
-            noop_instruction_ratio: 1.0 / 256.0,
+            noop_instruction_ratio: std::u32::MAX / 256,
             sanitize_user_provided_values: true,
             encrypt_environment_registers: true,
             disable_deprecated_load_instructions: true,
