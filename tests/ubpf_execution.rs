@@ -827,13 +827,13 @@ fn test_div32_reg() {
 fn test_sdiv32_imm() {
     test_interpreter_and_jit_asm!(
         "
-        lddw r0, 0x10000000c
+        lddw r0, 0x180000000
         sdiv32 r0, 4
         exit",
         [],
         (),
         0,
-        { |_vm, res: Result| { res.unwrap() == 0x3 } },
+        { |_vm, res: Result| { res.unwrap() == 0xFFFFFFFFE0000000 } },
         3
     );
 }
@@ -843,12 +843,12 @@ fn test_sdiv32_neg_imm() {
     test_interpreter_and_jit_asm!(
         "
         lddw r0, 0x10000000c
-        sdiv32 r0, -4
+        sdiv32 r0, -1
         exit",
         [],
         (),
         0,
-        { |_vm, res: Result| { res.unwrap() as i64 == -3 } },
+        { |_vm, res: Result| { res.unwrap() as i64 == -0xc } },
         3
     );
 }
@@ -857,14 +857,14 @@ fn test_sdiv32_neg_imm() {
 fn test_sdiv32_reg() {
     test_interpreter_and_jit_asm!(
         "
-        lddw r0, 0x10000000c
+        lddw r0, 0x180000000
         mov r1, 4
         sdiv32 r0, r1
         exit",
         [],
         (),
         0,
-        { |_vm, res: Result| { res.unwrap() == 0x3 } },
+        { |_vm, res: Result| { res.unwrap() == 0xFFFFFFFFE0000000 } },
         4
     );
 }
@@ -874,13 +874,13 @@ fn test_sdiv32_neg_reg() {
     test_interpreter_and_jit_asm!(
         "
         lddw r0, 0x10000000c
-        mov r1, -4
+        mov r1, -1
         sdiv32 r0, r1
         exit",
         [],
         (),
         0,
-        { |_vm, res: Result| { res.unwrap() as i64 == -0x3 } },
+        { |_vm, res: Result| { res.unwrap() as i64 == -0xc } },
         4
     );
 }
