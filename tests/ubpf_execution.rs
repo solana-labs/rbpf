@@ -99,7 +99,7 @@ macro_rules! test_interpreter_and_jit_asm {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
-            let mut executable = assemble($source, None, $config, syscall_registry).unwrap();
+            let mut executable = assemble($source, Some(solana_rbpf::verifier::check), $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
@@ -108,6 +108,7 @@ macro_rules! test_interpreter_and_jit_asm {
         {
             let config = Config {
                 enable_instruction_tracing: true,
+                disable_deprecated_load_instructions: false,
                 ..Config::default()
             };
             test_interpreter_and_jit_asm!($source, config, $mem, ($($location => $syscall_init; $syscall_function),*), $syscall_context, $check, $expected_instruction_count);
@@ -124,7 +125,7 @@ macro_rules! test_interpreter_and_jit_elf {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, $config, syscall_registry).unwrap();
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(solana_rbpf::verifier::check), $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
@@ -3044,25 +3045,6 @@ fn test_err_callx_oob_high() {
 fn test_err_static_jmp_lddw() {
     test_interpreter_and_jit_asm!(
         "
-        ja 2
-        mov r0, r0
-        lddw r0, 0x1122334455667788
-        exit
-        ",
-        [],
-        (),
-        0,
-        {
-            |_vm, res: Result| {
-                matches!(res.unwrap_err(),
-                    EbpfError::UnsupportedInstruction(pc) if pc == 32
-                )
-            }
-        },
-        2
-    );
-    test_interpreter_and_jit_asm!(
-        "
         mov r0, 0
         mov r1, 0
         mov r2, 0
@@ -3079,24 +3061,6 @@ fn test_err_static_jmp_lddw() {
         0,
         { |_vm, res: Result| { res.unwrap() == 0x2 } },
         9
-    );
-    test_interpreter_and_jit_asm!(
-        "
-        jeq r0, 0, 1
-        lddw r0, 0x1122334455667788
-        exit
-        ",
-        [],
-        (),
-        0,
-        {
-            |_vm, res: Result| {
-                matches!(res.unwrap_err(),
-                    EbpfError::UnsupportedInstruction(pc) if pc == 31
-                )
-            }
-        },
-        2
     );
     test_interpreter_and_jit_asm!(
         "
