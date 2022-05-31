@@ -191,7 +191,6 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
 }
 
 // Special values for target_pc in struct Jump
-const TARGET_PC_LOCAL_ANCHOR: usize = std::usize::MAX - 100;
 const TARGET_PC_DIV_OVERFLOW: usize = std::usize::MAX - 33;
 const TARGET_PC_TRACE: usize = std::usize::MAX - 32;
 const TARGET_PC_SYSCALL: usize = std::usize::MAX - 31;
@@ -830,10 +829,6 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
     let modrm = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MOD32_IMM & ebpf::BPF_ALU_OP_MASK);
     let size = if (opc & ebpf::BPF_CLS_MASK) == ebpf::BPF_ALU64 { OperandSize::S64 } else { OperandSize::S32 };
 
-    // subtracting offset_in_text_section from TARGET_PC_LOCAL_ANCHOR gives us a
-    // unique local anchor
-    let sdiv_anchor = if sdiv { TARGET_PC_LOCAL_ANCHOR - jit.offset_in_text_section } else { 0 };
-
     if (div || sdiv || modrm) && imm.is_none() {
         // Save pc
         X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
@@ -861,10 +856,6 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
         // MIN / -1, raise EbpfError::DivideOverflow(pc)
         X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
         emit_jcc(jit, 0x84, TARGET_PC_DIV_OVERFLOW)?;
-    }
-
-    if sdiv {
-        set_anchor(jit, sdiv_anchor);
     }
 
     if dst != RAX {
