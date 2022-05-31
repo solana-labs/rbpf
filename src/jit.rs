@@ -370,7 +370,8 @@ fn emit_jump_offset<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize
     } else if jit.result.pc_section[target_pc] != 0 {
         jit.result.pc_section[target_pc] as u32
     } else {
-        jit.text_section_jumps.push(Jump { location: jit.offset_in_text_section, target_pc });
+        let location = unsafe { jit.result.text_section.as_ptr().add(jit.offset_in_text_section) };
+        jit.text_section_jumps.push(Jump { location, target_pc });
         return emit::<u32, E>(jit, 0);
     };
     debug_assert_ne!(target_offset, 0);
@@ -929,7 +930,7 @@ fn emit_set_exception_kind<E: UserDefinedError>(jit: &mut JitCompiler, err: Ebpf
 
 #[derive(Debug)]
 struct Jump {
-    location: usize,
+    location: *const u8,
     target_pc: usize,
 }
 
@@ -1799,14 +1800,9 @@ impl JitCompiler {
         // Resolve forward jumps
         for jump in &self.text_section_jumps {
             let offset_value = self.result.pc_section[jump.target_pc] as i32
-                - jump.location as i32 // Relative jump
+                - unsafe { jump.location.offset_from(self.result.text_section.as_ptr()) } as i32 // Relative jump
                 - mem::size_of::<i32>() as i32; // Jump from end of instruction
-            unsafe {
-                ptr::write_unaligned(
-                    self.result.text_section.as_ptr().add(jump.location) as *mut i32,
-                    offset_value,
-                );
-            }
+            unsafe { ptr::write_unaligned(jump.location as *mut i32, offset_value); }
         }
         let call_unsupported_instruction = self.anchors[TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE];
         let callx_unsupported_instruction = self.anchors[TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE];
