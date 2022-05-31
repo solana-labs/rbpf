@@ -182,6 +182,18 @@ impl X86Instruction {
         }
     }
 
+    /// Conditionally move source to destination
+    pub fn cmov(size: OperandSize, condition: u8, source: u8, destination: u8) -> Self {
+        Self {
+            size,
+            opcode_escape_sequence: 1,
+            opcode: condition,
+            first_operand: destination,
+            second_operand: source,
+            ..Self::default()
+        }
+    }
+
     /// Swap source and destination
     pub fn xchg(
         size: OperandSize,

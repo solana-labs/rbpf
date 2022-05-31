@@ -832,33 +832,35 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
 
     // subtracting offset_in_text_section from TARGET_PC_LOCAL_ANCHOR gives us a
     // unique local anchor
-    let sdiv_anchor =  if sdiv { TARGET_PC_LOCAL_ANCHOR - jit.offset_in_text_section } else { 0 };
+    let sdiv_anchor = if sdiv { TARGET_PC_LOCAL_ANCHOR - jit.offset_in_text_section } else { 0 };
 
     if (div || sdiv || modrm) && imm.is_none() {
         // Save pc
         X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
         X86Instruction::test(size, src, src, None).emit(jit)?; // src == 0
         emit_jcc(jit, 0x84, TARGET_PC_DIV_BY_ZERO)?;
-
     }
 
     // sdiv overflows with MIN / -1. If we have an immediate and it's not -1, we
     // don't need any checks.
     if sdiv && imm.unwrap_or(-1) == -1 {
-        if imm.is_none() {
-            // if src != -1, we can skip checking dst
-            X86Instruction::cmp_immediate(size, src, -1, None).emit(jit)?;
-            emit_jcc(jit, 0x85, sdiv_anchor)?;
-        }
-
-        // if dst != MIN, we're not going to overflow
         X86Instruction::load_immediate(size, R11, if size == OperandSize::S64 { i64::MIN } else { i32::MIN as i64 }).emit(jit)?;
-        X86Instruction::cmp(size, dst, R11, None).emit(jit)?;
-        emit_jcc(jit, 0x85, sdiv_anchor)?;
+        X86Instruction::cmp(size, dst, R11, None).emit(jit)?; // dst == MIN
 
+        if imm.is_none() {
+            // The exception case is: dst == MIN && src == -1
+            // Via De Morgan's law becomes: !(dst != MIN || src != -1)
+            // Also, we know that src != 0 in here, so we can use it to set R11 to something not zero
+            X86Instruction::load_immediate(size, R11, 0).emit(jit)?; // No XOR here because we need to keep the status flags
+            X86Instruction::cmov(size, 0x45, src, R11).emit(jit)?; // if dst != MIN { r11 = src; }
+            X86Instruction::cmp_immediate(size, src, -1, None).emit(jit)?; // src == -1
+            X86Instruction::cmov(size, 0x45, src, R11).emit(jit)?; // if src != -1 { r11 = src; }
+            X86Instruction::test(size, R11, R11, None).emit(jit)?; // r11 == 0
+        }
+        
         // MIN / -1, raise EbpfError::DivideOverflow(pc)
         X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
-        emit_jmp(jit, TARGET_PC_DIV_OVERFLOW)?;
+        emit_jcc(jit, 0x84, TARGET_PC_DIV_OVERFLOW)?;
     }
 
     if sdiv {
@@ -887,8 +889,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
     }
 
     if div || modrm {
-        // xor %edx,%edx
-        emit_alu(jit, size, 0x31, RDX, RDX, 0, None)?;
+        emit_alu(jit, size, 0x31, RDX, RDX, 0, None)?; // RDX = 0
     } else if sdiv {
         // cdq or cqo depending on operand size
         X86Instruction {
