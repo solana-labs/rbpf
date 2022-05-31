@@ -351,17 +351,19 @@ fn emit_sanitized_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandS
 
 #[inline]
 fn emit_jump_offset<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize) -> Result<(), EbpfError<E>> {
-    if target_pc >= TARGET_PC_EPILOGUE {
-        let target_offset = jit.anchors[target_pc - TARGET_PC_EPILOGUE];
-        debug_assert_ne!(target_offset, 0);
-        let offset_value = target_offset as i32
-            - jit.offset_in_text_section as i32 // Relative jump
-            - mem::size_of::<i32>() as i32; // Jump from end of instruction
-        emit::<u32, E>(jit, offset_value as u32)
+    let target_offset = if target_pc >= TARGET_PC_EPILOGUE {
+        jit.anchors[target_pc - TARGET_PC_EPILOGUE] as u32
+    } else if jit.result.pc_section[target_pc] != 0 {
+        jit.result.pc_section[target_pc] as u32
     } else {
         jit.text_section_jumps.push(Jump { location: jit.offset_in_text_section, target_pc });
-        emit::<u32, E>(jit, 0)
-    }
+        return emit::<u32, E>(jit, 0);
+    };
+    debug_assert_ne!(target_offset, 0);
+    let offset_value = target_offset as i32
+        - jit.offset_in_text_section as i32 // Relative jump
+        - mem::size_of::<i32>() as i32; // Jump from end of instruction
+    emit::<u32, E>(jit, offset_value as u32)
 }
 
 #[inline]
@@ -386,7 +388,7 @@ fn emit_call<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize) -> Re
 #[inline]
 fn set_anchor(jit: &mut JitCompiler, target: usize) {
     debug_assert!(target >= TARGET_PC_EPILOGUE);
-    jit.anchors[target - TARGET_PC_EPILOGUE] = jit.offset_in_text_section;
+    jit.anchors[target - TARGET_PC_EPILOGUE] = jit.offset_in_text_section as u64;
 }
 
 /// Indices of slots inside the struct at inital RSP
@@ -934,11 +936,6 @@ struct Jump {
     location: usize,
     target_pc: usize,
 }
-impl Jump {
-    fn get_target_offset(&self, jit: &JitCompiler) -> u64 {
-        jit.result.pc_section[self.target_pc]
-    }
-}
 
 pub struct JitCompiler {
     result: JitProgramSections,
@@ -947,7 +944,7 @@ pub struct JitCompiler {
     pc: usize,
     last_instruction_meter_validation_pc: usize,
     program_vm_addr: u64,
-    anchors: [usize; std::usize::MAX - TARGET_PC_EPILOGUE],
+    anchors: [u64; std::usize::MAX - TARGET_PC_EPILOGUE],
     pub(crate) config: Config,
     pub(crate) diversification_rng: SmallRng,
     stopwatch_is_active: bool,
@@ -1120,7 +1117,7 @@ impl JitCompiler {
                 ebpf::LD_DW_IMM  => {
                     emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2))?;
                     self.pc += 1;
-                    self.result.pc_section[self.pc] = self.anchors[TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE] as u64;
+                    self.result.pc_section[self.pc] = self.anchors[TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE];
                     ebpf::augment_lddw_unchecked(program, &mut insn);
                     if should_sanitize_constant(self, insn.imm) {
                         emit_sanitized_load_immediate(self, OperandSize::S64, dst, insn.imm)?;
@@ -1803,8 +1800,9 @@ impl JitCompiler {
     }
 
     fn resolve_jumps(&mut self) {
+        // Resolve forward jumps
         for jump in &self.text_section_jumps {
-            let offset_value = jump.get_target_offset(self) as i32
+            let offset_value = self.result.pc_section[jump.target_pc] as i32
                 - jump.location as i32 // Relative jump
                 - mem::size_of::<i32>() as i32; // Jump from end of instruction
             unsafe {
@@ -1814,13 +1812,14 @@ impl JitCompiler {
                 );
             }
         }
-        let call_unsupported_instruction = self.anchors[TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE] as u64;
-        let callx_unsupported_instruction = self.anchors[TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE] as u64;
+        let call_unsupported_instruction = self.anchors[TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE];
+        let callx_unsupported_instruction = self.anchors[TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE];
         for offset in self.result.pc_section.iter_mut() {
+            // Turns compiletime exception handlers to runtime ones (as they need to turn the host PC back into a BPF PC)
             if *offset == call_unsupported_instruction {
-                // Turns compiletime exception handlers to runtime ones (as they need to turn the host PC back into a BPF PC)
                 *offset = callx_unsupported_instruction;
             }
+            // Shift offsets in pc_section to actual memory locations
             *offset = unsafe { (self.result.text_section.as_ptr() as *const u8).add(*offset as usize) } as u64;
         }
     }
