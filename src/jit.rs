@@ -1043,15 +1043,7 @@ impl JitCompiler {
         let (program_vm_addr, program) = executable.get_text_bytes();
         self.program_vm_addr = program_vm_addr;
 
-        self.generate_prologue::<E, I>()?;
-
-        // Jump to entry point
-        let entry = executable.get_entrypoint_instruction_offset().unwrap_or(0);
-        if self.config.enable_instruction_meter {
-            emit_profile_instruction_count(self, Some(entry + 1))?;
-        }
-        X86Instruction::load_immediate(OperandSize::S64, R11, entry as i64).emit(self)?;
-        emit_jmp(self, entry)?;
+        self.generate_prologue::<E, I>(executable)?;
 
         // Have these in front so that the linear search of TARGET_PC_TRANSLATE_PC does not terminate early
         self.generate_subroutines::<E, I>()?;
@@ -1421,7 +1413,7 @@ impl JitCompiler {
         Ok(())
     }
 
-    fn generate_prologue<E: UserDefinedError, I: InstructionMeter>(&mut self) -> Result<(), EbpfError<E>> {
+    fn generate_prologue<E: UserDefinedError, I: InstructionMeter>(&mut self, executable: &Pin<Box<Executable<E, I>>>) -> Result<(), EbpfError<E>> {
         // Place the environment on the stack according to EnvironmentStackSlot
 
         // Save registers
@@ -1481,6 +1473,14 @@ impl JitCompiler {
                 X86Instruction::load_immediate(OperandSize::S64, *reg, 0).emit(self)?;
             }
         }
+
+        // Jump to entry point
+        let entry = executable.get_entrypoint_instruction_offset().unwrap_or(0);
+        if self.config.enable_instruction_meter {
+            emit_profile_instruction_count(self, Some(entry + 1))?;
+        }
+        X86Instruction::load_immediate(OperandSize::S64, R11, entry as i64).emit(self)?;
+        emit_jmp(self, entry)?;
 
         Ok(())
     }
