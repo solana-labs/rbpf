@@ -230,7 +230,7 @@ const REGISTER_MAP: [u8; 11] = [
 // CALLER_SAVED_REGISTERS[7]  R10  Constant pointer to JitProgramArgument (also scratch register for exception handling)
 // CALLEE_SAVED_REGISTERS[0]  RBP  Constant pointer to inital RSP - 8
 
-#[inline]
+#[inline(always)]
 pub fn emit<T, E: UserDefinedError>(jit: &mut JitCompiler, data: T) -> Result<(), EbpfError<E>> {
     let size = mem::size_of::<T>() as usize;
     if jit.offset_in_text_section + size > jit.result.text_section.len() {
@@ -264,7 +264,7 @@ pub enum OperandSize {
     S64 = 64,
 }
 
-#[inline]
+#[inline(always)]
 fn emit_sanitized_load_immediate<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, destination: u8, value: i64) -> Result<(), EbpfError<E>> {
     match size {
         OperandSize::S32 => {
@@ -300,7 +300,7 @@ fn emit_sanitized_load_immediate<E: UserDefinedError>(jit: &mut JitCompiler, siz
     }
 }
 
-#[inline]
+#[inline(always)]
 fn emit_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcode: u8, source: u8, destination: u8, immediate: i64, indirect: Option<X86IndirectAccess>) -> Result<(), EbpfError<E>> {
     X86Instruction {
         size,
@@ -339,7 +339,7 @@ fn should_sanitize_constant(jit: &JitCompiler, value: i64) -> bool {
     }
 }
 
-#[inline]
+#[inline(always)]
 fn emit_sanitized_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcode: u8, opcode_extension: u8, destination: u8, immediate: i64) -> Result<(), EbpfError<E>> {
     if should_sanitize_constant(jit, immediate) {
         emit_sanitized_load_immediate(jit, size, R11, immediate)?;
@@ -598,7 +598,7 @@ enum Value {
     Constant64(i64, bool),
 }
 
-#[inline]
+#[inline(always)]
 fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value) -> Result<(), EbpfError<E>> {
     // Store PC in case the bounds check fails
     X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64).emit(jit)?;
@@ -768,7 +768,7 @@ fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, argume
     Ok(())
 }
 
-#[inline]
+#[inline(always)]
 fn emit_address_translation<E: UserDefinedError>(jit: &mut JitCompiler, host_addr: u8, vm_addr: Value, len: u64, access_type: AccessType) -> Result<(), EbpfError<E>> {
     match vm_addr {
         Value::RegisterPlusConstant64(reg, constant, user_provided) => {

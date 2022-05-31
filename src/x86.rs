@@ -96,6 +96,7 @@ impl Default for X86Instruction {
 }
 
 impl X86Instruction {
+    #[inline(always)]
     pub fn emit<E: UserDefinedError>(&self, jit: &mut JitCompiler) -> Result<(), EbpfError<E>> {
         let mut rex = X86Rex {
             w: self.size == OperandSize::S64,
