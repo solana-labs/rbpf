@@ -17,7 +17,6 @@
 extern crate libc;
 
 use std::{
-    collections::HashMap,
     fmt::{Debug, Error as FormatterError, Formatter},
     mem,
     ops::{Index, IndexMut},
@@ -190,8 +189,8 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
     }
 }
 
-// Special values for target_pc in struct Jump
-const TARGET_PC_EPILOGUE: usize = std::usize::MAX - 33;
+// Special values for target_pc in emit_jump_offset()
+const TARGET_PC_EPILOGUE: usize = std::usize::MAX - 33; // Must stay first, insert new below
 const TARGET_PC_TRACE: usize = std::usize::MAX - 32;
 const TARGET_PC_RUST_EXCEPTION: usize = std::usize::MAX - 31;
 const TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = std::usize::MAX - 30;
@@ -352,8 +351,17 @@ fn emit_sanitized_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandS
 
 #[inline]
 fn emit_jump_offset<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize) -> Result<(), EbpfError<E>> {
-    jit.text_section_jumps.push(Jump { location: jit.offset_in_text_section, target_pc });
-    emit::<u32, E>(jit, 0)
+    if target_pc >= TARGET_PC_EPILOGUE {
+        let target_offset = jit.anchors[target_pc - TARGET_PC_EPILOGUE];
+        debug_assert_ne!(target_offset, 0);
+        let offset_value = target_offset as i32
+            - jit.offset_in_text_section as i32 // Relative jump
+            - mem::size_of::<i32>() as i32; // Jump from end of instruction
+        emit::<u32, E>(jit, offset_value as u32)
+    } else {
+        jit.text_section_jumps.push(Jump { location: jit.offset_in_text_section, target_pc });
+        emit::<u32, E>(jit, 0)
+    }
 }
 
 #[inline]
@@ -377,7 +385,8 @@ fn emit_call<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize) -> Re
 
 #[inline]
 fn set_anchor(jit: &mut JitCompiler, target: usize) {
-    jit.handler_anchors.insert(target, jit.offset_in_text_section);
+    debug_assert!(target >= TARGET_PC_EPILOGUE);
+    jit.anchors[target - TARGET_PC_EPILOGUE] = jit.offset_in_text_section;
 }
 
 /// Indices of slots inside the struct at inital RSP
@@ -927,22 +936,18 @@ struct Jump {
 }
 impl Jump {
     fn get_target_offset(&self, jit: &JitCompiler) -> u64 {
-        match jit.handler_anchors.get(&self.target_pc) {
-            Some(target) => *target as u64,
-            None         => jit.result.pc_section[self.target_pc]
-        }
+        jit.result.pc_section[self.target_pc]
     }
 }
 
 pub struct JitCompiler {
     result: JitProgramSections,
-    pc_section_jumps: Vec<Jump>,
     text_section_jumps: Vec<Jump>,
     offset_in_text_section: usize,
     pc: usize,
     last_instruction_meter_validation_pc: usize,
     program_vm_addr: u64,
-    handler_anchors: HashMap<usize, usize>,
+    anchors: [usize; std::usize::MAX - TARGET_PC_EPILOGUE],
     pub(crate) config: Config,
     pub(crate) diversification_rng: SmallRng,
     stopwatch_is_active: bool,
@@ -976,8 +981,7 @@ impl std::fmt::Debug for JitCompiler {
             .field("pc", &self.pc)
             .field("offset_in_text_section", &self.offset_in_text_section)
             .field("pc_section", &self.result.pc_section)
-            .field("handler_anchors", &self.handler_anchors)
-            .field("pc_section_jumps", &self.pc_section_jumps)
+            .field("anchors", &self.anchors)
             .field("text_section_jumps", &self.text_section_jumps)
             .finish()
     }
@@ -1023,13 +1027,12 @@ impl JitCompiler {
 
         Ok(Self {
             result: JitProgramSections::new(pc + 1, code_length_estimate)?,
-            pc_section_jumps: vec![],
             text_section_jumps: vec![],
             offset_in_text_section: 0,
             pc: 0,
             last_instruction_meter_validation_pc: 0,
             program_vm_addr: 0,
-            handler_anchors: HashMap::new(),
+            anchors: [0; std::usize::MAX - TARGET_PC_EPILOGUE],
             config: *config,
             diversification_rng,
             stopwatch_is_active: false,
@@ -1117,7 +1120,7 @@ impl JitCompiler {
                 ebpf::LD_DW_IMM  => {
                     emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2))?;
                     self.pc += 1;
-                    self.pc_section_jumps.push(Jump { location: self.pc, target_pc: TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION });
+                    self.result.pc_section[self.pc] = self.anchors[TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE] as u64;
                     ebpf::augment_lddw_unchecked(program, &mut insn);
                     if should_sanitize_constant(self, insn.imm) {
                         emit_sanitized_load_immediate(self, OperandSize::S64, dst, insn.imm)?;
@@ -1800,9 +1803,6 @@ impl JitCompiler {
     }
 
     fn resolve_jumps(&mut self) {
-        for jump in &self.pc_section_jumps {
-            self.result.pc_section[jump.location] = jump.get_target_offset(self);
-        }
         for jump in &self.text_section_jumps {
             let offset_value = jump.get_target_offset(self) as i32
                 - jump.location as i32 // Relative jump
@@ -1814,12 +1814,12 @@ impl JitCompiler {
                 );
             }
         }
-        let call_unsupported_instruction = self.handler_anchors.get(&TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION).unwrap();
-        let callx_unsupported_instruction = self.handler_anchors.get(&TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION).unwrap();
+        let call_unsupported_instruction = self.anchors[TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE] as u64;
+        let callx_unsupported_instruction = self.anchors[TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE] as u64;
         for offset in self.result.pc_section.iter_mut() {
-            if *offset == *call_unsupported_instruction as u64 {
+            if *offset == call_unsupported_instruction {
                 // Turns compiletime exception handlers to runtime ones (as they need to turn the host PC back into a BPF PC)
-                *offset = *callx_unsupported_instruction as u64;
+                *offset = callx_unsupported_instruction;
             }
             *offset = unsafe { (self.result.text_section.as_ptr() as *const u8).add(*offset as usize) } as u64;
         }
