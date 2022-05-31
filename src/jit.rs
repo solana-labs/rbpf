@@ -1054,8 +1054,7 @@ impl JitCompiler {
         emit_jmp(self, entry)?;
 
         // Have these in front so that the linear search of TARGET_PC_TRANSLATE_PC does not terminate early
-        self.generate_exception_handlers::<E>()?;
-        self.generate_helper_routines::<E, I>()?;
+        self.generate_subroutines::<E, I>()?;
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
             let mut insn = ebpf::get_insn_unchecked(program, self.pc);
@@ -1422,7 +1421,182 @@ impl JitCompiler {
         Ok(())
     }
 
-    fn generate_helper_routines<E: UserDefinedError, I: InstructionMeter>(&mut self) -> Result<(), EbpfError<E>> {
+    fn generate_prologue<E: UserDefinedError, I: InstructionMeter>(&mut self) -> Result<(), EbpfError<E>> {
+        // Place the environment on the stack according to EnvironmentStackSlot
+
+        // Save registers
+        for reg in CALLEE_SAVED_REGISTERS.iter() {
+            X86Instruction::push(*reg, None).emit(self)?;
+        }
+
+        // Initialize CallDepth to 0
+        X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], 0).emit(self)?;
+        X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None).emit(self)?;
+
+        // Initialize the BPF frame and stack pointers (BpfFramePtr and BpfStackPtr)
+        if self.config.dynamic_stack_frames {
+            // The stack is fully descending from MM_STACK_START + stack_size to MM_STACK_START
+            X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], MM_STACK_START as i64 + self.config.stack_size() as i64).emit(self)?;
+            // Push BpfFramePtr
+            X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None).emit(self)?;
+            // Push BpfStackPtr
+            X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None).emit(self)?;
+        } else {
+            // The frames are ascending from MM_STACK_START to MM_STACK_START + stack_size. The stack within the frames is descending.
+            X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], MM_STACK_START as i64 + self.config.stack_frame_size as i64).emit(self)?;
+            // Push BpfFramePtr
+            X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None).emit(self)?;
+            // When using static frames BpfStackPtr is not used
+            X86Instruction::load_immediate(OperandSize::S64, RBP, 0).emit(self)?;
+            X86Instruction::push(RBP, None).emit(self)?;
+        }
+
+        // Save pointer to optional typed return value
+        X86Instruction::push(ARGUMENT_REGISTERS[0], None).emit(self)?;
+
+        // Save initial value of instruction_meter.get_remaining()
+        emit_rust_call(self, Value::Constant64(I::get_remaining as *const u8 as i64, false), &[
+            Argument { index: 0, value: Value::Register(ARGUMENT_REGISTERS[3]) },
+        ], Some(ARGUMENT_REGISTERS[0]), false)?;
+        X86Instruction::push(ARGUMENT_REGISTERS[0], None).emit(self)?;
+
+        // Save instruction meter
+        X86Instruction::push(ARGUMENT_REGISTERS[3], None).emit(self)?;
+
+        // Initialize stop watch
+        emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 ^= R11;
+        X86Instruction::push(R11, None).emit(self)?;
+        X86Instruction::push(R11, None).emit(self)?;
+
+        // Initialize frame pointer
+        X86Instruction::mov(OperandSize::S64, RSP, RBP).emit(self)?;
+        emit_alu(self, OperandSize::S64, 0x81, 0, RBP, 8 * (EnvironmentStackSlot::SlotCount as i64 - 1 + self.environment_stack_key as i64), None)?;
+
+        // Save JitProgramArgument
+        X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], R10, Some(X86IndirectAccess::Offset(-self.program_argument_key))).emit(self)?;
+
+        // Zero BPF registers
+        for reg in REGISTER_MAP.iter() {
+            if *reg != REGISTER_MAP[1] && *reg != REGISTER_MAP[FRAME_PTR_REG] {
+                X86Instruction::load_immediate(OperandSize::S64, *reg, 0).emit(self)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn generate_subroutines<E: UserDefinedError, I: InstructionMeter>(&mut self) -> Result<(), EbpfError<E>> {
+        // Epilogue
+        set_anchor(self, TARGET_PC_EPILOGUE);
+        // Print stop watch value
+        fn stopwatch_result(numerator: u64, denominator: u64) {
+            println!("Stop watch: {} / {} = {}", numerator, denominator, if denominator == 0 { 0.0 } else { numerator as f64 / denominator as f64 });
+        }
+        if self.stopwatch_is_active {
+            emit_rust_call(self, Value::Constant64(stopwatch_result as *const u8 as i64, false), &[
+                Argument { index: 1, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::StopwatchDenominator), false) },
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::StopwatchNumerator), false) },
+            ], None, false)?;
+        }
+        // Store instruction_meter in RAX
+        X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], RAX).emit(self)?;
+        // Restore stack pointer in case the BPF stack was used
+        X86Instruction::lea(OperandSize::S64, RBP, RSP, Some(X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::LastSavedRegister)))).emit(self)?;
+        // Restore registers
+        for reg in CALLEE_SAVED_REGISTERS.iter().rev() {
+            X86Instruction::pop(*reg).emit(self)?;
+        }
+        X86Instruction::return_near().emit(self)?;
+
+        // Routine for instruction tracing
+        if self.config.enable_instruction_tracing {
+            set_anchor(self, TARGET_PC_TRACE);
+            // Save registers on stack
+            X86Instruction::push(R11, None).emit(self)?;
+            for reg in REGISTER_MAP.iter().rev() {
+                X86Instruction::push(*reg, None).emit(self)?;
+            }
+            X86Instruction::mov(OperandSize::S64, RSP, REGISTER_MAP[0]).emit(self)?;
+            emit_alu(self, OperandSize::S64, 0x81, 0, RSP, - 8 * 3, None)?; // RSP -= 8 * 3;
+            emit_rust_call(self, Value::Constant64(Tracer::trace as *const u8 as i64, false), &[
+                Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
+                Argument { index: 0, value: Value::RegisterIndirect(R10, mem::size_of::<MemoryMapping>() as i32 + self.program_argument_key, false) }, // jit.tracer
+            ], None, false)?;
+            // Pop stack and return
+            emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8 * 3, None)?; // RSP += 8 * 3;
+            X86Instruction::pop(REGISTER_MAP[0]).emit(self)?;
+            emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8 * (REGISTER_MAP.len() - 1) as i64, None)?; // RSP += 8 * (REGISTER_MAP.len() - 1);
+            X86Instruction::pop(R11).emit(self)?;
+            X86Instruction::return_near().emit(self)?;
+        }
+
+        // Handler for syscall exceptions
+        set_anchor(self, TARGET_PC_RUST_EXCEPTION);
+        emit_profile_instruction_count_finalize(self, false)?;
+        emit_jmp(self, TARGET_PC_EPILOGUE)?;
+
+        // Handler for EbpfError::ExceededMaxInstructions
+        set_anchor(self, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
+        emit_set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0))?;
+        X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], R11).emit(self)?; // R11 = instruction_meter;
+        emit_profile_instruction_count_finalize(self, true)?;
+        emit_jmp(self, TARGET_PC_EPILOGUE)?;
+
+        // Handler for exceptions which report their pc
+        set_anchor(self, TARGET_PC_EXCEPTION_AT);
+        // Validate that we did not reach the instruction meter limit before the exception occured
+        if self.config.enable_instruction_meter {
+            emit_validate_instruction_count(self, false, None)?;
+        }
+        emit_profile_instruction_count_finalize(self, true)?;
+        emit_jmp(self, TARGET_PC_EPILOGUE)?;
+
+        // Handler for EbpfError::CallDepthExceeded
+        set_anchor(self, TARGET_PC_CALL_DEPTH_EXCEEDED);
+        emit_set_exception_kind::<E>(self, EbpfError::CallDepthExceeded(0, 0))?;
+        X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(24), self.config.max_call_depth as i64).emit(self)?; // depth = jit.config.max_call_depth;
+        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
+
+        // Handler for EbpfError::CallOutsideTextSegment
+        set_anchor(self, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
+        emit_set_exception_kind::<E>(self, EbpfError::CallOutsideTextSegment(0, 0))?;
+        X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(24)).emit(self)?; // target_address = RAX;
+        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
+
+        // Handler for EbpfError::DivideByZero
+        set_anchor(self, TARGET_PC_DIV_BY_ZERO);
+        emit_set_exception_kind::<E>(self, EbpfError::DivideByZero(0))?;
+        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
+
+        // Handler for EbpfError::DivideOverflow
+        set_anchor(self, TARGET_PC_DIV_OVERFLOW);
+        emit_set_exception_kind::<E>(self, EbpfError::DivideOverflow(0))?;
+        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
+
+        // Handler for EbpfError::UnsupportedInstruction
+        set_anchor(self, TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION);
+        // Load BPF target pc from stack (which was saved in TARGET_PC_BPF_CALL_REG)
+        X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0)).emit(self)?; // R11 = RSP[-16];
+        // emit_jmp(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION)?; // Fall-through
+
+        // Handler for EbpfError::UnsupportedInstruction
+        set_anchor(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION);
+        if self.config.enable_instruction_tracing {
+            emit_call(self, TARGET_PC_TRACE)?;
+        }
+        emit_set_exception_kind::<E>(self, EbpfError::UnsupportedInstruction(0))?;
+        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
+
+        // Quit gracefully
+        set_anchor(self, TARGET_PC_EXIT);
+        emit_validate_instruction_count(self, false, None)?;
+        emit_profile_instruction_count_finalize(self, false)?;
+        X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
+        X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(8)).emit(self)?; // result.return_value = R0;
+        X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], 0).emit(self)?;
+        X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(0)).emit(self)?;  // result.is_error = false;
+        emit_jmp(self, TARGET_PC_EPILOGUE)?;
+
         // Routine for syscall
         set_anchor(self, TARGET_PC_SYSCALL);
         X86Instruction::push(R11, None).emit(self)?; // Padding for stack alignment
@@ -1622,185 +1796,6 @@ impl JitCompiler {
             emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8, None)?;
             X86Instruction::return_near().emit(self)?;
         }
-        Ok(())
-    }
-
-    fn generate_exception_handlers<E: UserDefinedError>(&mut self) -> Result<(), EbpfError<E>> {
-        // Epilogue
-        set_anchor(self, TARGET_PC_EPILOGUE);
-        // Print stop watch value
-        fn stopwatch_result(numerator: u64, denominator: u64) {
-            println!("Stop watch: {} / {} = {}", numerator, denominator, if denominator == 0 { 0.0 } else { numerator as f64 / denominator as f64 });
-        }
-        if self.stopwatch_is_active {
-            emit_rust_call(self, Value::Constant64(stopwatch_result as *const u8 as i64, false), &[
-                Argument { index: 1, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::StopwatchDenominator), false) },
-                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::StopwatchNumerator), false) },
-            ], None, false)?;
-        }
-        // Store instruction_meter in RAX
-        X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], RAX).emit(self)?;
-        // Restore stack pointer in case the BPF stack was used
-        X86Instruction::lea(OperandSize::S64, RBP, RSP, Some(X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::LastSavedRegister)))).emit(self)?;
-        // Restore registers
-        for reg in CALLEE_SAVED_REGISTERS.iter().rev() {
-            X86Instruction::pop(*reg).emit(self)?;
-        }
-        X86Instruction::return_near().emit(self)?;
-
-        // Routine for instruction tracing
-        if self.config.enable_instruction_tracing {
-            set_anchor(self, TARGET_PC_TRACE);
-            // Save registers on stack
-            X86Instruction::push(R11, None).emit(self)?;
-            for reg in REGISTER_MAP.iter().rev() {
-                X86Instruction::push(*reg, None).emit(self)?;
-            }
-            X86Instruction::mov(OperandSize::S64, RSP, REGISTER_MAP[0]).emit(self)?;
-            emit_alu(self, OperandSize::S64, 0x81, 0, RSP, - 8 * 3, None)?; // RSP -= 8 * 3;
-            emit_rust_call(self, Value::Constant64(Tracer::trace as *const u8 as i64, false), &[
-                Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
-                Argument { index: 0, value: Value::RegisterIndirect(R10, mem::size_of::<MemoryMapping>() as i32 + self.program_argument_key, false) }, // jit.tracer
-            ], None, false)?;
-            // Pop stack and return
-            emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8 * 3, None)?; // RSP += 8 * 3;
-            X86Instruction::pop(REGISTER_MAP[0]).emit(self)?;
-            emit_alu(self, OperandSize::S64, 0x81, 0, RSP, 8 * (REGISTER_MAP.len() - 1) as i64, None)?; // RSP += 8 * (REGISTER_MAP.len() - 1);
-            X86Instruction::pop(R11).emit(self)?;
-            X86Instruction::return_near().emit(self)?;
-        }
-
-        // Handler for syscall exceptions
-        set_anchor(self, TARGET_PC_RUST_EXCEPTION);
-        emit_profile_instruction_count_finalize(self, false)?;
-        emit_jmp(self, TARGET_PC_EPILOGUE)?;
-
-        // Handler for EbpfError::ExceededMaxInstructions
-        set_anchor(self, TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
-        emit_set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0))?;
-        X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], R11).emit(self)?; // R11 = instruction_meter;
-        emit_profile_instruction_count_finalize(self, true)?;
-        emit_jmp(self, TARGET_PC_EPILOGUE)?;
-
-        // Handler for exceptions which report their pc
-        set_anchor(self, TARGET_PC_EXCEPTION_AT);
-        // Validate that we did not reach the instruction meter limit before the exception occured
-        if self.config.enable_instruction_meter {
-            emit_validate_instruction_count(self, false, None)?;
-        }
-        emit_profile_instruction_count_finalize(self, true)?;
-        emit_jmp(self, TARGET_PC_EPILOGUE)?;
-
-        // Handler for EbpfError::CallDepthExceeded
-        set_anchor(self, TARGET_PC_CALL_DEPTH_EXCEEDED);
-        emit_set_exception_kind::<E>(self, EbpfError::CallDepthExceeded(0, 0))?;
-        X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(24), self.config.max_call_depth as i64).emit(self)?; // depth = jit.config.max_call_depth;
-        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
-
-        // Handler for EbpfError::CallOutsideTextSegment
-        set_anchor(self, TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
-        emit_set_exception_kind::<E>(self, EbpfError::CallOutsideTextSegment(0, 0))?;
-        X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(24)).emit(self)?; // target_address = RAX;
-        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
-
-        // Handler for EbpfError::DivideByZero
-        set_anchor(self, TARGET_PC_DIV_BY_ZERO);
-        emit_set_exception_kind::<E>(self, EbpfError::DivideByZero(0))?;
-        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
-
-        // Handler for EbpfError::DivideOverflow
-        set_anchor(self, TARGET_PC_DIV_OVERFLOW);
-        emit_set_exception_kind::<E>(self, EbpfError::DivideOverflow(0))?;
-        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
-
-        // Handler for EbpfError::UnsupportedInstruction
-        set_anchor(self, TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION);
-        // Load BPF target pc from stack (which was saved in TARGET_PC_BPF_CALL_REG)
-        X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0)).emit(self)?; // R11 = RSP[-16];
-        // emit_jmp(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION)?; // Fall-through
-
-        // Handler for EbpfError::UnsupportedInstruction
-        set_anchor(self, TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION);
-        if self.config.enable_instruction_tracing {
-            emit_call(self, TARGET_PC_TRACE)?;
-        }
-        emit_set_exception_kind::<E>(self, EbpfError::UnsupportedInstruction(0))?;
-        emit_jmp(self, TARGET_PC_EXCEPTION_AT)?;
-
-        // Quit gracefully
-        set_anchor(self, TARGET_PC_EXIT);
-        emit_validate_instruction_count(self, false, None)?;
-        emit_profile_instruction_count_finalize(self, false)?;
-        X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))).emit(self)?;
-        X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(8)).emit(self)?; // result.return_value = R0;
-        X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], 0).emit(self)?;
-        X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(0)).emit(self)?;  // result.is_error = false;
-        emit_jmp(self, TARGET_PC_EPILOGUE)?;
-
-        Ok(())
-    }
-
-    fn generate_prologue<E: UserDefinedError, I: InstructionMeter>(&mut self) -> Result<(), EbpfError<E>> {
-        // Place the environment on the stack according to EnvironmentStackSlot
-
-        // Save registers
-        for reg in CALLEE_SAVED_REGISTERS.iter() {
-            X86Instruction::push(*reg, None).emit(self)?;
-        }
-
-        // Initialize CallDepth to 0
-        X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], 0).emit(self)?;
-        X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None).emit(self)?;
-
-        // Initialize the BPF frame and stack pointers (BpfFramePtr and BpfStackPtr)
-        if self.config.dynamic_stack_frames {
-            // The stack is fully descending from MM_STACK_START + stack_size to MM_STACK_START
-            X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], MM_STACK_START as i64 + self.config.stack_size() as i64).emit(self)?;
-            // Push BpfFramePtr
-            X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None).emit(self)?;
-            // Push BpfStackPtr
-            X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None).emit(self)?;
-        } else {
-            // The frames are ascending from MM_STACK_START to MM_STACK_START + stack_size. The stack within the frames is descending.
-            X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], MM_STACK_START as i64 + self.config.stack_frame_size as i64).emit(self)?;
-            // Push BpfFramePtr
-            X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None).emit(self)?;
-            // When using static frames BpfStackPtr is not used
-            X86Instruction::load_immediate(OperandSize::S64, RBP, 0).emit(self)?;
-            X86Instruction::push(RBP, None).emit(self)?;
-        }
-
-        // Save pointer to optional typed return value
-        X86Instruction::push(ARGUMENT_REGISTERS[0], None).emit(self)?;
-
-        // Save initial value of instruction_meter.get_remaining()
-        emit_rust_call(self, Value::Constant64(I::get_remaining as *const u8 as i64, false), &[
-            Argument { index: 0, value: Value::Register(ARGUMENT_REGISTERS[3]) },
-        ], Some(ARGUMENT_REGISTERS[0]), false)?;
-        X86Instruction::push(ARGUMENT_REGISTERS[0], None).emit(self)?;
-
-        // Save instruction meter
-        X86Instruction::push(ARGUMENT_REGISTERS[3], None).emit(self)?;
-
-        // Initialize stop watch
-        emit_alu(self, OperandSize::S64, 0x31, R11, R11, 0, None)?; // R11 ^= R11;
-        X86Instruction::push(R11, None).emit(self)?;
-        X86Instruction::push(R11, None).emit(self)?;
-
-        // Initialize frame pointer
-        X86Instruction::mov(OperandSize::S64, RSP, RBP).emit(self)?;
-        emit_alu(self, OperandSize::S64, 0x81, 0, RBP, 8 * (EnvironmentStackSlot::SlotCount as i64 - 1 + self.environment_stack_key as i64), None)?;
-
-        // Save JitProgramArgument
-        X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], R10, Some(X86IndirectAccess::Offset(-self.program_argument_key))).emit(self)?;
-
-        // Zero BPF registers
-        for reg in REGISTER_MAP.iter() {
-            if *reg != REGISTER_MAP[1] && *reg != REGISTER_MAP[FRAME_PTR_REG] {
-                X86Instruction::load_immediate(OperandSize::S64, *reg, 0).emit(self)?;
-            }
-        }
-
         Ok(())
     }
 
