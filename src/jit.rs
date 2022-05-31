@@ -191,25 +191,25 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
 }
 
 // Special values for target_pc in struct Jump
-const TARGET_PC_DIV_OVERFLOW: usize = std::usize::MAX - 33;
+const TARGET_PC_EPILOGUE: usize = std::usize::MAX - 33;
 const TARGET_PC_TRACE: usize = std::usize::MAX - 32;
-const TARGET_PC_SYSCALL: usize = std::usize::MAX - 31;
-const TARGET_PC_BPF_CALL_PROLOGUE: usize = std::usize::MAX - 30;
-const TARGET_PC_BPF_CALL_REG: usize = std::usize::MAX - 29;
-const TARGET_PC_TRANSLATE_PC: usize = std::usize::MAX - 28;
-const TARGET_PC_TRANSLATE_PC_LOOP: usize = std::usize::MAX - 27;
-const TARGET_PC_TRANSLATE_MEMORY_ADDRESS: usize = std::usize::MAX - 26;
-const TARGET_PC_MEMORY_ACCESS_VIOLATION: usize = std::usize::MAX - 18;
-const TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = std::usize::MAX - 10;
-const TARGET_PC_CALL_DEPTH_EXCEEDED: usize = std::usize::MAX - 9;
-const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: usize = std::usize::MAX - 8;
-const TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION: usize = std::usize::MAX - 7;
-const TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION: usize = std::usize::MAX - 6;
-const TARGET_PC_DIV_BY_ZERO: usize = std::usize::MAX - 5;
-const TARGET_PC_EXCEPTION_AT: usize = std::usize::MAX - 4;
-const TARGET_PC_RUST_EXCEPTION: usize = std::usize::MAX - 3;
-const TARGET_PC_EXIT: usize = std::usize::MAX - 2;
-const TARGET_PC_EPILOGUE: usize = std::usize::MAX - 1;
+const TARGET_PC_RUST_EXCEPTION: usize = std::usize::MAX - 31;
+const TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = std::usize::MAX - 30;
+const TARGET_PC_EXCEPTION_AT: usize = std::usize::MAX - 29;
+const TARGET_PC_CALL_DEPTH_EXCEEDED: usize = std::usize::MAX - 28;
+const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: usize = std::usize::MAX - 27;
+const TARGET_PC_DIV_BY_ZERO: usize = std::usize::MAX - 26;
+const TARGET_PC_DIV_OVERFLOW: usize = std::usize::MAX - 25;
+const TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION: usize = std::usize::MAX - 24;
+const TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION: usize = std::usize::MAX - 23;
+const TARGET_PC_EXIT: usize = std::usize::MAX - 22;
+const TARGET_PC_SYSCALL: usize = std::usize::MAX - 21;
+const TARGET_PC_BPF_CALL_PROLOGUE: usize = std::usize::MAX - 20;
+const TARGET_PC_BPF_CALL_REG: usize = std::usize::MAX - 19;
+const TARGET_PC_TRANSLATE_PC: usize = std::usize::MAX - 18;
+const TARGET_PC_TRANSLATE_PC_LOOP: usize = std::usize::MAX - 17;
+const TARGET_PC_MEMORY_ACCESS_VIOLATION: usize = std::usize::MAX - 16;
+const TARGET_PC_TRANSLATE_MEMORY_ADDRESS: usize = std::usize::MAX - 8;
 
 const REGISTER_MAP: [u8; 11] = [
     CALLER_SAVED_REGISTERS[0],
