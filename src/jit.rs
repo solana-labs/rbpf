@@ -255,7 +255,7 @@ pub fn emit_variable_length<E: UserDefinedError>(jit: &mut JitCompiler, size: Op
     }
 }
 
-#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum OperandSize {
     S0  = 0,
     S8  = 8,
@@ -803,7 +803,7 @@ fn emit_shift<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opc
             return emit_alu(jit, size, 0xc1, opcode_extension, destination, immediate, None);
         }
     }
-    if size == OperandSize::S32 {
+    if let OperandSize::S32 = size {
         emit_alu(jit, OperandSize::S32, 0x81, 4, destination, -1, None)?; // Mask to 32 bit
     }
     if source == RCX {
@@ -850,7 +850,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
     // sdiv overflows with MIN / -1. If we have an immediate and it's not -1, we
     // don't need any checks.
     if sdiv && imm.unwrap_or(-1) == -1 {
-        X86Instruction::load_immediate(size, R11, if size == OperandSize::S64 { i64::MIN } else { i32::MIN as i64 }).emit(jit)?;
+        X86Instruction::load_immediate(size, R11, if let OperandSize::S64 = size { i64::MIN } else { i32::MIN as i64 }).emit(jit)?;
         X86Instruction::cmp(size, dst, R11, None).emit(jit)?; // dst == MIN
 
         if imm.is_none() {
@@ -917,8 +917,10 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
         X86Instruction::pop(RAX).emit(jit)?;
     }
 
-    if size == OperandSize::S32 && (mul || sdiv)  {
-        X86Instruction::sign_extend_i32_to_i64(dst, dst).emit(jit)?;
+    if let OperandSize::S32 = size {
+        if mul || sdiv {
+            X86Instruction::sign_extend_i32_to_i64(dst, dst).emit(jit)?;
+        }
     }
     Ok(())
 }

@@ -57,7 +57,7 @@ struct X86Sib {
     base: u8,
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub enum X86IndirectAccess {
     /// [second_operand + offset]
     Offset(i32),
@@ -66,7 +66,7 @@ pub enum X86IndirectAccess {
 }
 
 #[allow(dead_code)]
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub enum FenceType {
     /// lfence
     Load = 5,
@@ -76,7 +76,7 @@ pub enum FenceType {
     Store = 7,
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct X86Instruction {
     pub size: OperandSize,
     pub opcode_escape_sequence: u8,
@@ -108,7 +108,7 @@ impl Default for X86Instruction {
 impl X86Instruction {
     pub fn emit<E: UserDefinedError>(&self, jit: &mut JitCompiler) -> Result<(), EbpfError<E>> {
         let mut rex = X86Rex {
-            w: self.size == OperandSize::S64,
+            w: matches!(self.size, OperandSize::S64),
             r: self.first_operand & 0b1000 != 0,
             x: false,
             b: self.second_operand & 0b1000 != 0,
@@ -155,7 +155,7 @@ impl X86Instruction {
                 }
             }
         }
-        if self.size == OperandSize::S16 {
+        if matches!(self.size, OperandSize::S16) {
             emit::<u8, E>(jit, 0x66)?;
         }
         let rex =
@@ -276,7 +276,11 @@ impl X86Instruction {
         exclude_operand_sizes!(size, OperandSize::S0);
         Self {
             size,
-            opcode: if size == OperandSize::S8 { 0x84 } else { 0x85 },
+            opcode: if let OperandSize::S8 = size {
+                0x84
+            } else {
+                0x85
+            },
             first_operand: source,
             second_operand: destination,
             indirect,
@@ -294,13 +298,17 @@ impl X86Instruction {
         exclude_operand_sizes!(size, OperandSize::S0);
         Self {
             size,
-            opcode: if size == OperandSize::S8 { 0xf6 } else { 0xf7 },
+            opcode: if let OperandSize::S8 = size {
+                0xf6
+            } else {
+                0xf7
+            },
             first_operand: RAX,
             second_operand: destination,
-            immediate_size: if size != OperandSize::S64 {
-                size
-            } else {
+            immediate_size: if let OperandSize::S64 = size {
                 OperandSize::S32
+            } else {
+                size
             },
             immediate,
             indirect,
@@ -318,7 +326,11 @@ impl X86Instruction {
         exclude_operand_sizes!(size, OperandSize::S0);
         Self {
             size,
-            opcode: if size == OperandSize::S8 { 0x38 } else { 0x39 },
+            opcode: if let OperandSize::S8 = size {
+                0x38
+            } else {
+                0x39
+            },
             first_operand: source,
             second_operand: destination,
             indirect,
@@ -336,13 +348,17 @@ impl X86Instruction {
         exclude_operand_sizes!(size, OperandSize::S0);
         Self {
             size,
-            opcode: if size == OperandSize::S8 { 0x80 } else { 0x81 },
+            opcode: if let OperandSize::S8 = size {
+                0x80
+            } else {
+                0x81
+            },
             first_operand: RDI,
             second_operand: destination,
-            immediate_size: if size != OperandSize::S64 {
-                size
-            } else {
+            immediate_size: if let OperandSize::S64 = size {
                 OperandSize::S32
+            } else {
+                size
             },
             immediate,
             indirect,
@@ -380,15 +396,14 @@ impl X86Instruction {
     ) -> Self {
         exclude_operand_sizes!(size, OperandSize::S0);
         Self {
-            size: if size == OperandSize::S64 {
+            size: if let OperandSize::S64 = size {
                 OperandSize::S64
             } else {
                 OperandSize::S32
             },
-            opcode_escape_sequence: if size == OperandSize::S8 || size == OperandSize::S16 {
-                1
-            } else {
-                0
+            opcode_escape_sequence: match size {
+                OperandSize::S8 | OperandSize::S16 => 1,
+                _ => 0,
             },
             opcode: match size {
                 OperandSize::S8 => 0xb6,
@@ -470,7 +485,7 @@ impl X86Instruction {
             },
             second_operand: destination,
             indirect: Some(indirect),
-            immediate_size: if size == OperandSize::S64 {
+            immediate_size: if let OperandSize::S64 = size {
                 OperandSize::S32
             } else {
                 size
@@ -491,7 +506,7 @@ impl X86Instruction {
                 _ => 0x68,
             },
             modrm: false,
-            immediate_size: if size == OperandSize::S64 {
+            immediate_size: if let OperandSize::S64 = size {
                 OperandSize::S32
             } else {
                 size
