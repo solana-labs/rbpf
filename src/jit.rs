@@ -399,7 +399,6 @@ fn emit_call<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize) -> Re
     emit_jump_offset(jit, target_pc)
 }
 
-#[inline]
 fn set_anchor(jit: &mut JitCompiler, target: usize) {
     debug_assert!(target >= TARGET_PC_EPILOGUE);
     jit.anchors[target - TARGET_PC_EPILOGUE] = jit.offset_in_text_section as u64;
@@ -663,23 +662,32 @@ struct Argument {
     value: Value,
 }
 
-impl Argument {
-    fn is_stack_argument(&self) -> bool {
-        self.index >= ARGUMENT_REGISTERS.len()
+fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, arguments: &[Argument], result_reg: Option<u8>, check_exception: bool) -> Result<(), EbpfError<E>> {
+    let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
+    if let Some(reg) = result_reg {
+        let dst = saved_registers.iter().position(|x| *x == reg);
+        debug_assert!(dst.is_some());
+        if let Some(dst) = dst {
+            saved_registers.remove(dst);
+        }
     }
 
-    fn get_argument_register(&self) -> u8 {
-        ARGUMENT_REGISTERS[self.index]
+    // Save registers on stack
+    for reg in saved_registers.iter() {
+        emit_ins(jit, X86Instruction::push(*reg, None))?;
     }
 
-    fn emit_pass<E: UserDefinedError>(&self, jit: &mut JitCompiler) -> Result<(), EbpfError<E>> {
-        let is_stack_argument = self.is_stack_argument();
+    // Pass arguments
+    let mut stack_arguments = 0;
+    for argument in arguments {
+        let is_stack_argument = argument.index >= ARGUMENT_REGISTERS.len();
         let dst = if is_stack_argument {
+            stack_arguments += 1;
             R11
         } else {
-            self.get_argument_register()
+            ARGUMENT_REGISTERS[argument.index]
         };
-        match self.value {
+        match argument.value {
             Value::Register(reg) => {
                 if is_stack_argument {
                     emit_ins(jit, X86Instruction::push(reg, None))?;
@@ -719,33 +727,6 @@ impl Argument {
                 emit_ins(jit, X86Instruction::load_immediate(OperandSize::S64, dst, value))?;
             },
         }
-        Ok(())
-    }
-}
-
-#[inline]
-fn emit_rust_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value, arguments: &[Argument], result_reg: Option<u8>, check_exception: bool) -> Result<(), EbpfError<E>> {
-    let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
-    if let Some(reg) = result_reg {
-        let dst = saved_registers.iter().position(|x| *x == reg);
-        debug_assert!(dst.is_some());
-        if let Some(dst) = dst {
-            saved_registers.remove(dst);
-        }
-    }
-
-    // Save registers on stack
-    for reg in saved_registers.iter() {
-        emit_ins(jit, X86Instruction::push(*reg, None))?;
-    }
-
-    // Pass arguments
-    let mut stack_arguments = 0;
-    for argument in arguments {
-        if argument.is_stack_argument() {
-            stack_arguments += 1;
-        }
-        argument.emit_pass(jit)?;
     }
 
     match dst {
@@ -939,7 +920,6 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
     Ok(())
 }
 
-#[inline]
 fn emit_set_exception_kind<E: UserDefinedError>(jit: &mut JitCompiler, err: EbpfError<E>) -> Result<(), EbpfError<E>> {
     let err = Result::<u64, EbpfError<E>>::Err(err);
     let err_kind = unsafe { *(&err as *const _ as *const u64).offset(1) };
