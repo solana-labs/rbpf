@@ -3,7 +3,6 @@ use crate::{
     error::{EbpfError, UserDefinedError},
     jit::{emit, emit_variable_length, JitCompiler, OperandSize},
 };
-use rand::Rng;
 
 pub const RAX: u8 = 0;
 pub const RCX: u8 = 1;
@@ -176,12 +175,6 @@ impl X86Instruction {
             emit_variable_length(jit, displacement_size, displacement as u64)?;
         }
         emit_variable_length(jit, self.immediate_size, self.immediate as u64)?;
-        if jit.config.noop_instruction_ratio != 0
-            && jit.diversification_rng.gen::<u32>() < jit.config.noop_instruction_ratio
-        {
-            // X86Instruction::noop().emit(jit)?;
-            emit::<u8, E>(jit, 0x90)?;
-        }
         Ok(())
     }
 
