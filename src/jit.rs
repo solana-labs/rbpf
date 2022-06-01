@@ -315,7 +315,7 @@ fn emit_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandSize, opcod
         },
         immediate,
         indirect,
-        ..X86Instruction::default()
+        ..X86Instruction::DEFAULT
     }.emit(jit)
 }
 
@@ -898,7 +898,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
             size,
             opcode: 0x99,
             modrm: false,
-            ..X86Instruction::default()
+            ..X86Instruction::DEFAULT
         }.emit(jit)?;
     }
 

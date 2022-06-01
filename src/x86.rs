@@ -32,7 +32,7 @@ macro_rules! exclude_operand_sizes {
     ($size:expr, $($to_exclude:path)|+ $(,)?) => {
         #[cfg(debug_assertions)]
         match $size {
-            $($to_exclude)|+ => panic!(),
+            $($to_exclude)|+ => return Self::DEFAULT,
             _ => {},
         }
     }
@@ -89,24 +89,21 @@ pub struct X86Instruction {
     pub immediate: i64,
 }
 
-impl Default for X86Instruction {
-    fn default() -> Self {
-        Self {
-            size: OperandSize::S64,
-            opcode_escape_sequence: 0,
-            opcode: 0,
-            modrm: true,
-            indirect: None,
-            first_operand: 0,
-            second_operand: 0,
-            immediate_size: OperandSize::S0,
-            immediate: 0,
-        }
-    }
-}
-
 impl X86Instruction {
+    pub const DEFAULT: X86Instruction = X86Instruction {
+        size: OperandSize::S0,
+        opcode_escape_sequence: 0,
+        opcode: 0,
+        modrm: true,
+        indirect: None,
+        first_operand: 0,
+        second_operand: 0,
+        immediate_size: OperandSize::S0,
+        immediate: 0,
+    };
+
     pub fn emit<E: UserDefinedError>(&self, jit: &mut JitCompiler) -> Result<(), EbpfError<E>> {
+        debug_assert!(!matches!(self.size, OperandSize::S0));
         let mut rex = X86Rex {
             w: matches!(self.size, OperandSize::S64),
             r: self.first_operand & 0b1000 != 0,
@@ -195,7 +192,7 @@ impl X86Instruction {
             opcode: 0x89,
             first_operand: source,
             second_operand: destination,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -207,7 +204,7 @@ impl X86Instruction {
             opcode: condition,
             first_operand: destination,
             second_operand: source,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -228,7 +225,7 @@ impl X86Instruction {
             first_operand: source,
             second_operand: destination,
             indirect,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -242,7 +239,7 @@ impl X86Instruction {
                 second_operand: destination,
                 immediate_size: OperandSize::S8,
                 immediate: 8,
-                ..Self::default()
+                ..Self::DEFAULT
             },
             OperandSize::S32 | OperandSize::S64 => Self {
                 size,
@@ -250,7 +247,7 @@ impl X86Instruction {
                 opcode: 0xc8 | (destination & 0b111),
                 modrm: false,
                 second_operand: destination,
-                ..Self::default()
+                ..Self::DEFAULT
             },
             _ => unimplemented!(),
         }
@@ -259,10 +256,11 @@ impl X86Instruction {
     /// Sign extend source i32 to destination i64
     pub fn sign_extend_i32_to_i64(source: u8, destination: u8) -> Self {
         Self {
+            size: OperandSize::S64,
             opcode: 0x63,
             first_operand: source,
             second_operand: destination,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -284,7 +282,7 @@ impl X86Instruction {
             first_operand: source,
             second_operand: destination,
             indirect,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -312,7 +310,7 @@ impl X86Instruction {
             },
             immediate,
             indirect,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -334,7 +332,7 @@ impl X86Instruction {
             first_operand: source,
             second_operand: destination,
             indirect,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -362,7 +360,7 @@ impl X86Instruction {
             },
             immediate,
             indirect,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -383,7 +381,7 @@ impl X86Instruction {
             first_operand: destination,
             second_operand: source,
             indirect,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -413,7 +411,7 @@ impl X86Instruction {
             first_operand: destination,
             second_operand: source,
             indirect: Some(indirect),
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -434,7 +432,7 @@ impl X86Instruction {
             first_operand: source,
             second_operand: destination,
             indirect: Some(indirect),
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -454,7 +452,7 @@ impl X86Instruction {
                 second_operand: destination,
                 immediate_size: OperandSize::S32,
                 immediate,
-                ..Self::default()
+                ..Self::DEFAULT
             },
             OperandSize::S64 => Self {
                 size,
@@ -463,7 +461,7 @@ impl X86Instruction {
                 second_operand: destination,
                 immediate_size: OperandSize::S64,
                 immediate,
-                ..Self::default()
+                ..Self::DEFAULT
             },
             _ => unimplemented!(),
         }
@@ -491,7 +489,7 @@ impl X86Instruction {
                 size
             },
             immediate,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -512,7 +510,7 @@ impl X86Instruction {
                 size
             },
             immediate: immediate as i64,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -524,7 +522,7 @@ impl X86Instruction {
                 opcode: 0x50 | (source & 0b111),
                 modrm: false,
                 second_operand: source,
-                ..Self::default()
+                ..Self::DEFAULT
             }
         } else {
             Self {
@@ -534,7 +532,7 @@ impl X86Instruction {
                 first_operand: 6,
                 second_operand: source,
                 indirect,
-                ..Self::default()
+                ..Self::DEFAULT
             }
         }
     }
@@ -546,7 +544,7 @@ impl X86Instruction {
             opcode: 0x58 | (destination & 0b111),
             modrm: false,
             second_operand: destination,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -558,7 +556,7 @@ impl X86Instruction {
             first_operand: 2,
             second_operand: destination,
             indirect,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -568,7 +566,7 @@ impl X86Instruction {
             size: OperandSize::S32,
             opcode: 0xc3,
             modrm: false,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -579,7 +577,7 @@ impl X86Instruction {
             size: OperandSize::S32,
             opcode: 0x90,
             modrm: false,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -591,7 +589,7 @@ impl X86Instruction {
                 size: OperandSize::S32,
                 opcode: 0xcc,
                 modrm: false,
-                ..Self::default()
+                ..Self::DEFAULT
             }
         } else {
             Self {
@@ -600,7 +598,7 @@ impl X86Instruction {
                 modrm: false,
                 immediate_size: OperandSize::S8,
                 immediate: immediate as i64,
-                ..Self::default()
+                ..Self::DEFAULT
             }
         }
     }
@@ -612,7 +610,7 @@ impl X86Instruction {
             opcode_escape_sequence: 1,
             opcode: 0x31,
             modrm: false,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 
@@ -624,7 +622,7 @@ impl X86Instruction {
             opcode_escape_sequence: 1,
             opcode: 0xae,
             first_operand: fence_type as u8,
-            ..Self::default()
+            ..Self::DEFAULT
         }
     }
 }
