@@ -186,7 +186,7 @@ impl X86Instruction {
     }
 
     /// Move source to destination
-    pub fn mov(size: OperandSize, source: u8, destination: u8) -> Self {
+    pub const fn mov(size: OperandSize, source: u8, destination: u8) -> Self {
         Self {
             size,
             opcode: 0x89,
@@ -197,7 +197,7 @@ impl X86Instruction {
     }
 
     /// Conditionally move source to destination
-    pub fn cmov(size: OperandSize, condition: u8, source: u8, destination: u8) -> Self {
+    pub const fn cmov(size: OperandSize, condition: u8, source: u8, destination: u8) -> Self {
         Self {
             size,
             opcode_escape_sequence: 1,
@@ -209,7 +209,7 @@ impl X86Instruction {
     }
 
     /// Swap source and destination
-    pub fn xchg(
+    pub const fn xchg(
         size: OperandSize,
         source: u8,
         destination: u8,
@@ -230,7 +230,7 @@ impl X86Instruction {
     }
 
     /// Swap byte order of destination
-    pub fn bswap(size: OperandSize, destination: u8) -> Self {
+    pub const fn bswap(size: OperandSize, destination: u8) -> Self {
         exclude_operand_sizes!(size, OperandSize::S0 | OperandSize::S8);
         match size {
             OperandSize::S16 => Self {
@@ -254,7 +254,7 @@ impl X86Instruction {
     }
 
     /// Sign extend source i32 to destination i64
-    pub fn sign_extend_i32_to_i64(source: u8, destination: u8) -> Self {
+    pub const fn sign_extend_i32_to_i64(source: u8, destination: u8) -> Self {
         Self {
             size: OperandSize::S64,
             opcode: 0x63,
@@ -265,7 +265,7 @@ impl X86Instruction {
     }
 
     /// Test source and destination
-    pub fn test(
+    pub const fn test(
         size: OperandSize,
         source: u8,
         destination: u8,
@@ -287,7 +287,7 @@ impl X86Instruction {
     }
 
     /// Test immediate and destination
-    pub fn test_immediate(
+    pub const fn test_immediate(
         size: OperandSize,
         destination: u8,
         immediate: i64,
@@ -315,7 +315,7 @@ impl X86Instruction {
     }
 
     /// Compare source and destination
-    pub fn cmp(
+    pub const fn cmp(
         size: OperandSize,
         source: u8,
         destination: u8,
@@ -337,7 +337,7 @@ impl X86Instruction {
     }
 
     /// Compare immediate and destination
-    pub fn cmp_immediate(
+    pub const fn cmp_immediate(
         size: OperandSize,
         destination: u8,
         immediate: i64,
@@ -365,7 +365,7 @@ impl X86Instruction {
     }
 
     /// Load effective address of source into destination
-    pub fn lea(
+    pub const fn lea(
         size: OperandSize,
         source: u8,
         destination: u8,
@@ -386,7 +386,7 @@ impl X86Instruction {
     }
 
     /// Load destination from [source + offset]
-    pub fn load(
+    pub const fn load(
         size: OperandSize,
         source: u8,
         destination: u8,
@@ -416,7 +416,7 @@ impl X86Instruction {
     }
 
     /// Store source in [destination + offset]
-    pub fn store(
+    pub const fn store(
         size: OperandSize,
         source: u8,
         destination: u8,
@@ -437,7 +437,7 @@ impl X86Instruction {
     }
 
     /// Load destination from sign-extended immediate
-    pub fn load_immediate(size: OperandSize, destination: u8, immediate: i64) -> Self {
+    pub const fn load_immediate(size: OperandSize, destination: u8, immediate: i64) -> Self {
         exclude_operand_sizes!(size, OperandSize::S0 | OperandSize::S8 | OperandSize::S16);
         let immediate_size =
             if immediate >= std::i32::MIN as i64 && immediate <= std::i32::MAX as i64 {
@@ -468,7 +468,7 @@ impl X86Instruction {
     }
 
     /// Store sign-extended immediate in destination
-    pub fn store_immediate(
+    pub const fn store_immediate(
         size: OperandSize,
         destination: u8,
         indirect: X86IndirectAccess,
@@ -495,7 +495,7 @@ impl X86Instruction {
 
     /// Push source onto the stack
     #[allow(dead_code)]
-    pub fn push_immediate(size: OperandSize, immediate: i32) -> Self {
+    pub const fn push_immediate(size: OperandSize, immediate: i32) -> Self {
         exclude_operand_sizes!(size, OperandSize::S0 | OperandSize::S16);
         Self {
             size,
@@ -515,7 +515,7 @@ impl X86Instruction {
     }
 
     /// Push source onto the stack
-    pub fn push(source: u8, indirect: Option<X86IndirectAccess>) -> Self {
+    pub const fn push(source: u8, indirect: Option<X86IndirectAccess>) -> Self {
         if indirect.is_none() {
             Self {
                 size: OperandSize::S32,
@@ -538,7 +538,7 @@ impl X86Instruction {
     }
 
     /// Pop from the stack into destination
-    pub fn pop(destination: u8) -> Self {
+    pub const fn pop(destination: u8) -> Self {
         Self {
             size: OperandSize::S32,
             opcode: 0x58 | (destination & 0b111),
@@ -549,7 +549,7 @@ impl X86Instruction {
     }
 
     /// Push RIP and jump to destination
-    pub fn call_reg(destination: u8, indirect: Option<X86IndirectAccess>) -> Self {
+    pub const fn call_reg(destination: u8, indirect: Option<X86IndirectAccess>) -> Self {
         Self {
             size: OperandSize::S64,
             opcode: 0xff,
@@ -561,7 +561,7 @@ impl X86Instruction {
     }
 
     /// Pop RIP
-    pub fn return_near() -> Self {
+    pub const fn return_near() -> Self {
         Self {
             size: OperandSize::S32,
             opcode: 0xc3,
@@ -572,7 +572,7 @@ impl X86Instruction {
 
     /// No operation
     #[allow(dead_code)]
-    pub fn noop() -> Self {
+    pub const fn noop() -> Self {
         Self {
             size: OperandSize::S32,
             opcode: 0x90,
@@ -583,7 +583,7 @@ impl X86Instruction {
 
     /// Trap / software interrupt
     #[allow(dead_code)]
-    pub fn interrupt(immediate: u8) -> Self {
+    pub const fn interrupt(immediate: u8) -> Self {
         if immediate == 3 {
             Self {
                 size: OperandSize::S32,
@@ -604,7 +604,7 @@ impl X86Instruction {
     }
 
     /// rdtsc
-    pub fn cycle_count() -> Self {
+    pub const fn cycle_count() -> Self {
         Self {
             size: OperandSize::S32,
             opcode_escape_sequence: 1,
@@ -616,7 +616,7 @@ impl X86Instruction {
 
     /// lfence / sfence / mfence
     #[allow(dead_code)]
-    pub fn fence(fence_type: FenceType) -> Self {
+    pub const fn fence(fence_type: FenceType) -> Self {
         Self {
             size: OperandSize::S32,
             opcode_escape_sequence: 1,
