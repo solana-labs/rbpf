@@ -993,8 +993,10 @@ impl JitCompiler {
         self.generate_subroutines::<E, I>()?;
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
+            if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
+                return Err(EbpfError::ExhausedTextSegment(self.pc));
+            }
             let mut insn = ebpf::get_insn_unchecked(program, self.pc);
-
             self.result.pc_section[self.pc] = unsafe { text_section_base.add(self.offset_in_text_section) };
 
             // Regular instruction meter checkpoints to prevent long linear runs from exceeding their budget
@@ -1344,6 +1346,9 @@ impl JitCompiler {
         self.result.pc_section[self.pc] = unsafe { text_section_base.add(self.offset_in_text_section) };
 
         // Bumper in case there was no final exit
+        if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
+            return Err(EbpfError::ExhausedTextSegment(self.pc));
+        }
         emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2))?;
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64))?;
         emit_set_exception_kind::<E>(self, EbpfError::ExecutionOverrun(0))?;
