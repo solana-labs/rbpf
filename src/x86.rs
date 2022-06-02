@@ -281,18 +281,6 @@ impl X86Instruction {
         }
     }
 
-    /// Sign extend source i32 to destination i64
-    #[inline]
-    pub const fn sign_extend_i32_to_i64(source: u8, destination: u8) -> Self {
-        Self {
-            size: OperandSize::S64,
-            opcode: 0x63,
-            first_operand: source,
-            second_operand: destination,
-            ..Self::DEFAULT
-        }
-    }
-
     /// Test source and destination
     #[inline]
     pub const fn test(

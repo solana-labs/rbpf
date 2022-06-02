@@ -897,7 +897,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
 
     if let OperandSize::S32 = size {
         if mul || sdiv {
-            emit_ins(jit, X86Instruction::sign_extend_i32_to_i64(dst, dst))?;
+            emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None))?; // sign extend i32 to i64
         }
     }
     Ok(())
@@ -1169,19 +1169,19 @@ impl JitCompiler {
                 // BPF_ALU class
                 ebpf::ADD32_IMM  => {
                     emit_sanitized_alu(self, OperandSize::S32, 0x01, 0, dst, insn.imm)?;
-                    emit_ins(self, X86Instruction::sign_extend_i32_to_i64(dst, dst))?;
+                    emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None))?; // sign extend i32 to i64
                 },
                 ebpf::ADD32_REG  => {
                     emit_ins(self, X86Instruction::alu(OperandSize::S32, 0x01, src, dst, 0, None))?;
-                    emit_ins(self, X86Instruction::sign_extend_i32_to_i64(dst, dst))?;
+                    emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None))?; // sign extend i32 to i64
                 },
                 ebpf::SUB32_IMM  => {
                     emit_sanitized_alu(self, OperandSize::S32, 0x29, 5, dst, insn.imm)?;
-                    emit_ins(self, X86Instruction::sign_extend_i32_to_i64(dst, dst))?;
+                    emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None))?; // sign extend i32 to i64
                 },
                 ebpf::SUB32_REG  => {
                     emit_ins(self, X86Instruction::alu(OperandSize::S32, 0x29, src, dst, 0, None))?;
-                    emit_ins(self, X86Instruction::sign_extend_i32_to_i64(dst, dst))?;
+                    emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None))?; // sign extend i32 to i64
                 },
                 ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::SDIV32_IMM | ebpf::MOD32_IMM  =>
                     emit_muldivmod(self, insn.opc, dst, dst, Some(insn.imm))?,
