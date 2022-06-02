@@ -871,13 +871,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
     if div || modrm {
         emit_ins(jit, X86Instruction::alu(size, 0x31, RDX, RDX, 0, None))?; // RDX = 0
     } else if sdiv {
-        // cdq or cqo depending on operand size
-        emit_ins(jit, X86Instruction {
-            size,
-            opcode: 0x99,
-            modrm: false,
-            ..X86Instruction::DEFAULT
-        })?;
+        emit_ins(jit, X86Instruction::dividend_sign_extension(size))?; // (RAX, RDX) = RAX as i128
     }
 
     emit_ins(jit, X86Instruction::alu(size, 0xf7, if mul { 4 } else if sdiv { 7 } else { 6 }, R11, 0, None))?;

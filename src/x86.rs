@@ -407,6 +407,18 @@ impl X86Instruction {
         }
     }
 
+    /// Convert word to doubleword or doubleword to quadword
+    #[inline]
+    pub const fn dividend_sign_extension(size: OperandSize) -> Self {
+        exclude_operand_sizes!(size, OperandSize::S0 | OperandSize::S8 | OperandSize::S16);
+        Self {
+            size,
+            opcode: 0x99,
+            modrm: false,
+            ..X86Instruction::DEFAULT
+        }
+    }
+
     /// Load destination from [source + offset]
     #[inline]
     pub const fn load(
