@@ -77,15 +77,15 @@ pub enum FenceType {
 
 #[derive(Copy, Clone)]
 pub struct X86Instruction {
-    pub size: OperandSize,
-    pub opcode_escape_sequence: u8,
-    pub opcode: u8,
-    pub modrm: bool,
-    pub indirect: Option<X86IndirectAccess>,
-    pub first_operand: u8,
-    pub second_operand: u8,
-    pub immediate_size: OperandSize,
-    pub immediate: i64,
+    size: OperandSize,
+    opcode_escape_sequence: u8,
+    opcode: u8,
+    modrm: bool,
+    indirect: Option<X86IndirectAccess>,
+    first_operand: u8,
+    second_operand: u8,
+    immediate_size: OperandSize,
+    immediate: i64,
 }
 
 impl X86Instruction {
