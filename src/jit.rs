@@ -818,7 +818,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
     let modrm = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MOD32_IMM & ebpf::BPF_ALU_OP_MASK);
     let size = if (opc & ebpf::BPF_CLS_MASK) == ebpf::BPF_ALU64 { OperandSize::S64 } else { OperandSize::S32 };
 
-    if (div || sdiv || modrm) && imm.is_none() {
+    if !mul && imm.is_none() {
         // Save pc
         emit_ins(jit, X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64))?;
         emit_ins(jit, X86Instruction::test(size, src, src, None))?; // src == 0
@@ -889,7 +889,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
         emit_ins(jit, X86Instruction::pop(RDX))?;
     }
     if dst != RAX {
-        if div || sdiv || mul {
+        if !modrm {
             emit_ins(jit, X86Instruction::mov(OperandSize::S64, RAX, dst))?;
         }
         emit_ins(jit, X86Instruction::pop(RAX))?;
