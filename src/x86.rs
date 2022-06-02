@@ -1,8 +1,5 @@
 #![allow(clippy::integer_arithmetic)]
-use crate::{
-    error::{EbpfError, UserDefinedError},
-    jit::{emit, emit_variable_length, JitCompiler, OperandSize},
-};
+use crate::jit::{emit, emit_variable_length, JitCompiler, OperandSize};
 
 pub const RAX: u8 = 0;
 pub const RCX: u8 = 1;
@@ -102,7 +99,7 @@ impl X86Instruction {
     };
 
     #[inline]
-    pub fn emit<E: UserDefinedError>(&self, jit: &mut JitCompiler) -> Result<(), EbpfError<E>> {
+    pub fn emit(&self, jit: &mut JitCompiler) {
         debug_assert!(!matches!(self.size, OperandSize::S0));
         let mut rex = X86Rex {
             w: matches!(self.size, OperandSize::S64),
@@ -153,30 +150,29 @@ impl X86Instruction {
             }
         }
         if matches!(self.size, OperandSize::S16) {
-            emit::<u8, E>(jit, 0x66)?;
+            emit::<u8>(jit, 0x66);
         }
         let rex =
             ((rex.w as u8) << 3) | ((rex.r as u8) << 2) | ((rex.x as u8) << 1) | (rex.b as u8);
         if rex != 0 {
-            emit::<u8, E>(jit, 0x40 | rex)?;
+            emit::<u8>(jit, 0x40 | rex);
         }
         match self.opcode_escape_sequence {
-            1 => emit::<u8, E>(jit, 0x0f)?,
-            2 => emit::<u16, E>(jit, 0x0f38)?,
-            3 => emit::<u16, E>(jit, 0x0f3a)?,
+            1 => emit::<u8>(jit, 0x0f),
+            2 => emit::<u16>(jit, 0x0f38),
+            3 => emit::<u16>(jit, 0x0f3a),
             _ => {}
         }
-        emit::<u8, E>(jit, self.opcode)?;
+        emit::<u8>(jit, self.opcode);
         if self.modrm {
-            emit::<u8, E>(jit, (modrm.mode << 6) | (modrm.r << 3) | modrm.m)?;
+            emit::<u8>(jit, (modrm.mode << 6) | (modrm.r << 3) | modrm.m);
             let sib = (sib.scale << 6) | (sib.index << 3) | sib.base;
             if sib != 0 {
-                emit::<u8, E>(jit, sib)?;
+                emit::<u8>(jit, sib);
             }
-            emit_variable_length(jit, displacement_size, displacement as u64)?;
+            emit_variable_length(jit, displacement_size, displacement as u64);
         }
-        emit_variable_length(jit, self.immediate_size, self.immediate as u64)?;
-        Ok(())
+        emit_variable_length(jit, self.immediate_size, self.immediate as u64);
     }
 
     /// Arithmetic or logic
