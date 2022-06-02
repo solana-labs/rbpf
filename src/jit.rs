@@ -260,11 +260,12 @@ pub fn emit_variable_length<E: UserDefinedError>(jit: &mut JitCompiler, size: Op
 #[inline(always)]
 pub fn emit_ins<E: UserDefinedError>(jit: &mut JitCompiler, instruction: X86Instruction) -> Result<(), EbpfError<E>> {
     instruction.emit(jit)?;
-    if jit.config.noop_instruction_ratio != 0
-        && jit.diversification_rng.gen::<u32>() < jit.config.noop_instruction_ratio
-    {
+    if jit.next_noop_insertion == 0 {
+        jit.next_noop_insertion = jit.diversification_rng.gen_range(0..jit.config.noop_instruction_rate * 2);
         // X86Instruction::noop().emit(jit)?;
         emit::<u8, E>(jit, 0x90)?;
+    } else {
+        jit.next_noop_insertion -= 1;
     }
     Ok(())
 }
@@ -940,6 +941,7 @@ pub struct JitCompiler {
     offset_in_text_section: usize,
     pc: usize,
     last_instruction_meter_validation_pc: usize,
+    next_noop_insertion: u32,
     program_vm_addr: u64,
     anchors: [*const u8; std::usize::MAX - TARGET_PC_EPILOGUE],
     pub(crate) config: Config,
@@ -1009,7 +1011,11 @@ impl JitCompiler {
         }
 
         let mut code_length_estimate = MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION * pc;
-        code_length_estimate += (code_length_estimate as f64 * (config.noop_instruction_ratio as f64 / std::u32::MAX as f64)) as usize;
+        if config.noop_instruction_rate != 0 {
+            code_length_estimate += code_length_estimate / config.noop_instruction_rate as usize;
+        }
+        let result = JitProgramSections::new(pc + 1, code_length_estimate)?;
+
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
         let (environment_stack_key, program_argument_key) =
             if config.encrypt_environment_registers {
@@ -1020,11 +1026,12 @@ impl JitCompiler {
             } else { (0, 0) };
 
         Ok(Self {
-            result: JitProgramSections::new(pc + 1, code_length_estimate)?,
+            result,
             text_section_jumps: vec![],
             offset_in_text_section: 0,
             pc: 0,
             last_instruction_meter_validation_pc: 0,
+            next_noop_insertion: if config.noop_instruction_rate == 0 { std::u32::MAX } else { diversification_rng.gen_range(0..config.noop_instruction_rate * 2) },
             program_vm_addr: 0,
             anchors: [std::ptr::null(); std::usize::MAX - TARGET_PC_EPILOGUE],
             config: *config,
@@ -1827,7 +1834,7 @@ mod tests {
 
     fn create_mockup_executable(program: &[u8]) -> Pin<Box<Executable::<UserError, TestInstructionMeter>>> {
         let config = Config {
-            noop_instruction_ratio: 0,
+            noop_instruction_rate: 0,
             ..Config::default()
         };
         let mut syscall_registry = SyscallRegistry::default();

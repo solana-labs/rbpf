@@ -8,7 +8,7 @@ use solana_rbpf::vm::Config;
 pub struct ConfigTemplate {
     max_call_depth: usize,
     instruction_meter_checkpoint_distance: usize,
-    noop_instruction_ratio: u32,
+    noop_instruction_rate: u32,
     enable_stack_frame_gaps: bool,
     enable_symbol_and_section_labels: bool,
     disable_unresolved_symbols_at_runtime: bool,
@@ -27,7 +27,7 @@ impl<'a> Arbitrary<'a> for ConfigTemplate {
         Ok(ConfigTemplate {
             max_call_depth: usize::from(u8::arbitrary(u)?) + 1, // larger is unreasonable + must be non-zero
             instruction_meter_checkpoint_distance: usize::from(u16::arbitrary(u)?), // larger is unreasonable
-            noop_instruction_ratio: u32::arbitrary(u)?,
+            noop_instruction_rate: u32::from(u16::arbitrary(u)?),
             enable_stack_frame_gaps: bools & (1 << 0) != 0,
             enable_symbol_and_section_labels: bools & (1 << 1) != 0,
             disable_unresolved_symbols_at_runtime: bools & (1 << 2) != 0,
@@ -55,7 +55,7 @@ impl From<ConfigTemplate> for Config {
             ConfigTemplate {
                 max_call_depth,
                 instruction_meter_checkpoint_distance,
-                noop_instruction_ratio,
+                noop_instruction_rate,
                 enable_stack_frame_gaps,
                 enable_symbol_and_section_labels,
                 disable_unresolved_symbols_at_runtime,
@@ -72,7 +72,7 @@ impl From<ConfigTemplate> for Config {
                 instruction_meter_checkpoint_distance,
                 enable_symbol_and_section_labels,
                 disable_unresolved_symbols_at_runtime,
-                noop_instruction_ratio,
+                noop_instruction_rate,
                 sanitize_user_provided_values,
                 encrypt_environment_registers,
                 disable_deprecated_load_instructions,
