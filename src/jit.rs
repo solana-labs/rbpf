@@ -189,26 +189,28 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
     }
 }
 
-// Special values for target_pc in emit_jump_offset()
-const TARGET_PC_EPILOGUE: usize = std::usize::MAX - 33; // Must stay first, insert new below
-const TARGET_PC_TRACE: usize = std::usize::MAX - 32;
-const TARGET_PC_RUST_EXCEPTION: usize = std::usize::MAX - 31;
-const TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = std::usize::MAX - 30;
-const TARGET_PC_EXCEPTION_AT: usize = std::usize::MAX - 29;
-const TARGET_PC_CALL_DEPTH_EXCEEDED: usize = std::usize::MAX - 28;
-const TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT: usize = std::usize::MAX - 27;
-const TARGET_PC_DIV_BY_ZERO: usize = std::usize::MAX - 26;
-const TARGET_PC_DIV_OVERFLOW: usize = std::usize::MAX - 25;
-const TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION: usize = std::usize::MAX - 24;
-const TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION: usize = std::usize::MAX - 23;
-const TARGET_PC_EXIT: usize = std::usize::MAX - 22;
-const TARGET_PC_SYSCALL: usize = std::usize::MAX - 21;
-const TARGET_PC_BPF_CALL_PROLOGUE: usize = std::usize::MAX - 20;
-const TARGET_PC_BPF_CALL_REG: usize = std::usize::MAX - 19;
-const TARGET_PC_TRANSLATE_PC: usize = std::usize::MAX - 18;
-const TARGET_PC_TRANSLATE_PC_LOOP: usize = std::usize::MAX - 17;
-const TARGET_PC_MEMORY_ACCESS_VIOLATION: usize = std::usize::MAX - 16;
-const TARGET_PC_TRANSLATE_MEMORY_ADDRESS: usize = std::usize::MAX - 8;
+// Used to define subroutines and then call them
+// See JitCompiler::set_anchor() and JitCompiler::relative_to_anchor()
+const ANCHOR_EPILOGUE: usize = 0;
+const ANCHOR_TRACE: usize = 1;
+const ANCHOR_RUST_EXCEPTION: usize = 2;
+const ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = 3;
+const ANCHOR_EXCEPTION_AT: usize = 4;
+const ANCHOR_CALL_DEPTH_EXCEEDED: usize = 5;
+const ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT: usize = 6;
+const ANCHOR_DIV_BY_ZERO: usize = 7;
+const ANCHOR_DIV_OVERFLOW: usize = 8;
+const ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION: usize = 9;
+const ANCHOR_CALL_UNSUPPORTED_INSTRUCTION: usize = 10;
+const ANCHOR_EXIT: usize = 11;
+const ANCHOR_SYSCALL: usize = 12;
+const ANCHOR_BPF_CALL_PROLOGUE: usize = 13;
+const ANCHOR_BPF_CALL_REG: usize = 14;
+const ANCHOR_TRANSLATE_PC: usize = 15;
+const ANCHOR_TRANSLATE_PC_LOOP: usize = 16;
+const ANCHOR_MEMORY_ACCESS_VIOLATION: usize = 17;
+const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 25;
+const ANCHOR_COUNT: usize = 33; // Update me when adding or removing anchors
 
 const REGISTER_MAP: [u8; 11] = [
     CALLER_SAVED_REGISTERS[0],
@@ -460,7 +462,7 @@ fn emit_validate_instruction_count<E: UserDefinedError>(jit: &mut JitCompiler, e
     } else {
         emit_ins(jit, X86Instruction::cmp(OperandSize::S64, R11, ARGUMENT_REGISTERS[0], None))?;
     }
-    emit_ins(jit, X86Instruction::conditional_jump_immediate(if exclusive { 0x82 } else { 0x86 }, jit.relative_to_anchor(TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS, 6)))
+    emit_ins(jit, X86Instruction::conditional_jump_immediate(if exclusive { 0x82 } else { 0x86 }, jit.relative_to_anchor(ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS, 6)))
 }
 
 #[inline]
@@ -559,7 +561,7 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value) -> Resu
     // Store PC in case the bounds check fails
     emit_ins(jit, X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64))?;
 
-    emit_ins(jit, X86Instruction::call_immediate(jit.relative_to_anchor(TARGET_PC_BPF_CALL_PROLOGUE, 5)))?;
+    emit_ins(jit, X86Instruction::call_immediate(jit.relative_to_anchor(ANCHOR_BPF_CALL_PROLOGUE, 5)))?;
 
     match dst {
         Value::Register(reg) => {
@@ -569,7 +571,7 @@ fn emit_bpf_call<E: UserDefinedError>(jit: &mut JitCompiler, dst: Value) -> Resu
                 emit_ins(jit, X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[0]))?;
             }
 
-            emit_ins(jit, X86Instruction::call_immediate(jit.relative_to_anchor(TARGET_PC_BPF_CALL_REG, 5)))?;
+            emit_ins(jit, X86Instruction::call_immediate(jit.relative_to_anchor(ANCHOR_BPF_CALL_REG, 5)))?;
 
             emit_validate_and_profile_instruction_count(jit, false, None)?;
             emit_ins(jit, X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11))?; // Save target_pc
@@ -730,7 +732,7 @@ fn emit_address_translation<E: UserDefinedError>(jit: &mut JitCompiler, host_add
             unreachable!();
         },
     }
-    let anchor = TARGET_PC_TRANSLATE_MEMORY_ADDRESS + len.trailing_zeros() as usize + 4 * (access_type as usize);
+    let anchor = ANCHOR_TRANSLATE_MEMORY_ADDRESS + len.trailing_zeros() as usize + 4 * (access_type as usize);
     emit_ins(jit, X86Instruction::call_immediate(jit.relative_to_anchor(anchor, 5)))?;
     emit_ins(jit, X86Instruction::mov(OperandSize::S64, R11, host_addr))
 }
@@ -784,7 +786,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
         // Save pc
         emit_ins(jit, X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64))?;
         emit_ins(jit, X86Instruction::test(size, src, src, None))?; // src == 0
-        emit_ins(jit, X86Instruction::conditional_jump_immediate(0x84, jit.relative_to_anchor(TARGET_PC_DIV_BY_ZERO, 6)))?;
+        emit_ins(jit, X86Instruction::conditional_jump_immediate(0x84, jit.relative_to_anchor(ANCHOR_DIV_BY_ZERO, 6)))?;
     }
 
     // sdiv overflows with MIN / -1. If we have an immediate and it's not -1, we
@@ -806,7 +808,7 @@ fn emit_muldivmod<E: UserDefinedError>(jit: &mut JitCompiler, opc: u8, src: u8, 
         
         // MIN / -1, raise EbpfError::DivideOverflow(pc)
         emit_ins(jit, X86Instruction::load_immediate(OperandSize::S64, R11, jit.pc as i64))?;
-        emit_ins(jit, X86Instruction::conditional_jump_immediate(0x84, jit.relative_to_anchor(TARGET_PC_DIV_OVERFLOW, 6)))?;
+        emit_ins(jit, X86Instruction::conditional_jump_immediate(0x84, jit.relative_to_anchor(ANCHOR_DIV_OVERFLOW, 6)))?;
     }
 
     if dst != RAX {
@@ -880,7 +882,7 @@ pub struct JitCompiler {
     last_instruction_meter_validation_pc: usize,
     next_noop_insertion: u32,
     program_vm_addr: u64,
-    anchors: [*const u8; std::usize::MAX - TARGET_PC_EPILOGUE],
+    anchors: [*const u8; ANCHOR_COUNT],
     pub(crate) config: Config,
     pub(crate) diversification_rng: SmallRng,
     stopwatch_is_active: bool,
@@ -970,7 +972,7 @@ impl JitCompiler {
             last_instruction_meter_validation_pc: 0,
             next_noop_insertion: if config.noop_instruction_rate == 0 { std::u32::MAX } else { diversification_rng.gen_range(0..config.noop_instruction_rate * 2) },
             program_vm_addr: 0,
-            anchors: [std::ptr::null(); std::usize::MAX - TARGET_PC_EPILOGUE],
+            anchors: [std::ptr::null(); ANCHOR_COUNT],
             config: *config,
             diversification_rng,
             stopwatch_is_active: false,
@@ -987,7 +989,7 @@ impl JitCompiler {
 
         self.generate_prologue::<E, I>(executable)?;
 
-        // Have these in front so that the linear search of TARGET_PC_TRANSLATE_PC does not terminate early
+        // Have these in front so that the linear search of ANCHOR_TRANSLATE_PC does not terminate early
         self.generate_subroutines::<E, I>()?;
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
@@ -1002,7 +1004,7 @@ impl JitCompiler {
 
             if self.config.enable_instruction_tracing {
                 emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64))?;
-                emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(TARGET_PC_TRACE, 5)))?;
+                emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRACE, 5)))?;
                 emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, 0))?;
             }
 
@@ -1059,7 +1061,7 @@ impl JitCompiler {
                 ebpf::LD_DW_IMM  => {
                     emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2))?;
                     self.pc += 1;
-                    self.result.pc_section[self.pc] = self.anchors[TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE];
+                    self.result.pc_section[self.pc] = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION];
                     ebpf::augment_lddw_unchecked(program, &mut insn);
                     if should_sanitize_constant(self, insn.imm) {
                         emit_sanitized_load_immediate(self, OperandSize::S64, dst, insn.imm)?;
@@ -1271,14 +1273,14 @@ impl JitCompiler {
                             }
                             emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, syscall.function as *const u8 as i64))?;
                             emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset((SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8 + self.program_argument_key)))?;
-                            emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(TARGET_PC_SYSCALL, 5)))?;
+                            emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_SYSCALL, 5)))?;
                             if self.config.enable_instruction_meter {
                                 emit_undo_profile_instruction_count(self, 0)?;
                             }
                             // Throw error if the result indicates one
                             emit_ins(self, X86Instruction::cmp_immediate(OperandSize::S64, R11, 0, Some(X86IndirectAccess::Offset(0))))?;
                             emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64))?;
-                            emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(TARGET_PC_RUST_EXCEPTION, 6)))?;
+                            emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 6)))?;
 
                             resolved = true;
                         }
@@ -1294,7 +1296,7 @@ impl JitCompiler {
                     if !resolved {
                         if self.config.disable_unresolved_symbols_at_runtime {
                             emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64))?;
-                            emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION, 5)))?;
+                            emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)))?;
                         } else {
                             emit_validate_instruction_count(self, true, Some(self.pc))?;
                             // executable.report_unresolved_symbol(self.pc)?;
@@ -1305,7 +1307,7 @@ impl JitCompiler {
                                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
                             ], None, true)?;
                             emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64))?;
-                            emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_RUST_EXCEPTION, 5)))?;
+                            emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 5)))?;
                         }
                     }
                 },
@@ -1322,7 +1324,7 @@ impl JitCompiler {
                         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64))?;
                     }
                     // we're done
-                    emit_ins(self, X86Instruction::conditional_jump_immediate(0x84, self.relative_to_anchor(TARGET_PC_EXIT, 6)))?;
+                    emit_ins(self, X86Instruction::conditional_jump_immediate(0x84, self.relative_to_anchor(ANCHOR_EXIT, 6)))?;
 
                     // else decrement and update CallDepth
                     emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_MAP[FRAME_PTR_REG], 1, None))?;
@@ -1338,14 +1340,14 @@ impl JitCompiler {
 
             self.pc += 1;
         }
-        // Bumper so that the linear search of TARGET_PC_TRANSLATE_PC can not run off
+        // Bumper so that the linear search of ANCHOR_TRANSLATE_PC can not run off
         self.result.pc_section[self.pc] = unsafe { text_section_base.add(self.offset_in_text_section) };
 
         // Bumper in case there was no final exit
         emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2))?;
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64))?;
         emit_set_exception_kind::<E>(self, EbpfError::ExecutionOverrun(0))?;
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EXCEPTION_AT, 5)))?;
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)))?;
 
         self.resolve_jumps();
         self.result.seal(self.offset_in_text_section)?;
@@ -1432,7 +1434,7 @@ impl JitCompiler {
 
     fn generate_subroutines<E: UserDefinedError, I: InstructionMeter>(&mut self) -> Result<(), EbpfError<E>> {
         // Epilogue
-        self.set_anchor(TARGET_PC_EPILOGUE);
+        self.set_anchor(ANCHOR_EPILOGUE);
         // Print stop watch value
         fn stopwatch_result(numerator: u64, denominator: u64) {
             println!("Stop watch: {} / {} = {}", numerator, denominator, if denominator == 0 { 0.0 } else { numerator as f64 / denominator as f64 });
@@ -1455,7 +1457,7 @@ impl JitCompiler {
 
         // Routine for instruction tracing
         if self.config.enable_instruction_tracing {
-            self.set_anchor(TARGET_PC_TRACE);
+            self.set_anchor(ANCHOR_TRACE);
             // Save registers on stack
             emit_ins(self, X86Instruction::push(R11, None))?;
             for reg in REGISTER_MAP.iter().rev() {
@@ -1476,74 +1478,74 @@ impl JitCompiler {
         }
 
         // Handler for syscall exceptions
-        self.set_anchor(TARGET_PC_RUST_EXCEPTION);
+        self.set_anchor(ANCHOR_RUST_EXCEPTION);
         emit_profile_instruction_count_finalize(self, false)?;
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EPILOGUE, 5)))?;
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)))?;
 
         // Handler for EbpfError::ExceededMaxInstructions
-        self.set_anchor(TARGET_PC_CALL_EXCEEDED_MAX_INSTRUCTIONS);
+        self.set_anchor(ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         emit_set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0))?;
         emit_ins(self, X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], R11))?; // R11 = instruction_meter;
         emit_profile_instruction_count_finalize(self, true)?;
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EPILOGUE, 5)))?;
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)))?;
 
         // Handler for exceptions which report their pc
-        self.set_anchor(TARGET_PC_EXCEPTION_AT);
+        self.set_anchor(ANCHOR_EXCEPTION_AT);
         // Validate that we did not reach the instruction meter limit before the exception occured
         if self.config.enable_instruction_meter {
             emit_validate_instruction_count(self, false, None)?;
         }
         emit_profile_instruction_count_finalize(self, true)?;
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EPILOGUE, 5)))?;
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)))?;
 
         // Handler for EbpfError::CallDepthExceeded
-        self.set_anchor(TARGET_PC_CALL_DEPTH_EXCEEDED);
+        self.set_anchor(ANCHOR_CALL_DEPTH_EXCEEDED);
         emit_set_exception_kind::<E>(self, EbpfError::CallDepthExceeded(0, 0))?;
         emit_ins(self, X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(24), self.config.max_call_depth as i64))?; // depth = jit.config.max_call_depth;
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EXCEPTION_AT, 5)))?;
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)))?;
 
         // Handler for EbpfError::CallOutsideTextSegment
-        self.set_anchor(TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT);
+        self.set_anchor(ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT);
         emit_set_exception_kind::<E>(self, EbpfError::CallOutsideTextSegment(0, 0))?;
         emit_ins(self, X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(24)))?; // target_address = RAX;
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EXCEPTION_AT, 5)))?;
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)))?;
 
         // Handler for EbpfError::DivideByZero
-        self.set_anchor(TARGET_PC_DIV_BY_ZERO);
+        self.set_anchor(ANCHOR_DIV_BY_ZERO);
         emit_set_exception_kind::<E>(self, EbpfError::DivideByZero(0))?;
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EXCEPTION_AT, 5)))?;
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)))?;
 
         // Handler for EbpfError::DivideOverflow
-        self.set_anchor(TARGET_PC_DIV_OVERFLOW);
+        self.set_anchor(ANCHOR_DIV_OVERFLOW);
         emit_set_exception_kind::<E>(self, EbpfError::DivideOverflow(0))?;
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EXCEPTION_AT, 5)))?;
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)))?;
 
         // Handler for EbpfError::UnsupportedInstruction
-        self.set_anchor(TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION);
-        // Load BPF target pc from stack (which was saved in TARGET_PC_BPF_CALL_REG)
+        self.set_anchor(ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION);
+        // Load BPF target pc from stack (which was saved in ANCHOR_BPF_CALL_REG)
         emit_ins(self, X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0)))?; // R11 = RSP[-16];
-        // emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION, 5)))?; // Fall-through
+        // emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)))?; // Fall-through
 
         // Handler for EbpfError::UnsupportedInstruction
-        self.set_anchor(TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION);
+        self.set_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION);
         if self.config.enable_instruction_tracing {
-            emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(TARGET_PC_TRACE, 5)))?;
+            emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRACE, 5)))?;
         }
         emit_set_exception_kind::<E>(self, EbpfError::UnsupportedInstruction(0))?;
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EXCEPTION_AT, 5)))?;
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)))?;
 
         // Quit gracefully
-        self.set_anchor(TARGET_PC_EXIT);
+        self.set_anchor(ANCHOR_EXIT);
         emit_validate_instruction_count(self, false, None)?;
         emit_profile_instruction_count_finalize(self, false)?;
         emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))))?;
         emit_ins(self, X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(8)))?; // result.return_value = R0;
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], 0))?;
         emit_ins(self, X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(0)))?;  // result.is_error = false;
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EPILOGUE, 5)))?;
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)))?;
 
         // Routine for syscall
-        self.set_anchor(TARGET_PC_SYSCALL);
+        self.set_anchor(ANCHOR_SYSCALL);
         emit_ins(self, X86Instruction::push(R11, None))?; // Padding for stack alignment
         if self.config.enable_instruction_meter {
             // RDI = *PrevInsnMeter - RDI;
@@ -1577,7 +1579,7 @@ impl JitCompiler {
         emit_ins(self, X86Instruction::return_near())?;
 
         // Routine for prologue of emit_bpf_call()
-        self.set_anchor(TARGET_PC_BPF_CALL_PROLOGUE);
+        self.set_anchor(ANCHOR_BPF_CALL_PROLOGUE);
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 5, RSP, 8 * (SCRATCH_REGS + 1) as i64, None))?; // alloca
         emit_ins(self, X86Instruction::store(OperandSize::S64, R11, RSP, X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))?; // Save original R11
         emit_ins(self, X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(8 * (SCRATCH_REGS + 1) as i32, RSP, 0)))?; // Load return address
@@ -1594,7 +1596,7 @@ impl JitCompiler {
         emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[FRAME_PTR_REG], call_depth_access))?;
         // If CallDepth == self.config.max_call_depth, stop and return CallDepthExceeded
         emit_ins(self, X86Instruction::cmp_immediate(OperandSize::S32, REGISTER_MAP[FRAME_PTR_REG], self.config.max_call_depth as i64, None))?;
-        emit_ins(self, X86Instruction::conditional_jump_immediate(0x83, self.relative_to_anchor(TARGET_PC_CALL_DEPTH_EXCEEDED, 6)))?;
+        emit_ins(self, X86Instruction::conditional_jump_immediate(0x83, self.relative_to_anchor(ANCHOR_CALL_DEPTH_EXCEEDED, 6)))?;
 
         // Setup the frame pointer for the new frame. What we do depends on whether we're using dynamic or fixed frames.
         let frame_ptr_access = X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::BpfFramePtr));
@@ -1612,7 +1614,7 @@ impl JitCompiler {
         emit_ins(self, X86Instruction::return_near())?;
 
         // Routine for emit_bpf_call(Value::Register())
-        self.set_anchor(TARGET_PC_BPF_CALL_REG);
+        self.set_anchor(ANCHOR_BPF_CALL_REG);
         // Force alignment of RAX
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i64 - 1), None))?; // RAX &= !(INSN_SIZE - 1);
         // Upper bound check
@@ -1620,12 +1622,12 @@ impl JitCompiler {
         let number_of_instructions = self.result.pc_section.len() - 1;
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], self.program_vm_addr as i64 + (number_of_instructions * INSN_SIZE) as i64))?;
         emit_ins(self, X86Instruction::cmp(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0], None))?;
-        emit_ins(self, X86Instruction::conditional_jump_immediate(0x83, self.relative_to_anchor(TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT, 6)))?;
+        emit_ins(self, X86Instruction::conditional_jump_immediate(0x83, self.relative_to_anchor(ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT, 6)))?;
         // Lower bound check
         // if(RAX < self.program_vm_addr) throw CALL_OUTSIDE_TEXT_SEGMENT;
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], self.program_vm_addr as i64))?;
         emit_ins(self, X86Instruction::cmp(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0], None))?;
-        emit_ins(self, X86Instruction::conditional_jump_immediate(0x82, self.relative_to_anchor(TARGET_PC_CALL_OUTSIDE_TEXT_SEGMENT, 6)))?;
+        emit_ins(self, X86Instruction::conditional_jump_immediate(0x82, self.relative_to_anchor(ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT, 6)))?;
         // Calculate offset relative to instruction_addresses
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0], 0, None))?; // RAX -= self.program_vm_addr;
         // Calculate the target_pc (dst / INSN_SIZE) to update the instruction_meter
@@ -1633,7 +1635,7 @@ impl JitCompiler {
         debug_assert_eq!(INSN_SIZE, 1 << shift_amount);
         emit_ins(self, X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11))?;
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0xc1, 5, R11, shift_amount as i64, None))?;
-        // Save BPF target pc for potential TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION
+        // Save BPF target pc for potential ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION
         emit_ins(self, X86Instruction::store(OperandSize::S64, R11, RSP, X86IndirectAccess::OffsetIndexShift(-8, RSP, 0)))?; // RSP[-8] = R11;
         // Load host target_address from self.result.pc_section
         debug_assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
@@ -1645,13 +1647,13 @@ impl JitCompiler {
         emit_ins(self, X86Instruction::return_near())?;
 
         // Translates a host pc back to a BPF pc by linear search of the pc_section table
-        self.set_anchor(TARGET_PC_TRANSLATE_PC);
+        self.set_anchor(ANCHOR_TRANSLATE_PC);
         emit_ins(self, X86Instruction::push(REGISTER_MAP[0], None))?; // Save REGISTER_MAP[0]
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], self.result.pc_section.as_ptr() as i64 - 8))?; // Loop index and pointer to look up
-        self.set_anchor(TARGET_PC_TRANSLATE_PC_LOOP); // Loop label
+        self.set_anchor(ANCHOR_TRANSLATE_PC_LOOP); // Loop label
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_MAP[0], 8, None))?; // Increase index
         emit_ins(self, X86Instruction::cmp(OperandSize::S64, R11, REGISTER_MAP[0], Some(X86IndirectAccess::Offset(8))))?; // Look up and compare against value at next index
-        emit_ins(self, X86Instruction::conditional_jump_immediate(0x86, self.relative_to_anchor(TARGET_PC_TRANSLATE_PC_LOOP, 6)))?; // Continue while *REGISTER_MAP[0] <= R11
+        emit_ins(self, X86Instruction::conditional_jump_immediate(0x86, self.relative_to_anchor(ANCHOR_TRANSLATE_PC_LOOP, 6)))?; // Continue while *REGISTER_MAP[0] <= R11
         emit_ins(self, X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11))?; // R11 = REGISTER_MAP[0];
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], self.result.pc_section.as_ptr() as i64))?; // REGISTER_MAP[0] = self.result.pc_section;
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_MAP[0], R11, 0, None))?; // R11 -= REGISTER_MAP[0];
@@ -1677,7 +1679,7 @@ impl JitCompiler {
                 16
             };
 
-            self.set_anchor(TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset);
+            self.set_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION + target_offset);
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x31, R11, R11, 0, None))?; // R11 = 0;
             emit_ins(self, X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(stack_offset, R11, 0)))?;
             emit_rust_call(self, Value::Constant64(MemoryMapping::generate_access_violation::<UserError> as *const u8 as i64, false), &[
@@ -1689,10 +1691,10 @@ impl JitCompiler {
             ], None, true)?;
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, stack_offset as i64 + 8, None))?; // Drop R11, RAX, RCX, RDX from stack
             emit_ins(self, X86Instruction::pop(R11))?; // Put callers PC in R11
-            emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(TARGET_PC_TRANSLATE_PC, 5)))?;
-            emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(TARGET_PC_EXCEPTION_AT, 5)))?;
+            emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRANSLATE_PC, 5)))?;
+            emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)))?;
 
-            self.set_anchor(TARGET_PC_TRANSLATE_MEMORY_ADDRESS + target_offset);
+            self.set_anchor(ANCHOR_TRANSLATE_MEMORY_ADDRESS + target_offset);
             emit_ins(self, X86Instruction::push(R11, None))?;
             emit_ins(self, X86Instruction::push(RAX, None))?;
             emit_ins(self, X86Instruction::push(RCX, None))?;
@@ -1702,24 +1704,24 @@ impl JitCompiler {
             emit_ins(self, X86Instruction::mov(OperandSize::S64, R11, RAX))?; // RAX = vm_addr;
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0xc1, 5, RAX, ebpf::VIRTUAL_ADDRESS_BITS as i64, None))?; // RAX >>= ebpf::VIRTUAL_ADDRESS_BITS;
             emit_ins(self, X86Instruction::cmp(OperandSize::S64, RAX, R10, Some(X86IndirectAccess::Offset(self.program_argument_key + 8))))?; // region_index >= jit_program_argument.memory_mapping.regions.len()
-            emit_ins(self, X86Instruction::conditional_jump_immediate(0x86, self.relative_to_anchor(TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset, 6)))?;
+            emit_ins(self, X86Instruction::conditional_jump_immediate(0x86, self.relative_to_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION + target_offset, 6)))?;
             debug_assert_eq!(1 << 5, mem::size_of::<MemoryRegion>());
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0xc1, 4, RAX, 5, None))?; // RAX *= mem::size_of::<MemoryRegion>();
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x03, RAX, R10, 0, Some(X86IndirectAccess::Offset(self.program_argument_key))))?; // region = &jit_program_argument.memory_mapping.regions[region_index];
             if *access_type == AccessType::Store {
                 emit_ins(self, X86Instruction::cmp_immediate(OperandSize::S8, RAX, 0, Some(X86IndirectAccess::Offset(MemoryRegion::IS_WRITABLE_OFFSET))))?; // region.is_writable == 0
-                emit_ins(self, X86Instruction::conditional_jump_immediate(0x84, self.relative_to_anchor(TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset, 6)))?;
+                emit_ins(self, X86Instruction::conditional_jump_immediate(0x84, self.relative_to_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION + target_offset, 6)))?;
             }
             emit_ins(self, X86Instruction::load(OperandSize::S64, RAX, RCX, X86IndirectAccess::Offset(MemoryRegion::VM_ADDR_OFFSET)))?; // RCX = region.vm_addr
             emit_ins(self, X86Instruction::cmp(OperandSize::S64, RCX, R11, None))?; // vm_addr < region.vm_addr
-            emit_ins(self, X86Instruction::conditional_jump_immediate(0x82, self.relative_to_anchor(TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset, 6)))?;
+            emit_ins(self, X86Instruction::conditional_jump_immediate(0x82, self.relative_to_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION + target_offset, 6)))?;
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x29, RCX, R11, 0, None))?; // vm_addr -= region.vm_addr
             if !self.config.dynamic_stack_frames && self.config.enable_stack_frame_gaps {
                 emit_ins(self, X86Instruction::load(OperandSize::S8, RAX, RCX, X86IndirectAccess::Offset(MemoryRegion::VM_GAP_SHIFT_OFFSET)))?; // RCX = region.vm_gap_shift;
                 emit_ins(self, X86Instruction::mov(OperandSize::S64, R11, RDX))?; // RDX = R11;
                 emit_ins(self, X86Instruction::alu(OperandSize::S64, 0xd3, 5, RDX, 0, None))?; // RDX = R11 >> region.vm_gap_shift;
                 emit_ins(self, X86Instruction::test_immediate(OperandSize::S64, RDX, 1, None))?; // (RDX & 1) != 0
-                emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset, 6)))?;
+                emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION + target_offset, 6)))?;
                 emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, RDX, -1))?; // RDX = -1;
                 emit_ins(self, X86Instruction::alu(OperandSize::S64, 0xd3, 4, RDX, 0, None))?; // gap_mask = -1 << region.vm_gap_shift;
                 emit_ins(self, X86Instruction::mov(OperandSize::S64, RDX, RCX))?; // RCX = RDX;
@@ -1731,7 +1733,7 @@ impl JitCompiler {
             }
             emit_ins(self, X86Instruction::lea(OperandSize::S64, R11, RCX, Some(X86IndirectAccess::Offset(*len))))?; // RCX = R11 + len;
             emit_ins(self, X86Instruction::cmp(OperandSize::S64, RCX, RAX, Some(X86IndirectAccess::Offset(MemoryRegion::LEN_OFFSET))))?; // region.len < R11 + len
-            emit_ins(self, X86Instruction::conditional_jump_immediate(0x82, self.relative_to_anchor(TARGET_PC_MEMORY_ACCESS_VIOLATION + target_offset, 6)))?;
+            emit_ins(self, X86Instruction::conditional_jump_immediate(0x82, self.relative_to_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION + target_offset, 6)))?;
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x03, R11, RAX, 0, Some(X86IndirectAccess::Offset(MemoryRegion::HOST_ADDR_OFFSET))))?; // R11 += region.host_addr;
             if !self.config.dynamic_stack_frames && self.config.enable_stack_frame_gaps {
                 emit_ins(self, X86Instruction::pop(RDX))?;
@@ -1745,24 +1747,21 @@ impl JitCompiler {
     }
 
     fn set_anchor(&mut self, anchor: usize) {
-        debug_assert!(anchor >= TARGET_PC_EPILOGUE);
-        self.anchors[anchor - TARGET_PC_EPILOGUE] = unsafe { self.result.text_section.as_ptr().add(self.offset_in_text_section) };
+        self.anchors[anchor] = unsafe { self.result.text_section.as_ptr().add(self.offset_in_text_section) };
     }
 
     // instruction_length = 5 (Unconditional jump / call)
     // instruction_length = 6 (Conditional jump)
     #[inline]
     fn relative_to_anchor(&self, anchor: usize, instruction_length: usize) -> i32 {
-        debug_assert!(anchor >= TARGET_PC_EPILOGUE);
         let instruction_end = unsafe { self.result.text_section.as_ptr().add(self.offset_in_text_section).add(instruction_length) };
-        let destination = self.anchors[anchor - TARGET_PC_EPILOGUE];
+        let destination = self.anchors[anchor];
         debug_assert!(!destination.is_null());
         (unsafe { destination.offset_from(instruction_end) } as i32) // Relative jump
     }
 
     #[inline]
     fn relative_to_target_pc(&mut self, target_pc: usize, instruction_length: usize) -> i32 {
-        debug_assert!(target_pc < TARGET_PC_EPILOGUE);
         let instruction_end = unsafe { self.result.text_section.as_ptr().add(self.offset_in_text_section).add(instruction_length) };
         let destination = if !self.result.pc_section[target_pc].is_null() {
             // Backward jump
@@ -1786,8 +1785,8 @@ impl JitCompiler {
             unsafe { ptr::write_unaligned(jump.location as *mut i32, offset_value); }
         }
         // There is no `VerifierError::JumpToMiddleOfLDDW` for `call imm` so patch it here
-        let call_unsupported_instruction = self.anchors[TARGET_PC_CALL_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE];
-        let callx_unsupported_instruction = self.anchors[TARGET_PC_CALLX_UNSUPPORTED_INSTRUCTION - TARGET_PC_EPILOGUE];
+        let call_unsupported_instruction = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION];
+        let callx_unsupported_instruction = self.anchors[ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION];
         for offset in self.result.pc_section.iter_mut() {
             if *offset == call_unsupported_instruction {
                 *offset = callx_unsupported_instruction;
