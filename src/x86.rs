@@ -589,7 +589,47 @@ impl X86Instruction {
         }
     }
 
-    /// Push RIP and jump to destination
+    /// Jump to relative destination on condition
+    #[inline]
+    pub const fn conditional_jump_immediate(opcode: u8, relative_destination: i32) -> Self {
+        Self {
+            size: OperandSize::S32,
+            opcode_escape_sequence: 1,
+            opcode,
+            modrm: false,
+            immediate_size: OperandSize::S32,
+            immediate: relative_destination as i64,
+            ..Self::DEFAULT
+        }
+    }
+
+    /// Jump to relative destination
+    #[inline]
+    pub const fn jump_immediate(relative_destination: i32) -> Self {
+        Self {
+            size: OperandSize::S32,
+            opcode: 0xe9,
+            modrm: false,
+            immediate_size: OperandSize::S32,
+            immediate: relative_destination as i64,
+            ..Self::DEFAULT
+        }
+    }
+
+    /// Push RIP and jump to relative destination
+    #[inline]
+    pub const fn call_immediate(relative_destination: i32) -> Self {
+        Self {
+            size: OperandSize::S32,
+            opcode: 0xe8,
+            modrm: false,
+            immediate_size: OperandSize::S32,
+            immediate: relative_destination as i64,
+            ..Self::DEFAULT
+        }
+    }
+
+    /// Push RIP and jump to absolute destination
     #[inline]
     pub const fn call_reg(destination: u8, indirect: Option<X86IndirectAccess>) -> Self {
         Self {

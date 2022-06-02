@@ -347,24 +347,20 @@ fn emit_sanitized_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandS
 
 #[inline]
 fn emit_jcc<E: UserDefinedError>(jit: &mut JitCompiler, code: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
-    emit::<u8, E>(jit, 0x0f)?;
-    emit::<u8, E>(jit, code)?;
-    let jump_offset = jit.generate_jump_to(target_pc);
-    emit::<u32, E>(jit, jump_offset as u32)
+    let jump_offset = jit.generate_jump_to(target_pc, 2);
+    emit_ins(jit, X86Instruction::conditional_jump_immediate(code, jump_offset))
 }
 
 #[inline]
 fn emit_jmp<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize) -> Result<(), EbpfError<E>> {
-    emit::<u8, E>(jit, 0xe9)?;
-    let jump_offset = jit.generate_jump_to(target_pc);
-    emit::<u32, E>(jit, jump_offset as u32)
+    let jump_offset = jit.generate_jump_to(target_pc, 1);
+    emit_ins(jit, X86Instruction::jump_immediate(jump_offset))
 }
 
 #[inline]
 fn emit_call<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize) -> Result<(), EbpfError<E>> {
-    emit::<u8, E>(jit, 0xe8)?;
-    let jump_offset = jit.generate_jump_to(target_pc);
-    emit::<u32, E>(jit, jump_offset as u32)
+    let jump_offset = jit.generate_jump_to(target_pc, 1);
+    emit_ins(jit, X86Instruction::call_immediate(jump_offset))
 }
 
 /// Indices of slots inside the struct at inital RSP
@@ -1766,8 +1762,8 @@ impl JitCompiler {
     }
 
     #[inline]
-    fn generate_jump_to(&mut self, target_pc: usize) -> i32 {
-        let location = unsafe { self.result.text_section.as_ptr().add(self.offset_in_text_section) };
+    fn generate_jump_to(&mut self, target_pc: usize, offset_in_instruction: usize) -> i32 {
+        let location = unsafe { self.result.text_section.as_ptr().add(self.offset_in_text_section).add(offset_in_instruction) };
         let destination = if target_pc >= TARGET_PC_EPILOGUE {
             self.anchors[target_pc - TARGET_PC_EPILOGUE]
         } else if !self.result.pc_section[target_pc].is_null() {
