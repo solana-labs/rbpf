@@ -237,9 +237,9 @@ pub fn emit<T, E: UserDefinedError>(jit: &mut JitCompiler, data: T) -> Result<()
         return Err(EbpfError::ExhausedTextSegment(jit.pc));
     }
     unsafe {
+        let ptr = jit.result.text_section.as_ptr().add(jit.offset_in_text_section);
         #[allow(clippy::cast_ptr_alignment)]
-        let ptr = jit.result.text_section.as_ptr().add(jit.offset_in_text_section) as *mut T;
-        *ptr = data as T;
+        ptr::write_unaligned(ptr as *mut T, data as T);
     }
     jit.offset_in_text_section += size;
     Ok(())
