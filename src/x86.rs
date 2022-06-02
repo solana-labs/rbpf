@@ -179,9 +179,38 @@ impl X86Instruction {
         Ok(())
     }
 
+    /// Arithmetic or logic
+    #[inline]
+    pub const fn alu(
+        size: OperandSize,
+        opcode: u8,
+        source: u8,
+        destination: u8,
+        immediate: i64,
+        indirect: Option<X86IndirectAccess>,
+    ) -> Self {
+        exclude_operand_sizes!(size, OperandSize::S0 | OperandSize::S8 | OperandSize::S16);
+        Self {
+            size,
+            opcode,
+            first_operand: source,
+            second_operand: destination,
+            immediate_size: match opcode {
+                0xc1 => OperandSize::S8,
+                0x81 => OperandSize::S32,
+                0xf7 if source == 0 => OperandSize::S32,
+                _ => OperandSize::S0,
+            },
+            immediate,
+            indirect,
+            ..X86Instruction::DEFAULT
+        }
+    }
+
     /// Move source to destination
     #[inline]
     pub const fn mov(size: OperandSize, source: u8, destination: u8) -> Self {
+        exclude_operand_sizes!(size, OperandSize::S0 | OperandSize::S8 | OperandSize::S16);
         Self {
             size,
             opcode: 0x89,
@@ -194,6 +223,7 @@ impl X86Instruction {
     /// Conditionally move source to destination
     #[inline]
     pub const fn cmov(size: OperandSize, condition: u8, source: u8, destination: u8) -> Self {
+        exclude_operand_sizes!(size, OperandSize::S0 | OperandSize::S8 | OperandSize::S16);
         Self {
             size,
             opcode_escape_sequence: 1,
