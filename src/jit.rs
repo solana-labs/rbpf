@@ -346,40 +346,25 @@ fn emit_sanitized_alu<E: UserDefinedError>(jit: &mut JitCompiler, size: OperandS
 }
 
 #[inline]
-fn emit_jump_offset<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize) -> Result<(), EbpfError<E>> {
-    let location = unsafe { jit.result.text_section.as_ptr().add(jit.offset_in_text_section) };
-    let destination = if target_pc >= TARGET_PC_EPILOGUE {
-        jit.anchors[target_pc - TARGET_PC_EPILOGUE]
-    } else if !jit.result.pc_section[target_pc].is_null() {
-        jit.result.pc_section[target_pc]
-    } else {
-        jit.text_section_jumps.push(Jump { location, target_pc });
-        return emit::<u32, E>(jit, 0);
-    };
-    debug_assert!(!destination.is_null());
-    let offset_value = 
-        unsafe { destination.offset_from(location) } as i32 // Relative jump
-        - mem::size_of::<i32>() as i32; // Jump from end of instruction
-    emit::<u32, E>(jit, offset_value as u32)
-}
-
-#[inline]
 fn emit_jcc<E: UserDefinedError>(jit: &mut JitCompiler, code: u8, target_pc: usize) -> Result<(), EbpfError<E>> {
     emit::<u8, E>(jit, 0x0f)?;
     emit::<u8, E>(jit, code)?;
-    emit_jump_offset(jit, target_pc)
+    let jump_offset = jit.generate_jump_to(target_pc);
+    emit::<u32, E>(jit, jump_offset as u32)
 }
 
 #[inline]
 fn emit_jmp<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize) -> Result<(), EbpfError<E>> {
     emit::<u8, E>(jit, 0xe9)?;
-    emit_jump_offset(jit, target_pc)
+    let jump_offset = jit.generate_jump_to(target_pc);
+    emit::<u32, E>(jit, jump_offset as u32)
 }
 
 #[inline]
 fn emit_call<E: UserDefinedError>(jit: &mut JitCompiler, target_pc: usize) -> Result<(), EbpfError<E>> {
     emit::<u8, E>(jit, 0xe8)?;
-    emit_jump_offset(jit, target_pc)
+    let jump_offset = jit.generate_jump_to(target_pc);
+    emit::<u32, E>(jit, jump_offset as u32)
 }
 
 fn set_anchor(jit: &mut JitCompiler, target: usize) {
@@ -1778,6 +1763,24 @@ impl JitCompiler {
             emit_ins(self, X86Instruction::return_near())?;
         }
         Ok(())
+    }
+
+    #[inline]
+    fn generate_jump_to(&mut self, target_pc: usize) -> i32 {
+        let location = unsafe { self.result.text_section.as_ptr().add(self.offset_in_text_section) };
+        let destination = if target_pc >= TARGET_PC_EPILOGUE {
+            self.anchors[target_pc - TARGET_PC_EPILOGUE]
+        } else if !self.result.pc_section[target_pc].is_null() {
+            self.result.pc_section[target_pc]
+        } else {
+            self.text_section_jumps.push(Jump { location, target_pc });
+            return 0;
+        };
+        debug_assert!(!destination.is_null());
+        let offset_value = 
+            unsafe { destination.offset_from(location) } as i32 // Relative jump
+            - mem::size_of::<i32>() as i32; // Jump from end of instruction
+        offset_value
     }
 
     fn resolve_jumps(&mut self) {
