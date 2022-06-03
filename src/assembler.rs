@@ -186,7 +186,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{assembler::assemble, user_error::UserError, vm::{Config, TestInstructionMeter, SyscallRegistry}};
+/// use solana_rbpf::{assembler::assemble, user_error::UserError, vm::{Config, TestInstructionMeter, SyscallRegistry}, verifier::check};
 /// let executable = assemble::<UserError, TestInstructionMeter>(
 ///    "add64 r1, 0x605
 ///     mov64 r2, 0x32
@@ -194,7 +194,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///     be16 r0
 ///     neg64 r2
 ///     exit",
-///     None,
+///     Some(check),
 ///     Config::default(),
 ///     SyscallRegistry::default(),
 /// ).unwrap();

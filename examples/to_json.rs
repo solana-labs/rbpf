@@ -16,6 +16,7 @@ use solana_rbpf::{
     elf::Executable,
     static_analysis::Analysis,
     user_error::UserError,
+    verifier::check,
     vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
@@ -31,7 +32,7 @@ use std::collections::BTreeMap;
 fn to_json(program: &[u8]) -> String {
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         &program,
-        None,
+        Some(check),
         Config::default(),
         SyscallRegistry::default(),
         BTreeMap::default(),

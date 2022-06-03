@@ -12,6 +12,7 @@ use solana_rbpf::{
     assembler::assemble,
     ebpf,
     user_error::UserError,
+    verifier::check,
     vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
 use test_utils::{TCP_SACK_ASM, TCP_SACK_BIN};
@@ -577,7 +578,7 @@ fn test_large_immediate() {
 fn test_tcp_sack() {
     let executable = assemble::<UserError, TestInstructionMeter>(
         TCP_SACK_ASM,
-        None,
+        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )

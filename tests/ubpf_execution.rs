@@ -22,6 +22,7 @@ use solana_rbpf::{
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     syscalls::{self, BpfSyscallContext, Result},
     user_error::UserError,
+    verifier::check,
     vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::{collections::BTreeMap, fs::File, io::Read};
@@ -99,7 +100,7 @@ macro_rules! test_interpreter_and_jit_asm {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
-            let mut executable = assemble($source, Some(solana_rbpf::verifier::check), $config, syscall_registry).unwrap();
+            let mut executable = assemble($source, Some(check), $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
@@ -125,7 +126,7 @@ macro_rules! test_interpreter_and_jit_elf {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(solana_rbpf::verifier::check), $config, syscall_registry).unwrap();
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(check), $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
@@ -2890,7 +2891,7 @@ fn test_err_mem_access_out_of_bound() {
         #[allow(unused_mut)]
         let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
             &prog,
-            None,
+            Some(check),
             config,
             syscall_registry,
             bpf_functions,
@@ -3417,7 +3418,7 @@ impl SyscallObject<UserError> for NestedVmSyscall {
                 mov64 r2, r0
                 syscall NestedVmSyscall
                 exit",
-                None,
+                Some(check),
                 Config::default(),
                 syscall_registry,
             )
@@ -3555,7 +3556,7 @@ fn test_custom_entrypoint() {
     #[allow(unused_mut)]
     let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(
         &elf,
-        None,
+        Some(check),
         config,
         syscall_registry,
     )
@@ -3982,7 +3983,7 @@ fn test_err_unresolved_elf() {
         ..Config::default()
     };
     assert!(
-        matches!(Executable::<UserError, TestInstructionMeter>::from_elf(&elf, None, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
+        matches!(Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(check), config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
     );
 }
 
@@ -4383,7 +4384,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     .unwrap();
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
-        Some(solana_rbpf::verifier::check),
+        Some(check),
         config,
         syscall_registry,
         bpf_functions,
