@@ -4,7 +4,7 @@ use libfuzzer_sys::fuzz_target;
 
 use semantic_aware::*;
 use solana_rbpf::insn_builder::IntoBytes;
-use solana_rbpf::verifier::{SbfVerifier, Verifier};
+use solana_rbpf::verifier::check;
 
 use crate::common::ConfigTemplate;
 
@@ -20,5 +20,5 @@ struct FuzzData {
 fuzz_target!(|data: FuzzData| {
     let prog = make_program(&data.prog);
     let config = data.template.into();
-    SbfVerifier::verify(prog.into_bytes(), &config).unwrap();
+    check(prog.into_bytes(), &config).unwrap();
 });

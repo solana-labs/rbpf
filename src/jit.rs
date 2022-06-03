@@ -1792,7 +1792,7 @@ impl JitCompiler {
 #[cfg(all(test, target_arch = "x86_64", not(target_os = "windows")))]
 mod tests {
     use super::*;
-    use crate::{syscalls, vm::{SyscallRegistry, SyscallObject, TestInstructionMeter}, elf::register_bpf_function, verifier::TautologyVerifier};
+    use crate::{syscalls, vm::{SyscallRegistry, SyscallObject, TestInstructionMeter}, elf::register_bpf_function};
     use std::collections::BTreeMap;
     use byteorder::{LittleEndian, ByteOrder};
 
@@ -1819,8 +1819,9 @@ mod tests {
         )
         .unwrap();
         bpf_functions.insert(0xFFFFFFFF, (8, "foo".to_string()));
-        Executable::<UserError, TestInstructionMeter>::from_text_bytes::<TautologyVerifier>(
+        Executable::<UserError, TestInstructionMeter>::from_text_bytes(
             program,
+            None,
             config,
             syscall_registry,
             bpf_functions,

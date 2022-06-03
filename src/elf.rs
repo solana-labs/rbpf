@@ -2086,8 +2086,9 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        let mut executable = ElfExecutable::from_elf::<crate::verifier::SbfVerifier>(
+        let mut executable = ElfExecutable::from_elf(
             &elf_bytes,
+            Some(crate::verifier::check),
             Config::default(),
             syscall_registry(),
         )

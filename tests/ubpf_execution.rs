@@ -22,7 +22,7 @@ use solana_rbpf::{
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     syscalls::{self, BpfSyscallContext, Result},
     user_error::UserError,
-    verifier::SbfVerifier,
+    verifier::check,
     vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::{collections::BTreeMap, fs::File, io::Read};
@@ -100,7 +100,7 @@ macro_rules! test_interpreter_and_jit_asm {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
-            let mut executable = assemble::<SbfVerifier, UserError, TestInstructionMeter>($source, $config, syscall_registry).unwrap();
+            let mut executable = assemble($source, Some(check), $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
@@ -126,7 +126,7 @@ macro_rules! test_interpreter_and_jit_elf {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf::<SbfVerifier>(&elf, $config, syscall_registry).unwrap();
+            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(check), $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
@@ -2889,9 +2889,13 @@ fn test_err_mem_access_out_of_bound() {
         )
         .unwrap();
         #[allow(unused_mut)]
-        let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes::<
-            SbfVerifier,
-        >(&prog, config, syscall_registry, bpf_functions)
+        let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+            &prog,
+            Some(check),
+            config,
+            syscall_registry,
+            bpf_functions,
+        )
         .unwrap();
         test_interpreter_and_jit!(
             executable,
@@ -3406,12 +3410,13 @@ impl SyscallObject<UserError> for NestedVmSyscall {
                 )
                 .unwrap();
             let mem = [depth as u8 - 1, throw as u8];
-            let mut executable = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
+            let mut executable = assemble::<UserError, TestInstructionMeter>(
                 "
                 ldxb r2, [r1+1]
                 ldxb r1, [r1]
                 syscall NestedVmSyscall
                 exit",
+                Some(check),
                 Config::default(),
                 syscall_registry,
             )
@@ -3547,8 +3552,9 @@ fn test_custom_entrypoint() {
     let mut syscall_registry = SyscallRegistry::default();
     test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call);
     #[allow(unused_mut)]
-    let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf::<SbfVerifier>(
+    let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(
         &elf,
+        Some(check),
         config,
         syscall_registry,
     )
@@ -3975,7 +3981,7 @@ fn test_err_unresolved_elf() {
         ..Config::default()
     };
     assert!(
-        matches!(Executable::<UserError, TestInstructionMeter>::from_elf::<SbfVerifier>(&elf, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
+        matches!(Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(check), config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
     );
 }
 
@@ -4374,8 +4380,9 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         "entrypoint",
     )
     .unwrap();
-    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes::<SbfVerifier>(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
+        Some(check),
         config,
         syscall_registry,
         bpf_functions,

@@ -12,14 +12,15 @@ use solana_rbpf::{
     assembler::assemble,
     ebpf,
     user_error::UserError,
-    verifier::{SbfVerifier, TautologyVerifier},
+    verifier::check,
     vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
 use test_utils::{TCP_SACK_ASM, TCP_SACK_BIN};
 
 fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
-    let executable = assemble::<TautologyVerifier, UserError, TestInstructionMeter>(
+    let executable = assemble::<UserError, TestInstructionMeter>(
         src,
+        None,
         Config::default(),
         SyscallRegistry::default(),
     )?;
@@ -575,8 +576,9 @@ fn test_large_immediate() {
 
 #[test]
 fn test_tcp_sack() {
-    let executable = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
+    let executable = assemble::<UserError, TestInstructionMeter>(
         TCP_SACK_ASM,
+        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )

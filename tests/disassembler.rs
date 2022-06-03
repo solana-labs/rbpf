@@ -11,7 +11,6 @@ use solana_rbpf::{
     assembler::assemble,
     static_analysis::Analysis,
     user_error::UserError,
-    verifier::TautologyVerifier,
     vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
 
@@ -23,8 +22,9 @@ macro_rules! disasm {
             enable_symbol_and_section_labels: true,
             ..Config::default()
         };
-        let executable = assemble::<TautologyVerifier, UserError, TestInstructionMeter>(
+        let executable = assemble::<UserError, TestInstructionMeter>(
             src,
+            None,
             config,
             SyscallRegistry::default(),
         )

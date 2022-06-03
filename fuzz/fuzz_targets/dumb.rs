@@ -11,7 +11,7 @@ use solana_rbpf::{
     elf::{register_bpf_function, Executable},
     memory_region::MemoryRegion,
     user_error::UserError,
-    verifier::{SbfVerifier, TautologyVerifier, Verifier},
+    verifier::check,
     vm::{EbpfVm, SyscallRegistry, TestInstructionMeter},
 };
 
@@ -29,7 +29,7 @@ struct DumbFuzzData {
 fuzz_target!(|data: DumbFuzzData| {
     let prog = data.prog;
     let config = data.template.into();
-    if SbfVerifier::verify(&prog, &config).is_err() {
+    if check(&prog, &config).is_err() {
         // verify please
         return;
     }
@@ -37,8 +37,9 @@ fuzz_target!(|data: DumbFuzzData| {
     let registry = SyscallRegistry::default();
     let mut bpf_functions = BTreeMap::new();
     register_bpf_function(&config, &mut bpf_functions, &registry, 0, "entrypoint").unwrap();
-    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes::<TautologyVerifier>(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         &prog,
+        None,
         config,
         SyscallRegistry::default(),
         bpf_functions,

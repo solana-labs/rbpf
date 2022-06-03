@@ -79,21 +79,6 @@ pub enum VerifierError {
     InvalidRegister(usize),
 }
 
-/// Sanity checks for programs before they are compiled or executed
-pub trait Verifier {
-    /// Checks the BPF code in `prog` according to the rules from `config`
-    fn verify(prog: &[u8], config: &Config) -> Result<(), VerifierError>;
-}
-
-/// A `Verifier` that never rejects any program, used for testing only
-pub struct TautologyVerifier {}
-
-impl Verifier for TautologyVerifier {
-    fn verify(_prog: &[u8], _config: &Config) -> Result<(), VerifierError> {
-        Ok(())
-    }
-}
-
 fn adj_insn_ptr(insn_ptr: usize) -> usize {
     insn_ptr + ebpf::ELF_INSN_DUMP_OFFSET
 }
@@ -205,167 +190,163 @@ fn check_imm_register(
     Ok(())
 }
 
-/// The solana binary format verifier
-pub struct SbfVerifier {}
+/// Check the program against the verifier's rules
+#[rustfmt::skip]
+pub fn check(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
+    check_prog_len(prog)?;
 
-impl Verifier for SbfVerifier {
-    #[rustfmt::skip]
-    fn verify(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
-        check_prog_len(prog)?;
+    let mut insn_ptr: usize = 0;
+    while (insn_ptr + 1) * ebpf::INSN_SIZE <= prog.len() {
+        let insn = ebpf::get_insn(prog, insn_ptr);
+        let mut store = false;
 
-        let mut insn_ptr: usize = 0;
-        while (insn_ptr + 1) * ebpf::INSN_SIZE <= prog.len() {
-            let insn = ebpf::get_insn(prog, insn_ptr);
-            let mut store = false;
+        match insn.opc {
+            ebpf::LD_ABS_B
+            | ebpf::LD_ABS_H
+            | ebpf::LD_ABS_W
+            | ebpf::LD_ABS_DW
+            | ebpf::LD_IND_B
+            | ebpf::LD_IND_H
+            | ebpf::LD_IND_W
+            | ebpf::LD_IND_DW if config.disable_deprecated_load_instructions => {
+                return Err(VerifierError::UnknownOpCode(insn.opc, adj_insn_ptr(insn_ptr)));
+            },
 
-            match insn.opc {
-                ebpf::LD_ABS_B
-                | ebpf::LD_ABS_H
-                | ebpf::LD_ABS_W
-                | ebpf::LD_ABS_DW
-                | ebpf::LD_IND_B
-                | ebpf::LD_IND_H
-                | ebpf::LD_IND_W
-                | ebpf::LD_IND_DW if config.disable_deprecated_load_instructions => {
-                    return Err(VerifierError::UnknownOpCode(insn.opc, adj_insn_ptr(insn_ptr)));
-                },
+            // BPF_LD class
+            ebpf::LD_ABS_B   => {},
+            ebpf::LD_ABS_H   => {},
+            ebpf::LD_ABS_W   => {},
+            ebpf::LD_ABS_DW  => {},
+            ebpf::LD_IND_B   => {},
+            ebpf::LD_IND_H   => {},
+            ebpf::LD_IND_W   => {},
+            ebpf::LD_IND_DW  => {},
 
-                // BPF_LD class
-                ebpf::LD_ABS_B   => {},
-                ebpf::LD_ABS_H   => {},
-                ebpf::LD_ABS_W   => {},
-                ebpf::LD_ABS_DW  => {},
-                ebpf::LD_IND_B   => {},
-                ebpf::LD_IND_H   => {},
-                ebpf::LD_IND_W   => {},
-                ebpf::LD_IND_DW  => {},
+            ebpf::LD_DW_IMM  => {
+                check_load_dw(prog, insn_ptr)?;
+                insn_ptr += 1;
+            },
 
-                ebpf::LD_DW_IMM  => {
-                    check_load_dw(prog, insn_ptr)?;
-                    insn_ptr += 1;
-                },
+            // BPF_LDX class
+            ebpf::LD_B_REG   => {},
+            ebpf::LD_H_REG   => {},
+            ebpf::LD_W_REG   => {},
+            ebpf::LD_DW_REG  => {},
 
-                // BPF_LDX class
-                ebpf::LD_B_REG   => {},
-                ebpf::LD_H_REG   => {},
-                ebpf::LD_W_REG   => {},
-                ebpf::LD_DW_REG  => {},
+            // BPF_ST class
+            ebpf::ST_B_IMM   => store = true,
+            ebpf::ST_H_IMM   => store = true,
+            ebpf::ST_W_IMM   => store = true,
+            ebpf::ST_DW_IMM  => store = true,
 
-                // BPF_ST class
-                ebpf::ST_B_IMM   => store = true,
-                ebpf::ST_H_IMM   => store = true,
-                ebpf::ST_W_IMM   => store = true,
-                ebpf::ST_DW_IMM  => store = true,
+            // BPF_STX class
+            ebpf::ST_B_REG   => store = true,
+            ebpf::ST_H_REG   => store = true,
+            ebpf::ST_W_REG   => store = true,
+            ebpf::ST_DW_REG  => store = true,
 
-                // BPF_STX class
-                ebpf::ST_B_REG   => store = true,
-                ebpf::ST_H_REG   => store = true,
-                ebpf::ST_W_REG   => store = true,
-                ebpf::ST_DW_REG  => store = true,
+            // BPF_ALU class
+            ebpf::ADD32_IMM  => {},
+            ebpf::ADD32_REG  => {},
+            ebpf::SUB32_IMM  => {},
+            ebpf::SUB32_REG  => {},
+            ebpf::MUL32_IMM  => {},
+            ebpf::MUL32_REG  => {},
+            ebpf::DIV32_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
+            ebpf::DIV32_REG  => {},
+            ebpf::SDIV32_IMM if config.enable_sdiv => { check_imm_nonzero(&insn, insn_ptr)?; },
+            ebpf::SDIV32_REG if config.enable_sdiv => {},
+            ebpf::OR32_IMM   => {},
+            ebpf::OR32_REG   => {},
+            ebpf::AND32_IMM  => {},
+            ebpf::AND32_REG  => {},
+            ebpf::LSH32_IMM  => { check_imm_shift(&insn, insn_ptr, 32)?; },
+            ebpf::LSH32_REG  => {},
+            ebpf::RSH32_IMM  => { check_imm_shift(&insn, insn_ptr, 32)?; },
+            ebpf::RSH32_REG  => {},
+            ebpf::NEG32      => {},
+            ebpf::MOD32_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
+            ebpf::MOD32_REG  => {},
+            ebpf::XOR32_IMM  => {},
+            ebpf::XOR32_REG  => {},
+            ebpf::MOV32_IMM  => {},
+            ebpf::MOV32_REG  => {},
+            ebpf::ARSH32_IMM => { check_imm_shift(&insn, insn_ptr, 32)?; },
+            ebpf::ARSH32_REG => {},
+            ebpf::LE         => { check_imm_endian(&insn, insn_ptr)?; },
+            ebpf::BE         => { check_imm_endian(&insn, insn_ptr)?; },
 
-                // BPF_ALU class
-                ebpf::ADD32_IMM  => {},
-                ebpf::ADD32_REG  => {},
-                ebpf::SUB32_IMM  => {},
-                ebpf::SUB32_REG  => {},
-                ebpf::MUL32_IMM  => {},
-                ebpf::MUL32_REG  => {},
-                ebpf::DIV32_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
-                ebpf::DIV32_REG  => {},
-                ebpf::SDIV32_IMM if config.enable_sdiv => { check_imm_nonzero(&insn, insn_ptr)?; },
-                ebpf::SDIV32_REG if config.enable_sdiv => {},
-                ebpf::OR32_IMM   => {},
-                ebpf::OR32_REG   => {},
-                ebpf::AND32_IMM  => {},
-                ebpf::AND32_REG  => {},
-                ebpf::LSH32_IMM  => { check_imm_shift(&insn, insn_ptr, 32)?; },
-                ebpf::LSH32_REG  => {},
-                ebpf::RSH32_IMM  => { check_imm_shift(&insn, insn_ptr, 32)?; },
-                ebpf::RSH32_REG  => {},
-                ebpf::NEG32      => {},
-                ebpf::MOD32_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
-                ebpf::MOD32_REG  => {},
-                ebpf::XOR32_IMM  => {},
-                ebpf::XOR32_REG  => {},
-                ebpf::MOV32_IMM  => {},
-                ebpf::MOV32_REG  => {},
-                ebpf::ARSH32_IMM => { check_imm_shift(&insn, insn_ptr, 32)?; },
-                ebpf::ARSH32_REG => {},
-                ebpf::LE         => { check_imm_endian(&insn, insn_ptr)?; },
-                ebpf::BE         => { check_imm_endian(&insn, insn_ptr)?; },
+            // BPF_ALU64 class
+            ebpf::ADD64_IMM  => {},
+            ebpf::ADD64_REG  => {},
+            ebpf::SUB64_IMM  => {},
+            ebpf::SUB64_REG  => {},
+            ebpf::MUL64_IMM  => {},
+            ebpf::MUL64_REG  => {},
+            ebpf::DIV64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
+            ebpf::DIV64_REG  => {},
+            ebpf::SDIV64_IMM if config.enable_sdiv => { check_imm_nonzero(&insn, insn_ptr)?; },
+            ebpf::SDIV64_REG if config.enable_sdiv => {},
+            ebpf::OR64_IMM   => {},
+            ebpf::OR64_REG   => {},
+            ebpf::AND64_IMM  => {},
+            ebpf::AND64_REG  => {},
+            ebpf::LSH64_IMM  => { check_imm_shift(&insn, insn_ptr, 64)?; },
+            ebpf::LSH64_REG  => {},
+            ebpf::RSH64_IMM  => { check_imm_shift(&insn, insn_ptr, 64)?; },
+            ebpf::RSH64_REG  => {},
+            ebpf::NEG64      => {},
+            ebpf::MOD64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
+            ebpf::MOD64_REG  => {},
+            ebpf::XOR64_IMM  => {},
+            ebpf::XOR64_REG  => {},
+            ebpf::MOV64_IMM  => {},
+            ebpf::MOV64_REG  => {},
+            ebpf::ARSH64_IMM => { check_imm_shift(&insn, insn_ptr, 64)?; },
+            ebpf::ARSH64_REG => {},
 
-                // BPF_ALU64 class
-                ebpf::ADD64_IMM  => {},
-                ebpf::ADD64_REG  => {},
-                ebpf::SUB64_IMM  => {},
-                ebpf::SUB64_REG  => {},
-                ebpf::MUL64_IMM  => {},
-                ebpf::MUL64_REG  => {},
-                ebpf::DIV64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
-                ebpf::DIV64_REG  => {},
-                ebpf::SDIV64_IMM if config.enable_sdiv => { check_imm_nonzero(&insn, insn_ptr)?; },
-                ebpf::SDIV64_REG if config.enable_sdiv => {},
-                ebpf::OR64_IMM   => {},
-                ebpf::OR64_REG   => {},
-                ebpf::AND64_IMM  => {},
-                ebpf::AND64_REG  => {},
-                ebpf::LSH64_IMM  => { check_imm_shift(&insn, insn_ptr, 64)?; },
-                ebpf::LSH64_REG  => {},
-                ebpf::RSH64_IMM  => { check_imm_shift(&insn, insn_ptr, 64)?; },
-                ebpf::RSH64_REG  => {},
-                ebpf::NEG64      => {},
-                ebpf::MOD64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
-                ebpf::MOD64_REG  => {},
-                ebpf::XOR64_IMM  => {},
-                ebpf::XOR64_REG  => {},
-                ebpf::MOV64_IMM  => {},
-                ebpf::MOV64_REG  => {},
-                ebpf::ARSH64_IMM => { check_imm_shift(&insn, insn_ptr, 64)?; },
-                ebpf::ARSH64_REG => {},
+            // BPF_JMP class
+            ebpf::JA         => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JEQ_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JEQ_REG    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JGT_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JGT_REG    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JGE_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JGE_REG    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JLT_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JLT_REG    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JLE_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JLE_REG    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JSET_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JSET_REG   => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JNE_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JNE_REG    => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JSGT_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JSGT_REG   => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JSGE_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JSGE_REG   => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JSLT_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr)?; },
+            ebpf::CALL_IMM   => {},
+            ebpf::CALL_REG   => { check_imm_register(&insn, insn_ptr, config)?; },
+            ebpf::EXIT       => {},
 
-                // BPF_JMP class
-                ebpf::JA         => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JEQ_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JEQ_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JGT_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JGT_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JGE_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JGE_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JLT_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JLT_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JLE_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JLE_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSET_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSET_REG   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JNE_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JNE_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSGT_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSGT_REG   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSGE_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSGE_REG   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSLT_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::CALL_IMM   => {},
-                ebpf::CALL_REG   => { check_imm_register(&insn, insn_ptr, config)?; },
-                ebpf::EXIT       => {},
-
-                _                => {
-                    return Err(VerifierError::UnknownOpCode(insn.opc, adj_insn_ptr(insn_ptr)));
-                }
+            _                => {
+                return Err(VerifierError::UnknownOpCode(insn.opc, adj_insn_ptr(insn_ptr)));
             }
-
-            check_registers(&insn, store, insn_ptr, config.dynamic_stack_frames)?;
-
-            insn_ptr += 1;
         }
 
-        // insn_ptr should now be equal to number of instructions.
-        if insn_ptr != prog.len() / ebpf::INSN_SIZE {
-            return Err(VerifierError::JumpOutOfCode(adj_insn_ptr(insn_ptr), adj_insn_ptr(insn_ptr)));
-        }
+        check_registers(&insn, store, insn_ptr, config.dynamic_stack_frames)?;
 
-        Ok(())
+        insn_ptr += 1;
     }
+
+    // insn_ptr should now be equal to number of instructions.
+    if insn_ptr != prog.len() / ebpf::INSN_SIZE {
+        return Err(VerifierError::JumpOutOfCode(adj_insn_ptr(insn_ptr), adj_insn_ptr(insn_ptr)));
+    }
+
+    Ok(())
 }

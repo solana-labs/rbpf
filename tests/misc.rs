@@ -26,7 +26,7 @@ use solana_rbpf::{
     fuzz::fuzz,
     syscalls::{BpfSyscallContext, BpfSyscallString, BpfSyscallU64},
     user_error::UserError,
-    verifier::SbfVerifier,
+    verifier::check,
     vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read};
@@ -127,10 +127,12 @@ fn test_fuzz_execute() {
                     BpfSyscallU64::call,
                 )
                 .unwrap();
-            if let Ok(executable) = Executable::<UserError, TestInstructionMeter>::from_elf::<
-                SbfVerifier,
-            >(bytes, Config::default(), syscall_registry)
-            {
+            if let Ok(executable) = Executable::<UserError, TestInstructionMeter>::from_elf(
+                bytes,
+                Some(check),
+                Config::default(),
+                syscall_registry,
+            ) {
                 let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(
                     &executable,
                     &mut [],
