@@ -13,7 +13,7 @@ use solana_rbpf::{
     memory_region::MemoryRegion,
     static_analysis::Analysis,
     user_error::UserError,
-    verifier::check,
+    verifier::{SbfVerifier, TautologyVerifier, Verifier},
     vm::{EbpfVm, InstructionMeter, SyscallRegistry, TestInstructionMeter},
 };
 
@@ -38,7 +38,7 @@ fn dump_insns<E: UserDefinedError, I: InstructionMeter>(executable: &Executable<
 fuzz_target!(|data: FuzzData| {
     let prog = make_program(&data.prog);
     let config = data.template.into();
-    if check(prog.into_bytes(), &config).is_err() {
+    if SbfVerifier::verify(prog.into_bytes(), &config).is_err() {
         // verify please
         return;
     }
@@ -47,9 +47,8 @@ fuzz_target!(|data: FuzzData| {
     let registry = SyscallRegistry::default();
     let mut bpf_functions = BTreeMap::new();
     register_bpf_function(&config, &mut bpf_functions, &registry, 0, "entrypoint").unwrap();
-    let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes::<TautologyVerifier>(
         prog.into_bytes(),
-        None,
         config,
         SyscallRegistry::default(),
         bpf_functions,

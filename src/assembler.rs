@@ -20,7 +20,8 @@ use crate::{
     ebpf::{self, Insn},
     elf::{register_bpf_function, Executable},
     error::UserDefinedError,
-    vm::{Config, InstructionMeter, SyscallRegistry, Verifier},
+    verifier::Verifier,
+    vm::{Config, InstructionMeter, SyscallRegistry},
 };
 use std::{
     collections::{BTreeMap, HashMap},
@@ -186,15 +187,14 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{assembler::assemble, user_error::UserError, vm::{Config, TestInstructionMeter, SyscallRegistry}, verifier::check};
-/// let executable = assemble::<UserError, TestInstructionMeter>(
+/// use solana_rbpf::{assembler::assemble, user_error::UserError, vm::{Config, TestInstructionMeter, SyscallRegistry}, verifier::SbfVerifier};
+/// let executable = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
 ///    "add64 r1, 0x605
 ///     mov64 r2, 0x32
 ///     mov64 r1, r0
 ///     be16 r0
 ///     neg64 r2
 ///     exit",
-///     Some(check),
 ///     Config::default(),
 ///     SyscallRegistry::default(),
 /// ).unwrap();
@@ -219,9 +219,8 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///  0x87, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ///  0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
 /// ```
-pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
+pub fn assemble<V: Verifier, E: UserDefinedError, I: 'static + InstructionMeter>(
     src: &str,
-    verifier: Option<Verifier>,
     config: Config,
     syscall_registry: SyscallRegistry,
 ) -> Result<Pin<Box<Executable<E, I>>>, String> {
@@ -389,6 +388,6 @@ pub fn assemble<E: UserDefinedError, I: 'static + InstructionMeter>(
         .iter()
         .flat_map(|insn| insn.to_vec())
         .collect::<Vec<_>>();
-    Executable::<E, I>::from_text_bytes(&program, verifier, config, syscall_registry, bpf_functions)
+    Executable::<E, I>::from_text_bytes::<V>(&program, config, syscall_registry, bpf_functions)
         .map_err(|err| format!("Executable constructor {:?}", err))
 }

@@ -26,29 +26,18 @@ use solana_rbpf::{
     assembler::assemble,
     ebpf,
     elf::Executable,
-    error::UserDefinedError,
     user_error::UserError,
-    verifier::{check, VerifierError},
+    verifier::{SbfVerifier, TautologyVerifier, Verifier, VerifierError},
     vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
-use thiserror::Error;
-
-/// Error definitions
-#[derive(Debug, Error)]
-pub enum VerifierTestError {
-    #[error("{0}")]
-    Rejected(String),
-}
-impl UserDefinedError for VerifierTestError {}
 
 #[test]
 fn test_verifier_success() {
-    let executable = assemble::<UserError, TestInstructionMeter>(
+    let executable = assemble::<TautologyVerifier, UserError, TestInstructionMeter>(
         "
         mov32 r0, 0xBEE
         exit",
-        Some(|_prog: &[u8], _config: &Config| Ok(())),
         Config::default(),
         SyscallRegistry::default(),
     )
@@ -60,14 +49,16 @@ fn test_verifier_success() {
 #[test]
 #[should_panic(expected = "NoProgram")]
 fn test_verifier_fail() {
-    fn verifier_fail(_prog: &[u8], _config: &Config) -> Result<(), VerifierError> {
-        Err(VerifierError::NoProgram)
+    struct FailingVerifier {}
+    impl Verifier for FailingVerifier {
+        fn verify(_prog: &[u8], _config: &Config) -> Result<(), VerifierError> {
+            Err(VerifierError::NoProgram)
+        }
     }
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let _executable = assemble::<FailingVerifier, UserError, TestInstructionMeter>(
         "
         mov32 r0, 0xBEE
         exit",
-        Some(verifier_fail),
         Config::default(),
         SyscallRegistry::default(),
     )
@@ -77,12 +68,11 @@ fn test_verifier_fail() {
 #[test]
 #[should_panic(expected = "DivisionByZero(30)")]
 fn test_verifier_err_div_by_zero_imm() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let _executable = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
         "
         mov32 r0, 1
         div32 r0, 0
         exit",
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )
@@ -97,9 +87,8 @@ fn test_verifier_err_endian_size() {
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes::<SbfVerifier>(
         prog,
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
         BTreeMap::default(),
@@ -115,9 +104,8 @@ fn test_verifier_err_incomplete_lddw() {
         0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes::<SbfVerifier>(
         prog,
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
         BTreeMap::default(),
@@ -131,11 +119,10 @@ fn test_verifier_err_invalid_reg_dst() {
     // allowed when dynamic_stack_frames=true
     for dynamic_stack_frames in [false, true] {
         assert_eq!(
-            assemble::<UserError, TestInstructionMeter>(
+            assemble::<SbfVerifier, UserError, TestInstructionMeter>(
                 "
                 mov r11, 1
                 exit",
-                Some(check),
                 Config {
                     dynamic_stack_frames,
                     ..Config::default()
@@ -154,11 +141,10 @@ fn test_verifier_err_invalid_reg_src() {
     // allowed when dynamic_stack_frames=true
     for dynamic_stack_frames in [false, true] {
         assert_eq!(
-            assemble::<UserError, TestInstructionMeter>(
+            assemble::<SbfVerifier, UserError, TestInstructionMeter>(
                 "
                 mov r0, r11
                 exit",
-                Some(check),
                 Config {
                     dynamic_stack_frames,
                     ..Config::default()
@@ -173,12 +159,11 @@ fn test_verifier_err_invalid_reg_src() {
 
 #[test]
 fn test_verifier_resize_stack_ptr_success() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let _executable = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
         "
         sub r11, 1
         add r11, 1
         exit",
-        Some(check),
         Config {
             dynamic_stack_frames: true,
             enable_stack_frame_gaps: false,
@@ -192,12 +177,11 @@ fn test_verifier_resize_stack_ptr_success() {
 #[test]
 #[should_panic(expected = "JumpToMiddleOfLDDW(2, 29)")]
 fn test_verifier_err_jmp_lddw() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let _executable = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
         "
         ja +1
         lddw r0, 0x1122334455667788
         exit",
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )
@@ -207,11 +191,10 @@ fn test_verifier_err_jmp_lddw() {
 #[test]
 #[should_panic(expected = "JumpOutOfCode(3, 29)")]
 fn test_verifier_err_jmp_out_end() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let _executable = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
         "
         ja +2
         exit",
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )
@@ -221,11 +204,10 @@ fn test_verifier_err_jmp_out_end() {
 #[test]
 #[should_panic(expected = "JumpOutOfCode(18446744073709551615, 29)")]
 fn test_verifier_err_jmp_out_start() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let _executable = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
         "
         ja -2
         exit",
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )
@@ -239,9 +221,8 @@ fn test_verifier_err_unknown_opcode() {
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let _ = Executable::<UserError, TestInstructionMeter>::from_text_bytes::<SbfVerifier>(
         prog,
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
         BTreeMap::default(),
@@ -252,11 +233,10 @@ fn test_verifier_err_unknown_opcode() {
 #[test]
 #[should_panic(expected = "CannotWriteR10(29)")]
 fn test_verifier_err_write_r10() {
-    let _executable = assemble::<UserError, TestInstructionMeter>(
+    let _executable = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
         "
         mov r10, 1
         exit",
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
     )
@@ -291,9 +271,8 @@ fn test_verifier_err_all_shift_overflows() {
 
     for (overflowing_instruction, expected) in testcases {
         let assembly = format!("\n{}\nexit", overflowing_instruction);
-        let result = assemble::<UserError, TestInstructionMeter>(
+        let result = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
             &assembly,
-            Some(check),
             Config::default(),
             SyscallRegistry::default(),
         );
@@ -326,9 +305,8 @@ fn test_verifier_err_ldabs_ldind_disabled() {
     for (opc, instruction) in instructions {
         for disable_deprecated_load_instructions in [true, false] {
             let assembly = format!("\n{}\nexit", instruction);
-            let result = assemble::<UserError, TestInstructionMeter>(
+            let result = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
                 &assembly,
-                Some(check),
                 Config {
                     disable_deprecated_load_instructions,
                     ..Config::default()
@@ -364,9 +342,8 @@ fn test_sdiv_disabled() {
     for (opc, instruction) in instructions {
         for enable_sdiv in [true, false] {
             let assembly = format!("\n{}\nexit", instruction);
-            let result = assemble::<UserError, TestInstructionMeter>(
+            let result = assemble::<SbfVerifier, UserError, TestInstructionMeter>(
                 &assembly,
-                Some(check),
                 Config {
                     enable_sdiv,
                     ..Config::default()

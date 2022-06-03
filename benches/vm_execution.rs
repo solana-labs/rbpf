@@ -14,6 +14,7 @@ use solana_rbpf::{
     elf::Executable,
     memory_region::MemoryRegion,
     user_error::UserError,
+    verifier::TautologyVerifier,
     vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read};
@@ -24,9 +25,8 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = Executable::<UserError, TestInstructionMeter>::from_elf(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_elf::<TautologyVerifier>(
         &elf,
-        None,
         Config::default(),
         SyscallRegistry::default(),
     )
@@ -45,13 +45,13 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(
-        &elf,
-        None,
-        Config::default(),
-        SyscallRegistry::default(),
-    )
-    .unwrap();
+    let mut executable =
+        Executable::<UserError, TestInstructionMeter>::from_elf::<TautologyVerifier>(
+            &elf,
+            Config::default(),
+            SyscallRegistry::default(),
+        )
+        .unwrap();
     Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
     let mut vm =
         EbpfVm::<UserError, TestInstructionMeter>::new(&executable, &mut [], Vec::new()).unwrap();
@@ -69,12 +69,11 @@ fn bench_jit_vs_interpreter(
     instruction_meter: u64,
     mem: &mut [u8],
 ) {
-    let mut executable = solana_rbpf::assembler::assemble::<UserError, TestInstructionMeter>(
-        assembly,
-        None,
-        config,
-        SyscallRegistry::default(),
-    )
+    let mut executable = solana_rbpf::assembler::assemble::<
+        TautologyVerifier,
+        UserError,
+        TestInstructionMeter,
+    >(assembly, config, SyscallRegistry::default())
     .unwrap();
     Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
     let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);

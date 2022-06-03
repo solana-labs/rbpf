@@ -11,7 +11,7 @@ use solana_rbpf::{
     insn_builder::{Arch, Instruction, IntoBytes},
     memory_region::MemoryRegion,
     user_error::UserError,
-    verifier::check,
+    verifier::{SbfVerifier, TautologyVerifier, Verifier},
     vm::{EbpfVm, SyscallRegistry, TestInstructionMeter},
 };
 
@@ -40,7 +40,7 @@ fuzz_target!(|data: FuzzData| {
         .set_imm(data.exit_imm)
         .push();
     let config = data.template.into();
-    if check(prog.into_bytes(), &config).is_err() {
+    if SbfVerifier::verify(prog.into_bytes(), &config).is_err() {
         // verify please
         return;
     }
@@ -49,9 +49,8 @@ fuzz_target!(|data: FuzzData| {
     let registry = SyscallRegistry::default();
     let mut bpf_functions = BTreeMap::new();
     register_bpf_function(&config, &mut bpf_functions, &registry, 0, "entrypoint").unwrap();
-    let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes::<TautologyVerifier>(
         prog.into_bytes(),
-        None,
         config,
         SyscallRegistry::default(),
         bpf_functions,

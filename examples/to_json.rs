@@ -16,7 +16,7 @@ use solana_rbpf::{
     elf::Executable,
     static_analysis::Analysis,
     user_error::UserError,
-    verifier::check,
+    verifier::SbfVerifier,
     vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
@@ -30,9 +30,8 @@ use std::collections::BTreeMap;
 // * Print integers as integers, and not as strings containing their hexadecimal representation
 //   (just replace the relevant `format!()` calls by the commented values.
 fn to_json(program: &[u8]) -> String {
-    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes::<SbfVerifier>(
         &program,
-        Some(check),
         Config::default(),
         SyscallRegistry::default(),
         BTreeMap::default(),

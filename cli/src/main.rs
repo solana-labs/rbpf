@@ -7,7 +7,7 @@ use solana_rbpf::{
     static_analysis::Analysis,
     syscalls::Result,
     user_error::UserError,
-    verifier::check,
+    verifier::SbfVerifier,
     vm::{Config, DynamicAnalysis, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read, path::Path};
@@ -106,12 +106,6 @@ fn main() {
                 .short('p')
                 .long("prof"),
         )
-        .arg(
-            Arg::new("verify")
-                .about("Run the verifier before execution or disassembly")
-                .short('v')
-                .long("veri"),
-        )
         .get_matches();
 
     let config = Config {
@@ -119,21 +113,14 @@ fn main() {
         enable_symbol_and_section_labels: true,
         ..Config::default()
     };
-    let verifier: Option<for<'r> fn(&'r [u8], &Config) -> std::result::Result<_, _>> =
-        if matches.is_present("verify") {
-            Some(check)
-        } else {
-            None
-        };
     let syscall_registry = SyscallRegistry::default();
     let mut executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(&Path::new(asm_file_name)).unwrap();
             let mut source = Vec::new();
             file.read_to_end(&mut source).unwrap();
-            assemble::<UserError, TestInstructionMeter>(
+            assemble::<SbfVerifier, UserError, TestInstructionMeter>(
                 std::str::from_utf8(source.as_slice()).unwrap(),
-                verifier,
                 config,
                 syscall_registry,
             )
@@ -142,9 +129,8 @@ fn main() {
             let mut file = File::open(&Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            Executable::<UserError, TestInstructionMeter>::from_elf(
+            Executable::<UserError, TestInstructionMeter>::from_elf::<SbfVerifier>(
                 &elf,
-                verifier,
                 config,
                 syscall_registry,
             )

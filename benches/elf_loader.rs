@@ -14,6 +14,7 @@ use solana_rbpf::{
     elf::Executable,
     syscalls::{BpfSyscallContext, BpfSyscallU64},
     user_error::UserError,
+    verifier::TautologyVerifier,
     vm::{Config, SyscallObject, SyscallRegistry, TestInstructionMeter},
 };
 use std::{fs::File, io::Read};
@@ -37,9 +38,8 @@ fn bench_load_elf(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        Executable::<UserError, TestInstructionMeter>::from_elf(
+        Executable::<UserError, TestInstructionMeter>::from_elf::<TautologyVerifier>(
             &elf,
-            None,
             Config::default(),
             syscall_registry(),
         )
@@ -53,13 +53,13 @@ fn bench_load_elf_without_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        let executable = Executable::<UserError, TestInstructionMeter>::from_elf(
-            &elf,
-            None,
-            Config::default(),
-            syscall_registry(),
-        )
-        .unwrap();
+        let executable =
+            Executable::<UserError, TestInstructionMeter>::from_elf::<TautologyVerifier>(
+                &elf,
+                Config::default(),
+                syscall_registry(),
+            )
+            .unwrap();
         executable
     });
 }
@@ -70,13 +70,13 @@ fn bench_load_elf_with_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        let executable = Executable::<UserError, TestInstructionMeter>::from_elf(
-            &elf,
-            None,
-            Config::default(),
-            syscall_registry(),
-        )
-        .unwrap();
+        let executable =
+            Executable::<UserError, TestInstructionMeter>::from_elf::<TautologyVerifier>(
+                &elf,
+                Config::default(),
+                syscall_registry(),
+            )
+            .unwrap();
         executable
     });
 }
