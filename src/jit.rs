@@ -46,8 +46,11 @@ pub struct JitProgramArgument<'a> {
 }
 
 struct JitProgramSections {
+    /// OS page size in bytes and the alignment of the sections
     page_size: usize,
-    pc_section: &'static mut [*const u8],
+    /// A `*const u8` pointer into the text_section for each BPF instruction
+    pc_section: &'static mut [usize],
+    /// The x86 machinecode
     text_section: &'static mut [u8],
 }
 
@@ -101,7 +104,7 @@ impl JitProgramSections {
             libc_error_guard!(mmap, &mut raw, pc_loc_table_size + over_allocated_code_size, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_ANONYMOUS | libc::MAP_PRIVATE, 0, 0);
             Ok(Self {
                 page_size,
-                pc_section: std::slice::from_raw_parts_mut(raw as *mut *const u8, pc),
+                pc_section: std::slice::from_raw_parts_mut(raw as *mut usize, pc),
                 text_section: std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size) as *mut u8, over_allocated_code_size),
             })
         }
@@ -983,7 +986,7 @@ impl JitCompiler {
                 return Err(EbpfError::ExhausedTextSegment(self.pc));
             }
             let mut insn = ebpf::get_insn_unchecked(program, self.pc);
-            self.result.pc_section[self.pc] = unsafe { text_section_base.add(self.offset_in_text_section) };
+            self.result.pc_section[self.pc] = unsafe { text_section_base.add(self.offset_in_text_section) } as usize;
 
             // Regular instruction meter checkpoints to prevent long linear runs from exceeding their budget
             if self.last_instruction_meter_validation_pc + self.config.instruction_meter_checkpoint_distance <= self.pc {
@@ -1049,7 +1052,7 @@ impl JitCompiler {
                 ebpf::LD_DW_IMM  => {
                     emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2));
                     self.pc += 1;
-                    self.result.pc_section[self.pc] = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION];
+                    self.result.pc_section[self.pc] = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
                     ebpf::augment_lddw_unchecked(program, &mut insn);
                     if should_sanitize_constant(self, insn.imm) {
                         emit_sanitized_load_immediate(self, OperandSize::S64, dst, insn.imm);
@@ -1329,7 +1332,7 @@ impl JitCompiler {
             self.pc += 1;
         }
         // Bumper so that the linear search of ANCHOR_TRANSLATE_PC can not run off
-        self.result.pc_section[self.pc] = unsafe { text_section_base.add(self.offset_in_text_section) };
+        self.result.pc_section[self.pc] = unsafe { text_section_base.add(self.offset_in_text_section) } as usize;
 
         // Bumper in case there was no final exit
         if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
@@ -1754,9 +1757,9 @@ impl JitCompiler {
     #[inline]
     fn relative_to_target_pc(&mut self, target_pc: usize, instruction_length: usize) -> i32 {
         let instruction_end = unsafe { self.result.text_section.as_ptr().add(self.offset_in_text_section).add(instruction_length) };
-        let destination = if !self.result.pc_section[target_pc].is_null() {
+        let destination = if self.result.pc_section[target_pc] != 0 {
             // Backward jump
-            self.result.pc_section[target_pc]
+            self.result.pc_section[target_pc] as *const u8
         } else {
             // Forward jump, needs relocation
             self.text_section_jumps.push(Jump { location: unsafe { instruction_end.sub(4) }, target_pc });
@@ -1769,15 +1772,15 @@ impl JitCompiler {
     fn resolve_jumps(&mut self) {
         // Relocate forward jumps
         for jump in &self.text_section_jumps {
-            let destination = self.result.pc_section[jump.target_pc];
+            let destination = self.result.pc_section[jump.target_pc] as *const u8;
             let offset_value = 
                 unsafe { destination.offset_from(jump.location) } as i32 // Relative jump
                 - mem::size_of::<i32>() as i32; // Jump from end of instruction
             unsafe { ptr::write_unaligned(jump.location as *mut i32, offset_value); }
         }
         // There is no `VerifierError::JumpToMiddleOfLDDW` for `call imm` so patch it here
-        let call_unsupported_instruction = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION];
-        let callx_unsupported_instruction = self.anchors[ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION];
+        let call_unsupported_instruction = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
+        let callx_unsupported_instruction = self.anchors[ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION] as usize;
         for offset in self.result.pc_section.iter_mut() {
             if *offset == call_unsupported_instruction {
                 *offset = callx_unsupported_instruction;
