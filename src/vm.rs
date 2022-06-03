@@ -276,6 +276,7 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> Executable<E, I> {
         <V as Verifier>::verify(executable.get_text_bytes().1, executable.get_config())?;
         Ok(Pin::new(Box::new(executable)))
     }
+
     /// Creates a verified executable from machine code
     pub fn from_text_bytes<V: Verifier>(
         text_bytes: &[u8],
@@ -283,13 +284,10 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> Executable<E, I> {
         syscall_registry: SyscallRegistry,
         bpf_functions: BTreeMap<u32, (usize, String)>,
     ) -> Result<Pin<Box<Self>>, EbpfError<E>> {
-        <V as Verifier>::verify(text_bytes, &config).map_err(EbpfError::VerifierError)?;
-        Ok(Pin::new(Box::new(Executable::new_from_text_bytes(
-            config,
-            text_bytes,
-            syscall_registry,
-            bpf_functions,
-        ))))
+        let executable =
+            Executable::new_from_text_bytes(config, text_bytes, syscall_registry, bpf_functions);
+        <V as Verifier>::verify(executable.get_text_bytes().1, executable.get_config())?;
+        Ok(Pin::new(Box::new(executable)))
     }
 }
 
