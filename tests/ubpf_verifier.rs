@@ -28,7 +28,7 @@ use solana_rbpf::{
     elf::Executable,
     error::UserDefinedError,
     user_error::UserError,
-    verifier::{check, VerifierError},
+    verifier::{RequisiteVerifier, Verifier, VerifierError},
     vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 use std::collections::BTreeMap;
@@ -42,6 +42,20 @@ pub enum VerifierTestError {
 }
 impl UserDefinedError for VerifierTestError {}
 
+struct TautologyVerifier {}
+impl Verifier for TautologyVerifier {
+    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
+        Ok(())
+    }
+}
+
+struct ContradictionVerifier {}
+impl Verifier for ContradictionVerifier {
+    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
+        Err(VerifierError::NoProgram)
+    }
+}
+
 #[test]
 fn test_verifier_success() {
     let executable = assemble::<UserError, TestInstructionMeter>(
@@ -53,19 +67,21 @@ fn test_verifier_success() {
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(()))
-            .unwrap();
-    let _vm =
-        EbpfVm::<UserError, TestInstructionMeter>::new(&verified_executable, &mut [], Vec::new())
-            .unwrap();
+        VerifiedExecutable::<TautologyVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
+    let _vm = EbpfVm::<TautologyVerifier, UserError, TestInstructionMeter>::new(
+        &verified_executable,
+        &mut [],
+        Vec::new(),
+    )
+    .unwrap();
 }
 
 #[test]
 #[should_panic(expected = "NoProgram")]
 fn test_verifier_fail() {
-    fn verifier_fail(_prog: &[u8], _config: &Config) -> Result<(), VerifierError> {
-        Err(VerifierError::NoProgram)
-    }
     let executable = assemble::<UserError, TestInstructionMeter>(
         "
         mov32 r0, 0xBEE
@@ -74,8 +90,12 @@ fn test_verifier_fail() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let _verified_executable =
-        VerifiedExecutable::from_executable(executable, verifier_fail).unwrap();
+    let _verified_executable = VerifiedExecutable::<
+        ContradictionVerifier,
+        UserError,
+        TestInstructionMeter,
+    >::from_executable(executable)
+    .unwrap();
 }
 
 #[test]
@@ -90,7 +110,11 @@ fn test_verifier_err_div_by_zero_imm() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
+    let _verified_executable =
+        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -108,7 +132,11 @@ fn test_verifier_err_endian_size() {
         BTreeMap::default(),
     )
     .unwrap();
-    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
+    let _verified_executable =
+        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -126,7 +154,11 @@ fn test_verifier_err_incomplete_lddw() {
         BTreeMap::default(),
     )
     .unwrap();
-    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
+    let _verified_executable =
+        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -145,7 +177,7 @@ fn test_verifier_err_invalid_reg_dst() {
             SyscallRegistry::default(),
         )
         .unwrap();
-        let result = VerifiedExecutable::from_executable(executable, check)
+        let result = VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(executable)
             .map_err(|err| format!("Executable constructor {:?}", err));
 
         assert_eq!(
@@ -171,7 +203,7 @@ fn test_verifier_err_invalid_reg_src() {
             SyscallRegistry::default(),
         )
         .unwrap();
-        let result = VerifiedExecutable::from_executable(executable, check)
+        let result = VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(executable)
             .map_err(|err| format!("Executable constructor {:?}", err));
 
         assert_eq!(
@@ -196,7 +228,11 @@ fn test_verifier_resize_stack_ptr_success() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
+    let _verified_executable =
+        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -211,7 +247,11 @@ fn test_verifier_err_jmp_lddw() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
+    let _verified_executable =
+        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -225,7 +265,11 @@ fn test_verifier_err_jmp_out() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
+    let _verified_executable =
+        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -239,7 +283,11 @@ fn test_verifier_err_jmp_out_start() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
+    let _verified_executable =
+        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -256,7 +304,11 @@ fn test_verifier_err_unknown_opcode() {
         BTreeMap::default(),
     )
     .unwrap();
-    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
+    let _verified_executable =
+        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -270,7 +322,11 @@ fn test_verifier_err_write_r10() {
         SyscallRegistry::default(),
     )
     .unwrap();
-    let _verified_executable = VerifiedExecutable::from_executable(executable, check).unwrap();
+    let _verified_executable =
+        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -307,7 +363,7 @@ fn test_verifier_err_all_shift_overflows() {
             SyscallRegistry::default(),
         )
         .unwrap();
-        let result = VerifiedExecutable::from_executable(executable, check)
+        let result = VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(executable)
             .map_err(|err| format!("Executable constructor {:?}", err));
         match expected {
             Ok(()) => assert!(result.is_ok()),
@@ -347,7 +403,7 @@ fn test_verifier_err_ldabs_ldind_disabled() {
                 SyscallRegistry::default(),
             )
             .unwrap();
-            let result = VerifiedExecutable::from_executable(executable, check)
+            let result = VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(executable)
                 .map_err(|err| format!("Executable constructor {:?}", err));
             if disable_deprecated_load_instructions {
                 assert_eq!(
@@ -386,7 +442,7 @@ fn test_sdiv_disabled() {
                 SyscallRegistry::default(),
             )
             .unwrap();
-            let result = VerifiedExecutable::from_executable(executable, check)
+            let result = VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(executable)
                 .map_err(|err| format!("Executable constructor {:?}", err));
             if enable_sdiv {
                 assert!(result.is_ok());

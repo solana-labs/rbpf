@@ -26,7 +26,7 @@ use solana_rbpf::{
     fuzz::fuzz,
     syscalls::{BpfSyscallContext, BpfSyscallString, BpfSyscallU64},
     user_error::UserError,
-    verifier::check,
+    verifier::RequisiteVerifier,
     vm::{
         Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
     },
@@ -134,10 +134,13 @@ fn test_fuzz_execute() {
                 Config::default(),
                 syscall_registry,
             ) {
-                if let Ok(verified_executable) =
-                    VerifiedExecutable::from_executable(executable, check)
+                if let Ok(verified_executable) = VerifiedExecutable::<
+                    RequisiteVerifier,
+                    UserError,
+                    TestInstructionMeter,
+                >::from_executable(executable)
                 {
-                    let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(
+                    let mut vm = EbpfVm::<RequisiteVerifier, UserError, TestInstructionMeter>::new(
                         &verified_executable,
                         &mut [],
                         Vec::new(),

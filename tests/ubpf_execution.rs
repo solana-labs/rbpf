@@ -22,12 +22,20 @@ use solana_rbpf::{
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     syscalls::{self, BpfSyscallContext, Result},
     user_error::UserError,
+    verifier::{RequisiteVerifier, Verifier, VerifierError},
     vm::{
         Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
     },
 };
 use std::{collections::BTreeMap, fs::File, io::Read};
 use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
+
+struct TautologyVerifier {}
+impl Verifier for TautologyVerifier {
+    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
+        Ok(())
+    }
+}
 
 macro_rules! test_interpreter_and_jit {
     (register, $syscall_registry:expr, $location:expr => $syscall_init:expr; $syscall_function:expr) => {
@@ -42,11 +50,12 @@ macro_rules! test_interpreter_and_jit {
         #[allow(unused_mut)]
         let mut check_closure = $check;
         #[allow(unused_mut)]
-        let mut verified_executable =
-            VerifiedExecutable::from_executable($executable, |_prog: &[u8], _config: &Config| {
-                Ok(())
-            })
-            .unwrap();
+        let mut verified_executable = VerifiedExecutable::<
+            RequisiteVerifier,
+            UserError,
+            TestInstructionMeter,
+        >::from_executable($executable)
+        .unwrap();
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
@@ -142,15 +151,7 @@ macro_rules! test_interpreter_and_jit_elf {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
-<<<<<<< HEAD
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(check), $config, syscall_registry).unwrap();
-=======
-<<<<<<< HEAD
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(solana_rbpf::verifier::check), $config, syscall_registry).unwrap();
-=======
             let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, $config, syscall_registry).unwrap();
->>>>>>> 8dba993 (Verifier is not optional)
->>>>>>> ba982fe (Verifier is not optional)
             test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
@@ -2915,10 +2916,6 @@ fn test_err_mem_access_out_of_bound() {
         #[allow(unused_mut)]
         let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
             &prog,
-<<<<<<< HEAD
-            Some(check),
-=======
->>>>>>> ba982fe (Verifier is not optional)
             config,
             syscall_registry,
             bpf_functions,
@@ -3399,7 +3396,7 @@ fn test_syscall_with_context() {
             b"SyscallWithContext" => syscalls::SyscallWithContext::init::< syscalls::BpfSyscallContext, UserError>; syscalls::SyscallWithContext::call
         ),
         42,
-        { |vm: &EbpfVm<UserError, TestInstructionMeter>, res: Result| {
+        { |vm: &EbpfVm<RequisiteVerifier, UserError, TestInstructionMeter>, res: Result| {
             let syscall_context_object = unsafe { &*(vm.get_syscall_context_object(syscalls::SyscallWithContext::call as usize).unwrap() as *const syscalls::SyscallWithContext) };
             assert_eq!(syscall_context_object.context, 84);
             res.unwrap() == 0
@@ -3443,10 +3440,6 @@ impl SyscallObject<UserError> for NestedVmSyscall {
                 ldxb r1, [r1]
                 syscall NestedVmSyscall
                 exit",
-<<<<<<< HEAD
-                Some(check),
-=======
->>>>>>> ba982fe (Verifier is not optional)
                 Config::default(),
                 syscall_registry,
             )
@@ -3582,19 +3575,9 @@ fn test_custom_entrypoint() {
     let mut syscall_registry = SyscallRegistry::default();
     test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call);
     #[allow(unused_mut)]
-<<<<<<< HEAD
-    let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(
-        &elf,
-        Some(check),
-        config,
-        syscall_registry,
-    )
-    .unwrap();
-=======
     let mut executable =
         Executable::<UserError, TestInstructionMeter>::from_elf(&elf, config, syscall_registry)
             .unwrap();
->>>>>>> ba982fe (Verifier is not optional)
     test_interpreter_and_jit!(
         executable,
         [],
@@ -4017,11 +4000,7 @@ fn test_err_unresolved_elf() {
         ..Config::default()
     };
     assert!(
-<<<<<<< HEAD
-        matches!(Executable::<UserError, TestInstructionMeter>::from_elf(&elf, Some(check), config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
-=======
         matches!(Executable::<UserError, TestInstructionMeter>::from_elf(&elf, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
->>>>>>> ba982fe (Verifier is not optional)
     );
 }
 
@@ -4422,10 +4401,6 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     .unwrap();
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         prog,
-<<<<<<< HEAD
-        Some(check),
-=======
->>>>>>> ba982fe (Verifier is not optional)
         config,
         syscall_registry,
         bpf_functions,
@@ -4435,8 +4410,11 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     } else {
         return false;
     };
-    let verified_executable =
-        VerifiedExecutable::from_executable(executable, solana_rbpf::verifier::check);
+    let verified_executable = VerifiedExecutable::<
+        solana_rbpf::verifier::RequisiteVerifier,
+        UserError,
+        TestInstructionMeter,
+    >::from_executable(executable);
     let mut verified_executable = if let Ok(verified_executable) = verified_executable {
         verified_executable
     } else {

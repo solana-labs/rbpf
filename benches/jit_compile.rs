@@ -12,10 +12,18 @@ extern crate test;
 use solana_rbpf::{
     elf::Executable,
     user_error::UserError,
+    verifier::{Verifier, VerifierError},
     vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
+
+struct TautologyVerifier {}
+impl Verifier for TautologyVerifier {
+    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
+        Ok(())
+    }
+}
 
 #[bench]
 fn bench_init_vm(bencher: &mut Bencher) {
@@ -29,12 +37,11 @@ fn bench_init_vm(bencher: &mut Bencher) {
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(()))
-            .unwrap();
-    bencher.iter(|| {
-        EbpfVm::<UserError, TestInstructionMeter>::new(&verified_executable, &mut [], Vec::new())
-            .unwrap()
-    });
+        VerifiedExecutable::<TautologyVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
+    bencher.iter(|| EbpfVm::new(&verified_executable, &mut [], Vec::new()).unwrap());
 }
 
 #[cfg(not(windows))]
@@ -50,7 +57,9 @@ fn bench_jit_compile(bencher: &mut Bencher) {
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(()))
-            .unwrap();
+        VerifiedExecutable::<TautologyVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
     bencher.iter(|| verified_executable.jit_compile().unwrap());
 }

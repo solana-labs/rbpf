@@ -11,11 +11,11 @@ use solana_rbpf::{
     elf::{register_bpf_function, Executable},
     memory_region::MemoryRegion,
     user_error::UserError,
-    verifier::check,
-    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
+    verifier::{RequisiteVerifier, Verifier},
+    vm::{EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 
-use crate::common::ConfigTemplate;
+use crate::common::{ConfigTemplate, TautologyVerifier};
 
 mod common;
 
@@ -29,7 +29,7 @@ struct DumbFuzzData {
 fuzz_target!(|data: DumbFuzzData| {
     let prog = data.prog;
     let config = data.template.into();
-    if check(&prog, &config).is_err() {
+    if RequisiteVerifier::verify(&prog, &config).is_err() {
         // verify please
         return;
     }
@@ -45,15 +45,12 @@ fuzz_target!(|data: DumbFuzzData| {
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(()))
-            .unwrap();
+        VerifiedExecutable::<TautologyVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::<UserError, TestInstructionMeter>::new(
-        &verified_executable,
-        &mut [],
-        vec![mem_region],
-    )
-    .unwrap();
+    let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
 
     drop(black_box(vm.execute_program_interpreted(
         &mut TestInstructionMeter { remaining: 1024 },

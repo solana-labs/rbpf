@@ -18,6 +18,7 @@ use crate::{
     error::{EbpfError, UserDefinedError},
     memory_region::AccessType,
     user_error::UserError,
+    verifier::Verifier,
     vm::{
         EbpfVm, InstructionMeter, ProgramResult, SyscallFunction, SYSCALL_CONTEXT_OBJECTS_OFFSET,
     },
@@ -57,9 +58,8 @@ macro_rules! translate_memory_access {
 }
 
 /// State of an interpreter
-pub struct Interpreter<'a, 'b, E: UserDefinedError, I: InstructionMeter> {
-    vm: &'a mut EbpfVm<'b, E, I>,
-
+pub struct Interpreter<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> {
+    vm: &'a mut EbpfVm<'b, V, E, I>,
     instruction_meter: &'a mut I,
     pub(crate) initial_insn_count: u64,
     remaining_insn_count: u64,
@@ -71,10 +71,10 @@ pub struct Interpreter<'a, 'b, E: UserDefinedError, I: InstructionMeter> {
     pub pc: usize,
 }
 
-impl<'a, 'b, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, E, I> {
+impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, V, E, I> {
     /// Creates a new interpreter state
     pub fn new(
-        vm: &'a mut EbpfVm<'b, E, I>,
+        vm: &'a mut EbpfVm<'b, V, E, I>,
         instruction_meter: &'a mut I,
     ) -> Result<Self, EbpfError<E>> {
         let executable = vm.verified_executable.get_executable();

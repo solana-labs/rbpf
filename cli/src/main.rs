@@ -7,7 +7,7 @@ use solana_rbpf::{
     static_analysis::Analysis,
     syscalls::Result,
     user_error::UserError,
-    verifier::check,
+    verifier::RequisiteVerifier,
     vm::{
         Config, DynamicAnalysis, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter,
         VerifiedExecutable,
@@ -109,23 +109,12 @@ fn main() {
                 .short('p')
                 .long("prof"),
         )
-        .arg(
-            Arg::new("verify")
-                .about("Run the verifier before execution or disassembly")
-                .short('v')
-                .long("veri"),
-        )
         .get_matches();
 
     let config = Config {
         enable_instruction_tracing: matches.is_present("trace") || matches.is_present("profile"),
         enable_symbol_and_section_labels: true,
         ..Config::default()
-    };
-    let verifier = if matches.is_present("verify") {
-        check
-    } else {
-        |_prog: &[u8], _config: &Config| Ok(())
     };
     let syscall_registry = SyscallRegistry::default();
     let executable = match matches.value_of("assembler") {
@@ -150,7 +139,10 @@ fn main() {
     .unwrap();
 
     let mut verified_executable =
-        VerifiedExecutable::from_executable(executable, verifier).unwrap();
+        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
 
     let mut mem = match matches.value_of("input").unwrap().parse::<usize>() {
         Ok(allocate) => vec![0u8; allocate],

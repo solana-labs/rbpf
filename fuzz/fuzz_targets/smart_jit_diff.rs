@@ -11,11 +11,11 @@ use solana_rbpf::{
     insn_builder::{Arch, Instruction, IntoBytes},
     memory_region::MemoryRegion,
     user_error::UserError,
-    verifier::check,
-    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
+    verifier::{RequisiteVerifier, Verifier},
+    vm::{EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 
-use crate::common::ConfigTemplate;
+use crate::common::{ConfigTemplate, TautologyVerifier};
 
 mod common;
 mod grammar_aware;
@@ -40,7 +40,7 @@ fuzz_target!(|data: FuzzData| {
         .set_imm(data.exit_imm)
         .push();
     let config = data.template.into();
-    if check(prog.into_bytes(), &config).is_err() {
+    if RequisiteVerifier::verify(prog.into_bytes(), &config).is_err() {
         // verify please
         return;
     }
@@ -57,23 +57,16 @@ fuzz_target!(|data: FuzzData| {
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::from_executable(executable, |_prog: &[u8], _config: &Config| Ok(()))
-            .unwrap();
+        VerifiedExecutable::<TautologyVerifier, UserError, TestInstructionMeter>::from_executable(
+            executable,
+        )
+        .unwrap();
     if verified_executable.jit_compile().is_ok() {
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
-        let mut interp_vm = EbpfVm::<UserError, TestInstructionMeter>::new(
-            &verified_executable,
-            &mut [],
-            vec![interp_mem_region],
-        )
-        .unwrap();
+        let mut interp_vm =
+            EbpfVm::new(&verified_executable, &mut [], vec![interp_mem_region]).unwrap();
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
-        let mut jit_vm = EbpfVm::<UserError, TestInstructionMeter>::new(
-            &verified_executable,
-            &mut [],
-            vec![jit_mem_region],
-        )
-        .unwrap();
+        let mut jit_vm = EbpfVm::new(&verified_executable, &mut [], vec![jit_mem_region]).unwrap();
 
         let mut interp_meter = TestInstructionMeter { remaining: 1 << 16 };
         let interp_res = interp_vm.execute_program_interpreted(&mut interp_meter);
