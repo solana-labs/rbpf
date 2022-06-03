@@ -3412,10 +3412,8 @@ impl SyscallObject<UserError> for NestedVmSyscall {
             let mem = [depth as u8 - 1, throw as u8];
             let mut executable = assemble::<UserError, TestInstructionMeter>(
                 "
-                ldabsb 0
-                mov64 r1, r0
-                ldabsb 1
-                mov64 r2, r0
+                ldxb r2, [r1+1]
+                ldxb r1, [r1]
                 syscall NestedVmSyscall
                 exit",
                 Some(check),
@@ -3433,7 +3431,7 @@ impl SyscallObject<UserError> for NestedVmSyscall {
                         true
                     }
                 },
-                if throw == 0 { 6 } else { 5 }
+                if throw == 0 { 4 } else { 3 }
             );
         } else {
             *result = if throw == 0 {
