@@ -22,20 +22,13 @@ use solana_rbpf::{
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     syscalls::{self, BpfSyscallContext, Result},
     user_error::UserError,
-    verifier::{RequisiteVerifier, Verifier, VerifierError},
+    verifier::RequisiteVerifier,
     vm::{
         Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
     },
 };
 use std::{collections::BTreeMap, fs::File, io::Read};
 use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
-
-struct TautologyVerifier {}
-impl Verifier for TautologyVerifier {
-    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
-        Ok(())
-    }
-}
 
 macro_rules! test_interpreter_and_jit {
     (register, $syscall_registry:expr, $location:expr => $syscall_init:expr; $syscall_function:expr) => {

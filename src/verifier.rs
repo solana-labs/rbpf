@@ -368,3 +368,11 @@ impl Verifier for RequisiteVerifier {
         Ok(())
     }
 }
+
+// Warning: For test purposes only
+pub(crate) struct TautologyVerifier {}
+impl Verifier for TautologyVerifier {
+    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
+        Ok(())
+    }
+}

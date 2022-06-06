@@ -14,8 +14,9 @@ use solana_rbpf::{
     verifier::{RequisiteVerifier, Verifier},
     vm::{EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
+use test_utils::TautologyVerifier;
 
-use crate::common::{ConfigTemplate, TautologyVerifier};
+use crate::common::ConfigTemplate;
 
 mod common;
 mod grammar_aware;

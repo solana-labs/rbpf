@@ -2,10 +2,7 @@ use std::mem::size_of;
 
 use arbitrary::{Arbitrary, Unstructured};
 
-use solana_rbpf::{
-    verifier::{Verifier, VerifierError},
-    vm::Config,
-};
+use solana_rbpf::vm::Config;
 
 #[derive(Debug)]
 pub struct ConfigTemplate {
@@ -86,12 +83,5 @@ impl From<ConfigTemplate> for Config {
                 ..Default::default()
             },
         }
-    }
-}
-
-pub struct TautologyVerifier {}
-impl Verifier for TautologyVerifier {
-    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
-        Ok(())
     }
 }

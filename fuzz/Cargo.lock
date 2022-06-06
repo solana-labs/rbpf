@@ -371,6 +371,7 @@ dependencies = [
  "num-traits",
  "rayon",
  "solana_rbpf",
+ "test_utils",
 ]
 
 [[package]]
@@ -382,6 +383,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-xid",
+]
+
+[[package]]
+name = "test_utils"
+version = "0.2.30"
+dependencies = [
+ "libc",
+ "solana_rbpf",
 ]
 
 [[package]]

@@ -32,6 +32,7 @@ use solana_rbpf::{
     vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 use std::collections::BTreeMap;
+use test_utils::TautologyVerifier;
 use thiserror::Error;
 
 /// Error definitions
@@ -41,13 +42,6 @@ pub enum VerifierTestError {
     Rejected(String),
 }
 impl UserDefinedError for VerifierTestError {}
-
-struct TautologyVerifier {}
-impl Verifier for TautologyVerifier {
-    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
-        Ok(())
-    }
-}
 
 struct ContradictionVerifier {}
 impl Verifier for ContradictionVerifier {

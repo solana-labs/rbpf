@@ -151,3 +151,13 @@ pub const TCP_SACK_NOMATCH: [u8; 66] = [
     0x08, 0x0a, 0x00, 0x17, 0x95, 0x6f, 0x8d, 0x9d, //
     0x9e, 0x27, //
 ];
+
+pub struct TautologyVerifier {}
+impl solana_rbpf::verifier::Verifier for TautologyVerifier {
+    fn verify(
+        _prog: &[u8],
+        _config: &solana_rbpf::vm::Config,
+    ) -> std::result::Result<(), solana_rbpf::verifier::VerifierError> {
+        Ok(())
+    }
+}

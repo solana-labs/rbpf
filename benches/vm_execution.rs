@@ -14,18 +14,11 @@ use solana_rbpf::{
     elf::Executable,
     memory_region::MemoryRegion,
     user_error::UserError,
-    verifier::{Verifier, VerifierError},
     vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
-
-struct TautologyVerifier {}
-impl Verifier for TautologyVerifier {
-    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
-        Ok(())
-    }
-}
+use test_utils::TautologyVerifier;
 
 #[bench]
 fn bench_init_interpreter_execution(bencher: &mut Bencher) {
