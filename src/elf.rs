@@ -49,7 +49,7 @@ pub enum ElfError {
     /// Unresolved symbol
     #[error("Unresolved symbol ({0}) at instruction #{1:?} (ELF file offset {2:#x})")]
     UnresolvedSymbol(String, usize, usize),
-    /// Section no found
+    /// Section not found
     #[error("Section not found: {0}")]
     SectionNotFound(String),
     /// Relative jump out of bounds
@@ -527,7 +527,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     #[rustfmt::skip]
     pub fn mem_size(&self) -> usize {
         let total = mem::size_of::<Self>()
-            // elf bytres
+            // elf bytes
             .saturating_add(self.elf_bytes.mem_size())
             // ro section
             .saturating_add(match &self.ro_section {
@@ -957,7 +957,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                     // symbol at index `r_sym`
                     let mut addr = symbol.st_value.saturating_add(refd_addr) as u64;
 
-                    // The "physical address" from the VM's perspetive is rooted
+                    // The "physical address" from the VM's perspective is rooted
                     // at `MM_PROGRAM_START`. If the linker hasn't already put
                     // the symbol within `MM_PROGRAM_START`, we need to do so
                     // now.

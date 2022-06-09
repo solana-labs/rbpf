@@ -87,8 +87,8 @@ pub enum EbpfError<E: UserDefinedError> {
     #[error("unsupported instruction at instruction {0}")]
     UnsupportedInstruction(usize),
     /// Compilation is too big to fit
-    #[error("Compilation exhaused text segment at instruction {0}")]
-    ExhausedTextSegment(usize),
+    #[error("Compilation exhausted text segment at instruction {0}")]
+    ExhaustedTextSegment(usize),
     /// Libc function call returned an error
     #[error("Libc calling {0} {1:?} returned error code {2}")]
     LibcInvocationFailed(&'static str, Vec<String>, i32),

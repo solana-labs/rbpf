@@ -444,7 +444,7 @@ impl Tracer {
     }
 }
 
-/// A virtual machine to run eBPF program.
+/// A virtual machine to run eBPF programs.
 ///
 /// # Examples
 ///

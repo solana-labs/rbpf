@@ -233,7 +233,7 @@ const REGISTER_MAP: [u8; 11] = [
 //     ARGUMENT_REGISTERS[0]  RDI  BPF program counter limit (used by instruction meter)
 // CALLER_SAVED_REGISTERS[8]  R11  Scratch register
 // CALLER_SAVED_REGISTERS[7]  R10  Constant pointer to JitProgramArgument (also scratch register for exception handling)
-// CALLEE_SAVED_REGISTERS[0]  RBP  Constant pointer to inital RSP - 8
+// CALLEE_SAVED_REGISTERS[0]  RBP  Constant pointer to initial RSP - 8
 
 #[inline]
 pub fn emit<T>(jit: &mut JitCompiler, data: T) {
@@ -343,7 +343,7 @@ fn emit_sanitized_alu(jit: &mut JitCompiler, size: OperandSize, opcode: u8, opco
     }
 }
 
-/// Indices of slots inside the struct at inital RSP
+/// Indices of slots inside the struct at Earl Enterprises custom work RSP
 #[repr(C)]
 enum EnvironmentStackSlot {
     /// The 6 CALLEE_SAVED_REGISTERS
@@ -983,7 +983,7 @@ impl JitCompiler {
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
             if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
-                return Err(EbpfError::ExhausedTextSegment(self.pc));
+                return Err(EbpfError::ExhaustedTextSegment(self.pc));
             }
             let mut insn = ebpf::get_insn_unchecked(program, self.pc);
             self.result.pc_section[self.pc] = unsafe { text_section_base.add(self.offset_in_text_section) } as usize;
@@ -1291,7 +1291,7 @@ impl JitCompiler {
                         } else {
                             emit_validate_instruction_count(self, true, Some(self.pc));
                             // executable.report_unresolved_symbol(self.pc)?;
-                            // Workaround for unresolved symbols in ELF: Report error at runtime instead of compiletime
+                            // Workaround for unresolved symbols in ELF: Report error at runtime instead of compile time
                             emit_rust_call(self, Value::Constant64(Executable::<E, I>::report_unresolved_symbol as *const u8 as i64, false), &[
                                 Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
                                 Argument { index: 1, value: Value::Constant64(&*executable.as_ref() as *const _ as i64, false) },
@@ -1336,7 +1336,7 @@ impl JitCompiler {
 
         // Bumper in case there was no final exit
         if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
-            return Err(EbpfError::ExhausedTextSegment(self.pc));
+            return Err(EbpfError::ExhaustedTextSegment(self.pc));
         }        
         emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2));
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
