@@ -268,6 +268,31 @@ impl<'a> Elf64<'a> {
             .ok_or(ElfParserError::InvalidString)
     }
 
+    /// Returns the string corresponding to the given `sh_name`
+    pub fn section_name(&self, sh_name: Elf64Word) -> Result<&'a str, ElfParserError> {
+        self.get_string_in_section(
+            self.section_names_section_header.unwrap(),
+            sh_name,
+            SECTION_NAME_LENGTH_MAXIMUM,
+        )
+    }
+
+    /// Returns the string corresponding to the given  `st_name`
+    pub fn symbol_name(&self, st_name: Elf64Word) -> Result<&'a str, ElfParserError> {
+        self.get_string_in_section(
+            self.symbol_names_section_header.unwrap(),
+            st_name,
+            SYMBOL_NAME_LENGTH_MAXIMUM,
+        )
+    }
+
+    /// Returns the symbol table
+    pub fn symbol_table(&self) -> Result<Option<&'a [Elf64Sym]>, ElfParserError> {
+        self.symbol_section_header
+            .map(|section_header| self.get_symbol_table_of_section(section_header))
+            .transpose()
+    }
+
     /// Returns the symbol table of a section which is marked as SHT_SYMTAB
     pub fn get_symbol_table_of_section(
         &self,
