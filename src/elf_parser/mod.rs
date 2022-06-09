@@ -32,6 +32,8 @@ pub enum ElfParserError {
     Overlap,
     /// Sections are not sorted in ascending order
     SectionNotInOrder,
+    /// No section name string table present in the file
+    NoSectionNameStringTable,
 }
 
 fn check_that_there_is_no_overlap(
@@ -51,11 +53,11 @@ pub struct Elf64<'a> {
     file_header: &'a Elf64Ehdr,
     program_header_table: &'a [Elf64Phdr],
     section_header_table: &'a [Elf64Shdr],
+    section_names_section_header: Option<&'a Elf64Shdr>,
     text_section_header: Option<&'a Elf64Shdr>,
     readonly_data_section_header: Option<&'a Elf64Shdr>,
     symbol_section_header: Option<&'a Elf64Shdr>,
     symbol_names_section_header: Option<&'a Elf64Shdr>,
-    section_names_section_header: Option<&'a Elf64Shdr>,
 }
 
 impl<'a> Elf64<'a> {
@@ -150,16 +152,24 @@ impl<'a> Elf64<'a> {
             offset = section_range.end;
         }
 
+        let section_names_section_header = (file_header.e_shstrndx != SHN_UNDEF)
+            .then(|| {
+                section_header_table
+                    .get(file_header.e_shstrndx as usize)
+                    .ok_or(ElfParserError::OutOfBounds)
+            })
+            .transpose()?;
+
         Ok(Self {
             elf_bytes,
             file_header,
             program_header_table,
             section_header_table,
+            section_names_section_header,
             text_section_header: None,
             readonly_data_section_header: None,
             symbol_section_header: None,
             symbol_names_section_header: None,
-            section_names_section_header: None,
         })
     }
 
@@ -204,10 +214,11 @@ impl<'a> Elf64<'a> {
         {
             return Err(ElfParserError::InvalidSectionHeader);
         }
-        let section_names_section_header = &self
-            .section_header_table
-            .get(self.file_header.e_shstrndx as usize)
-            .ok_or(ElfParserError::OutOfBounds)?;
+
+        let section_names_section_header = self
+            .section_names_section_header
+            .ok_or(ElfParserError::NoSectionNameStringTable)?;
+
         macro_rules! section_header_by_name {
             ($self:expr, $section_header:expr, $section_name:expr,
              $($name:literal => $field:ident,)*) => {
@@ -236,7 +247,6 @@ impl<'a> Elf64<'a> {
                 ".strtab" => symbol_names_section_header,
             )
         }
-        self.section_names_section_header = Some(section_names_section_header);
         Ok(())
     }
 
@@ -271,7 +281,8 @@ impl<'a> Elf64<'a> {
     /// Returns the string corresponding to the given `sh_name`
     pub fn section_name(&self, sh_name: Elf64Word) -> Result<&'a str, ElfParserError> {
         self.get_string_in_section(
-            self.section_names_section_header.unwrap(),
+            self.section_names_section_header
+                .ok_or(ElfParserError::NoSectionNameStringTable)?,
             sh_name,
             SECTION_NAME_LENGTH_MAXIMUM,
         )

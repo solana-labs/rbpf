@@ -64,3 +64,5 @@ pub const SHF_LINK_ORDER: Elf64Xword = 0x80;
 pub const SHF_OS_NONCONFORMING: Elf64Xword = 0x100;
 pub const SHF_GROUP: Elf64Xword = 0x200;
 pub const SHF_TLS: Elf64Xword = 0x400;
+
+pub const SHN_UNDEF: Elf64Half = 0;
