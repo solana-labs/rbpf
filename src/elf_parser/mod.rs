@@ -160,7 +160,7 @@ impl<'a> Elf64<'a> {
             })
             .transpose()?;
 
-        Ok(Self {
+        Self {
             elf_bytes,
             file_header,
             program_header_table,
@@ -170,7 +170,44 @@ impl<'a> Elf64<'a> {
             readonly_data_section_header: None,
             symbol_section_header: None,
             symbol_names_section_header: None,
-        })
+            dynamic_section_header: None,
+        }
+        .finish_loading()
+    }
+
+    fn finish_loading(mut self) -> Result<Self, ElfParserError> {
+        macro_rules! section_header_by_name {
+            ($self:expr, $section_header:expr, $section_name:expr,
+             $($name:literal => $field:ident,)*) => {
+                match $section_name {
+                    $($name => {
+                        if $self.$field.is_some() {
+                            return Err(ElfParserError::InvalidSectionHeader);
+                        }
+                        $self.$field = Some($section_header);
+                    })*
+                    _ => {}
+                }
+            }
+        }
+        let section_names_section_header = self
+            .section_names_section_header
+            .ok_or(ElfParserError::NoSectionNameStringTable)?;
+        for section_header in self.section_header_table.iter() {
+            let section_name = self.get_string_in_section(
+                section_names_section_header,
+                section_header.sh_name,
+                SECTION_NAME_LENGTH_MAXIMUM,
+            )?;
+            section_header_by_name!(
+                self, section_header, section_name,
+                ".text" => text_section_header,
+                ".rodata" => readonly_data_section_header,
+                ".symtab" => symbol_section_header,
+                ".strtab" => symbol_names_section_header,
+            )
+        }
+        Ok(self)
     }
 
     /// Check that the platform supports the layout and configuration
@@ -219,34 +256,6 @@ impl<'a> Elf64<'a> {
             .section_names_section_header
             .ok_or(ElfParserError::NoSectionNameStringTable)?;
 
-        macro_rules! section_header_by_name {
-            ($self:expr, $section_header:expr, $section_name:expr,
-             $($name:literal => $field:ident,)*) => {
-                match $section_name {
-                    $($name => {
-                        if $self.$field.is_some() {
-                            return Err(ElfParserError::InvalidSectionHeader);
-                        }
-                        $self.$field = Some($section_header);
-                    })*
-                    _ => {}
-                }
-            }
-        }
-        for section_header in self.section_header_table.iter() {
-            let section_name = self.get_string_in_section(
-                section_names_section_header,
-                section_header.sh_name,
-                SECTION_NAME_LENGTH_MAXIMUM,
-            )?;
-            section_header_by_name!(
-                self, section_header, section_name,
-                ".text" => text_section_header,
-                ".rodata" => readonly_data_section_header,
-                ".symtab" => symbol_section_header,
-                ".strtab" => symbol_names_section_header,
-            )
-        }
         Ok(())
     }
 
