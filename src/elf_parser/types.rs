@@ -7,7 +7,7 @@ pub type Elf64Addr = u64;
 pub type Elf64Off = u64;
 pub type Elf64Section = u16;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ElfIdent {
     pub ei_mag: [u8; 4],
@@ -19,7 +19,7 @@ pub struct ElfIdent {
     pub ei_pad: [u8; 7],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Elf64Ehdr {
     pub e_ident: ElfIdent,
@@ -38,7 +38,7 @@ pub struct Elf64Ehdr {
     pub e_shstrndx: Elf64Half,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Elf64Phdr {
     pub p_type: Elf64Word,
@@ -51,7 +51,7 @@ pub struct Elf64Phdr {
     pub p_align: Elf64Xword,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Elf64Shdr {
     pub sh_name: Elf64Word,
@@ -66,7 +66,7 @@ pub struct Elf64Shdr {
     pub sh_entsize: Elf64Xword,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Elf64Sym {
     pub st_name: Elf64Word,
