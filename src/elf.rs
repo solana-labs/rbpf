@@ -1334,7 +1334,7 @@ mod test {
             ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
         );
 
-        parsed_elf.header.e_entry = std::u64::MAX;
+        parsed_elf.header.e_entry = u64::MAX;
         let mut elf_bytes = elf_bytes;
         elf_bytes.pwrite(parsed_elf.header, 0).unwrap();
         assert_eq!(

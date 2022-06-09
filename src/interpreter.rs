@@ -23,7 +23,6 @@ use crate::{
         EbpfVm, InstructionMeter, ProgramResult, SyscallFunction, SYSCALL_CONTEXT_OBJECTS_OFFSET,
     },
 };
-use std::u32;
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
 macro_rules! translate_memory_access {

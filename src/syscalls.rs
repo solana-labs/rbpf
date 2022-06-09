@@ -27,7 +27,7 @@ use crate::{
     user_error::UserError,
     vm::SyscallObject,
 };
-use std::{slice::from_raw_parts, str::from_utf8, u64};
+use std::{slice::from_raw_parts, str::from_utf8};
 
 /// Test syscall context
 pub type BpfSyscallContext = u64;

@@ -472,12 +472,11 @@ impl X86Instruction {
     #[inline]
     pub const fn load_immediate(size: OperandSize, destination: u8, immediate: i64) -> Self {
         exclude_operand_sizes!(size, OperandSize::S0 | OperandSize::S8 | OperandSize::S16);
-        let immediate_size =
-            if immediate >= std::i32::MIN as i64 && immediate <= std::i32::MAX as i64 {
-                OperandSize::S32
-            } else {
-                OperandSize::S64
-            };
+        let immediate_size = if immediate >= i32::MIN as i64 && immediate <= i32::MAX as i64 {
+            OperandSize::S32
+        } else {
+            OperandSize::S64
+        };
         match immediate_size {
             OperandSize::S32 => Self {
                 size,

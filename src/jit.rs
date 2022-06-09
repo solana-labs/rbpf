@@ -295,7 +295,7 @@ fn emit_sanitized_load_immediate(jit: &mut JitCompiler, size: OperandSize, desti
             emit_ins(jit, X86Instruction::alu(size, 0xc1, 1, destination, 32, None)); // rotate_right(32)
             emit_ins(jit, X86Instruction::alu(size, 0x81, 0, destination, lower_key, None)); // wrapping_add(lower_key)
         },
-        OperandSize::S64 if value >= std::i32::MIN as i64 && value <= std::i32::MAX as i64 => {
+        OperandSize::S64 if value >= i32::MIN as i64 && value <= i32::MAX as i64 => {
             let key = jit.diversification_rng.gen::<i32>() as i64;
             emit_ins(jit, X86Instruction::load_immediate(size, destination, value.wrapping_sub(key)));
             emit_ins(jit, X86Instruction::alu(size, 0x81, 0, destination, key, None));
@@ -959,7 +959,7 @@ impl JitCompiler {
             offset_in_text_section: 0,
             pc: 0,
             last_instruction_meter_validation_pc: 0,
-            next_noop_insertion: if config.noop_instruction_rate == 0 { std::u32::MAX } else { diversification_rng.gen_range(0..config.noop_instruction_rate * 2) },
+            next_noop_insertion: if config.noop_instruction_rate == 0 { u32::MAX } else { diversification_rng.gen_range(0..config.noop_instruction_rate * 2) },
             program_vm_addr: 0,
             anchors: [std::ptr::null(); ANCHOR_COUNT],
             config: *config,

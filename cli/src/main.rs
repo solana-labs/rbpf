@@ -95,7 +95,7 @@ fn main() {
                 .long("lim")
                 .takes_value(true)
                 .value_name("COUNT")
-                .default_value(&std::i64::MAX.to_string()),
+                .default_value(&i64::MAX.to_string()),
         )
         .arg(
             Arg::new("trace")

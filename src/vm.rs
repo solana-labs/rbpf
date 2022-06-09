@@ -30,7 +30,6 @@ use std::{
     marker::PhantomData,
     mem,
     pin::Pin,
-    u32,
 };
 
 /// Return value of programs and syscalls
@@ -365,7 +364,7 @@ impl DynamicAnalysis {
             edge_counter_max: 0,
             edges: BTreeMap::new(),
         };
-        let mut last_basic_block = std::usize::MAX;
+        let mut last_basic_block = usize::MAX;
         for traced_instruction in tracer.log.iter() {
             let pc = traced_instruction[11] as usize;
             if analysis.cfg_nodes.contains_key(&pc) {

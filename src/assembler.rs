@@ -165,10 +165,10 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
     if dst < 0 || src >= 16 {
         return Err(format!("Invalid source register {}", src));
     }
-    if off < std::i16::MIN as i64 || off > std::i16::MAX as i64 {
+    if off < i16::MIN as i64 || off > i16::MAX as i64 {
         return Err(format!("Invalid offset {}", off));
     }
-    if imm < std::i32::MIN as i64 || imm > std::i32::MAX as i64 {
+    if imm < i32::MIN as i64 || imm > i32::MAX as i64 {
         return Err(format!("Invalid immediate {}", imm));
     }
     Ok(Insn {
