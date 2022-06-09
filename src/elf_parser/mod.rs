@@ -1,6 +1,6 @@
 //! Dependency-less 64 bit ELF parser
 
-mod consts;
+pub mod consts;
 pub mod types;
 
 use std::convert::TryInto;
