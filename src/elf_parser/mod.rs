@@ -28,12 +28,18 @@ pub enum ElfParserError {
     InvalidString,
     /// An index or memory range does exeed its boundaries
     OutOfBounds,
+    /// The size isn't valid
+    InvalidSize,
     /// Headers, tables or sections do overlap in the file
     Overlap,
     /// Sections are not sorted in ascending order
     SectionNotInOrder,
     /// No section name string table present in the file
     NoSectionNameStringTable,
+    /// Invalid .dynamic section table
+    InvalidDynamicSectionTable,
+    /// Invalid relocation table
+    InvalidRelocationTable,
 }
 
 fn check_that_there_is_no_overlap(
@@ -58,6 +64,10 @@ pub struct Elf64<'a> {
     readonly_data_section_header: Option<&'a Elf64Shdr>,
     symbol_section_header: Option<&'a Elf64Shdr>,
     symbol_names_section_header: Option<&'a Elf64Shdr>,
+    dynamic_table: [Elf64Xword; DT_NUM],
+    pub dynamic_relocations: Option<&'a [Elf64Rel]>,
+    pub dynamic_symbol_table: Option<&'a [Elf64Sym]>,
+    dynamic_symbol_names_section_header: Option<&'a Elf64Shdr>,
 }
 
 impl<'a> Elf64<'a> {
@@ -160,7 +170,7 @@ impl<'a> Elf64<'a> {
             })
             .transpose()?;
 
-        Self {
+        let mut parser = Self {
             elf_bytes,
             file_header,
             program_header_table,
@@ -170,12 +180,19 @@ impl<'a> Elf64<'a> {
             readonly_data_section_header: None,
             symbol_section_header: None,
             symbol_names_section_header: None,
-            dynamic_section_header: None,
-        }
-        .finish_loading()
+            dynamic_table: [0; DT_NUM],
+            dynamic_relocations: None,
+            dynamic_symbol_table: None,
+            dynamic_symbol_names_section_header: None,
+        };
+
+        parser.parse_sections()?;
+        parser.parse_dynamic()?;
+
+        Ok(parser)
     }
 
-    fn finish_loading(mut self) -> Result<Self, ElfParserError> {
+    fn parse_sections(&mut self) -> Result<(), ElfParserError> {
         macro_rules! section_header_by_name {
             ($self:expr, $section_header:expr, $section_name:expr,
              $($name:literal => $field:ident,)*) => {
@@ -205,9 +222,104 @@ impl<'a> Elf64<'a> {
                 ".rodata" => readonly_data_section_header,
                 ".symtab" => symbol_section_header,
                 ".strtab" => symbol_names_section_header,
+                ".dynstr" => dynamic_symbol_names_section_header,
             )
         }
-        Ok(self)
+
+        Ok(())
+    }
+
+    fn parse_dynamic(&mut self) -> Result<(), ElfParserError> {
+        let mut dynamic_table: Option<&[Elf64Dyn]> = None;
+
+        // try to parse PT_DYNAMIC
+        if let Some(dynamic_program_header) = self
+            .program_header_table
+            .iter()
+            .find(|program_header| program_header.p_type == PT_DYNAMIC)
+        {
+            dynamic_table = self.slice_from_program_header(dynamic_program_header).ok();
+        }
+
+        // if PT_DYNAMIC does not exist or is invalid (some of our tests have this),
+        // fallback to parsing SHT_DYNAMIC
+        if dynamic_table.is_none() {
+            if let Some(dynamic_section_header) = self
+                .section_header_table
+                .iter()
+                .find(|section_header| section_header.sh_type == SHT_DYNAMIC)
+            {
+                dynamic_table = Some(
+                    self.slice_from_section_header(dynamic_section_header)
+                        .map_err(|_| ElfParserError::InvalidDynamicSectionTable)?,
+                );
+            }
+        }
+
+        // if there are neither PT_DYNAMIC nor SHT_DYNAMIC, this is a static
+        // file
+        let dynamic_table = match dynamic_table {
+            Some(table) => table,
+            None => return Ok(()),
+        };
+
+        // expand Elf64Dyn entries into self.dynamic_table
+        for dyn_info in dynamic_table {
+            if dyn_info.d_tag as usize >= DT_NUM {
+                // we don't parse any reserved tags
+                continue;
+            }
+            self.dynamic_table[dyn_info.d_tag as usize] = dyn_info.d_val;
+        }
+
+        self.dynamic_relocations = self.parse_dynamic_relocations()?;
+        self.dynamic_symbol_table = self.parse_dynamic_symbol_table()?;
+
+        Ok(())
+    }
+
+    fn parse_dynamic_relocations(&mut self) -> Result<Option<&'a [Elf64Rel]>, ElfParserError> {
+        let vaddr = self.dynamic_table[DT_REL as usize];
+        if vaddr == 0 {
+            return Ok(None);
+        }
+
+        if self.dynamic_table[DT_RELENT as usize] as usize != std::mem::size_of::<Elf64Rel>() {
+            return Err(ElfParserError::InvalidDynamicSectionTable);
+        }
+
+        let size = self.dynamic_table[DT_RELSZ as usize];
+        if size == 0 {
+            return Err(ElfParserError::InvalidDynamicSectionTable);
+        }
+
+        let program_header = self
+            .program_header_for_vaddr(vaddr)
+            .ok_or(ElfParserError::InvalidDynamicSectionTable)?;
+
+        let offset = vaddr
+            .saturating_sub(program_header.p_vaddr)
+            .saturating_add(program_header.p_offset);
+
+        self.slice_from_bytes(offset as usize, size as usize)
+            .map(Some)
+            .map_err(|_| ElfParserError::InvalidDynamicSectionTable)
+    }
+
+    fn parse_dynamic_symbol_table(&mut self) -> Result<Option<&'a [Elf64Sym]>, ElfParserError> {
+        let vaddr = self.dynamic_table[DT_SYMTAB as usize];
+        if vaddr == 0 {
+            return Ok(None);
+        }
+
+        let dynsym_section_header = self
+            .section_header_table
+            .iter()
+            .find(|section_header| section_header.sh_addr == vaddr)
+            .ok_or(ElfParserError::InvalidDynamicSectionTable)?;
+
+        self.get_symbol_table_of_section(dynsym_section_header)
+            .map(Some)
     }
 
     /// Check that the platform supports the layout and configuration
@@ -297,7 +409,7 @@ impl<'a> Elf64<'a> {
         )
     }
 
-    /// Returns the string corresponding to the given  `st_name`
+    /// Returns the name of the `st_name` symbol
     pub fn symbol_name(&self, st_name: Elf64Word) -> Result<&'a str, ElfParserError> {
         self.get_string_in_section(
             self.symbol_names_section_header.unwrap(),
@@ -313,34 +425,81 @@ impl<'a> Elf64<'a> {
             .transpose()
     }
 
+    /// Returns the name of the `st_name` dynamic symbol
+    pub fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Result<&'a str, ElfParserError> {
+        self.get_string_in_section(
+            self.dynamic_symbol_names_section_header.unwrap(),
+            st_name,
+            SYMBOL_NAME_LENGTH_MAXIMUM,
+        )
+    }
+
     /// Returns the symbol table of a section which is marked as SHT_SYMTAB
     pub fn get_symbol_table_of_section(
         &self,
         section_header: &Elf64Shdr,
     ) -> Result<&'a [Elf64Sym], ElfParserError> {
-        if section_header.sh_type != SHT_SYMTAB
-            || (section_header.sh_size as usize)
-                .checked_rem(std::mem::size_of::<Elf64Sym>())
-                .map(|remainder| remainder != 0)
-                .unwrap_or(true)
-        {
+        if section_header.sh_type != SHT_SYMTAB && section_header.sh_type != SHT_DYNSYM {
             return Err(ElfParserError::InvalidSectionHeader);
         }
-        let symbol_table_range = section_header.sh_offset as usize
-            ..(section_header.sh_offset as usize).saturating_add(section_header.sh_size as usize);
-        let symbol_table_bytes = self
+
+        self.slice_from_section_header(section_header)
+    }
+
+    /// Returns the `&[T]` contained in the data described by the given program
+    /// header
+    pub fn slice_from_program_header<T>(
+        &self,
+        program_header: &Elf64Phdr,
+    ) -> Result<&'a [T], ElfParserError> {
+        self.slice_from_bytes(
+            program_header.p_offset as usize,
+            program_header.p_filesz as usize,
+        )
+    }
+
+    /// Returns the `&[T]` contained in the section data described by the given
+    /// section header
+    pub fn slice_from_section_header<T>(
+        &self,
+        section_header: &Elf64Shdr,
+    ) -> Result<&'a [T], ElfParserError> {
+        self.slice_from_bytes(
+            section_header.sh_offset as usize,
+            section_header.sh_size as usize,
+        )
+    }
+
+    /// Returns the `&[T]` contained at `elf_bytes[offset..size]`
+    fn slice_from_bytes<T>(&self, offset: usize, size: usize) -> Result<&'a [T], ElfParserError> {
+        if size
+            .checked_rem(std::mem::size_of::<T>())
+            .map(|remainder| remainder != 0)
+            .unwrap_or(true)
+        {
+            return Err(ElfParserError::InvalidSize);
+        }
+
+        let range = offset..offset.saturating_add(size);
+        let bytes = self
             .elf_bytes
-            .get(symbol_table_range)
+            .get(range)
             .ok_or(ElfParserError::OutOfBounds)?;
-        let symbol_table = unsafe {
-            std::slice::from_raw_parts::<Elf64Sym>(
-                symbol_table_bytes.as_ptr() as *const Elf64Sym,
-                (section_header.sh_size as usize)
-                    .checked_div(std::mem::size_of::<Elf64Sym>())
-                    .unwrap_or(0),
+
+        Ok(unsafe {
+            std::slice::from_raw_parts::<T>(
+                bytes.as_ptr() as *const T,
+                size.checked_div(std::mem::size_of::<T>()).unwrap_or(0),
             )
-        };
-        Ok(symbol_table)
+        })
+    }
+
+    fn program_header_for_vaddr(&self, vaddr: Elf64Addr) -> Option<&'a Elf64Phdr> {
+        self.program_header_table.iter().find(
+            |Elf64Phdr {
+                 p_vaddr, p_memsz, ..
+             }| { (*p_vaddr..p_vaddr.saturating_add(*p_memsz)).contains(&vaddr) },
+        )
     }
 }
 

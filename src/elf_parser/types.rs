@@ -76,3 +76,17 @@ pub struct Elf64Sym {
     pub st_value: Elf64Addr,
     pub st_size: Elf64Xword,
 }
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct Elf64Dyn {
+    pub d_tag: Elf64Xword,
+    pub d_val: Elf64Xword,
+}
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct Elf64Rel {
+    pub r_offset: Elf64Addr,
+    pub r_info: Elf64Xword,
+}
