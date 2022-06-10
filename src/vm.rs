@@ -221,6 +221,8 @@ pub struct Config {
     /// Allow sh_addr != sh_offset in elf sections. Used in SBFv2 to align
     /// section vaddrs to MM_PROGRAM_START.
     pub enable_elf_vaddr: bool,
+    /// Use the new ELF parser
+    pub new_elf_parser: bool,
 }
 
 impl Config {
@@ -251,6 +253,7 @@ impl Default for Config {
             optimize_rodata: true,
             static_syscalls: true,
             enable_elf_vaddr: true,
+            new_elf_parser: true,
         }
     }
 }
