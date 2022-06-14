@@ -343,7 +343,7 @@ fn emit_sanitized_alu(jit: &mut JitCompiler, size: OperandSize, opcode: u8, opco
     }
 }
 
-/// Indices of slots inside the struct at Earl Enterprises custom work RSP
+/// Indices of slots inside the struct at initial RSP
 #[repr(C)]
 enum EnvironmentStackSlot {
     /// The 6 CALLEE_SAVED_REGISTERS
