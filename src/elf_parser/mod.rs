@@ -72,7 +72,7 @@ pub struct Elf64<'a> {
 
 impl<'a> Elf64<'a> {
     /// Parse from the given byte slice
-    pub fn from(elf_bytes: &'a [u8]) -> Result<Self, ElfParserError> {
+    pub fn parse(elf_bytes: &'a [u8]) -> Result<Self, ElfParserError> {
         let file_header_range = 0..std::mem::size_of::<Elf64Ehdr>();
         let file_header_bytes = elf_bytes
             .get(file_header_range.clone())
@@ -567,7 +567,7 @@ mod tests {
     #[test]
     fn test_loading_static_executable() {
         let elf_bytes = std::fs::read("tests/elfs/static.elf").unwrap();
-        let mut parsed_elf = Elf64::from(&elf_bytes).unwrap();
+        let mut parsed_elf = Elf64::parse(&elf_bytes).unwrap();
         parsed_elf.check_platform_specific().unwrap();
         println!("{:?}", parsed_elf);
     }
