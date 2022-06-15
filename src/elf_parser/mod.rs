@@ -51,6 +51,9 @@ pub enum ElfParserError {
     /// Invalid relocation table
     #[error("invalid relocation table")]
     InvalidRelocationTable,
+    /// Invalid alignment
+    #[error("invalid alignment")]
+    InvalidAlignment,
 }
 
 fn check_that_there_is_no_overlap(
@@ -87,13 +90,17 @@ impl<'a> Elf64<'a> {
         let file_header_range = 0..std::mem::size_of::<Elf64Ehdr>();
         let file_header_bytes = elf_bytes
             .get(file_header_range.clone())
-            .and_then(|slice| slice.try_into().ok())
             .ok_or(ElfParserError::OutOfBounds)?;
-        let file_header = unsafe {
-            std::mem::transmute::<&[u8; std::mem::size_of::<Elf64Ehdr>()], &Elf64Ehdr>(
-                file_header_bytes,
-            )
-        };
+        let ptr = file_header_bytes.as_ptr();
+        if (ptr as usize)
+            .checked_rem(std::mem::align_of::<Elf64Ehdr>())
+            .map(|remaining| remaining != 0)
+            .unwrap_or(true)
+        {
+            return Err(ElfParserError::InvalidAlignment);
+        }
+        let file_header = unsafe { &*ptr.cast::<Elf64Ehdr>() };
+
         if file_header.e_ident.ei_mag != ELFMAG
             || file_header.e_ident.ei_class != ELFCLASS64
             || file_header.e_ident.ei_data != ELFDATA2LSB
@@ -112,15 +119,11 @@ impl<'a> Elf64<'a> {
                 .saturating_mul(file_header.e_phnum as usize)
                 .saturating_add(file_header.e_phoff as usize);
         check_that_there_is_no_overlap(&file_header_range, &program_header_table_range)?;
-        let program_header_table_bytes = elf_bytes
-            .get(program_header_table_range.clone())
-            .ok_or(ElfParserError::OutOfBounds)?;
-        let program_header_table = unsafe {
-            std::slice::from_raw_parts::<Elf64Phdr>(
-                program_header_table_bytes.as_ptr() as *const Elf64Phdr,
-                file_header.e_phnum as usize,
-            )
-        };
+        let program_header_table = slice_from_bytes::<Elf64Phdr>(
+            elf_bytes,
+            program_header_table_range.start,
+            program_header_table_range.len(),
+        )?;
 
         let section_header_table_range = file_header.e_shoff as usize
             ..std::mem::size_of::<Elf64Shdr>()
@@ -128,15 +131,11 @@ impl<'a> Elf64<'a> {
                 .saturating_add(file_header.e_shoff as usize);
         check_that_there_is_no_overlap(&file_header_range, &section_header_table_range)?;
         check_that_there_is_no_overlap(&program_header_table_range, &section_header_table_range)?;
-        let section_header_table_bytes = elf_bytes
-            .get(section_header_table_range.clone())
-            .ok_or(ElfParserError::OutOfBounds)?;
-        let section_header_table = unsafe {
-            std::slice::from_raw_parts::<Elf64Shdr>(
-                section_header_table_bytes.as_ptr() as *const Elf64Shdr,
-                file_header.e_shnum as usize,
-            )
-        };
+        let section_header_table = slice_from_bytes::<Elf64Shdr>(
+            elf_bytes,
+            section_header_table_range.start,
+            section_header_table_range.len(),
+        )?;
 
         let mut prev_program_header: Option<&Elf64Phdr> = None;
         for program_header in program_header_table {
@@ -488,7 +487,7 @@ impl<'a> Elf64<'a> {
 
     /// Returns the `&[T]` contained in the data described by the given program
     /// header
-    pub fn slice_from_program_header<T>(
+    pub fn slice_from_program_header<T: 'static>(
         &self,
         program_header: &Elf64Phdr,
     ) -> Result<&'a [T], ElfParserError> {
@@ -500,7 +499,7 @@ impl<'a> Elf64<'a> {
 
     /// Returns the `&[T]` contained in the section data described by the given
     /// section header
-    pub fn slice_from_section_header<T>(
+    pub fn slice_from_section_header<T: 'static>(
         &self,
         section_header: &Elf64Shdr,
     ) -> Result<&'a [T], ElfParserError> {
@@ -511,27 +510,12 @@ impl<'a> Elf64<'a> {
     }
 
     /// Returns the `&[T]` contained at `elf_bytes[offset..size]`
-    fn slice_from_bytes<T>(&self, offset: usize, size: usize) -> Result<&'a [T], ElfParserError> {
-        if size
-            .checked_rem(std::mem::size_of::<T>())
-            .map(|remainder| remainder != 0)
-            .unwrap_or(true)
-        {
-            return Err(ElfParserError::InvalidSize);
-        }
-
-        let range = offset..offset.saturating_add(size);
-        let bytes = self
-            .elf_bytes
-            .get(range)
-            .ok_or(ElfParserError::OutOfBounds)?;
-
-        Ok(unsafe {
-            std::slice::from_raw_parts::<T>(
-                bytes.as_ptr() as *const T,
-                size.checked_div(std::mem::size_of::<T>()).unwrap_or(0),
-            )
-        })
+    fn slice_from_bytes<T: 'static>(
+        &self,
+        offset: usize,
+        size: usize,
+    ) -> Result<&'a [T], ElfParserError> {
+        slice_from_bytes(self.elf_bytes, offset, size)
     }
 
     fn program_header_for_vaddr(&self, vaddr: Elf64Addr) -> Option<&'a Elf64Phdr> {
@@ -580,6 +564,38 @@ impl<'a> std::fmt::Debug for Elf64<'a> {
     }
 }
 
+fn slice_from_bytes<T: 'static>(
+    bytes: &[u8],
+    offset: usize,
+    size: usize,
+) -> Result<&[T], ElfParserError> {
+    if size
+        .checked_rem(std::mem::size_of::<T>())
+        .map(|remainder| remainder != 0)
+        .unwrap_or(true)
+    {
+        return Err(ElfParserError::InvalidSize);
+    }
+
+    let range = offset..offset.saturating_add(size);
+    let bytes = bytes.get(range).ok_or(ElfParserError::OutOfBounds)?;
+
+    let ptr = bytes.as_ptr();
+    if (ptr as usize)
+        .checked_rem(std::mem::align_of::<T>())
+        .map(|remaining| remaining != 0)
+        .unwrap_or(true)
+    {
+        return Err(ElfParserError::InvalidAlignment);
+    }
+
+    Ok(unsafe {
+        std::slice::from_raw_parts(
+            ptr.cast(),
+            size.checked_div(std::mem::size_of::<T>()).unwrap_or(0),
+        )
+    })
+}
 #[cfg(test)]
 mod tests {
     use super::*;
