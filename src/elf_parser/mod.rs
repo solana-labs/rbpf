@@ -16,29 +16,40 @@ const SECTION_NAME_LENGTH_MAXIMUM: usize = 16;
 const SYMBOL_NAME_LENGTH_MAXIMUM: usize = 64;
 
 /// Error definitions
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ElfParserError {
     /// ELF file header is inconsistent or unsupported
+    #[error("invalid file header")]
     InvalidFileHeader,
     /// Program header is inconsistent or unsupported
+    #[error("invalid program header")]
     InvalidProgramHeader,
     /// Section header is inconsistent or unsupported
+    #[error("invalid section header")]
     InvalidSectionHeader,
     /// Section or symbol name is not UTF8 or too long
+    #[error("invalid string")]
     InvalidString,
     /// An index or memory range does exeed its boundaries
+    #[error("value out of bounds")]
     OutOfBounds,
     /// The size isn't valid
+    #[error("invalid size")]
     InvalidSize,
     /// Headers, tables or sections do overlap in the file
+    #[error("values overlap")]
     Overlap,
     /// Sections are not sorted in ascending order
+    #[error("sections not in ascending order")]
     SectionNotInOrder,
     /// No section name string table present in the file
+    #[error("no section name string table found")]
     NoSectionNameStringTable,
     /// Invalid .dynamic section table
+    #[error("invalid dynamic section table")]
     InvalidDynamicSectionTable,
     /// Invalid relocation table
+    #[error("invalid relocation table")]
     InvalidRelocationTable,
 }
 
