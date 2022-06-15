@@ -65,8 +65,8 @@ pub struct Elf64<'a> {
     symbol_section_header: Option<&'a Elf64Shdr>,
     symbol_names_section_header: Option<&'a Elf64Shdr>,
     dynamic_table: [Elf64Xword; DT_NUM],
-    pub dynamic_relocations: Option<&'a [Elf64Rel]>,
-    pub dynamic_symbol_table: Option<&'a [Elf64Sym]>,
+    dynamic_relocations_table: Option<&'a [Elf64Rel]>,
+    dynamic_symbol_table: Option<&'a [Elf64Sym]>,
     dynamic_symbol_names_section_header: Option<&'a Elf64Shdr>,
 }
 
@@ -181,7 +181,7 @@ impl<'a> Elf64<'a> {
             symbol_section_header: None,
             symbol_names_section_header: None,
             dynamic_table: [0; DT_NUM],
-            dynamic_relocations: None,
+            dynamic_relocations_table: None,
             dynamic_symbol_table: None,
             dynamic_symbol_names_section_header: None,
         };
@@ -190,6 +190,26 @@ impl<'a> Elf64<'a> {
         parser.parse_dynamic()?;
 
         Ok(parser)
+    }
+
+    pub fn file_header(&self) -> &Elf64Ehdr {
+        self.file_header
+    }
+
+    pub fn program_header_table(&self) -> &[Elf64Phdr] {
+        self.program_header_table
+    }
+
+    pub fn section_header_table(&self) -> &[Elf64Shdr] {
+        self.section_header_table
+    }
+
+    pub fn dynamic_symbol_table(&self) -> Option<&[Elf64Sym]> {
+        self.dynamic_symbol_table
+    }
+
+    pub fn dynamic_relocations_table(&self) -> Option<&[Elf64Rel]> {
+        self.dynamic_relocations_table
     }
 
     fn parse_sections(&mut self) -> Result<(), ElfParserError> {
@@ -272,7 +292,7 @@ impl<'a> Elf64<'a> {
             self.dynamic_table[dyn_info.d_tag as usize] = dyn_info.d_val;
         }
 
-        self.dynamic_relocations = self.parse_dynamic_relocations()?;
+        self.dynamic_relocations_table = self.parse_dynamic_relocations()?;
         self.dynamic_symbol_table = self.parse_dynamic_symbol_table()?;
 
         Ok(())
