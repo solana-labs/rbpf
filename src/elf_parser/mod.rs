@@ -127,19 +127,28 @@ impl<'a> Elf64<'a> {
             )
         };
 
-        for program_header in program_header_table.iter() {
+        let mut prev_program_header: Option<&Elf64Phdr> = None;
+        for program_header in program_header_table {
             if program_header.p_type != PT_LOAD {
                 continue;
             }
-            let program_range = program_header.p_offset as usize
-                ..(program_header.p_offset as usize)
-                    .saturating_add(program_header.p_filesz as usize);
-            check_that_there_is_no_overlap(&program_range, &file_header_range)?;
-            check_that_there_is_no_overlap(&program_range, &program_header_table_range)?;
-            check_that_there_is_no_overlap(&program_range, &section_header_table_range)?;
-            if program_range.end >= elf_bytes.len() {
+
+            if let Some(prev_program_header) = prev_program_header {
+                // program headers must be ascending
+                if program_header.p_vaddr < prev_program_header.p_vaddr {
+                    return Err(ElfParserError::InvalidProgramHeader);
+                }
+            }
+
+            if program_header
+                .p_offset
+                .saturating_add(program_header.p_filesz) as usize
+                > elf_bytes.len()
+            {
                 return Err(ElfParserError::OutOfBounds);
             }
+
+            prev_program_header = Some(program_header)
         }
 
         let mut offset = 0usize;
