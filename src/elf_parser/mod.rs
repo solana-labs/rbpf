@@ -3,7 +3,7 @@
 pub mod consts;
 pub mod types;
 
-use std::{convert::TryInto, ops::Range};
+use std::ops::Range;
 use {crate::ebpf, consts::*, types::*};
 
 const EXPECTED_PROGRAM_HEADERS: [(u32, u32, u64); 3] = [
@@ -205,22 +205,27 @@ impl<'a> Elf64<'a> {
         Ok(parser)
     }
 
+    /// Returns the file header.
     pub fn file_header(&self) -> &Elf64Ehdr {
         self.file_header
     }
 
+    /// Returns the program header table.
     pub fn program_header_table(&self) -> &[Elf64Phdr] {
         self.program_header_table
     }
 
+    /// Returns the section header table.
     pub fn section_header_table(&self) -> &[Elf64Shdr] {
         self.section_header_table
     }
 
+    /// Returns the dynamic symbol table.
     pub fn dynamic_symbol_table(&self) -> Option<&[Elf64Sym]> {
         self.dynamic_symbol_table
     }
 
+    /// Returns the dynamic relocations table.
     pub fn dynamic_relocations_table(&self) -> Option<&[Elf64Rel]> {
         self.dynamic_relocations_table
     }
