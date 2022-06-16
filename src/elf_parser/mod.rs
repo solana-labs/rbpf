@@ -402,7 +402,7 @@ impl<'a> Elf64<'a> {
             return Err(ElfParserError::InvalidSectionHeader);
         }
 
-        let section_names_section_header = self
+        let _section_names_section_header = self
             .section_names_section_header
             .ok_or(ElfParserError::NoSectionNameStringTable)?;
 
