@@ -54,6 +54,12 @@ pub enum ElfParserError {
     /// Invalid alignment
     #[error("invalid alignment")]
     InvalidAlignment,
+    /// No string table
+    #[error("no string table")]
+    NoStringTable,
+    /// No dynamic string table
+    #[error("no dynamic string table")]
+    NoDynamicStringTable,
 }
 
 fn check_that_there_is_no_overlap(
@@ -450,7 +456,8 @@ impl<'a> Elf64<'a> {
     /// Returns the name of the `st_name` symbol
     pub fn symbol_name(&self, st_name: Elf64Word) -> Result<&'a str, ElfParserError> {
         self.get_string_in_section(
-            self.symbol_names_section_header.unwrap(),
+            self.symbol_names_section_header
+                .ok_or(ElfParserError::NoStringTable)?,
             st_name,
             SYMBOL_NAME_LENGTH_MAXIMUM,
         )
@@ -466,7 +473,8 @@ impl<'a> Elf64<'a> {
     /// Returns the name of the `st_name` dynamic symbol
     pub fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Result<&'a str, ElfParserError> {
         self.get_string_in_section(
-            self.dynamic_symbol_names_section_header.unwrap(),
+            self.dynamic_symbol_names_section_header
+                .ok_or(ElfParserError::NoDynamicStringTable)?,
             st_name,
             SYMBOL_NAME_LENGTH_MAXIMUM,
         )
