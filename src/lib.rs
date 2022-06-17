@@ -24,6 +24,7 @@ extern crate rand;
 extern crate thiserror;
 
 pub mod aligned_memory;
+mod arm64;
 mod asm_parser;
 pub mod assembler;
 pub mod call_frames;
@@ -35,6 +36,8 @@ pub mod fuzz;
 pub mod insn_builder;
 pub mod interpreter;
 mod jit;
+mod jit_arm64;
+mod jit_x86;
 pub mod memory_region;
 pub mod static_analysis;
 pub mod syscalls;
