@@ -61,6 +61,28 @@ jobs:
       if: matrix.rust == 'nightly' && matrix.os != 'windows-latest'
       shell: bash
 
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Setup Rust (rustup)
+      run: |
+        rustup update nightly --no-self-update
+        rustup default nightly
+        rustup component add llvm-tools-preview
+      shell: bash
+    - name: Install cargo-llvm-cov
+      run: cargo install cargo-llvm-cov
+      shell: bash
+    - name: Generate test coverage
+      run: |
+        cargo llvm-cov --lcov --output-path coverage.info
+      shell: bash
+    - name: Upload test coverage
+      run: bash <(curl -s https://codecov.io/bash) -f coverage.info || echo "Codecov did not collect coverage reports"
+      shell: bash
+
   release:
     name: Release
     needs: test
