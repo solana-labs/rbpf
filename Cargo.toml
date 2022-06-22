@@ -30,10 +30,12 @@ rand = { version = "0.8.5", features = ["small_rng"]}
 scroll = "0.11"
 thiserror = "1.0.26"
 rustc-demangle = "0.1"
+winapi = { version = "0.3", features = ["memoryapi", "sysinfoapi", "winnt", "errhandlingapi"] }
 
 [features]
 fuzzer-not-safe-for-production = ["arbitrary"]
 jit-aarch64-not-safe-for-production = []
+jit-windows-not-safe-for-production = []
 
 [dev-dependencies]
 elf = "0.0.10"

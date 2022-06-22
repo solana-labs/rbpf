@@ -15,6 +15,7 @@
 #![allow(unreachable_code)]
 
 extern crate libc;
+#[cfg(target_os = "windows")] extern crate winapi;
 
 use std::{
     fmt::{Debug, Error as FormatterError, Formatter},
@@ -36,6 +37,16 @@ use crate::{
 use crate::{
     jit_x86::{JitCompilerX86},
     jit_arm64::{JitCompilerARM64},
+};
+
+#[cfg(target_os = "windows")]
+use winapi::{
+    um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO},
+    um::memoryapi::{VirtualAlloc, VirtualFree, VirtualProtect},
+    um::winnt,
+    um::errhandlingapi::{GetLastError},
+    ctypes::c_void,
+    shared::minwindef,
 };
 
 /// Argument for executing a eBPF JIT-compiled program
@@ -81,6 +92,24 @@ macro_rules! libc_error_guard {
     }};
 }
 
+#[cfg(target_os = "windows")]
+macro_rules! winapi_error_guard {
+    (succeeded?, VirtualAlloc, $addr:expr, $($arg:expr),*) => {{
+        *$addr = VirtualAlloc(*$addr, $($arg),*);
+        !(*$addr).is_null()
+    }};
+    (succeeded?, $function:ident, $($arg:expr),*) => {
+        $function($($arg),*) != 0
+    };
+    ($function:ident, $($arg:expr),*) => {{
+        if !winapi_error_guard!(succeeded?, $function, $($arg),*) {
+            let args = vec![$(format!("{:?}", $arg)),*];
+            let errno = GetLastError();
+            return Err(EbpfError::WinapiInvocationFailed(stringify!($function), args, errno));
+        }
+    }};
+}
+
 fn round_to_page_size(value: usize, page_size: usize) -> usize {
     (value + page_size - 1) / page_size * page_size
 }
@@ -89,11 +118,20 @@ fn round_to_page_size(value: usize, page_size: usize) -> usize {
 impl JitProgramSections {
     fn new<E: UserDefinedError>(pc: usize, code_size: usize) -> Result<Self, EbpfError<E>> {
         #[cfg(target_os = "windows")]
-        {
+        unsafe {
+            let page_size = {
+                let mut si: SYSTEM_INFO = mem::zeroed();
+                GetSystemInfo(&mut si);
+                si.dwPageSize
+            } as usize;
+            let pc_loc_table_size = round_to_page_size(pc * 8, page_size);
+            let over_allocated_code_size = round_to_page_size(code_size, page_size);
+            let mut raw: *mut c_void = std::ptr::null_mut();
+            winapi_error_guard!(VirtualAlloc, &mut raw, pc_loc_table_size + over_allocated_code_size, winnt::MEM_RESERVE | winnt::MEM_COMMIT, winnt::PAGE_READWRITE);
             Ok(Self {
-                page_size: 0,
-                pc_section: &mut [],
-                text_section: &mut [],
+                page_size,
+                pc_section: std::slice::from_raw_parts_mut(raw as *mut usize, pc),
+                text_section: std::slice::from_raw_parts_mut((raw as *mut u8).add(pc_loc_table_size), over_allocated_code_size),
             })
         }
         #[cfg(not(target_os = "windows"))]
@@ -127,6 +165,19 @@ impl JitProgramSections {
                 libc_error_guard!(mprotect, self.pc_section.as_mut_ptr() as *mut _, pc_loc_table_size, libc::PROT_READ);
                 libc_error_guard!(mprotect, self.text_section.as_mut_ptr() as *mut _, code_size, libc::PROT_EXEC | libc::PROT_READ);
             }
+
+            #[cfg(target_os = "windows")]
+            unsafe {
+                if over_allocated_code_size > code_size {
+                    winapi_error_guard!(VirtualFree, raw.add(pc_loc_table_size).add(code_size) as *mut _, over_allocated_code_size - code_size, winnt::MEM_DECOMMIT);
+                }
+                std::ptr::write_bytes(raw.add(pc_loc_table_size).add(text_section_usage), 0xcc, code_size - text_section_usage); // Fill with debugger traps
+                self.text_section = std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size), text_section_usage);
+                let mut old: minwindef::DWORD = 0;
+                let p2old: *mut minwindef::DWORD = &mut old;
+                winapi_error_guard!(VirtualProtect, self.pc_section.as_mut_ptr() as *mut _, pc_loc_table_size, winnt::PAGE_READONLY, p2old);
+                winapi_error_guard!(VirtualProtect, self.text_section.as_mut_ptr() as *mut _, code_size, winnt::PAGE_EXECUTE_READ, p2old);
+            }
         }
         Ok(())
     }
@@ -146,6 +197,11 @@ impl Drop for JitProgramSections {
             #[cfg(not(target_os = "windows"))]
             unsafe {
                 libc::munmap(self.pc_section.as_ptr() as *mut _, pc_loc_table_size + code_size);
+            }
+
+            #[cfg(target_os = "windows")]
+            unsafe {
+                VirtualFree(self.pc_section.as_ptr() as *mut _, pc_loc_table_size + code_size, winnt::MEM_RELEASE);
             }
         }
     }
@@ -188,6 +244,11 @@ impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
         {
             let _ = executable;
             panic!("The aarch64 JIT compiler is intended for developer use only.");
+        }
+        #[cfg(all(target_os = "windows", not(feature = "jit-windows-not-safe-for-production")))]
+        {
+            let _ = executable;
+            panic!("Windows support for the x64 JIT compiler is intended for developer use only.");
         }
 
         let program = executable.get_text_bytes().1;
@@ -371,11 +432,11 @@ impl JitCompilerCore {
 
     // Arguments are unused on windows
     fn new<E: UserDefinedError>(program: &[u8], config: &Config) -> Result<Self, EbpfError<E>> {
-        #[cfg(target_os = "windows")]
+        #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
         {
             let _ = program;
             let _ = config;
-            panic!("JitCompilerX86 not supported on windows");
+            panic!("JitCompilerX86 not supported on windows ARM64");
         }
 
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
@@ -582,7 +643,7 @@ impl JitCompilerCore {
     }
 }
 
-#[cfg(all(test, any(target_arch = "x86_64", target_arch = "aarch64"), not(target_os = "windows")))]
+#[cfg(all(test, any(target_arch = "x86_64", target_arch = "aarch64")))]
 mod tests {
     use super::*;
     use crate::{syscalls, vm::{SyscallRegistry, SyscallObject, TestInstructionMeter}, elf::register_bpf_function};

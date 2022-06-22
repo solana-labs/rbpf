@@ -92,6 +92,9 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Libc function call returned an error
     #[error("Libc calling {0} {1:?} returned error code {2}")]
     LibcInvocationFailed(&'static str, Vec<String>, i32),
+    /// Winapi function call returned an error
+    #[error("winapi call {0} {1:?} returned error code {2}")]
+    WinapiInvocationFailed(&'static str, Vec<String>, u32),
     /// ELF error
     #[error("Verifier error: {0}")]
     VerifierError(#[from] VerifierError),

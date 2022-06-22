@@ -12,7 +12,7 @@ extern crate test_utils;
 extern crate thiserror;
 
 use byteorder::{ByteOrder, LittleEndian};
-#[cfg(all(not(windows), any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
@@ -61,7 +61,7 @@ macro_rules! test_interpreter_and_jit {
             assert!(check_closure(&vm, result));
             (vm.get_total_instruction_count(), vm.get_tracer().clone())
         };
-        #[cfg(all(not(windows), any(target_arch = "x86_64", target_arch = "aarch64")))]
+        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
         {
             #[allow(unused_mut)]
             let mut check_closure = $check;
@@ -4160,7 +4160,7 @@ fn test_tcp_sack_nomatch() {
 
 // Fuzzy
 
-#[cfg(all(not(windows), any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
@@ -4250,7 +4250,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     true
 }
 
-#[cfg(all(not(windows), any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 #[test]
 fn test_total_chaos() {
     let instruction_count = 6;

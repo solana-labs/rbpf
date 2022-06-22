@@ -557,11 +557,11 @@ impl JitCompilerImpl for JitCompilerX86 {
         emit_rust_call(jit, Value::Register(R11), &[
             Argument { index: 7, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(jit, EnvironmentStackSlotX86::OptRetValPtr), false) },
             Argument { index: 6, value: Value::RegisterPlusConstant32(R10, jit.program_argument_key, false) }, // jit_program_argument.memory_mapping
-            Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
-            Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
-            Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
-            Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
-            Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
+            Argument { index: 5, value: Value::Register(REGISTER_MAP[5]) },
+            Argument { index: 4, value: Value::Register(REGISTER_MAP[4]) },
+            Argument { index: 3, value: Value::Register(REGISTER_MAP[3]) },
+            Argument { index: 2, value: Value::Register(REGISTER_MAP[2]) },
+            Argument { index: 1, value: Value::Register(REGISTER_MAP[1]) },
             Argument { index: 0, value: Value::Register(RAX) }, // "&mut jit" in the "call" method of the SyscallObject
         ], None, false);
         if jit.config.enable_instruction_meter {
@@ -578,6 +578,24 @@ impl JitCompilerImpl for JitCompilerX86 {
 
         // Routine for prologue of emit_bpf_call()
         jit.set_anchor(ANCHOR_BPF_CALL_PROLOGUE);
+        // The prologue sets up the stack as follows:
+        //
+        // before:                       after:
+        //
+        // -----                         -----
+        // return address                scratch regs
+        // ----- rsp points here         ...
+        // ....                          ...
+        // ------                        ...
+        //                               ...
+        //                               -----
+        //                               previous FRAME_PTR_REG value
+        //                               -----
+        //                               return address
+        //                               ----- rsp points here
+        //
+        // This function also preserves the value in R11
+        //
         emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x81, 5, RSP, 8 * (SCRATCH_REGS + 1) as i64, None)); // alloca
         emit_ins(jit, X86Instruction::store(OperandSize::S64, R11, RSP, X86IndirectAccess::OffsetIndexShift(0, RSP, 0))); // Save original R11
         emit_ins(jit, X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(8 * (SCRATCH_REGS + 1) as i32, RSP, 0))); // Load return address
@@ -613,6 +631,11 @@ impl JitCompilerImpl for JitCompilerX86 {
 
         // Routine for emit_bpf_call(Value::Register())
         jit.set_anchor(ANCHOR_BPF_CALL_REG);
+        // Precondition: REGISTER_MAP[0] (RAX) contains the pc (in the BPF address space) we should call to
+        // Postcondition: REGISTER_MAP[0] (RAX) contains host address we should call
+        // R11 and RSP[-16] (after return) will contain the target pc (instruction index)
+        // (R11 is used by the instruction meter validation, RSP[-16] is only used in case of ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION)
+
         // Force alignment of RAX
         emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i64 - 1), None)); // RAX &= !(INSN_SIZE - 1);
         // Upper bound check
@@ -680,6 +703,11 @@ impl JitCompilerImpl for JitCompilerX86 {
             jit.set_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION + target_offset);
             emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x31, R11, R11, 0, None)); // R11 = 0;
             emit_ins(jit, X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(stack_offset, R11, 0)));
+
+            #[cfg(target_os = "windows")]
+            emit_ins(jit, X86Instruction::load(OperandSize::S64, RSP, RCX, X86IndirectAccess::OffsetIndexShift(stack_offset-16, RSP, 0))); // on windows, RCX is used for the instruction meter, so we have to restore
+
+            // Note: This is relying on the Return-Value Optimization (RVO) in the compiler
             emit_rust_call(jit, Value::Constant64(MemoryMapping::generate_access_violation::<UserError> as *const u8 as i64, false), &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
@@ -693,6 +721,8 @@ impl JitCompilerImpl for JitCompilerX86 {
             emit_ins(jit, X86Instruction::jump_immediate(jit.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
             jit.set_anchor(ANCHOR_TRANSLATE_MEMORY_ADDRESS + target_offset);
+            // Precondition: R11 contains the address in the BPF address space
+            // Postcondition: R11 contains the address in the host address space
             emit_ins(jit, X86Instruction::push(R11, None));
             emit_ins(jit, X86Instruction::push(RAX, None));
             emit_ins(jit, X86Instruction::push(RCX, None));
@@ -743,6 +773,12 @@ impl JitCompilerImpl for JitCompilerX86 {
         }
     }
 
+    // Precondition: The pc is either passed in the pc argument, or if None, then placed in
+    // R11. This is the pc which is usually the end of a basic block or the location that an
+    // exception occurred.
+    //
+    // This function verifies that we were able to reach this pc without
+    // exceeding the instruction limit.
     #[inline]
     fn emit_validate_instruction_count(jit: &mut JitCompilerCore, exclusive: bool, pc: Option<usize>) {
         if let Some(pc) = pc {
@@ -754,6 +790,12 @@ impl JitCompilerImpl for JitCompilerX86 {
         emit_ins(jit, X86Instruction::conditional_jump_immediate(if exclusive { 0x82 } else { 0x86 }, jit.relative_to_anchor(ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS, 6)));
     }
 
+    // Precondition: The target_pc is either passed in the target_pc argument, or if None, then placed in
+    // R11. This pc is usually the target of a jump.
+    //
+    // This functions adjusts the instruction meter to account for the instructions
+    // executed to get to the current jit.pc, and then also adjusts the instruction meter to account for the
+    // fact that we are skipping over instructions in order to go to target_pc
     #[inline]
     fn emit_profile_instruction_count(jit: &mut JitCompilerCore, target_pc: Option<usize>) {
         match target_pc {
@@ -779,7 +821,7 @@ impl JitCompilerImpl for JitCompilerX86 {
         }
     }
 }
-
+#[cfg(not(target_os = "windows"))]
 const REGISTER_MAP: [u8; 11] = [
     CALLER_SAVED_REGISTERS[0],
     ARGUMENT_REGISTERS[1],
@@ -791,6 +833,21 @@ const REGISTER_MAP: [u8; 11] = [
     CALLEE_SAVED_REGISTERS[3],
     CALLEE_SAVED_REGISTERS[4],
     CALLEE_SAVED_REGISTERS[5],
+    CALLEE_SAVED_REGISTERS[1],
+];
+
+#[cfg(target_os = "windows")]
+const REGISTER_MAP: [u8; 11] = [
+    CALLER_SAVED_REGISTERS[0],
+    ARGUMENT_REGISTERS[1],
+    ARGUMENT_REGISTERS[2],
+    ARGUMENT_REGISTERS[3],
+    CALLEE_SAVED_REGISTERS[2],
+    CALLEE_SAVED_REGISTERS[3],
+    CALLEE_SAVED_REGISTERS[4],
+    CALLEE_SAVED_REGISTERS[5],
+    CALLEE_SAVED_REGISTERS[6],
+    CALLEE_SAVED_REGISTERS[7],
     CALLEE_SAVED_REGISTERS[1],
 ];
 
@@ -875,6 +932,7 @@ fn emit_undo_profile_instruction_count(jit: &mut JitCompilerCore, target_pc: usi
 
 #[inline]
 fn emit_profile_instruction_count_finalize(jit: &mut JitCompilerCore, store_pc_in_exception: bool) {
+    // Precondition: R11 should contain the current jit.pc
     if jit.config.enable_instruction_meter || store_pc_in_exception {
         emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x81, 0, R11, 1, None)); // R11 += 1;
     }
@@ -1000,6 +1058,13 @@ fn emit_rust_call(jit: &mut JitCompilerCore, dst: Value, arguments: &[Argument],
         emit_ins(jit, X86Instruction::push(*reg, None));
     }
 
+    let align_stack_off = {
+        if arguments.len() > ARGUMENT_REGISTERS.len() && arguments.len() % 2 == 1 {
+            emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, -8, None)); // RSP -= 8
+            8
+        } else { 0 }
+    };
+
     // Pass arguments
     let mut stack_arguments = 0;
     for argument in arguments {
@@ -1046,10 +1111,22 @@ fn emit_rust_call(jit: &mut JitCompilerCore, dst: Value, arguments: &[Argument],
                 }
             },
             Value::Constant64(value, user_provided) => {
-                debug_assert!(!user_provided && !is_stack_argument);
-                emit_ins(jit, X86Instruction::load_immediate(OperandSize::S64, dst, value));
+                debug_assert!(!user_provided);
+                if is_stack_argument {
+                    emit_ins(jit, X86Instruction::push(R11, None));
+                    emit_ins(jit, X86Instruction::load_immediate(OperandSize::S64, R11, value));
+                    emit_ins(jit, X86Instruction::xchg(OperandSize::S64, R11, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Push constant and restore original R11
+                } else {
+                    emit_ins(jit, X86Instruction::load_immediate(OperandSize::S64, dst, value));
+                }
             },
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Shadow store space in microsoft ABI
+        emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, - 8 * 4, None)); // RSP -= 8 * 4;
     }
 
     match dst {
@@ -1073,7 +1150,12 @@ fn emit_rust_call(jit: &mut JitCompilerCore, dst: Value, arguments: &[Argument],
     }
 
     // Restore registers from stack
-    emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, stack_arguments * 8, None));
+    #[cfg(target_os = "windows")]
+    let stack_off = (stack_arguments + 4) * 8 + align_stack_off;
+    #[cfg(not(target_os = "windows"))]
+    let stack_off = stack_arguments * 8 + align_stack_off;
+
+    emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, stack_off, None));
     for reg in saved_registers.iter().rev() {
         emit_ins(jit, X86Instruction::pop(*reg));
     }
