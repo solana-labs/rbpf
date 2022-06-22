@@ -4,12 +4,13 @@
 use std::mem;
 
 /// Provides u8 slices at a specified alignment
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct AlignedMemory<const ALIGN: usize> {
     max_len: usize,
     align_offset: usize,
     mem: Vec<u8>,
 }
+
 impl<const ALIGN: usize> AlignedMemory<ALIGN> {
     fn get_mem(max_len: usize) -> (Vec<u8>, usize) {
         let mut mem: Vec<u8> = Vec::with_capacity(max_len + ALIGN);
@@ -86,6 +87,15 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
         }
         self.mem.resize(self.mem.len() + num, value);
         Ok(())
+    }
+}
+
+// Custom Clone impl is needed to ensure alignment. Derived clone would just
+// clone self.mem and there would be no guarantee that the clone allocation is
+// aligned.
+impl<const ALIGN: usize> Clone for AlignedMemory<ALIGN> {
+    fn clone(&self) -> Self {
+        AlignedMemory::new_with_data(self.as_slice())
     }
 }
 
