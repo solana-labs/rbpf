@@ -131,6 +131,11 @@ impl<const ALIGN: usize, T: AsRef<[u8]>> From<T> for AlignedMemory<ALIGN> {
     }
 }
 
+/// Returns true if `data` is aligned to `align`.
+pub fn is_memory_aligned(data: &[u8], align: usize) -> bool {
+    data.as_ptr().align_offset(align) == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

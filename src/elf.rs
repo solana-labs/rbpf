@@ -7,7 +7,7 @@
 // this loader will need to be re-written to use the program headers instead.
 
 use crate::{
-    aligned_memory::AlignedMemory,
+    aligned_memory::{is_memory_aligned, AlignedMemory},
     ebpf::{self, EF_SBF_V2, HOST_ALIGN, INSN_SIZE},
     elf_parser::{
         consts::{
@@ -431,6 +431,16 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         syscall_registry: SyscallRegistry,
     ) -> Result<Self, ElfError> {
         if config.new_elf_parser {
+            // The new parser creates references from the input byte slice, so
+            // it must be properly aligned. We assume that HOST_ALIGN is a
+            // multiple of the ELF "natural" alignment. See test_load_unaligned.
+            let aligned;
+            let bytes = if is_memory_aligned(bytes, HOST_ALIGN) {
+                bytes
+            } else {
+                aligned = Some(AlignedMemory::<{ HOST_ALIGN }>::new_with_data(bytes));
+                aligned.as_ref().unwrap().as_slice()
+            };
             Self::load_with_parser(&NewParser::parse(bytes)?, config, bytes, syscall_registry)
         } else {
             Self::load_with_parser(
@@ -1303,6 +1313,17 @@ mod test {
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
         ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+            .expect("validation failed");
+    }
+
+    #[test]
+    fn test_load_unaligned() {
+        let mut elf_bytes = std::fs::read("tests/elfs/noop.so").expect("failed to read elf file");
+        // The default allocator allocates aligned memory. Move the ELF slice to
+        // elf_bytes.as_ptr() + 1 to make it unaligned and test unaligned
+        // parsing.
+        elf_bytes.insert(0, 0);
+        ElfExecutable::load(Config::default(), &elf_bytes[1..], syscall_registry())
             .expect("validation failed");
     }
 
