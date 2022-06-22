@@ -11,7 +11,7 @@ extern crate scroll;
 
 use crate::{
     aligned_memory::AlignedMemory,
-    ebpf::{self, EF_SBF_V2, INSN_SIZE},
+    ebpf::{self, EF_SBF_V2, HOST_ALIGN, INSN_SIZE},
     error::{EbpfError, UserDefinedError},
     jit::JitProgram,
     memory_region::MemoryRegion,
@@ -270,7 +270,7 @@ pub struct Executable<E: UserDefinedError, I: InstructionMeter> {
     /// Configuration settings
     config: Config,
     /// Loaded and executable elf
-    elf_bytes: AlignedMemory,
+    elf_bytes: AlignedMemory<{ HOST_ALIGN }>,
     /// Read-only section
     ro_section: Section,
     /// Text section info
@@ -414,7 +414,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         syscall_registry: SyscallRegistry,
         bpf_functions: BTreeMap<u32, (usize, String)>,
     ) -> Self {
-        let elf_bytes = AlignedMemory::new_with_data(text_bytes, ebpf::HOST_ALIGN);
+        let elf_bytes = AlignedMemory::new_with_data(text_bytes);
         let enable_symbol_and_section_labels = config.enable_symbol_and_section_labels;
         Self {
             config,
@@ -443,7 +443,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         syscall_registry: SyscallRegistry,
     ) -> Result<Self, ElfError> {
         let elf = Elf::parse(bytes)?;
-        let mut elf_bytes = AlignedMemory::new_with_data(bytes, ebpf::HOST_ALIGN);
+        let mut elf_bytes = AlignedMemory::new_with_data(bytes);
 
         Self::validate(&mut config, &elf, elf_bytes.as_slice())?;
 

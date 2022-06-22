@@ -23,7 +23,7 @@ struct CallFrame {
 #[derive(Clone, Debug)]
 pub struct CallFrames<'a> {
     config: &'a Config,
-    stack: AlignedMemory,
+    stack: AlignedMemory<{ HOST_ALIGN }>,
     stack_ptr: u64,
     frame_index: usize,
     frame_index_max: usize,
@@ -33,7 +33,7 @@ impl<'a> CallFrames<'a> {
     /// New call frame, depth indicates maximum call depth
     pub fn new(config: &'a Config) -> Self {
         let stack_len = config.stack_size();
-        let mut stack = AlignedMemory::new(stack_len, HOST_ALIGN);
+        let mut stack = AlignedMemory::new(stack_len);
         stack.resize(stack_len, 0).unwrap();
 
         let mut frames = CallFrames {
