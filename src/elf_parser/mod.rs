@@ -3,7 +3,7 @@
 pub mod consts;
 pub mod types;
 
-use std::ops::Range;
+use std::{fmt, mem, ops::Range, slice};
 use {crate::ebpf, consts::*, types::*};
 
 const EXPECTED_PROGRAM_HEADERS: [(u32, u32, u64); 3] = [
@@ -63,8 +63,8 @@ pub enum ElfParserError {
 }
 
 fn check_that_there_is_no_overlap(
-    range_a: &std::ops::Range<usize>,
-    range_b: &std::ops::Range<usize>,
+    range_a: &Range<usize>,
+    range_b: &Range<usize>,
 ) -> Result<(), ElfParserError> {
     if range_a.end <= range_b.start || range_b.end <= range_a.start {
         Ok(())
@@ -91,13 +91,13 @@ pub struct Elf64<'a> {
 impl<'a> Elf64<'a> {
     /// Parse from the given byte slice
     pub fn parse(elf_bytes: &'a [u8]) -> Result<Self, ElfParserError> {
-        let file_header_range = 0..std::mem::size_of::<Elf64Ehdr>();
+        let file_header_range = 0..mem::size_of::<Elf64Ehdr>();
         let file_header_bytes = elf_bytes
             .get(file_header_range.clone())
             .ok_or(ElfParserError::OutOfBounds)?;
         let ptr = file_header_bytes.as_ptr();
         if (ptr as usize)
-            .checked_rem(std::mem::align_of::<Elf64Ehdr>())
+            .checked_rem(mem::align_of::<Elf64Ehdr>())
             .map(|remaining| remaining != 0)
             .unwrap_or(true)
         {
@@ -110,16 +110,16 @@ impl<'a> Elf64<'a> {
             || file_header.e_ident.ei_data != ELFDATA2LSB
             || file_header.e_ident.ei_version != EV_CURRENT as u8
             || file_header.e_version != EV_CURRENT
-            || file_header.e_ehsize != std::mem::size_of::<Elf64Ehdr>() as u16
-            || file_header.e_phentsize != std::mem::size_of::<Elf64Phdr>() as u16
-            || file_header.e_shentsize != std::mem::size_of::<Elf64Shdr>() as u16
+            || file_header.e_ehsize != mem::size_of::<Elf64Ehdr>() as u16
+            || file_header.e_phentsize != mem::size_of::<Elf64Phdr>() as u16
+            || file_header.e_shentsize != mem::size_of::<Elf64Shdr>() as u16
             || file_header.e_shstrndx >= file_header.e_shnum
         {
             return Err(ElfParserError::InvalidFileHeader);
         }
 
         let program_header_table_range = file_header.e_phoff as usize
-            ..std::mem::size_of::<Elf64Phdr>()
+            ..mem::size_of::<Elf64Phdr>()
                 .saturating_mul(file_header.e_phnum as usize)
                 .saturating_add(file_header.e_phoff as usize);
         check_that_there_is_no_overlap(&file_header_range, &program_header_table_range)?;
@@ -127,7 +127,7 @@ impl<'a> Elf64<'a> {
             slice_from_bytes::<Elf64Phdr>(elf_bytes, program_header_table_range.clone())?;
 
         let section_header_table_range = file_header.e_shoff as usize
-            ..std::mem::size_of::<Elf64Shdr>()
+            ..mem::size_of::<Elf64Shdr>()
                 .saturating_mul(file_header.e_shnum as usize)
                 .saturating_add(file_header.e_shoff as usize);
         check_that_there_is_no_overlap(&file_header_range, &section_header_table_range)?;
@@ -322,7 +322,7 @@ impl<'a> Elf64<'a> {
             return Ok(None);
         }
 
-        if self.dynamic_table[DT_RELENT as usize] as usize != std::mem::size_of::<Elf64Rel>() {
+        if self.dynamic_table[DT_RELENT as usize] as usize != mem::size_of::<Elf64Rel>() {
             return Err(ElfParserError::InvalidDynamicSectionTable);
         }
 
@@ -526,8 +526,8 @@ impl<'a> Elf64<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for Elf64<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl<'a> fmt::Debug for Elf64<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{:#X?}", self.file_header)?;
         for program_header in self.program_header_table.iter() {
             writeln!(f, "{:#X?}", program_header)?;
@@ -566,7 +566,7 @@ impl<'a> std::fmt::Debug for Elf64<'a> {
 fn slice_from_bytes<T: 'static>(bytes: &[u8], range: Range<usize>) -> Result<&[T], ElfParserError> {
     if range
         .len()
-        .checked_rem(std::mem::size_of::<T>())
+        .checked_rem(mem::size_of::<T>())
         .map(|remainder| remainder != 0)
         .unwrap_or(true)
     {
@@ -579,7 +579,7 @@ fn slice_from_bytes<T: 'static>(bytes: &[u8], range: Range<usize>) -> Result<&[T
 
     let ptr = bytes.as_ptr();
     if (ptr as usize)
-        .checked_rem(std::mem::align_of::<T>())
+        .checked_rem(mem::align_of::<T>())
         .map(|remaining| remaining != 0)
         .unwrap_or(true)
     {
@@ -587,12 +587,9 @@ fn slice_from_bytes<T: 'static>(bytes: &[u8], range: Range<usize>) -> Result<&[T
     }
 
     Ok(unsafe {
-        std::slice::from_raw_parts(
+        slice::from_raw_parts(
             ptr.cast(),
-            range
-                .len()
-                .checked_div(std::mem::size_of::<T>())
-                .unwrap_or(0),
+            range.len().checked_div(mem::size_of::<T>()).unwrap_or(0),
         )
     })
 }
