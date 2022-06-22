@@ -80,8 +80,6 @@ pub struct Elf64<'a> {
     program_header_table: &'a [Elf64Phdr],
     section_header_table: &'a [Elf64Shdr],
     section_names_section_header: Option<&'a Elf64Shdr>,
-    text_section_header: Option<&'a Elf64Shdr>,
-    readonly_data_section_header: Option<&'a Elf64Shdr>,
     symbol_section_header: Option<&'a Elf64Shdr>,
     symbol_names_section_header: Option<&'a Elf64Shdr>,
     dynamic_table: [Elf64Xword; DT_NUM],
@@ -195,8 +193,6 @@ impl<'a> Elf64<'a> {
             program_header_table,
             section_header_table,
             section_names_section_header,
-            text_section_header: None,
-            readonly_data_section_header: None,
             symbol_section_header: None,
             symbol_names_section_header: None,
             dynamic_table: [0; DT_NUM],
@@ -262,8 +258,6 @@ impl<'a> Elf64<'a> {
             )?;
             section_header_by_name!(
                 self, section_header, section_name,
-                ".text" => text_section_header,
-                ".rodata" => readonly_data_section_header,
                 ".symtab" => symbol_section_header,
                 ".strtab" => symbol_names_section_header,
                 ".dynstr" => dynamic_symbol_names_section_header,
