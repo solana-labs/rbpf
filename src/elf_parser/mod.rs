@@ -4,14 +4,8 @@ pub mod consts;
 pub mod types;
 
 use std::{fmt, mem, ops::Range, slice};
-use {crate::ebpf, consts::*, types::*};
+use {consts::*, types::*};
 
-const EXPECTED_PROGRAM_HEADERS: [(u32, u32, u64); 3] = [
-    (PT_LOAD, PF_R | PF_X, ebpf::MM_PROGRAM_START),
-    (PT_GNU_STACK, PF_R | PF_W, ebpf::MM_STACK_START),
-    (PT_NULL, PF_R | PF_W, ebpf::MM_HEAP_START),
-];
-const SECTION_COUNT_MAXIMUM: usize = 16;
 const SECTION_NAME_LENGTH_MAXIMUM: usize = 16;
 const SYMBOL_NAME_LENGTH_MAXIMUM: usize = 64;
 
@@ -360,55 +354,6 @@ impl<'a> Elf64<'a> {
             .map(Some)
     }
 
-    /// Check that the platform supports the layout and configuration
-    pub fn check_platform_specific(&mut self) -> Result<(), ElfParserError> {
-        if self.file_header.e_type != ET_EXEC
-            || self.file_header.e_machine != 0xF7
-            || self.file_header.e_ident.ei_osabi != 0x00
-            || self.file_header.e_ident.ei_abiversion != 0x00
-            || self.program_header_table.len() != EXPECTED_PROGRAM_HEADERS.len()
-            || self.section_header_table.len() > SECTION_COUNT_MAXIMUM
-        {
-            return Err(ElfParserError::InvalidFileHeader);
-        }
-        for (program_header, (p_type, p_flags, addr)) in self
-            .program_header_table
-            .iter()
-            .zip(EXPECTED_PROGRAM_HEADERS.iter())
-        {
-            if program_header.p_type != *p_type
-                || program_header.p_flags != *p_flags
-                || program_header.p_vaddr != *addr
-                || program_header.p_paddr != *addr
-                || program_header.p_memsz >= 0x100000000
-            {
-                return Err(ElfParserError::InvalidProgramHeader);
-            }
-        }
-        let program_header = self
-            .program_header_table
-            .get(0)
-            .ok_or(ElfParserError::OutOfBounds)?;
-        let program_range = program_header.p_vaddr
-            ..program_header
-                .p_vaddr
-                .saturating_add(program_header.p_filesz);
-        if !program_range.contains(&self.file_header.e_entry)
-            || (self.file_header.e_entry as usize)
-                .checked_rem(ebpf::INSN_SIZE)
-                .map(|remainder| remainder != 0)
-                .unwrap_or(true)
-        {
-            return Err(ElfParserError::InvalidSectionHeader);
-        }
-
-        let _section_names_section_header = self
-            .section_names_section_header
-            .ok_or(ElfParserError::NoSectionNameStringTable)?;
-
-        Ok(())
-    }
-
     /// Query a single string from a section which is marked as SHT_STRTAB
     pub fn get_string_in_section(
         &self,
@@ -592,16 +537,4 @@ fn slice_from_bytes<T: 'static>(bytes: &[u8], range: Range<usize>) -> Result<&[T
             range.len().checked_div(mem::size_of::<T>()).unwrap_or(0),
         )
     })
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_loading_static_executable() {
-        let elf_bytes = std::fs::read("tests/elfs/static.elf").unwrap();
-        let mut parsed_elf = Elf64::parse(&elf_bytes).unwrap();
-        parsed_elf.check_platform_specific().unwrap();
-        println!("{:?}", parsed_elf);
-    }
 }
