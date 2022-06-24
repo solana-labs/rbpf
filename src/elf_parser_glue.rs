@@ -92,14 +92,17 @@ pub trait ElfParser<'a>: Sized {
 }
 
 /// ELF program header.
-#[allow(missing_docs)]
 pub trait ElfProgramHeader {
+    /// Returns the segment virtual address.
     fn p_vaddr(&self) -> Elf64Addr;
 
+    /// Returns the segment size when loaded in memory.
     fn p_memsz(&self) -> Elf64Xword;
 
+    /// Returns the segment file offset.
     fn p_offset(&self) -> Elf64Off;
 
+    /// Returns the segment virtual address range.
     fn vm_range(&self) -> Range<Elf64Addr> {
         let addr = self.p_vaddr();
         addr..addr.saturating_add(self.p_memsz())
@@ -107,24 +110,31 @@ pub trait ElfProgramHeader {
 }
 
 /// ELF section header.
-#[allow(missing_docs)]
 pub trait ElfSectionHeader {
+    /// Returns the section name offset.
     fn sh_name(&self) -> Elf64Word;
 
+    /// Returns the section virtual address.
     fn sh_addr(&self) -> Elf64Addr;
 
+    /// Returns the section file offset.
     fn sh_offset(&self) -> Elf64Off;
 
+    /// Returns the section size.
     fn sh_size(&self) -> Elf64Xword;
 
+    /// Returns the section flags.
     fn sh_flags(&self) -> Elf64Xword;
 
+    /// Returns the section type.
     fn sh_type(&self) -> Elf64Word;
 
+    /// Returns whether the section is writable.
     fn is_writable(&self) -> bool {
         self.sh_flags() & (SHF_ALLOC | SHF_WRITE) == SHF_ALLOC | SHF_WRITE
     }
 
+    /// Returns the byte range the section spans in the file.
     fn file_range(&self) -> Option<Range<usize>> {
         (self.sh_type() != SHT_NOBITS).then(|| {
             let offset = self.sh_offset() as usize;
@@ -132,6 +142,7 @@ pub trait ElfSectionHeader {
         })
     }
 
+    /// Returns the virtual address range.
     fn vm_range(&self) -> Range<Elf64Addr> {
         let addr = self.sh_addr();
         addr..addr.saturating_add(self.sh_size())
@@ -139,26 +150,31 @@ pub trait ElfSectionHeader {
 }
 
 /// ELF symbol.
-#[allow(missing_docs)]
 pub trait ElfSymbol: Clone {
+    /// Returns the symbol name offset.
     fn st_name(&self) -> Elf64Word;
 
+    /// Returns the symbol type and binding attributes.
     fn st_info(&self) -> u8;
 
+    /// Returns the value associated with the symbol.
     fn st_value(&self) -> Elf64Addr;
 
+    /// Returns whether the symbol is a function.
     fn is_function(&self) -> bool {
         (self.st_info() & 0xF) == STT_FUNC
     }
 }
 
 /// ELF relocation.
-#[allow(missing_docs)]
 pub trait ElfRelocation: Clone {
+    /// Returns the offset where to apply the relocation.
     fn r_offset(&self) -> Elf64Addr;
 
+    /// Returns the relocation type.
     fn r_type(&self) -> Elf64Word;
 
+    /// Returns the symbol index.
     fn r_sym(&self) -> Elf64Word;
 }
 
