@@ -1259,51 +1259,96 @@ mod test {
 
         header.e_ident.ei_class = ELFCLASS32;
         let bytes = write_header(header.clone());
+        // the new parser rejects anything other than ELFCLASS64 directly
         NewParser::parse(&bytes).expect_err("allowed bad class");
+        ElfExecutable::validate(
+            &mut config,
+            &GoblinParser::parse(&bytes).unwrap(),
+            &elf_bytes,
+        )
+        .expect_err("allowed bad class");
 
         header.e_ident.ei_class = ELFCLASS64;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&mut config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
+        ElfExecutable::validate(
+            &mut config,
+            &GoblinParser::parse(&bytes).unwrap(),
+            &elf_bytes,
+        )
+        .expect("validation failed");
 
         header.e_ident.ei_data = ELFDATA2MSB;
         let bytes = write_header(header.clone());
+        // the new parser only supports little endian
         NewParser::parse(&bytes).expect_err("allowed big endian");
 
         header.e_ident.ei_data = ELFDATA2LSB;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&mut config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
+        ElfExecutable::validate(
+            &mut config,
+            &GoblinParser::parse(&bytes).unwrap(),
+            &elf_bytes,
+        )
+        .expect("validation failed");
 
         header.e_ident.ei_osabi = 1;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&mut config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect_err("allowed wrong abi");
+        ElfExecutable::validate(
+            &mut config,
+            &GoblinParser::parse(&bytes).unwrap(),
+            &elf_bytes,
+        )
+        .expect_err("allowed wrong abi");
 
         header.e_ident.ei_osabi = ELFOSABI_NONE;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&mut config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
+        ElfExecutable::validate(
+            &mut config,
+            &GoblinParser::parse(&bytes).unwrap(),
+            &elf_bytes,
+        )
+        .expect("validation failed");
 
         header.e_machine = 42;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&mut config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect_err("allowed wrong machine");
+        ElfExecutable::validate(
+            &mut config,
+            &GoblinParser::parse(&bytes).unwrap(),
+            &elf_bytes,
+        )
+        .expect_err("allowed wrong machine");
 
         header.e_machine = EM_BPF;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&mut config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
+        ElfExecutable::validate(
+            &mut config,
+            &GoblinParser::parse(&bytes).unwrap(),
+            &elf_bytes,
+        )
+        .expect("validation failed");
 
         header.e_type = ET_REL;
-        let bytes = write_header(header.clone());
-        ElfExecutable::validate(&mut config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
-            .expect_err("allowed wrong type");
-
-        header.e_type = ET_DYN;
         let bytes = write_header(header);
         ElfExecutable::validate(&mut config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
-            .expect("validation failed");
+            .expect_err("allowed wrong type");
+        ElfExecutable::validate(
+            &mut config,
+            &GoblinParser::parse(&bytes).unwrap(),
+            &elf_bytes,
+        )
+        .expect_err("allowed wrong type");
     }
 
     #[test]
