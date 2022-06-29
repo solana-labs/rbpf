@@ -424,7 +424,7 @@ pub const BPF_ALU_OP_MASK: u8 = 0xf0;
 /// See <https://www.kernel.org/doc/Documentation/networking/filter.txt> for the Linux kernel
 /// documentation about eBPF, or <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md> for a
 /// more concise version.
-#[derive(PartialEq, Clone, Default)]
+#[derive(PartialEq, Eq, Clone, Default)]
 pub struct Insn {
     /// Instruction pointer.
     pub ptr: usize,

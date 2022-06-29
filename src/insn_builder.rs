@@ -327,10 +327,10 @@ impl<'i> Instruction for Move<'i> {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "fuzzer-not-safe-for-production",
-    derive(arbitrary::Arbitrary, Debug, Eq)
+    derive(arbitrary::Arbitrary, Debug)
 )]
 /// The source of ALU and JMP instructions
 pub enum Source {
@@ -360,7 +360,7 @@ enum OpBits {
 #[derive(Copy, Clone)]
 #[cfg_attr(
     feature = "fuzzer-not-safe-for-production",
-    derive(arbitrary::Arbitrary, Debug, Eq, PartialEq)
+    derive(arbitrary::Arbitrary, Debug, PartialEq, Eq)
 )]
 /// Architecture of instructions
 pub enum Arch {
@@ -403,7 +403,7 @@ impl<'i> Instruction for SwapBytes<'i> {
 #[derive(Copy, Clone)]
 #[cfg_attr(
     feature = "fuzzer-not-safe-for-production",
-    derive(arbitrary::Arbitrary, Debug, Eq, PartialEq)
+    derive(arbitrary::Arbitrary, Debug, PartialEq, Eq)
 )]
 /// Bytes endian
 pub enum Endian {
@@ -482,7 +482,7 @@ impl<'i> Instruction for Store<'i> {
 #[derive(Copy, Clone)]
 #[cfg_attr(
     feature = "fuzzer-not-safe-for-production",
-    derive(arbitrary::Arbitrary, Debug, Eq, PartialEq)
+    derive(arbitrary::Arbitrary, Debug, PartialEq, Eq)
 )]
 /// Memory size for LOAD and STORE instructions
 pub enum MemSize {
@@ -537,10 +537,10 @@ impl<'i> Instruction for Jump<'i> {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "fuzzer-not-safe-for-production",
-    derive(arbitrary::Arbitrary, Debug, Eq)
+    derive(arbitrary::Arbitrary, Debug)
 )]
 /// Conditions for JMP instructions
 pub enum Cond {

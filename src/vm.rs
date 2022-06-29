@@ -74,7 +74,7 @@ pub trait SyscallObject<E: UserDefinedError> {
 }
 
 /// Syscall function and binding slot for a context object
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Syscall {
     /// Syscall init
     pub init: u64,
@@ -107,7 +107,7 @@ pub struct DynTraitFatPointer {
 }
 
 /// Holds the syscall function pointers of an Executable
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct SyscallRegistry {
     /// Function pointers by symbol
     entries: HashMap<u32, Syscall>,
@@ -182,7 +182,7 @@ impl SyscallRegistry {
 }
 
 /// VM configuration settings
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
     /// Maximum call depth
     pub max_call_depth: usize,

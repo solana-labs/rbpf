@@ -21,7 +21,7 @@ use combine::{
 };
 
 /// Operand of an instruction.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Operand {
     /// Register number.
     Register(i64),
@@ -34,7 +34,7 @@ pub enum Operand {
 }
 
 /// Parsed statement.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Statement {
     /// Parsed label (name).
     Label { name: String },

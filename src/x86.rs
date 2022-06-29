@@ -124,7 +124,7 @@ impl X86Instruction {
                 Some(X86IndirectAccess::Offset(offset)) => {
                     displacement = offset;
                     debug_assert_ne!(self.second_operand & 0b111, RSP); // Reserved for SIB addressing
-                    if (displacement >= -128 && displacement <= 127)
+                    if (-128..=127).contains(&displacement)
                         || (displacement == 0 && self.second_operand & 0b111 == RBP)
                     {
                         displacement_size = OperandSize::S8;

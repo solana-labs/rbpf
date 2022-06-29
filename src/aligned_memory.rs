@@ -4,7 +4,7 @@
 use std::mem;
 
 /// Provides u8 slices at a specified alignment
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct AlignedMemory<const ALIGN: usize> {
     max_len: usize,
     align_offset: usize,
