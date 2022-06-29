@@ -373,49 +373,6 @@ fn test_verifier_err_all_shift_overflows() {
 }
 
 #[test]
-fn test_verifier_err_ldabs_ldind_disabled() {
-    let instructions = [
-        (ebpf::LD_ABS_B, "ldabsb 0x3"),
-        (ebpf::LD_ABS_H, "ldabsh 0x3"),
-        (ebpf::LD_ABS_W, "ldabsw 0x3"),
-        (ebpf::LD_ABS_DW, "ldabsdw 0x3"),
-        (ebpf::LD_IND_B, "ldindb r1, 0x3"),
-        (ebpf::LD_IND_H, "ldindh r1, 0x3"),
-        (ebpf::LD_IND_W, "ldindw r1, 0x3"),
-        (ebpf::LD_IND_DW, "ldinddw r1, 0x3"),
-    ];
-
-    for (opc, instruction) in instructions {
-        for disable_deprecated_load_instructions in [true, false] {
-            let assembly = format!("\n{}\nexit", instruction);
-            let executable = assemble::<UserError, TestInstructionMeter>(
-                &assembly,
-                Config {
-                    disable_deprecated_load_instructions,
-                    ..Config::default()
-                },
-                SyscallRegistry::default(),
-            )
-            .unwrap();
-            let result = VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(executable)
-                .map_err(|err| format!("Executable constructor {:?}", err));
-            if disable_deprecated_load_instructions {
-                assert_eq!(
-                    result.unwrap_err(),
-                    format!(
-                        "Executable constructor VerifierError(UnknownOpCode({}, {}))",
-                        opc,
-                        ebpf::ELF_INSN_DUMP_OFFSET
-                    ),
-                );
-            } else {
-                assert!(result.is_ok());
-            }
-        }
-    }
-}
-
-#[test]
 fn test_sdiv_disabled() {
     let instructions = [
         (ebpf::SDIV32_IMM, "sdiv32 r0, 2"),

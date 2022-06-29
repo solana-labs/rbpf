@@ -124,15 +124,15 @@ fn bench_jit_vs_interpreter_address_translation(bencher: &mut Bencher) {
     bench_jit_vs_interpreter(
         bencher,
         "
-    mov r1, r2
-    and r1, 1023
-    ldindb r1, 0
-    add r2, 1
-    jlt r2, 0x10000, -5
+    ldxb r0, [r1]
+    add r1, 1
+    mov r0, r1
+    and r0, 0xFFFFFF
+    jlt r0, 0x20000, -5
     exit",
         Config::default(),
-        327681,
-        &mut [0; 1024],
+        655361,
+        &mut [0; 0x20000],
     );
 }
 

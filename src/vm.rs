@@ -208,8 +208,6 @@ pub struct Config {
     pub sanitize_user_provided_values: bool,
     /// Encrypt the environment registers in JIT
     pub encrypt_environment_registers: bool,
-    /// Disable ldabs* and ldind* instructions
-    pub disable_deprecated_load_instructions: bool,
     /// Throw ElfError::SymbolHashCollision when a BPF function collides with a registered syscall
     pub syscall_bpf_function_hash_collision: bool,
     /// Have the verifier reject "callx r10"
@@ -249,7 +247,6 @@ impl Default for Config {
             noop_instruction_rate: 256,
             sanitize_user_provided_values: true,
             encrypt_environment_registers: true,
-            disable_deprecated_load_instructions: true,
             syscall_bpf_function_hash_collision: true,
             reject_callx_r10: true,
             dynamic_stack_frames: true,

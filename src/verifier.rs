@@ -218,27 +218,6 @@ impl Verifier for RequisiteVerifier {
             let mut store = false;
 
             match insn.opc {
-                ebpf::LD_ABS_B
-                | ebpf::LD_ABS_H
-                | ebpf::LD_ABS_W
-                | ebpf::LD_ABS_DW
-                | ebpf::LD_IND_B
-                | ebpf::LD_IND_H
-                | ebpf::LD_IND_W
-                | ebpf::LD_IND_DW if config.disable_deprecated_load_instructions => {
-                    return Err(VerifierError::UnknownOpCode(insn.opc, adj_insn_ptr(insn_ptr)));
-                },
-
-                // BPF_LD class
-                ebpf::LD_ABS_B   => {},
-                ebpf::LD_ABS_H   => {},
-                ebpf::LD_ABS_W   => {},
-                ebpf::LD_ABS_DW  => {},
-                ebpf::LD_IND_B   => {},
-                ebpf::LD_IND_H   => {},
-                ebpf::LD_IND_W   => {},
-                ebpf::LD_IND_DW  => {},
-
                 ebpf::LD_DW_IMM  => {
                     check_load_dw(prog, insn_ptr)?;
                     insn_ptr += 1;

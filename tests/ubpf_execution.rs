@@ -127,7 +127,6 @@ macro_rules! test_interpreter_and_jit_asm {
         {
             let config = Config {
                 enable_instruction_tracing: true,
-                disable_deprecated_load_instructions: false,
                 ..Config::default()
             };
             test_interpreter_and_jit_asm!($source, config, $mem, ($($location => $syscall_init; $syscall_function),*), $syscall_context, $check, $expected_instruction_count);
@@ -1197,238 +1196,6 @@ fn test_err_mod_by_zero_reg() {
 // BPF_LD : Loads
 
 #[test]
-fn test_ldabsb() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldabsb 0x3
-        exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
-        (),
-        0,
-        { |_vm, res: Result| { res.unwrap() == 0x33 } },
-        2
-    );
-}
-
-#[test]
-fn test_ldabsh() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldabsh 0x3
-        exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
-        (),
-        0,
-        { |_vm, res: Result| { res.unwrap() == 0x4433 } },
-        2
-    );
-}
-
-#[test]
-fn test_ldabsw() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldabsw 0x3
-        exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
-        (),
-        0,
-        { |_vm, res: Result| { res.unwrap() == 0x66554433 } },
-        2
-    );
-}
-
-#[test]
-fn test_ldabsdw() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldabsdw 0x3
-        exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
-        (),
-        0,
-        { |_vm, res: Result| { res.unwrap() == 0xaa99887766554433 } },
-        2
-    );
-}
-
-#[test]
-fn test_err_ldabsb_oob() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldabsb 0x33
-        exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
-        (),
-        0,
-        {
-            |_vm, res: Result| {
-                matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
-                    if access_type == AccessType::Load && pc == 29 && vm_addr == 0x400000033 && len == 1 && name == "input"
-                )
-            }
-        },
-        1
-    );
-}
-
-#[test]
-fn test_err_ldabsb_nomem() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldabsb 0x33
-        exit",
-        [],
-        (),
-        0,
-        {
-            |_vm, res: Result| {
-                matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
-                    if access_type == AccessType::Load && pc == 29 && vm_addr == 0x400000033 && len == 1 && name == "input"
-                )
-            }
-        },
-        1
-    );
-}
-
-#[test]
-fn test_ldindb() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r1, 0x5
-        ldindb r1, 0x3
-        exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
-        (),
-        0,
-        { |_vm, res: Result| { res.unwrap() == 0x88 } },
-        3
-    );
-}
-
-#[test]
-fn test_ldindh() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r1, 0x5
-        ldindh r1, 0x3
-        exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
-        (),
-        0,
-        { |_vm, res: Result| { res.unwrap() == 0x9988 } },
-        3
-    );
-}
-
-#[test]
-fn test_ldindw() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r1, 0x4
-        ldindw r1, 0x1
-        exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
-        (),
-        0,
-        { |_vm, res: Result| { res.unwrap() == 0x88776655 } },
-        3
-    );
-}
-
-#[test]
-fn test_ldinddw() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r1, 0x2
-        ldinddw r1, 0x3
-        exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
-        (),
-        0,
-        { |_vm, res: Result| { res.unwrap() == 0xccbbaa9988776655 } },
-        3
-    );
-}
-
-#[test]
-fn test_err_ldindb_oob() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r1, 0x5
-        ldindb r1, 0x33
-        exit",
-        [
-            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, //
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, //
-        ],
-        (),
-        0,
-        {
-            |_vm, res: Result| {
-                matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
-                    if access_type == AccessType::Load && pc == 30 && vm_addr == 0x400000038 && len == 1 && name == "input"
-                )
-            }
-        },
-        2
-    );
-}
-
-#[test]
-fn test_err_ldindb_nomem() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r1, 0x5
-        ldindb r1, 0x33
-        exit",
-        [],
-        (),
-        0,
-        {
-            |_vm, res: Result| {
-                matches!(res.unwrap_err(),
-                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
-                    if access_type == AccessType::Load && pc == 30 && vm_addr == 0x400000038 && len == 1 && name == "input"
-                )
-            }
-        },
-        2
-    );
-}
-
-#[test]
 fn test_ldxb() {
     test_interpreter_and_jit_asm!(
         "
@@ -1515,6 +1282,27 @@ fn test_err_ldxdw_oob() {
             0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, //
             0x77, 0x88, 0xcc, 0xdd, //
         ],
+        (),
+        0,
+        {
+            |_vm, res: Result| {
+                matches!(res.unwrap_err(),
+                    EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
+                    if access_type == AccessType::Load && pc == 29 && vm_addr == 0x400000006 && len == 8 && name == "input"
+                )
+            }
+        },
+        1
+    );
+}
+
+#[test]
+fn test_err_ldxdw_nomem() {
+    test_interpreter_and_jit_asm!(
+        "
+        ldxdw r0, [r1+6]
+        exit",
+        [],
         (),
         0,
         {

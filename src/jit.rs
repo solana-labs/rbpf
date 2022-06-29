@@ -1015,39 +1015,6 @@ impl JitCompiler {
                         }
                     }
                 }
-                // BPF_LD class
-                ebpf::LD_ABS_B   => {
-                    emit_address_translation(self, R11, Value::Constant64(ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64) as i64, true), 1, AccessType::Load);
-                    emit_ins(self, X86Instruction::load(OperandSize::S8, R11, RAX, X86IndirectAccess::Offset(0)));
-                },
-                ebpf::LD_ABS_H   => {
-                    emit_address_translation(self, R11, Value::Constant64(ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64) as i64, true), 2, AccessType::Load);
-                    emit_ins(self, X86Instruction::load(OperandSize::S16, R11, RAX, X86IndirectAccess::Offset(0)));
-                },
-                ebpf::LD_ABS_W   => {
-                    emit_address_translation(self, R11, Value::Constant64(ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64) as i64, true), 4, AccessType::Load);
-                    emit_ins(self, X86Instruction::load(OperandSize::S32, R11, RAX, X86IndirectAccess::Offset(0)));
-                },
-                ebpf::LD_ABS_DW  => {
-                    emit_address_translation(self, R11, Value::Constant64(ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64) as i64, true), 8, AccessType::Load);
-                    emit_ins(self, X86Instruction::load(OperandSize::S64, R11, RAX, X86IndirectAccess::Offset(0)));
-                },
-                ebpf::LD_IND_B   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64) as i64, true), 1, AccessType::Load);
-                    emit_ins(self, X86Instruction::load(OperandSize::S8, R11, RAX, X86IndirectAccess::Offset(0)));
-                },
-                ebpf::LD_IND_H   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64) as i64, true), 2, AccessType::Load);
-                    emit_ins(self, X86Instruction::load(OperandSize::S16, R11, RAX, X86IndirectAccess::Offset(0)));
-                },
-                ebpf::LD_IND_W   => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64) as i64, true), 4, AccessType::Load);
-                    emit_ins(self, X86Instruction::load(OperandSize::S32, R11, RAX, X86IndirectAccess::Offset(0)));
-                },
-                ebpf::LD_IND_DW  => {
-                    emit_address_translation(self, R11, Value::RegisterPlusConstant64(src, ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64) as i64, true), 8, AccessType::Load);
-                    emit_ins(self, X86Instruction::load(OperandSize::S64, R11, RAX, X86IndirectAccess::Offset(0)));
-                },
 
                 ebpf::LD_DW_IMM  => {
                     emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2));

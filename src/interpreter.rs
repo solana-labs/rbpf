@@ -165,50 +165,6 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
                 }
             }
 
-            // BPF_LD class
-            // Since this pointer is constant, and since we already know it (ebpf::MM_INPUT_START), do not
-            // bother re-fetching it, just use ebpf::MM_INPUT_START already.
-            ebpf::LD_ABS_B   => {
-                let vm_addr = ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64);
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
-                self.reg[0] = unsafe { *host_ptr as u64 };
-            },
-            ebpf::LD_ABS_H   =>  {
-                let vm_addr = ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64);
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
-                self.reg[0] = unsafe { *host_ptr as u64 };
-            },
-            ebpf::LD_ABS_W   => {
-                let vm_addr = ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64);
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
-                self.reg[0] = unsafe { *host_ptr as u64 };
-            },
-            ebpf::LD_ABS_DW  => {
-                let vm_addr = ebpf::MM_INPUT_START.wrapping_add(insn.imm as u32 as u64);
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
-                self.reg[0] = unsafe { *host_ptr as u64 };
-            },
-            ebpf::LD_IND_B   => {
-                let vm_addr = ebpf::MM_INPUT_START.wrapping_add(self.reg[src]).wrapping_add(insn.imm as u32 as u64);
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u8);
-                self.reg[0] = unsafe { *host_ptr as u64 };
-            },
-            ebpf::LD_IND_H   => {
-                let vm_addr = ebpf::MM_INPUT_START.wrapping_add(self.reg[src]).wrapping_add(insn.imm as u32 as u64);
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
-                self.reg[0] = unsafe { *host_ptr as u64 };
-            },
-            ebpf::LD_IND_W   => {
-                let vm_addr = ebpf::MM_INPUT_START.wrapping_add(self.reg[src]).wrapping_add(insn.imm as u32 as u64);
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
-                self.reg[0] = unsafe { *host_ptr as u64 };
-            },
-            ebpf::LD_IND_DW  => {
-                let vm_addr = ebpf::MM_INPUT_START.wrapping_add(self.reg[src]).wrapping_add(insn.imm as u32 as u64);
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
-                self.reg[0] = unsafe { *host_ptr as u64 };
-            },
-
             ebpf::LD_DW_IMM  => {
                 ebpf::augment_lddw_unchecked(self.vm.program, &mut insn);
                 instruction_width = 2;
