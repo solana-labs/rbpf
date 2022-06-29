@@ -1252,21 +1252,8 @@ impl JitCompiler {
                     }
 
                     if !resolved {
-                        if self.config.disable_unresolved_symbols_at_runtime {
-                            emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
-                            emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)));
-                        } else {
-                            emit_validate_instruction_count(self, true, Some(self.pc));
-                            // executable.report_unresolved_symbol(self.pc)?;
-                            // Workaround for unresolved symbols in ELF: Report error at runtime instead of compile time
-                            emit_rust_call(self, Value::Constant64(Executable::<E, I>::report_unresolved_symbol as *const u8 as i64, false), &[
-                                Argument { index: 2, value: Value::Constant64(self.pc as i64, false) },
-                                Argument { index: 1, value: Value::Constant64(&*executable.as_ref() as *const _ as i64, false) },
-                                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
-                            ], None, true);
-                            emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
-                            emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 5)));
-                        }
+                        emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
+                        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)));
                     }
                 },
                 ebpf::CALL_REG  => {

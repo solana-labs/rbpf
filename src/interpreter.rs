@@ -445,11 +445,7 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
                 }
 
                 if !resolved {
-                    if config.disable_unresolved_symbols_at_runtime {
-                        return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
-                    } else {
-                        executable.report_unresolved_symbol(pc)?;
-                    }
+                    return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
             }
 

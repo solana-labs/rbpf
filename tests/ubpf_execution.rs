@@ -3801,9 +3801,7 @@ fn test_syscall_static() {
 
 #[test]
 fn test_syscall_unknown_static() {
-    // Check that unknown static syscalls result in UnsupportedInstruction (or
-    // would be UnresolvedSymbol with
-    // config.disable_unresolved_symbols_at_runtime=false).
+    // Check that unknown static syscalls result in UnsupportedInstruction.
     //
     // See also elf::test::test_static_syscall_disabled for the corresponding
     // check with config.syscalls_static=false.
