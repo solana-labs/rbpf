@@ -297,6 +297,10 @@ impl<'a> Elf64<'a> {
 
         // expand Elf64Dyn entries into self.dynamic_table
         for dyn_info in dynamic_table {
+            if dyn_info.d_tag == DT_NULL {
+                break;
+            }
+
             if dyn_info.d_tag as usize >= DT_NUM {
                 // we don't parse any reserved tags
                 continue;
