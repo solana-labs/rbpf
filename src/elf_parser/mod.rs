@@ -329,13 +329,21 @@ impl<'a> Elf64<'a> {
             return Err(ElfParserError::InvalidDynamicSectionTable);
         }
 
-        let program_header = self
-            .program_header_for_vaddr(vaddr)
-            .ok_or(ElfParserError::InvalidDynamicSectionTable)?;
-
-        let offset = vaddr
-            .saturating_sub(program_header.p_vaddr)
-            .saturating_add(program_header.p_offset) as usize;
+        let offset = if let Some(program_header) = self.program_header_for_vaddr(vaddr) {
+            vaddr
+                .saturating_sub(program_header.p_vaddr)
+                .saturating_add(program_header.p_offset)
+        } else {
+            // At least until rust-bpf-sysroot v0.13, we used to generate
+            // invalid dynamic sections where the address of DT_REL was not
+            // contained in any program segment. When loading one of those
+            // files, fallback to relying on section headers.
+            self.section_header_table
+                .iter()
+                .find(|section_header| section_header.sh_addr == vaddr)
+                .ok_or(ElfParserError::InvalidDynamicSectionTable)?
+                .sh_offset
+        } as usize;
 
         self.slice_from_bytes(offset..offset.saturating_add(size))
             .map(Some)
