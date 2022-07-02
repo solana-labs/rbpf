@@ -7,7 +7,7 @@ use std::{fmt, mem, ops::Range, slice};
 use {consts::*, types::*};
 
 const SECTION_NAME_LENGTH_MAXIMUM: usize = 16;
-const SYMBOL_NAME_LENGTH_MAXIMUM: usize = 64;
+const SYMBOL_NAME_LENGTH_MAXIMUM: usize = 1024;
 
 /// Error definitions
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
