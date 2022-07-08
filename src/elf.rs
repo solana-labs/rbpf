@@ -402,8 +402,8 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             let bytes = if is_memory_aligned(bytes, HOST_ALIGN) {
                 bytes
             } else {
-                aligned = Some(AlignedMemory::<{ HOST_ALIGN }>::new_with_data(bytes));
-                aligned.as_ref().unwrap().as_slice()
+                aligned = AlignedMemory::<{ HOST_ALIGN }>::new_with_data(bytes);
+                aligned.as_slice()
             };
             Self::load_with_parser(&NewParser::parse(bytes)?, config, bytes, syscall_registry)
         } else {
