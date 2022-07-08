@@ -431,7 +431,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         let text_section_info = SectionInfo {
             name: if config.enable_symbol_and_section_labels {
                 elf.section_name(text_section.sh_name())
-                    .unwrap()
+                    .unwrap_or(".text")
                     .to_string()
             } else {
                 String::default()
