@@ -345,42 +345,6 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         Ok(())
     }
 
-    /// Report information on a symbol that failed to be resolved
-    pub fn report_unresolved_symbol(&self, insn_offset: usize) -> Result<u64, EbpfError<E>> {
-        let file_offset = insn_offset
-            .saturating_mul(ebpf::INSN_SIZE)
-            .saturating_add(self.text_section_info.offset_range.start as usize);
-
-        let mut name = "Unknown".to_string();
-        if let Ok(elf) = NewParser::parse(self.elf_bytes.as_slice()) {
-            for relocation in elf.dynamic_relocations() {
-                match BpfRelocationType::from_x86_relocation_type(relocation.r_type()) {
-                    Some(BpfRelocationType::R_Bpf_64_32) | Some(BpfRelocationType::R_Bpf_64_64) => {
-                        if relocation.r_offset as usize == file_offset {
-                            let sym = elf.dynamic_symbol(relocation.r_sym()).ok_or_else(|| {
-                                ElfError::UnknownSymbol(relocation.r_sym() as usize)
-                            })?;
-                            name = elf
-                                .dynamic_symbol_name(sym.st_name())
-                                .ok_or_else(|| ElfError::UnknownSymbol(sym.st_name() as usize))?
-                                .to_string();
-                        }
-                    }
-                    _ => (),
-                }
-            }
-        }
-        Err(ElfError::UnresolvedSymbol(
-            name,
-            file_offset
-                .checked_div(ebpf::INSN_SIZE)
-                .and_then(|offset| offset.checked_add(ebpf::ELF_INSN_DUMP_OFFSET))
-                .unwrap_or(ebpf::ELF_INSN_DUMP_OFFSET),
-            file_offset,
-        )
-        .into())
-    }
-
     /// Get syscalls and BPF functions (if debug symbols are not stripped)
     pub fn get_function_symbols(&self) -> BTreeMap<usize, (u32, String)> {
         let mut bpf_functions = BTreeMap::new();
