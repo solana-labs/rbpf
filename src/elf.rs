@@ -21,7 +21,6 @@ use crate::{
         NewParser,
     },
     error::{EbpfError, UserDefinedError},
-    jit::JitProgram,
     memory_region::MemoryRegion,
     vm::{Config, InstructionMeter, SyscallRegistry},
 };
@@ -30,11 +29,13 @@ use byteorder::{ByteOrder, LittleEndian};
 use std::{
     collections::{btree_map::Entry, BTreeMap},
     fmt::Debug,
+    marker::PhantomData,
     mem,
     ops::Range,
-    pin::Pin,
     str,
 };
+#[cfg(feature = "jit")]
+use {crate::jit::JitProgram, std::pin::Pin};
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -271,7 +272,9 @@ pub struct Executable<E: UserDefinedError, I: InstructionMeter> {
     /// Syscall resolution map
     syscall_registry: SyscallRegistry,
     /// Compiled program and argument
+    #[cfg(feature = "jit")]
     compiled_program: Option<JitProgram<E, I>>,
+    _marker: PhantomData<Box<(E, I)>>,
 }
 
 impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
@@ -334,11 +337,13 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     }
 
     /// Get the JIT compiled program
+    #[cfg(feature = "jit")]
     pub fn get_compiled_program(&self) -> Option<&JitProgram<E, I>> {
         self.compiled_program.as_ref()
     }
 
     /// JIT compile the executable
+    #[cfg(feature = "jit")]
     pub fn jit_compile(executable: &mut Pin<Box<Self>>) -> Result<(), EbpfError<E>> {
         // TODO: Turn back to `executable: &mut self` once Self::report_unresolved_symbol() is gone
         executable.compiled_program = Some(JitProgram::<E, I>::new(executable)?);
@@ -384,7 +389,9 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             bpf_functions,
             syscall_symbols: BTreeMap::default(),
             syscall_registry,
+            #[cfg(feature = "jit")]
             compiled_program: None,
+            _marker: PhantomData,
         }
     }
 
@@ -505,14 +512,17 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             bpf_functions,
             syscall_symbols,
             syscall_registry,
+            #[cfg(feature = "jit")]
             compiled_program: None,
+            _marker: PhantomData,
         })
     }
 
     /// Calculate the total memory size of the executable
     #[rustfmt::skip]
     pub fn mem_size(&self) -> usize {
-        let total = mem::size_of::<Self>()
+        let mut total = mem::size_of::<Self>();
+        total = total
             // elf bytes
             .saturating_add(self.elf_bytes.mem_size())
             // ro section
@@ -539,9 +549,13 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                 .saturating_add(mem::size_of_val(&name)
                 .saturating_add(name.capacity())))))
             // syscall registry
-            .saturating_add(self.syscall_registry.mem_size())
+            .saturating_add(self.syscall_registry.mem_size());
+
+        #[cfg(feature = "jit")]
+        {
             // compiled programs
-            .saturating_add(self.compiled_program.as_ref().map_or(0, |program| program.mem_size()));
+            total = total.saturating_add(self.compiled_program.as_ref().map_or(0, |program| program.mem_size()));
+        }
 
         total as usize
     }
@@ -2206,6 +2220,7 @@ mod test {
     }
 
     #[cfg(all(not(windows), target_arch = "x86_64"))]
+    #[cfg(feature = "jit")]
     #[test]
     fn test_size() {
         let mut file = File::open("tests/elfs/noop.so").expect("file open failed");

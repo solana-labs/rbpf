@@ -36,6 +36,7 @@ pub mod error;
 pub mod fuzz;
 pub mod insn_builder;
 pub mod interpreter;
+#[cfg(feature = "jit")]
 mod jit;
 pub mod memory_region;
 pub mod static_analysis;
@@ -43,6 +44,7 @@ pub mod syscalls;
 pub mod user_error;
 pub mod verifier;
 pub mod vm;
+#[cfg(feature = "jit")]
 mod x86;
 
 trait ErrCheckedArithmetic: Sized {

@@ -313,6 +313,7 @@ impl<V: Verifier, E: UserDefinedError, I: InstructionMeter> VerifiedExecutable<V
     }
 
     /// JIT compile the executable
+    #[cfg(feature = "jit")]
     pub fn jit_compile(&mut self) -> Result<(), EbpfError<E>> {
         Executable::<E, I>::jit_compile(&mut self.executable)
     }
@@ -695,6 +696,7 @@ impl<'a, V: Verifier, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, V, E,
     /// **WARNING:** JIT-compiled assembly code is not safe. It may be wise to check that
     /// the program works with the interpreter before running the JIT-compiled version of it.
     ///
+    #[cfg(feature = "jit")]
     pub fn execute_program_jit(&mut self, instruction_meter: &mut I) -> ProgramResult<E> {
         let executable = self.verified_executable.get_executable();
         let initial_insn_count = if executable.get_config().enable_instruction_meter {
