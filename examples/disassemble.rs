@@ -6,7 +6,7 @@
 
 extern crate solana_rbpf;
 use solana_rbpf::{
-    elf::Executable,
+    elf::{register_bpf_function, Executable},
     static_analysis::Analysis,
     user_error::UserError,
     vm::{Config, SyscallRegistry, TestInstructionMeter},
@@ -31,11 +31,22 @@ fn main() {
         0x00, 0x00, 0x00, 0x00, 0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x95, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00,
     ];
+    let syscall_registry = SyscallRegistry::default();
+    let config = Config::default();
+    let mut bpf_functions = BTreeMap::new();
+    register_bpf_function(
+        &config,
+        &mut bpf_functions,
+        &syscall_registry,
+        0,
+        "entrypoint",
+    )
+    .unwrap();
     let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
         &program,
-        Config::default(),
-        SyscallRegistry::default(),
-        BTreeMap::default(),
+        config,
+        syscall_registry,
+        bpf_functions,
     )
     .unwrap();
     let analysis = Analysis::from_executable(&executable).unwrap();
