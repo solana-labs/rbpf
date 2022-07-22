@@ -33,8 +33,7 @@ impl<'a> CallFrames<'a> {
     /// New call frame, depth indicates maximum call depth
     pub fn new(config: &'a Config) -> Self {
         let stack_len = config.stack_size();
-        let mut stack = AlignedMemory::new(stack_len);
-        stack.resize(stack_len, 0).unwrap();
+        let stack = AlignedMemory::new_with_size(stack_len);
 
         let mut frames = CallFrames {
             config,
