@@ -19,6 +19,17 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
         mem.resize(align_offset, 0);
         (mem, align_offset)
     }
+
+    fn get_mem_zeroed(max_len: usize) -> (Vec<u8>, usize) {
+        // use calloc() to get zeroed memory from the OS instead of using
+        // malloc() + memset(), see
+        // https://github.com/rust-lang/rust/issues/54628
+        let mut mem = vec![0; max_len];
+        let align_offset = mem.as_ptr().align_offset(ALIGN);
+        mem.resize(align_offset + max_len, 0);
+        (mem, align_offset)
+    }
+
     /// Return a new AlignedMemory type
     pub fn new(max_len: usize) -> Self {
         let (mem, align_offset) = Self::get_mem(max_len);
@@ -30,8 +41,7 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
     }
     /// Return a pre-filled AlignedMemory type
     pub fn new_with_size(len: usize) -> Self {
-        let (mut mem, align_offset) = Self::get_mem(len);
-        mem.resize(align_offset + len, 0);
+        let (mem, align_offset) = Self::get_mem_zeroed(len);
         Self {
             max_len: len,
             align_offset,
@@ -147,6 +157,10 @@ mod tests {
         aligned_memory.resize(1, 3).unwrap_err();
         aligned_memory.write(&[4u8; 1]).unwrap_err();
         assert_eq!(aligned_memory.as_slice(), &[0, 0, 0, 0, 0, 1, 1, 2, 2, 2]);
+
+        let aligned_memory = AlignedMemory::<ALIGN>::new_with_size(10);
+        assert_eq!(aligned_memory.len(), 10);
+        assert_eq!(aligned_memory.as_slice(), &[0u8; 10]);
     }
 
     #[test]
