@@ -24,6 +24,7 @@ pub trait UserDefinedError: 'static + std::error::Error {}
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[repr(u64)] // discriminant size, used in emit_exception_kind in JIT
 pub enum EbpfError<E: UserDefinedError> {
     /// User defined error
     #[error("{0}")]
