@@ -514,7 +514,6 @@ impl<'a, V: Verifier, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, V, E,
         let config = executable.get_config();
         let mut stack = CallFrames::new(config);
         let regions: Vec<MemoryRegion> = vec![
-            MemoryRegion::new_readonly(&[], 0),
             verified_executable.get_executable().get_ro_region(),
             stack.get_memory_region(),
             MemoryRegion::new_writable(heap_region, ebpf::MM_HEAP_START),

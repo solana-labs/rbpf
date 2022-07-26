@@ -17,8 +17,7 @@
 extern crate libc;
 
 use std::{
-    fmt::{Debug, Error as FormatterError, Formatter},
-    mem,
+    fmt::{Debug, Error as FormatterError, Formatter}, mem,
     ops::{Index, IndexMut},
     ptr,
 };

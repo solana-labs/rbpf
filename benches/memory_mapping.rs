@@ -23,8 +23,7 @@ fn generate_memory_regions(
     is_writable: bool,
     mut prng: Option<&mut SmallRng>,
 ) -> (Vec<MemoryRegion>, u64) {
-    let mut memory_regions = Vec::with_capacity(entries + 1);
-    memory_regions.push(MemoryRegion::default());
+    let mut memory_regions = Vec::with_capacity(entries);
     let mut offset = 0x100000000;
     for _ in 0..entries {
         let length = match &mut prng {
@@ -60,10 +59,12 @@ fn bench_gapped_randomized_access_with_1024_entries(bencher: &mut Bencher) {
     let frame_size: u64 = 2;
     let frame_count: u64 = 1024;
     let content = vec![0; (frame_size * frame_count * 2) as usize];
-    let memory_regions = vec![
-        MemoryRegion::default(),
-        MemoryRegion::new_for_testing(&content[..], 0x100000000, frame_size, false),
-    ];
+    let memory_regions = vec![MemoryRegion::new_for_testing(
+        &content[..],
+        0x100000000,
+        frame_size,
+        false,
+    )];
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     let mut prng = new_prng!();
@@ -81,10 +82,7 @@ fn bench_gapped_randomized_access_with_1024_entries(bencher: &mut Bencher) {
 #[bench]
 fn bench_randomized_access_with_0001_entry(bencher: &mut Bencher) {
     let content = vec![0; 1024 * 2];
-    let memory_regions = vec![
-        MemoryRegion::default(),
-        MemoryRegion::new_readonly(&content[..], 0x100000000),
-    ];
+    let memory_regions = vec![MemoryRegion::new_readonly(&content[..], 0x100000000)];
     let config = Config::default();
     let memory_mapping = MemoryMapping::new::<UserError>(memory_regions, &config).unwrap();
     let mut prng = new_prng!();
