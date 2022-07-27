@@ -167,7 +167,7 @@ impl<'a> Elf64<'a> {
             if section_range.start < offset {
                 return Err(ElfParserError::SectionNotInOrder);
             }
-            if section_range.end >= elf_bytes.len() {
+            if section_range.end > elf_bytes.len() {
                 return Err(ElfParserError::OutOfBounds);
             }
             offset = section_range.end;
