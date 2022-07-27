@@ -4,6 +4,8 @@ pub mod consts;
 pub mod types;
 
 use std::{fmt, mem, ops::Range, slice};
+
+use crate::{ArithmeticOverflow, ErrCheckedArithmetic};
 use {consts::*, types::*};
 
 const SECTION_NAME_LENGTH_MAXIMUM: usize = 16;
@@ -114,16 +116,16 @@ impl<'a> Elf64<'a> {
 
         let program_header_table_range = file_header.e_phoff as usize
             ..mem::size_of::<Elf64Phdr>()
-                .saturating_mul(file_header.e_phnum as usize)
-                .saturating_add(file_header.e_phoff as usize);
+                .err_checked_mul(file_header.e_phnum as usize)?
+                .err_checked_add(file_header.e_phoff as usize)?;
         check_that_there_is_no_overlap(&file_header_range, &program_header_table_range)?;
         let program_header_table =
             slice_from_bytes::<Elf64Phdr>(elf_bytes, program_header_table_range.clone())?;
 
         let section_header_table_range = file_header.e_shoff as usize
             ..mem::size_of::<Elf64Shdr>()
-                .saturating_mul(file_header.e_shnum as usize)
-                .saturating_add(file_header.e_shoff as usize);
+                .err_checked_mul(file_header.e_shnum as usize)?
+                .err_checked_add(file_header.e_shoff as usize)?;
         check_that_there_is_no_overlap(&file_header_range, &section_header_table_range)?;
         check_that_there_is_no_overlap(&program_header_table_range, &section_header_table_range)?;
         let section_header_table =
@@ -148,7 +150,7 @@ impl<'a> Elf64<'a> {
 
             if program_header
                 .p_offset
-                .saturating_add(program_header.p_filesz) as usize
+                .err_checked_add(program_header.p_filesz)? as usize
                 > elf_bytes.len()
             {
                 return Err(ElfParserError::OutOfBounds);
@@ -164,7 +166,7 @@ impl<'a> Elf64<'a> {
             }
             let section_range = section_header.sh_offset as usize
                 ..(section_header.sh_offset as usize)
-                    .saturating_add(section_header.sh_size as usize);
+                    .err_checked_add(section_header.sh_size as usize)?;
             check_that_there_is_no_overlap(&section_range, &file_header_range)?;
             check_that_there_is_no_overlap(&section_range, &program_header_table_range)?;
             check_that_there_is_no_overlap(&section_range, &section_header_table_range)?;
@@ -333,10 +335,10 @@ impl<'a> Elf64<'a> {
             return Err(ElfParserError::InvalidDynamicSectionTable);
         }
 
-        let offset = if let Some(program_header) = self.program_header_for_vaddr(vaddr) {
+        let offset = if let Some(program_header) = self.program_header_for_vaddr(vaddr)? {
             vaddr
-                .saturating_sub(program_header.p_vaddr)
-                .saturating_add(program_header.p_offset)
+                .err_checked_sub(program_header.p_vaddr)?
+                .err_checked_add(program_header.p_offset)?
         } else {
             // At least until rust-bpf-sysroot v0.13, we used to generate
             // invalid dynamic sections where the address of DT_REL was not
@@ -349,7 +351,7 @@ impl<'a> Elf64<'a> {
                 .sh_offset
         } as usize;
 
-        self.slice_from_bytes(offset..offset.saturating_add(size))
+        self.slice_from_bytes(offset..offset.err_checked_add(size)?)
             .map(Some)
             .map_err(|_| ElfParserError::InvalidDynamicSectionTable)
     }
@@ -381,11 +383,11 @@ impl<'a> Elf64<'a> {
             return Err(ElfParserError::InvalidSectionHeader);
         }
         let offset_in_file =
-            (section_header.sh_offset as usize).saturating_add(offset_in_section as usize);
+            (section_header.sh_offset as usize).err_checked_add(offset_in_section as usize)?;
         let string_range = offset_in_file
             ..(section_header.sh_offset as usize)
-                .saturating_add(section_header.sh_size as usize)
-                .min(offset_in_file.saturating_add(maximum_length));
+                .err_checked_add(section_header.sh_size as usize)?
+                .min(offset_in_file.err_checked_add(maximum_length)?);
         let unterminated_string_bytes = self
             .elf_bytes
             .get(string_range)
@@ -456,7 +458,7 @@ impl<'a> Elf64<'a> {
         }: &Elf64Phdr,
     ) -> Result<&'a [T], ElfParserError> {
         self.slice_from_bytes(
-            (p_offset as usize)..(p_offset as usize).saturating_add(p_filesz as usize),
+            (p_offset as usize)..(p_offset as usize).err_checked_add(p_filesz as usize)?,
         )
     }
 
@@ -469,7 +471,7 @@ impl<'a> Elf64<'a> {
         }: &Elf64Shdr,
     ) -> Result<&'a [T], ElfParserError> {
         self.slice_from_bytes(
-            (sh_offset as usize)..(sh_offset as usize).saturating_add(sh_size as usize),
+            (sh_offset as usize)..(sh_offset as usize).err_checked_add(sh_size as usize)?,
         )
     }
 
@@ -478,12 +480,20 @@ impl<'a> Elf64<'a> {
         slice_from_bytes(self.elf_bytes, range)
     }
 
-    fn program_header_for_vaddr(&self, vaddr: Elf64Addr) -> Option<&'a Elf64Phdr> {
-        self.program_header_table.iter().find(
-            |Elf64Phdr {
-                 p_vaddr, p_memsz, ..
-             }| { (*p_vaddr..p_vaddr.saturating_add(*p_memsz)).contains(&vaddr) },
-        )
+    fn program_header_for_vaddr(
+        &self,
+        vaddr: Elf64Addr,
+    ) -> Result<Option<&'a Elf64Phdr>, ElfParserError> {
+        for program_header in self.program_header_table.iter() {
+            let Elf64Phdr {
+                p_vaddr, p_memsz, ..
+            } = program_header;
+
+            if (*p_vaddr..p_vaddr.err_checked_add(*p_memsz)?).contains(&vaddr) {
+                return Ok(Some(program_header));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -553,4 +563,10 @@ fn slice_from_bytes<T: 'static>(bytes: &[u8], range: Range<usize>) -> Result<&[T
             range.len().checked_div(mem::size_of::<T>()).unwrap_or(0),
         )
     })
+}
+
+impl From<ArithmeticOverflow> for ElfParserError {
+    fn from(_: ArithmeticOverflow) -> ElfParserError {
+        ElfParserError::OutOfBounds
+    }
 }

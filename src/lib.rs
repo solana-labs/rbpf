@@ -44,3 +44,37 @@ pub mod user_error;
 pub mod verifier;
 pub mod vm;
 mod x86;
+
+trait ErrCheckedArithmetic: Sized {
+    fn err_checked_add(self, other: Self) -> Result<Self, ArithmeticOverflow>;
+    fn err_checked_sub(self, other: Self) -> Result<Self, ArithmeticOverflow>;
+    fn err_checked_mul(self, other: Self) -> Result<Self, ArithmeticOverflow>;
+    fn err_checked_div(self, other: Self) -> Result<Self, ArithmeticOverflow>;
+}
+struct ArithmeticOverflow;
+
+macro_rules! impl_err_checked_arithmetic {
+    ($($ty:ty),*) => {
+        $(
+            impl ErrCheckedArithmetic for $ty {
+                fn err_checked_add(self, other: $ty) -> Result<Self, ArithmeticOverflow> {
+                    self.checked_add(other).ok_or(ArithmeticOverflow)
+                }
+
+                fn err_checked_sub(self, other: $ty) -> Result<Self, ArithmeticOverflow> {
+                    self.checked_sub(other).ok_or(ArithmeticOverflow)
+                }
+
+                fn err_checked_mul(self, other: $ty) -> Result<Self, ArithmeticOverflow> {
+                    self.checked_mul(other).ok_or(ArithmeticOverflow)
+                }
+
+                fn err_checked_div(self, other: $ty) -> Result<Self, ArithmeticOverflow> {
+                    self.checked_div(other).ok_or(ArithmeticOverflow)
+                }
+            }
+        )*
+    }
+}
+
+impl_err_checked_arithmetic!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
