@@ -128,6 +128,10 @@ impl<'a> Elf64<'a> {
         check_that_there_is_no_overlap(&program_header_table_range, &section_header_table_range)?;
         let section_header_table =
             slice_from_bytes::<Elf64Shdr>(elf_bytes, section_header_table_range.clone())?;
+        section_header_table
+            .get(0)
+            .map(|section_header| section_header.sh_type == SHT_NULL)
+            .ok_or(ElfParserError::InvalidSectionHeader)?;
 
         let mut prev_program_header: Option<&Elf64Phdr> = None;
         for program_header in program_header_table {
