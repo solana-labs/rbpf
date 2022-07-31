@@ -19,19 +19,18 @@ use crate::{
     memory_region::AccessType,
     user_error::UserError,
     verifier::Verifier,
-    vm::{
-        EbpfVm, InstructionMeter, ProgramResult, SyscallFunction, SYSCALL_CONTEXT_OBJECTS_OFFSET,
-    },
+    vm::{EbpfVm, InstructionMeter, ProgramResult, SyscallFunction},
 };
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
 macro_rules! translate_memory_access {
     ($self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty) => {
-        match $self.vm.memory_mapping.map::<UserError>(
-            $access_type,
-            $vm_addr,
-            std::mem::size_of::<$T>() as u64,
-        ) {
+        match $self
+            .vm
+            .program_environment
+            .memory_mapping
+            .map::<UserError>($access_type, $vm_addr, std::mem::size_of::<$T>() as u64)
+        {
             Ok(host_addr) => host_addr as *mut $T,
             Err(EbpfError::AccessViolation(_pc, access_type, vm_addr, len, regions)) => {
                 return Err(EbpfError::AccessViolation(
@@ -150,7 +149,7 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
             let mut state = [0u64; 12];
             state[0..11].copy_from_slice(&self.reg);
             state[11] = pc as u64;
-            self.vm.tracer.trace(state);
+            self.vm.program_environment.tracer.trace(state);
         }
 
         match insn.opc {
@@ -417,13 +416,13 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
                         self.due_insn_count = 0;
                         let mut result: ProgramResult<E> = Ok(0);
                         (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
-                            self.vm.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot],
+                            self.vm.program_environment.syscall_context_objects[syscall.context_object_slot],
                             self.reg[1],
                             self.reg[2],
                             self.reg[3],
                             self.reg[4],
                             self.reg[5],
-                            &mut self.vm.memory_mapping,
+                            &mut self.vm.program_environment.memory_mapping,
                             &mut result,
                         );
                         self.reg[0] = result?;

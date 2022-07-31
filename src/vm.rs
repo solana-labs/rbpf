@@ -19,7 +19,6 @@ use crate::{
     elf::Executable,
     error::{EbpfError, UserDefinedError},
     interpreter::Interpreter,
-    jit::JitProgramArgument,
     memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
     verifier::Verifier,
@@ -30,6 +29,7 @@ use std::{
     marker::PhantomData,
     mem,
     pin::Pin,
+    ptr,
 };
 
 /// Return value of programs and syscalls
@@ -116,6 +116,8 @@ pub struct SyscallRegistry {
 }
 
 impl SyscallRegistry {
+    const MAX_SYSCALLS: usize = 128;
+
     /// Register a syscall function by its symbol hash
     pub fn register_syscall_by_hash<'a, C, E: UserDefinedError, O: SyscallObject<E>>(
         &mut self,
@@ -126,6 +128,9 @@ impl SyscallRegistry {
         let init = init as *const u8 as u64;
         let function = function as *const u8 as u64;
         let context_object_slot = self.entries.len();
+        if context_object_slot == SyscallRegistry::MAX_SYSCALLS {
+            return Err(EbpfError::TooManySyscalls);
+        }
         if self
             .entries
             .insert(
@@ -257,9 +262,6 @@ impl Default for Config {
         }
     }
 }
-
-/// The syscall_context_objects field stores some metadata in the front, thus the entries are shifted
-pub const SYSCALL_CONTEXT_OBJECTS_OFFSET: usize = 4;
 
 /// Static constructors for Executable
 impl<E: UserDefinedError, I: 'static + InstructionMeter> Executable<E, I> {
@@ -472,9 +474,7 @@ pub struct EbpfVm<'a, V: Verifier, E: UserDefinedError, I: InstructionMeter> {
     pub(crate) verified_executable: &'a VerifiedExecutable<V, E, I>,
     pub(crate) program: &'a [u8],
     pub(crate) program_vm_addr: u64,
-    pub(crate) memory_mapping: MemoryMapping<'a>,
-    pub(crate) tracer: Tracer,
-    pub(crate) syscall_context_objects: Vec<*mut u8>,
+    pub(crate) program_environment: ProgramEnvironment<'a>,
     syscall_context_object_pool: Vec<Box<dyn SyscallObject<E> + 'a>>,
     pub(crate) stack: CallFrames<'a>,
     total_insn_count: u64,
@@ -521,27 +521,20 @@ impl<'a, V: Verifier, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, V, E,
         .collect();
         let (program_vm_addr, program) = executable.get_text_bytes();
         let number_of_syscalls = executable.get_syscall_registry().get_number_of_syscalls();
-        let mut vm = EbpfVm {
+        let vm = EbpfVm {
             verified_executable,
             program,
             program_vm_addr,
-            memory_mapping: MemoryMapping::new(regions, config)?,
-            tracer: Tracer::default(),
-            syscall_context_objects: vec![
-                std::ptr::null_mut();
-                SYSCALL_CONTEXT_OBJECTS_OFFSET + number_of_syscalls
-            ],
+            program_environment: ProgramEnvironment {
+                memory_mapping: MemoryMapping::new(regions, config)?,
+                syscall_context_objects: [ptr::null_mut(); SyscallRegistry::MAX_SYSCALLS],
+                tracer: Tracer::default(),
+            },
             syscall_context_object_pool: Vec::with_capacity(number_of_syscalls),
             stack,
             total_insn_count: 0,
         };
-        unsafe {
-            libc::memcpy(
-                vm.syscall_context_objects.as_mut_ptr() as _,
-                std::mem::transmute::<_, _>(&vm.memory_mapping),
-                std::mem::size_of::<MemoryMapping>(),
-            );
-        }
+
         Ok(vm)
     }
 
@@ -557,7 +550,7 @@ impl<'a, V: Verifier, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, V, E,
 
     /// Returns the tracer
     pub fn get_tracer(&self) -> &Tracer {
-        &self.tracer
+        &self.program_environment.tracer
     }
 
     /// Initializes and binds the context object instances for all previously registered syscalls
@@ -619,10 +612,8 @@ impl<'a, V: Verifier, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, V, E,
                     fat_ptr.vtable.methods[0] as usize,
                 ))?;
 
-            debug_assert!(
-                self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot].is_null()
-            );
-            self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot] = fat_ptr.data;
+            debug_assert!(self.program_environment.syscall_context_objects[slot].is_null());
+            self.program_environment.syscall_context_objects[slot] = fat_ptr.data;
             // Keep the dyn trait objects so that they can be dropped properly later
             self.syscall_context_object_pool
                 .push(syscall_context_object);
@@ -637,7 +628,7 @@ impl<'a, V: Verifier, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, V, E,
             .get_executable()
             .get_syscall_registry()
             .lookup_context_object_slot(syscall_function as u64)
-            .map(|slot| self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET + slot])
+            .map(|slot| self.program_environment.syscall_context_objects[slot])
     }
 
     /// Execute the program loaded, with the given packet data.
@@ -712,12 +703,10 @@ impl<'a, V: Verifier, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, V, E,
             .get_compiled_program()
             .ok_or(EbpfError::JitNotCompiled)?;
         let instruction_meter_final = unsafe {
-            self.syscall_context_objects[SYSCALL_CONTEXT_OBJECTS_OFFSET - 1] =
-                &mut self.tracer as *mut _ as *mut u8;
             (compiled_program.main)(
                 &result,
                 ebpf::MM_INPUT_START,
-                &*(self.syscall_context_objects.as_ptr() as *const JitProgramArgument),
+                &self.program_environment,
                 instruction_meter,
             )
             .max(0) as u64
@@ -736,5 +725,64 @@ impl<'a, V: Verifier, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, V, E,
             }
             x => x,
         }
+    }
+}
+
+/// The execution environment of a program instance.
+#[repr(C)]
+pub struct ProgramEnvironment<'a> {
+    /// The MemoryMapping describing the address space of the program
+    pub memory_mapping: MemoryMapping<'a>,
+    /// Pointers to the context objects of syscalls
+    pub syscall_context_objects: [*mut u8; SyscallRegistry::MAX_SYSCALLS],
+    /// The instruction tracer
+    pub tracer: Tracer,
+}
+
+impl<'a> ProgramEnvironment<'a> {
+    /// Offset to Self::memory_mapping
+    pub const MEMORY_MAPPING_OFFSET: usize = 0;
+    /// Offset of Self::syscalls
+    pub const SYSCALLS_OFFSET: usize =
+        Self::MEMORY_MAPPING_OFFSET + mem::size_of::<MemoryMapping>();
+    /// Offset of Self::tracer
+    pub const TRACER_OFFSET: usize =
+        Self::SYSCALLS_OFFSET + mem::size_of::<[*mut u8; SyscallRegistry::MAX_SYSCALLS]>();
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::user_error::UserError;
+
+    use super::*;
+
+    #[test]
+    fn test_program_environment_offsets() {
+        let config = Config::default();
+        let env = ProgramEnvironment {
+            memory_mapping: MemoryMapping::new::<UserError>(vec![], &config).unwrap(),
+            syscall_context_objects: [ptr::null_mut(); SyscallRegistry::MAX_SYSCALLS],
+            tracer: Tracer::default(),
+        };
+        assert_eq!(
+            unsafe {
+                (&env.memory_mapping as *const _ as *const u8)
+                    .offset_from(&env as *const _ as *const _)
+            },
+            ProgramEnvironment::MEMORY_MAPPING_OFFSET as isize
+        );
+        assert_eq!(
+            unsafe {
+                (&env.syscall_context_objects as *const _ as *const u8)
+                    .offset_from(&env as *const _ as *const _)
+            },
+            ProgramEnvironment::SYSCALLS_OFFSET as isize
+        );
+        assert_eq!(
+            unsafe {
+                (&env.tracer as *const _ as *const u8).offset_from(&env as *const _ as *const _)
+            },
+            ProgramEnvironment::TRACER_OFFSET as isize
+        );
     }
 }

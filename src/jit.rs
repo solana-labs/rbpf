@@ -26,7 +26,7 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
     elf::Executable,
-    vm::{Config, ProgramResult, InstructionMeter, Tracer, SYSCALL_CONTEXT_OBJECTS_OFFSET},
+    vm::{Config, ProgramResult, InstructionMeter, Tracer, ProgramEnvironment},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, FRAME_PTR_REG, MM_STACK_START, STACK_PTR_REG},
     error::{UserDefinedError, EbpfError},
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
@@ -36,14 +36,6 @@ use crate::{
 
 const MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH: usize = 4096;
 const MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION: usize = 110;
-
-/// Argument for executing a eBPF JIT-compiled program
-pub struct JitProgramArgument<'a> {
-    /// The MemoryMapping to be used to run the compiled code
-    pub memory_mapping: MemoryMapping<'a>,
-    /// Pointers to the context objects of syscalls
-    pub syscall_context_objects: [*const u8; 0],
-}
 
 struct JitProgramSections {
     /// OS page size in bytes and the alignment of the sections
@@ -154,8 +146,8 @@ impl Drop for JitProgramSections {
 pub struct JitProgram<E: UserDefinedError, I: InstructionMeter> {
     /// Holds and manages the protected memory
     sections: JitProgramSections,
-    /// Call this with JitProgramArgument to execute the compiled code
-    pub main: unsafe fn(&ProgramResult<E>, u64, &JitProgramArgument, &mut I) -> i64,
+    /// Call this with the ProgramEnvironment to execute the compiled code
+    pub main: unsafe fn(&ProgramResult<E>, u64, &ProgramEnvironment, &mut I) -> i64,
 }
 
 impl<E: UserDefinedError, I: InstructionMeter> Debug for JitProgram<E, I> {
@@ -232,7 +224,7 @@ const REGISTER_MAP: [u8; 11] = [
 // Special registers:
 //     ARGUMENT_REGISTERS[0]  RDI  BPF program counter limit (used by instruction meter)
 // CALLER_SAVED_REGISTERS[8]  R11  Scratch register
-// CALLER_SAVED_REGISTERS[7]  R10  Constant pointer to JitProgramArgument (also scratch register for exception handling)
+// CALLER_SAVED_REGISTERS[7]  R10  Constant pointer to ProgramEnvironment (also scratch register for exception handling)
 // CALLEE_SAVED_REGISTERS[0]  RBP  Constant pointer to initial RSP - 8
 
 #[inline]
@@ -949,7 +941,7 @@ impl JitCompiler {
             if config.encrypt_environment_registers {
                 (
                     diversification_rng.gen::<i32>() / 16, // -3 bits for 8 Byte alignment, and -1 bit to have encoding space for EnvironmentStackSlot::SlotCount
-                    diversification_rng.gen::<i32>() / 2, // -1 bit to have encoding space for (SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) * 8
+                    diversification_rng.gen::<i32>() / 2, // -1 bit to have encoding space for (ProgramEnvironment::SYSCALLS_OFFSET + syscall.context_object_slot) * 8
                 )
             } else { (0, 0) };
 
@@ -1230,7 +1222,7 @@ impl JitCompiler {
                                 emit_validate_and_profile_instruction_count(self, true, Some(0));
                             }
                             emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, syscall.function as *const u8 as i64));
-                            emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset((SYSCALL_CONTEXT_OBJECTS_OFFSET + syscall.context_object_slot) as i32 * 8 + self.program_argument_key)));
+                            emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset(ProgramEnvironment::SYSCALLS_OFFSET as i32 + syscall.context_object_slot as i32 * 8 + self.program_argument_key)));
                             emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_SYSCALL, 5)));
                             if self.config.enable_instruction_meter {
                                 emit_undo_profile_instruction_count(self, 0);
@@ -1358,7 +1350,7 @@ impl JitCompiler {
         emit_ins(self, X86Instruction::mov(OperandSize::S64, RSP, RBP));
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, 8 * (EnvironmentStackSlot::SlotCount as i64 - 1 + self.environment_stack_key as i64), None));
 
-        // Save JitProgramArgument
+        // Save ProgramEnvironment
         emit_ins(self, X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], R10, Some(X86IndirectAccess::Offset(-self.program_argument_key))));
 
         // Zero BPF registers
@@ -1415,7 +1407,7 @@ impl JitCompiler {
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, - 8 * 3, None)); // RSP -= 8 * 3;
             emit_rust_call(self, Value::Constant64(Tracer::trace as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
-                Argument { index: 0, value: Value::RegisterIndirect(R10, mem::size_of::<MemoryMapping>() as i32 + self.program_argument_key, false) }, // jit.tracer
+                Argument { index: 0, value: Value::RegisterPlusConstant32(R10, ProgramEnvironment::TRACER_OFFSET as i32 + self.program_argument_key, false) }, // jit.tracer
             ], None, false);
             // Pop stack and return
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, 8 * 3, None)); // RSP += 8 * 3;
@@ -1634,7 +1626,7 @@ impl JitCompiler {
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
-                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // jit_program_argument.memory_mapping
+                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, ProgramEnvironment::MEMORY_MAPPING_OFFSET as i32 + self.program_argument_key, false) }, // jit_program_argument.memory_mapping
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) }, // Pointer to optional typed return value
             ], None, true);
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, stack_offset as i64 + 8, None)); // Drop R11, RAX, RCX, RDX from stack

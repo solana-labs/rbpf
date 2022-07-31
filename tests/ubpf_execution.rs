@@ -4199,7 +4199,7 @@ fn test_err_discriminant_size() {
 
         // Check that all 64-bits of the discriminant were changed
         let err_kind = *(&test_err as *const _ as *const u64);
-        assert_eq!(err_kind, 7u64);
+        assert_eq!(err_kind, 8u64);
     }
 }
 
