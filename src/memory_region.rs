@@ -353,7 +353,7 @@ impl<'a> AlignedMemoryMapping<'a> {
 }
 
 /// Maps virtual addresses to memory regions.
-pub type MemoryMapping<'a> = AlignedMemoryMapping<'a>;
+pub type MemoryMapping<'a> = UnalignedMemoryMapping<'a>;
 
 /// Helper for map to generate errors
 pub fn generate_access_violation<E: UserDefinedError>(
