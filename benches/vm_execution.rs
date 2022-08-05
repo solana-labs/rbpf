@@ -43,7 +43,6 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     });
 }
 
-#[cfg(not(windows))]
 #[bench]
 fn bench_init_jit_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
@@ -68,7 +67,6 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     });
 }
 
-#[cfg(not(windows))]
 fn bench_jit_vs_interpreter(
     bencher: &mut Bencher,
     assembly: &str,
@@ -118,7 +116,6 @@ fn bench_jit_vs_interpreter(
     );
 }
 
-#[cfg(not(windows))]
 #[bench]
 fn bench_jit_vs_interpreter_address_translation(bencher: &mut Bencher) {
     bench_jit_vs_interpreter(
@@ -147,7 +144,6 @@ static ADDRESS_TRANSLATION_STACK_CODE: &str = "
     jlt r2, 0x10000, -8
     exit";
 
-#[cfg(not(windows))]
 #[bench]
 fn bench_jit_vs_interpreter_address_translation_stack_fixed(bencher: &mut Bencher) {
     bench_jit_vs_interpreter(
@@ -162,7 +158,6 @@ fn bench_jit_vs_interpreter_address_translation_stack_fixed(bencher: &mut Benche
     );
 }
 
-#[cfg(not(windows))]
 #[bench]
 fn bench_jit_vs_interpreter_address_translation_stack_dynamic(bencher: &mut Bencher) {
     bench_jit_vs_interpreter(
@@ -177,7 +172,6 @@ fn bench_jit_vs_interpreter_address_translation_stack_dynamic(bencher: &mut Benc
     );
 }
 
-#[cfg(not(windows))]
 #[bench]
 fn bench_jit_vs_interpreter_empty_for_loop(bencher: &mut Bencher) {
     bench_jit_vs_interpreter(
@@ -194,7 +188,6 @@ fn bench_jit_vs_interpreter_empty_for_loop(bencher: &mut Bencher) {
     );
 }
 
-#[cfg(not(windows))]
 #[bench]
 fn bench_jit_vs_interpreter_call_depth_fixed(bencher: &mut Bencher) {
     bench_jit_vs_interpreter(
@@ -224,7 +217,6 @@ fn bench_jit_vs_interpreter_call_depth_fixed(bencher: &mut Bencher) {
     );
 }
 
-#[cfg(not(windows))]
 #[bench]
 fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
     bench_jit_vs_interpreter(

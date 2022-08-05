@@ -1,5 +1,5 @@
 #![allow(clippy::integer_arithmetic)]
-use crate::jit::{emit, emit_variable_length, JitCompiler, OperandSize};
+use crate::jit::{emit, emit_variable_length, JitCompilerCore, OperandSize};
 
 pub const RAX: u8 = 0;
 pub const RCX: u8 = 1;
@@ -20,9 +20,20 @@ pub const R15: u8 = 15;
 
 // System V AMD64 ABI
 // Works on: Linux, macOS, BSD and Solaris but not on Windows
+#[cfg(not(target_os = "windows"))]
 pub const ARGUMENT_REGISTERS: [u8; 6] = [RDI, RSI, RDX, RCX, R8, R9];
+#[cfg(not(target_os = "windows"))]
 pub const CALLER_SAVED_REGISTERS: [u8; 9] = [RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11];
+#[cfg(not(target_os = "windows"))]
 pub const CALLEE_SAVED_REGISTERS: [u8; 6] = [RBP, RBX, R12, R13, R14, R15];
+
+// Windows MSVC x64 ABI
+#[cfg(target_os = "windows")]
+pub const ARGUMENT_REGISTERS: [u8; 4] = [RCX, RDX, R8, R9];
+#[cfg(target_os = "windows")]
+pub const CALLER_SAVED_REGISTERS: [u8; 7] = [RAX, RCX, RDX, R8, R9, R10, R11];
+#[cfg(target_os = "windows")]
+pub const CALLEE_SAVED_REGISTERS: [u8; 8] = [RBP, RBX, RDI, RSI, R12, R13, R14, R15];
 
 macro_rules! exclude_operand_sizes {
     ($size:expr, $($to_exclude:path)|+ $(,)?) => {
@@ -58,6 +69,8 @@ pub enum X86IndirectAccess {
     /// [second_operand + offset]
     Offset(i32),
     /// [second_operand + offset + index << shift]
+    /// NOTE: this is fragile and some values for index have a special meaning in the instruction
+    /// encodings.
     OffsetIndexShift(i32, u8, u8),
 }
 
@@ -99,7 +112,7 @@ impl X86Instruction {
     };
 
     #[inline]
-    pub fn emit(&self, jit: &mut JitCompiler) {
+    pub fn emit(&self, jit: &mut JitCompilerCore) {
         debug_assert!(!matches!(self.size, OperandSize::S0));
         let mut rex = X86Rex {
             w: matches!(self.size, OperandSize::S64),

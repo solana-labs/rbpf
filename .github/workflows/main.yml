@@ -33,12 +33,19 @@ jobs:
         cargo clippy --all --tests -- --deny=warnings --deny=clippy::integer_arithmetic
       if: matrix.rust != 'nightly'
       shell: bash
-    - name: Build and test
+    - name: Build and test (windows)
+      run: |
+        export RUSTFLAGS="-D warnings"
+        cargo build --verbose --features jit-windows-not-safe-for-production
+        cargo test --verbose --features jit-windows-not-safe-for-production
+      if: matrix.rust != 'nightly' && matrix.os == 'windows-latest'
+      shell: bash
+    - name: Build and test (unix)
       run: |
         export RUSTFLAGS="-D warnings"
         cargo build --verbose
         cargo test --verbose
-      if: matrix.rust != 'nightly'
+      if: matrix.rust != 'nightly' && matrix.os != 'windows-latest'
       shell: bash
     - name: Check CLI
       run: |
@@ -56,7 +63,11 @@ jobs:
         cargo fuzz build
       if: matrix.rust == 'nightly' && matrix.os != 'windows-latest'
       shell: bash
-    - name: Benchmark
+    - name: Benchmark (windows)
+      run: RUSTFLAGS="-D warnings" cargo bench --features jit-windows-not-safe-for-production -- --nocapture
+      if: matrix.rust == 'nightly' && matrix.os == 'windows-latest'
+      shell: bash
+    - name: Benchmark (unix)
       run: RUSTFLAGS="-D warnings" cargo bench -- --nocapture
       if: matrix.rust == 'nightly' && matrix.os != 'windows-latest'
       shell: bash
