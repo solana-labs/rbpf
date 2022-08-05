@@ -9,6 +9,7 @@ pub struct AlignedMemory<const ALIGN: usize> {
     max_len: usize,
     align_offset: usize,
     mem: Vec<u8>,
+    zero_up_to_max_len: bool,
 }
 
 impl<const ALIGN: usize> AlignedMemory<ALIGN> {
@@ -37,6 +38,7 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
             max_len,
             align_offset,
             mem,
+            zero_up_to_max_len: false,
         }
     }
     /// Return a pre-filled AlignedMemory type
@@ -46,6 +48,7 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
             max_len: len,
             align_offset,
             mem,
+            zero_up_to_max_len: true,
         }
     }
     /// Return a pre-filled AlignedMemory type
@@ -57,6 +60,7 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
             max_len,
             align_offset,
             mem,
+            zero_up_to_max_len: false,
         }
     }
     /// Calculate memory size
@@ -95,7 +99,7 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
                 "aligned memory resize failed",
             ));
         }
-        if value == 0 {
+        if self.zero_up_to_max_len && value == 0 {
             // Safe because everything up to `max_len` is zeroed and no shrinking is allowed
             unsafe {
                 self.mem.set_len(self.mem.len() + num);
