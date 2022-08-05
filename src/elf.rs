@@ -366,7 +366,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         syscall_registry: SyscallRegistry,
         bpf_functions: BTreeMap<u32, (usize, String)>,
     ) -> Self {
-        let elf_bytes = AlignedMemory::new_with_data(text_bytes);
+        let elf_bytes = AlignedMemory::from_slice(text_bytes);
         let enable_symbol_and_section_labels = config.enable_symbol_and_section_labels;
         Self {
             config,
@@ -402,7 +402,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             let bytes = if is_memory_aligned(bytes, HOST_ALIGN) {
                 bytes
             } else {
-                aligned = AlignedMemory::<{ HOST_ALIGN }>::new_with_data(bytes);
+                aligned = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
                 aligned.as_slice()
             };
             Self::load_with_parser(&NewParser::parse(bytes)?, config, bytes, syscall_registry)
@@ -422,7 +422,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         bytes: &[u8],
         syscall_registry: SyscallRegistry,
     ) -> Result<Self, ElfError> {
-        let mut elf_bytes = AlignedMemory::new_with_data(bytes);
+        let mut elf_bytes = AlignedMemory::from_slice(bytes);
 
         Self::validate(&mut config, elf, elf_bytes.as_slice())?;
 

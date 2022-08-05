@@ -20,7 +20,6 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
         mem.resize(align_offset, 0);
         (mem, align_offset)
     }
-
     fn get_mem_zeroed(max_len: usize) -> (Vec<u8>, usize) {
         // use calloc() to get zeroed memory from the OS instead of using
         // malloc() + memset(), see
@@ -30,29 +29,8 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
         mem.resize(align_offset + max_len, 0);
         (mem, align_offset)
     }
-
-    /// Return a new AlignedMemory type
-    pub fn new(max_len: usize) -> Self {
-        let (mem, align_offset) = Self::get_mem(max_len);
-        Self {
-            max_len,
-            align_offset,
-            mem,
-            zero_up_to_max_len: false,
-        }
-    }
-    /// Return a pre-filled AlignedMemory type
-    pub fn new_with_size(len: usize) -> Self {
-        let (mem, align_offset) = Self::get_mem_zeroed(len);
-        Self {
-            max_len: len,
-            align_offset,
-            mem,
-            zero_up_to_max_len: true,
-        }
-    }
-    /// Return a pre-filled AlignedMemory type
-    pub fn new_with_data(data: &[u8]) -> Self {
+    /// Returns a filled AlignedMemory by copying the given slice
+    pub fn from_slice(data: &[u8]) -> Self {
         let max_len = data.len();
         let (mut mem, align_offset) = Self::get_mem(max_len);
         mem.extend_from_slice(data);
@@ -61,6 +39,37 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
             align_offset,
             mem,
             zero_up_to_max_len: false,
+        }
+    }
+    /// Returns a new empty AlignedMemory with uninitialized preallocated memory
+    pub fn with_capacity(max_len: usize) -> Self {
+        let (mem, align_offset) = Self::get_mem(max_len);
+        Self {
+            max_len,
+            align_offset,
+            mem,
+            zero_up_to_max_len: false,
+        }
+    }
+    /// Returns a new empty AlignedMemory with zero initialized preallocated memory
+    pub fn with_capacity_zeroed(max_len: usize) -> Self {
+        let (mut mem, align_offset) = Self::get_mem_zeroed(max_len);
+        mem.truncate(align_offset);
+        Self {
+            max_len,
+            align_offset,
+            mem,
+            zero_up_to_max_len: true,
+        }
+    }
+    /// Returns a new filled AlignedMemory with zero initialized preallocated memory
+    pub fn zero_filled(max_len: usize) -> Self {
+        let (mem, align_offset) = Self::get_mem_zeroed(max_len);
+        Self {
+            max_len,
+            align_offset,
+            mem,
+            zero_up_to_max_len: true,
         }
     }
     /// Calculate memory size
@@ -116,7 +125,7 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
 // aligned.
 impl<const ALIGN: usize> Clone for AlignedMemory<ALIGN> {
     fn clone(&self) -> Self {
-        AlignedMemory::new_with_data(self.as_slice())
+        AlignedMemory::from_slice(self.as_slice())
     }
 }
 
@@ -138,7 +147,7 @@ impl<const ALIGN: usize> std::io::Write for AlignedMemory<ALIGN> {
 
 impl<const ALIGN: usize, T: AsRef<[u8]>> From<T> for AlignedMemory<ALIGN> {
     fn from(bytes: T) -> Self {
-        AlignedMemory::new_with_data(bytes.as_ref())
+        AlignedMemory::from_slice(bytes.as_ref())
     }
 }
 
@@ -156,7 +165,7 @@ mod tests {
     use std::io::Write;
 
     fn do_test<const ALIGN: usize>() {
-        let mut aligned_memory = AlignedMemory::<ALIGN>::new(10);
+        let mut aligned_memory = AlignedMemory::<ALIGN>::with_capacity(10);
 
         assert_eq!(aligned_memory.write(&[42u8; 1]).unwrap(), 1);
         assert_eq!(aligned_memory.write(&[42u8; 9]).unwrap(), 9);
@@ -168,7 +177,7 @@ mod tests {
         aligned_memory.as_slice_mut().copy_from_slice(&[84u8; 10]);
         assert_eq!(aligned_memory.as_slice(), &[84u8; 10]);
 
-        let mut aligned_memory = AlignedMemory::<ALIGN>::new(10);
+        let mut aligned_memory = AlignedMemory::<ALIGN>::with_capacity_zeroed(10);
         aligned_memory.fill_write(5, 0).unwrap();
         aligned_memory.fill_write(2, 1).unwrap();
         assert_eq!(aligned_memory.write(&[2u8; 3]).unwrap(), 3);
@@ -177,7 +186,7 @@ mod tests {
         aligned_memory.write(&[4u8; 1]).unwrap_err();
         assert_eq!(aligned_memory.as_slice(), &[0, 0, 0, 0, 0, 1, 1, 2, 2, 2]);
 
-        let aligned_memory = AlignedMemory::<ALIGN>::new_with_size(10);
+        let aligned_memory = AlignedMemory::<ALIGN>::zero_filled(10);
         assert_eq!(aligned_memory.len(), 10);
         assert_eq!(aligned_memory.as_slice(), &[0u8; 10]);
     }
