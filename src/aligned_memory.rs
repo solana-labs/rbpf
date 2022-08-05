@@ -87,8 +87,8 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
         let end = self.mem.len();
         &mut self.mem[start..end]
     }
-    /// resize memory with value starting at the write_index
-    pub fn resize(&mut self, num: usize, value: u8) -> std::io::Result<()> {
+    /// Grows memory with `value` repeated `num` times starting at the `write_index`
+    pub fn fill_write(&mut self, num: usize, value: u8) -> std::io::Result<()> {
         if self.mem.len() + num > self.align_offset + self.max_len {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -158,11 +158,11 @@ mod tests {
         assert_eq!(aligned_memory.as_slice(), &[84u8; 10]);
 
         let mut aligned_memory = AlignedMemory::<ALIGN>::new(10);
-        aligned_memory.resize(5, 0).unwrap();
-        aligned_memory.resize(2, 1).unwrap();
+        aligned_memory.fill_write(5, 0).unwrap();
+        aligned_memory.fill_write(2, 1).unwrap();
         assert_eq!(aligned_memory.write(&[2u8; 3]).unwrap(), 3);
         assert_eq!(aligned_memory.as_slice(), &[0, 0, 0, 0, 0, 1, 1, 2, 2, 2]);
-        aligned_memory.resize(1, 3).unwrap_err();
+        aligned_memory.fill_write(1, 3).unwrap_err();
         aligned_memory.write(&[4u8; 1]).unwrap_err();
         assert_eq!(aligned_memory.as_slice(), &[0, 0, 0, 0, 0, 1, 1, 2, 2, 2]);
 
