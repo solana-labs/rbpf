@@ -95,7 +95,14 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
                 "aligned memory resize failed",
             ));
         }
-        self.mem.resize(self.mem.len() + num, value);
+        if value == 0 {
+            // Safe because everything up to `max_len` is zeroed and no shrinking is allowed
+            unsafe {
+                self.mem.set_len(self.mem.len() + num);
+            }
+        } else {
+            self.mem.resize(self.mem.len() + num, value);
+        }
         Ok(())
     }
 }
