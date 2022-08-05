@@ -1,5 +1,5 @@
 #![allow(clippy::integer_arithmetic)]
-use crate::jit::{emit, emit_variable_length, JitCompiler, OperandSize};
+use crate::jit::{emit, emit_variable_length, JitCompilerCore, OperandSize};
 
 pub const RAX: u8 = 0;
 pub const RCX: u8 = 1;
@@ -58,6 +58,8 @@ pub enum X86IndirectAccess {
     /// [second_operand + offset]
     Offset(i32),
     /// [second_operand + offset + index << shift]
+    /// NOTE: this is fragile and some values for index have a special meaning in the instruction
+    /// encodings.
     OffsetIndexShift(i32, u8, u8),
 }
 
@@ -99,7 +101,7 @@ impl X86Instruction {
     };
 
     #[inline]
-    pub fn emit(&self, jit: &mut JitCompiler) {
+    pub fn emit(&self, jit: &mut JitCompilerCore) {
         debug_assert!(!matches!(self.size, OperandSize::S0));
         let mut rex = X86Rex {
             w: matches!(self.size, OperandSize::S64),

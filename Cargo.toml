@@ -33,6 +33,7 @@ rustc-demangle = "0.1"
 
 [features]
 fuzzer-not-safe-for-production = ["arbitrary"]
+jit-aarch64-not-safe-for-production = []
 
 [dev-dependencies]
 elf = "0.0.10"
