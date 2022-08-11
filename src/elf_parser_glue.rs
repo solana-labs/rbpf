@@ -425,7 +425,7 @@ impl<'a> ElfParser<'a> for NewParser<'a> {
         self.elf
             .symbol_table()
             .ok()
-            .and_then(|syms| syms.map(|syms| (&syms[index]).clone()))
+            .and_then(|syms| syms.map(|syms| (syms[index]).clone()))
     }
 
     fn symbol_name(&self, st_name: Elf64Word) -> Option<&str> {
