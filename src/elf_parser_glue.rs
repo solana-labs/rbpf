@@ -75,9 +75,6 @@ pub trait ElfParser<'a>: Sized {
     /// Returns the symbols included in the symbol table.
     fn symbols(&'a self) -> Self::Symbols;
 
-    /// Returns the `index`th symbol in the symbol table.
-    fn symbol(&self, index: usize) -> Option<Self::Symbol>;
-
     /// Returns the symbol name at the given `st_name` offset.
     fn symbol_name(&self, st_name: Elf64Word) -> Option<&str>;
 
@@ -236,10 +233,6 @@ impl<'a> ElfParser<'a> for GoblinParser<'a> {
 
     fn symbols(&'a self) -> Self::Symbols {
         self.elf.syms.iter().map(Cow::Owned)
-    }
-
-    fn symbol(&self, index: usize) -> Option<Self::Symbol> {
-        self.elf.syms.get(index)
     }
 
     fn symbol_name(&self, st_name: Elf64Word) -> Option<&str> {
@@ -419,13 +412,6 @@ impl<'a> ElfParser<'a> for NewParser<'a> {
             .unwrap_or(&[])
             .iter()
             .map(Cow::Borrowed)
-    }
-
-    fn symbol(&self, index: usize) -> Option<Self::Symbol> {
-        self.elf
-            .symbol_table()
-            .ok()
-            .and_then(|syms| syms.map(|syms| (&syms[index]).clone()))
     }
 
     fn symbol_name(&self, st_name: Elf64Word) -> Option<&str> {
