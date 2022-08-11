@@ -436,7 +436,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             } else {
                 String::default()
             },
-            vaddr: if config.optimize_rodata && text_section.sh_addr() >= ebpf::MM_PROGRAM_START {
+            vaddr: if config.enable_elf_vaddr && text_section.sh_addr() >= ebpf::MM_PROGRAM_START {
                 text_section.sh_addr()
             } else {
                 text_section
@@ -445,10 +445,17 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             },
             offset_range: text_section.file_range().unwrap_or_default(),
         };
+        let vaddr_end = if config.reject_rodata_stack_overlap {
+            text_section_info
+                .vaddr
+                .saturating_add(text_section.sh_size())
+        } else {
+            text_section_info.vaddr
+        };
         if (config.reject_broken_elfs
-            && !config.optimize_rodata
+            && !config.enable_elf_vaddr
             && text_section.sh_addr() != text_section.sh_offset())
-            || text_section_info.vaddr > ebpf::MM_STACK_START
+            || vaddr_end > ebpf::MM_STACK_START
         {
             return Err(ElfError::ValueOutOfBounds);
         }
@@ -620,6 +627,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
         } else {
             config.dynamic_stack_frames = false;
             config.enable_elf_vaddr = false;
+            config.reject_rodata_stack_overlap = false;
             config.static_syscalls = false;
         }
 
@@ -728,11 +736,6 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             n_ro_sections = n_ro_sections.saturating_add(1);
 
             let section_addr = section_header.sh_addr();
-            let vaddr = if config.enable_elf_vaddr && section_addr >= ebpf::MM_PROGRAM_START {
-                section_addr
-            } else {
-                section_addr.saturating_add(ebpf::MM_PROGRAM_START)
-            };
 
             // sh_offset handling:
             //
@@ -763,7 +766,16 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
                 }
             }
 
-            if (config.reject_broken_elfs && invalid_offsets) || vaddr > ebpf::MM_STACK_START {
+            let mut vaddr_end = if config.enable_elf_vaddr && section_addr >= ebpf::MM_PROGRAM_START
+            {
+                section_addr
+            } else {
+                section_addr.saturating_add(ebpf::MM_PROGRAM_START)
+            };
+            if config.reject_rodata_stack_overlap {
+                vaddr_end = vaddr_end.saturating_add(section_header.sh_size());
+            }
+            if (config.reject_broken_elfs && invalid_offsets) || vaddr_end > ebpf::MM_STACK_START {
                 return Err(ElfError::ValueOutOfBounds);
             }
 
@@ -1728,16 +1740,37 @@ mod test {
     }
 
     #[test]
-    fn test_reject_sh_offset() {
+    fn test_sh_offset_not_same_as_vaddr() {
+        let config = Config {
+            reject_broken_elfs: true,
+            enable_elf_vaddr: false,
+            ..Config::default()
+        };
+        let elf_bytes = [0u8; 512];
+
+        let mut s1 = new_section(10, 10);
+
+        assert!(
+            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes,).is_ok()
+        );
+
+        s1.sh_offset = 0;
+        assert_eq!(
+            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes,),
+            Err(ElfError::ValueOutOfBounds)
+        );
+    }
+
+    #[test]
+    fn test_invalid_sh_offset_larger_than_vaddr() {
         let config = Config {
             reject_broken_elfs: true,
             ..Config::default()
         };
         let elf_bytes = [0u8; 512];
 
-        // s2 is at a custom sh_offset. We need to merge into an owned buffer so
-        // s2 can be moved to the right address offset.
         let s1 = new_section(10, 10);
+        // sh_offset > sh_addr is invalid
         let mut s2 = new_section(20, 10);
         s2.sh_offset = 30;
 
@@ -2080,6 +2113,49 @@ mod test {
             Err(EbpfError::InvalidVirtualAddress(
                 ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
             ))
+        );
+    }
+
+    #[test]
+    fn test_reject_rodata_stack_overlap() {
+        let config = Config {
+            enable_elf_vaddr: true,
+            reject_rodata_stack_overlap: true,
+            ..Config::default()
+        };
+        let elf_bytes = [0u8; 512];
+
+        // no overlap
+        let mut s1 = new_section(ebpf::MM_STACK_START - 10, 10);
+        s1.sh_offset = 0;
+
+        assert!(
+            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes).is_ok()
+        );
+
+        // no overlap
+        let mut s1 = new_section(ebpf::MM_STACK_START, 0);
+        s1.sh_offset = 0;
+
+        assert!(
+            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes).is_ok()
+        );
+
+        // overlap
+        let mut s1 = new_section(ebpf::MM_STACK_START, 1);
+        s1.sh_offset = 0;
+        assert_eq!(
+            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes),
+            Err(ElfError::ValueOutOfBounds)
+        );
+
+        // valid start but start + size overlap
+        let mut s1 = new_section(ebpf::MM_STACK_START - 10, 11);
+        s1.sh_offset = 0;
+
+        assert_eq!(
+            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes),
+            Err(ElfError::ValueOutOfBounds)
         );
     }
 

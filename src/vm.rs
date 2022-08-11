@@ -228,6 +228,9 @@ pub struct Config {
     pub enable_elf_vaddr: bool,
     /// Use the new ELF parser
     pub new_elf_parser: bool,
+    /// Ensure that rodata sections don't exceed their maximum allowed size and
+    /// overlap with the stack
+    pub reject_rodata_stack_overlap: bool,
 }
 
 impl Config {
@@ -259,6 +262,7 @@ impl Default for Config {
             static_syscalls: true,
             enable_elf_vaddr: true,
             new_elf_parser: true,
+            reject_rodata_stack_overlap: true,
         }
     }
 }
