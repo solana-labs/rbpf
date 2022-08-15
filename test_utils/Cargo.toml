@@ -1,6 +1,6 @@
 [package]
 name = "test_utils"
-version = "0.2.31"
+version = "0.2.32"
 authors = ["Solana Maintainers <maintainers@solana.com>"]
 edition = "2018"
 publish = false

@@ -220,7 +220,7 @@ dependencies = [
 
 [[package]]
 name = "solana_rbpf"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "arbitrary",
  "byteorder 1.4.3",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "test_utils"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "libc",
  "solana_rbpf",
