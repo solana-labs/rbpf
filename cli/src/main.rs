@@ -1,8 +1,9 @@
 use clap::{crate_version, App, Arg};
 use solana_rbpf::{
     assembler::assemble,
-    ebpf,
+    debugger, ebpf,
     elf::Executable,
+    interpreter::Interpreter,
     memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
     syscalls::Result,
@@ -85,7 +86,7 @@ fn main() {
                 .short('u')
                 .long("use")
                 .takes_value(true)
-                .possible_values(&["cfg", "disassembler", "interpreter", "jit"])
+                .possible_values(&["cfg", "debugger", "disassembler", "interpreter", "jit"])
                 .required(true),
         )
         .arg(
@@ -102,6 +103,14 @@ fn main() {
                 .about("Display trace using tracing instrumentation")
                 .short('t')
                 .long("trace"),
+        )
+        .arg(
+            Arg::new("port")
+                .about("Port to use for the connection with a remote debugger")
+                .long("port")
+                .takes_value(true)
+                .value_name("PORT")
+                .default_value("9001"),
         )
         .arg(
             Arg::new("profile")
@@ -206,7 +215,11 @@ fn main() {
     }
 
     vm.bind_syscall_context_objects(0).unwrap();
-    let result = if matches.value_of("use").unwrap() == "interpreter" {
+    let result = if matches.value_of("use").unwrap() == "debugger" {
+        let mut interpreter = Interpreter::new(&mut vm, &mut instruction_meter).unwrap();
+        let port = matches.value_of("port").unwrap().parse::<u16>().unwrap();
+        debugger::execute(&mut interpreter, port)
+    } else if matches.value_of("use").unwrap() == "interpreter" {
         vm.execute_program_interpreted(&mut instruction_meter)
     } else {
         vm.execute_program_jit(&mut instruction_meter)

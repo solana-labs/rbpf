@@ -23,6 +23,7 @@ use crate::{
 };
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
+#[cfg_attr(feature = "debugger", macro_export)]
 macro_rules! translate_memory_access {
     ($self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty) => {
         match $self
@@ -55,10 +56,21 @@ macro_rules! translate_memory_access {
     };
 }
 
+/// State of the interpreter during a debugging session
+#[cfg(feature = "debugger")]
+pub enum DebugState {
+    /// Single step the interpreter
+    Step,
+    /// Continue execution till the end or till a breakpoint is hit
+    Continue,
+}
+
 /// State of an interpreter
 pub struct Interpreter<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> {
-    vm: &'a mut EbpfVm<'b, V, E, I>,
-    instruction_meter: &'a mut I,
+    pub(crate) vm: &'a mut EbpfVm<'b, V, E, I>,
+
+    pub(crate) instruction_meter: &'a mut I,
+
     pub(crate) initial_insn_count: u64,
     remaining_insn_count: u64,
     pub(crate) due_insn_count: u64,
@@ -67,6 +79,11 @@ pub struct Interpreter<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionM
     pub reg: [u64; 11],
     /// Program counter / instruction pointer
     pub pc: usize,
+
+    #[cfg(feature = "debugger")]
+    pub(crate) debug_state: DebugState,
+    #[cfg(feature = "debugger")]
+    pub(crate) breakpoints: Vec<u64>,
 }
 
 impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, V, E, I> {
@@ -104,6 +121,10 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
             due_insn_count: 0,
             reg,
             pc,
+            #[cfg(feature = "debugger")]
+            debug_state: DebugState::Continue,
+            #[cfg(feature = "debugger")]
+            breakpoints: Vec::new(),
         })
     }
 
@@ -124,6 +145,17 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
                 self.vm.program_vm_addr + (target_pc * ebpf::INSN_SIZE) as u64,
             ))?;
         Ok(target_pc)
+    }
+
+    /// Translate between the virtual machines' pc value and the pc value used by the debugger
+    #[cfg(feature = "debugger")]
+    pub fn get_dbg_pc(&self) -> u64 {
+        ((self.pc * ebpf::INSN_SIZE) as u64)
+            + self
+                .vm
+                .verified_executable
+                .get_executable()
+                .get_text_section_offset()
     }
 
     /// Advances the interpreter state by one instruction

@@ -326,6 +326,12 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             .ok_or(EbpfError::ElfError(ElfError::InvalidEntrypoint))
     }
 
+    /// Get the text section offset
+    #[cfg(feature = "debugger")]
+    pub fn get_text_section_offset(&self) -> u64 {
+        self.text_section_info.offset_range.start as u64
+    }
+
     /// Get a symbol's instruction offset
     pub fn lookup_bpf_function(&self, hash: u32) -> Option<usize> {
         self.bpf_functions.get(&hash).map(|(pc, _name)| *pc)

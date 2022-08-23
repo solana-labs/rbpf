@@ -30,11 +30,13 @@ rand = { version = "0.8.5", features = ["small_rng"]}
 scroll = "0.11"
 thiserror = "1.0.26"
 rustc-demangle = "0.1"
+gdbstub = { version = "0.6.2", optional = true }
 
 [features]
 default = ["jit"]
 fuzzer-not-safe-for-production = ["arbitrary"]
 jit = ["libc"]
+debugger = ["gdbstub"]
 
 [dev-dependencies]
 elf = "0.0.10"

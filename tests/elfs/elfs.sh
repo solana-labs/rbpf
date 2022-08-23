@@ -94,3 +94,7 @@ rm syscall_static.o
 "$LLVM_DIR"clang -Werror -target sbf -mcpu=sbfv2 -O2 -fno-builtin -fPIC -o program_headers_overflow.o -c rodata.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --script program_headers_overflow.ld --noinhibit-exec -o program_headers_overflow.so program_headers_overflow.o
 rm program_headers_overflow.o
+
+"$LLVM_DIR"clang -Werror -target sbf -mcpu=sbfv2 -O2 -g -fno-builtin -fPIC -fdebug-prefix-map=$(pwd)=. -o scratch_registers_debug.o -c scratch_registers.c
+"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --section-start=.text=0x1000 -o scratch_registers_debug.so scratch_registers_debug.o
+rm scratch_registers_debug.o

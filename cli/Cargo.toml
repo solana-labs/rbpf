@@ -9,6 +9,6 @@ keywords = ["BPF", "eBPF", "interpreter", "JIT"]
 edition = "2018"
 
 [dependencies]
-solana_rbpf = { path = "../" }
+solana_rbpf = { path = "../", features = ["debugger"] }
 test_utils = { path = "../test_utils/" }
 clap = "3.0.0-beta.2"
