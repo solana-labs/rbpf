@@ -161,7 +161,7 @@ pub struct UnalignedMemoryMapping<'a> {
     /// Mapped memory regions
     regions: Box<[MemoryRegion]>,
     /// Copy of the regions vm_addr fields to improve cache density
-    dense_keys: Box<[u64]>,
+    region_addresses: Box<[u64]>,
     /// VM configuration
     config: &'a Config,
 }
@@ -178,7 +178,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         }
         in_index = self.construct_eytzinger_order(ascending_regions, in_index, 2 * out_index + 1);
         self.regions[out_index] = ascending_regions[in_index].clone();
-        self.dense_keys[out_index] = ascending_regions[in_index].vm_addr;
+        self.region_addresses[out_index] = ascending_regions[in_index].vm_addr;
         self.construct_eytzinger_order(ascending_regions, in_index + 1, 2 * out_index + 2)
     }
 
@@ -198,7 +198,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
 
         let mut result = Self {
             regions: vec![MemoryRegion::default(); regions.len()].into_boxed_slice(),
-            dense_keys: vec![0; regions.len()].into_boxed_slice(),
+            region_addresses: vec![0; regions.len()].into_boxed_slice(),
             config,
         };
         result.construct_eytzinger_order(&regions, 0, 0);
@@ -213,8 +213,8 @@ impl<'a> UnalignedMemoryMapping<'a> {
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
         let mut index = 1;
-        while index <= self.dense_keys.len() {
-            index = (index << 1) + (self.dense_keys[index - 1] <= vm_addr) as usize;
+        while index <= self.region_addresses.len() {
+            index = (index << 1) + (self.region_addresses[index - 1] <= vm_addr) as usize;
         }
         index >>= index.trailing_zeros() + 1;
         if index == 0 {
@@ -391,5 +391,124 @@ pub fn generate_access_violation<E: UserDefinedError>(
             len,
             region_name,
         ))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::user_error::UserError;
+
+    use super::*;
+
+    #[test]
+    fn test_map_empty() {
+        let config = Config::default();
+        let m = UnalignedMemoryMapping::new::<UserError>(vec![], &config).unwrap();
+        assert!(matches!(
+            m.map::<UserError>(AccessType::Load, ebpf::MM_INPUT_START, 8),
+            Err(EbpfError::AccessViolation(..))
+        ));
+
+        let m = AlignedMemoryMapping::new::<UserError>(vec![], &config).unwrap();
+        assert!(matches!(
+            m.map::<UserError>(AccessType::Load, ebpf::MM_INPUT_START, 8),
+            Err(EbpfError::AccessViolation(..))
+        ));
+    }
+
+    #[test]
+    fn test_unaligned_map_overlap() {
+        let config = Config::default();
+        let mem1 = [1, 2, 3, 4];
+        let mem2 = [5, 6];
+        assert_eq!(
+            UnalignedMemoryMapping::new::<UserError>(
+                vec![
+                    MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START),
+                    MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64 - 1),
+                ],
+                &config,
+            )
+            .unwrap_err(),
+            EbpfError::InvalidMemoryRegion(1)
+        );
+        assert!(UnalignedMemoryMapping::new::<UserError>(
+            vec![
+                MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START),
+                MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64),
+            ],
+            &config,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn test_unaligned_map() {
+        let config = Config::default();
+        let mem1 = [11];
+        let mem2 = [22, 22];
+        let mem3 = [33];
+        let mem4 = [44, 44];
+        let m = UnalignedMemoryMapping::new::<UserError>(
+            vec![
+                MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START),
+                MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64),
+                MemoryRegion::new_readonly(
+                    &mem3,
+                    ebpf::MM_INPUT_START + (mem1.len() + mem2.len()) as u64,
+                ),
+                MemoryRegion::new_readonly(
+                    &mem4,
+                    ebpf::MM_INPUT_START + (mem1.len() + mem2.len() + mem3.len()) as u64,
+                ),
+            ],
+            &config,
+        )
+        .unwrap();
+
+        assert_eq!(
+            m.map::<UserError>(AccessType::Load, ebpf::MM_INPUT_START, 1)
+                .unwrap(),
+            mem1.as_ptr() as u64
+        );
+
+        assert_eq!(
+            m.map::<UserError>(
+                AccessType::Load,
+                ebpf::MM_INPUT_START + mem1.len() as u64,
+                1
+            )
+            .unwrap(),
+            mem2.as_ptr() as u64
+        );
+
+        assert_eq!(
+            m.map::<UserError>(
+                AccessType::Load,
+                ebpf::MM_INPUT_START + (mem1.len() + mem2.len()) as u64,
+                1
+            )
+            .unwrap(),
+            mem3.as_ptr() as u64
+        );
+
+        assert_eq!(
+            m.map::<UserError>(
+                AccessType::Load,
+                ebpf::MM_INPUT_START + (mem1.len() + mem2.len() + mem3.len()) as u64,
+                1
+            )
+            .unwrap(),
+            mem4.as_ptr() as u64
+        );
+
+        assert!(matches!(
+            m.map::<UserError>(
+                AccessType::Load,
+                ebpf::MM_INPUT_START + (mem1.len() + mem2.len() + mem3.len() + mem4.len()) as u64,
+                1
+            ),
+            Err(EbpfError::AccessViolation(..))
+        ));
     }
 }
