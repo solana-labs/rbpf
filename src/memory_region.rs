@@ -214,13 +214,20 @@ impl<'a> UnalignedMemoryMapping<'a> {
     ) -> Result<u64, EbpfError<E>> {
         let mut index = 1;
         while index <= self.region_addresses.len() {
-            index = (index << 1) + (self.region_addresses[index - 1] <= vm_addr) as usize;
+            // Safety:
+            // we start the search at index=1 and in the loop condition check
+            // for index <= len, so bound checks can be avoided
+            index = (index << 1)
+                + unsafe { *self.region_addresses.get_unchecked(index - 1) <= vm_addr } as usize;
         }
         index >>= index.trailing_zeros() + 1;
         if index == 0 {
             return self.generate_access_violation(access_type, vm_addr, len);
         }
-        let region = &self.regions[index - 1];
+        // Safety:
+        // we check for index==0 above, and by construction if we get here index
+        // must be contained in region
+        let region = unsafe { self.regions.get_unchecked(index - 1) };
         if access_type == AccessType::Load || region.is_writable {
             if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
                 return Ok(host_addr);
