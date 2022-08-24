@@ -22,7 +22,7 @@
 
 use crate::{
     error::EbpfError,
-    memory_region::{AccessType, MemoryMapping},
+    memory_region::{AccessType, MemoryMap, MemoryMapping},
     question_mark,
     user_error::UserError,
     vm::SyscallObject,

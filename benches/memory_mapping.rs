@@ -12,7 +12,7 @@ extern crate test;
 
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use solana_rbpf::{
-    memory_region::{AccessType, MemoryMapping, MemoryRegion},
+    memory_region::{AccessType, MemoryMap, MemoryMapping, MemoryRegion},
     user_error::UserError,
     vm::Config,
 };
