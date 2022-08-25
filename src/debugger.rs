@@ -25,7 +25,7 @@ use crate::{
     ebpf,
     error::{EbpfError, UserDefinedError},
     interpreter::{DebugState, Interpreter},
-    memory_region::AccessType,
+    memory_region::{AccessType, MemoryMap},
     translate_memory_access,
     user_error::UserError,
     verifier::Verifier,

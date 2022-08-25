@@ -444,7 +444,12 @@ pub fn generate_access_violation<E: UserDefinedError>(
 /// Fast, small linear cache used to speed up unaligned memory mapping.
 #[derive(Debug)]
 struct MappingCache {
+    // The cached entries.
     entries: [(Range<u64>, usize); MappingCache::SIZE as usize],
+    // Index of the last accessed memory region.
+    //
+    // New entries are written backwards, so that find() can always scan
+    // forward which is faster.
     head: isize,
 }
 
@@ -459,10 +464,13 @@ impl MappingCache {
     }
 
     #[allow(clippy::integer_arithmetic)]
+    #[inline]
     fn find(&self, vm_addr: u64) -> Option<usize> {
         for i in 0..Self::SIZE {
             let index = (self.head + i) % Self::SIZE;
-            let (vm_range, region_index) = &self.entries[index as usize];
+            // Safety:
+            // index is guaranteed to be between 0..Self::SIZE
+            let (vm_range, region_index) = unsafe { self.entries.get_unchecked(index as usize) };
             if vm_range.contains(&vm_addr) {
                 return Some(*region_index);
             }
@@ -472,9 +480,12 @@ impl MappingCache {
     }
 
     #[allow(clippy::integer_arithmetic)]
+    #[inline]
     fn insert(&mut self, vm_range: Range<u64>, region_index: usize) {
         self.head = (self.head - 1).rem_euclid(Self::SIZE);
-        self.entries[self.head as usize] = (vm_range, region_index);
+        // Safety:
+        // self.head is guaranteed to be between 0..Self::SIZE
+        unsafe { *self.entries.get_unchecked_mut(self.head as usize) = (vm_range, region_index) };
     }
 }
 
