@@ -71,7 +71,7 @@ macro_rules! bench_gapped_randomized_access_with_1024_entries {
             )];
             bencher.bench(|bencher| {
                 let config = Config::default();
-                let memory_mapping =
+                let mut memory_mapping =
                     $mem::new::<UserError>(memory_regions.clone(), &config).unwrap();
                 let mut prng = new_prng!();
                 bencher.iter(|| {
@@ -108,7 +108,7 @@ macro_rules! bench_randomized_access_with_0001_entry {
             let content = vec![0; 1024 * 2];
             let memory_regions = vec![MemoryRegion::new_readonly(&content[..], 0x100000000)];
             let config = Config::default();
-            let memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
+            let mut memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
             let mut prng = new_prng!();
             bencher.iter(|| {
                 let _ = memory_mapping.map::<UserError>(
@@ -141,7 +141,7 @@ macro_rules! bench_randomized_access_with_n_entries {
             let mut prng = new_prng!();
             let (memory_regions, end_address) = generate_memory_regions($n, false, Some(&mut prng));
             let config = Config::default();
-            let memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
+            let mut memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
             bencher.iter(|| {
                 let _ = memory_mapping.map::<UserError>(
                     AccessType::Load,
@@ -190,7 +190,7 @@ macro_rules! bench_randomized_mapping_with_n_entries {
             let (memory_regions, _end_address) =
                 generate_memory_regions($n, false, Some(&mut prng));
             let config = Config::default();
-            let memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
+            let mut memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
             bencher.iter(|| {
                 let _ = memory_mapping.map::<UserError>(AccessType::Load, 0x100000000, 1);
             });
@@ -238,7 +238,7 @@ macro_rules! bench_mapping_with_n_entries {
         fn $name(bencher: &mut Bencher) {
             let (memory_regions, _end_address) = generate_memory_regions($n, false, None);
             let config = Config::default();
-            let memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
+            let mut memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
             bencher.iter(|| {
                 let _ = memory_mapping.map::<UserError>(AccessType::Load, 0x100000000, 1);
             });
