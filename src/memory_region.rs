@@ -189,10 +189,18 @@ impl<'a> UnalignedMemoryMapping<'a> {
         if out_index >= self.regions.len() {
             return in_index;
         }
-        in_index = self.construct_eytzinger_order(ascending_regions, in_index, 2 * out_index + 1);
+        in_index = self.construct_eytzinger_order(
+            ascending_regions,
+            in_index,
+            out_index.saturating_mul(2).saturating_add(1),
+        );
         self.regions[out_index] = ascending_regions[in_index].clone();
         self.region_addresses[out_index] = ascending_regions[in_index].vm_addr;
-        self.construct_eytzinger_order(ascending_regions, in_index + 1, 2 * out_index + 2)
+        self.construct_eytzinger_order(
+            ascending_regions,
+            in_index.saturating_add(1),
+            out_index.saturating_mul(2).saturating_add(2),
+        )
     }
 
     /// Creates a new MemoryMapping structure from the given regions
@@ -202,7 +210,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
     ) -> Result<Self, EbpfError<E>> {
         regions.sort();
         for index in 1..regions.len() {
-            let first = &regions[index - 1];
+            let first = &regions[index.saturating_sub(1)];
             let second = &regions[index];
             if first.vm_addr.saturating_add(first.len) > second.vm_addr {
                 return Err(EbpfError::InvalidMemoryRegion(index));
@@ -247,6 +255,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
 
 impl<'a> MemoryMap for UnalignedMemoryMapping<'a> {
     /// Given a list of regions translate from virtual machine to host address
+    #[allow(clippy::integer_arithmetic)]
     fn map<E: UserDefinedError>(
         &mut self,
         access_type: AccessType,
@@ -449,6 +458,7 @@ impl MappingCache {
         }
     }
 
+    #[allow(clippy::integer_arithmetic)]
     fn find(&self, vm_addr: u64) -> Option<usize> {
         for i in 0..Self::SIZE {
             let index = (self.head + i) % Self::SIZE;
@@ -461,6 +471,7 @@ impl MappingCache {
         None
     }
 
+    #[allow(clippy::integer_arithmetic)]
     fn insert(&mut self, vm_range: Range<u64>, region_index: usize) {
         self.head = (self.head - 1).rem_euclid(Self::SIZE);
         self.entries[self.head as usize] = (vm_range, region_index);
