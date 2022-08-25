@@ -5,7 +5,7 @@ use crate::{
     error::{EbpfError, UserDefinedError},
     vm::Config,
 };
-use std::{fmt, ops::Range};
+use std::{array, fmt, ops::Range};
 
 /* Explaination of the Gapped Memory
 
@@ -248,7 +248,11 @@ impl<'a> UnalignedMemoryMapping<'a> {
         index: usize,
         region: MemoryRegion,
     ) -> Result<(), EbpfError<E>> {
+        if index >= self.regions.len() {
+            return Err(EbpfError::InvalidMemoryRegion(index));
+        }
         self.regions[index] = region;
+        self.cache.flush();
         Ok(())
     }
 }
@@ -458,7 +462,7 @@ impl MappingCache {
 
     fn new() -> MappingCache {
         MappingCache {
-            entries: std::array::from_fn(|_| (0..0, 0)),
+            entries: array::from_fn(|_| (0..0, 0)),
             head: 0,
         }
     }
@@ -486,6 +490,12 @@ impl MappingCache {
         // Safety:
         // self.head is guaranteed to be between 0..Self::SIZE
         unsafe { *self.entries.get_unchecked_mut(self.head as usize) = (vm_range, region_index) };
+    }
+
+    #[inline]
+    fn flush(&mut self) {
+        self.entries = array::from_fn(|_| (0..0, 0));
+        self.head = 0;
     }
 }
 
@@ -541,6 +551,16 @@ mod test {
                 assert_eq!(cache.find(range.end), None);
             }
         }
+    }
+
+    #[test]
+    fn test_mapping_cache_flush() {
+        let mut cache = MappingCache::new();
+        assert_eq!(cache.find(0), None);
+        cache.insert(0..10, 0);
+        assert_eq!(cache.find(0), Some(0));
+        cache.flush();
+        assert_eq!(cache.find(0), None);
     }
 
     #[test]
