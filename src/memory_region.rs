@@ -5,7 +5,7 @@ use crate::{
     error::{EbpfError, UserDefinedError},
     vm::Config,
 };
-use std::{array, fmt, ops::Range};
+use std::{array, cell::UnsafeCell, fmt, ops::Range};
 
 /* Explaination of the Gapped Memory
 
@@ -159,7 +159,7 @@ impl fmt::Display for AccessType {
 pub trait MemoryMap {
     /// Map virtual memory to host memory.
     fn map<E: UserDefinedError>(
-        &mut self,
+        &self,
         access_type: AccessType,
         vm_addr: u64,
         len: u64,
@@ -174,7 +174,7 @@ pub struct UnalignedMemoryMapping<'a> {
     /// Copy of the regions vm_addr fields to improve cache density
     region_addresses: Box<[u64]>,
     /// Cache of the last `MappingCache::SIZE` vm_addr => region_index lookups
-    cache: MappingCache,
+    cache: UnsafeCell<MappingCache>,
     /// VM configuration
     config: &'a Config,
 }
@@ -220,7 +220,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         let mut result = Self {
             regions: vec![MemoryRegion::default(); regions.len()].into_boxed_slice(),
             region_addresses: vec![0; regions.len()].into_boxed_slice(),
-            cache: MappingCache::new(),
+            cache: UnsafeCell::new(MappingCache::new()),
             config,
         };
         result.construct_eytzinger_order(&regions, 0, 0);
@@ -252,7 +252,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
             return Err(EbpfError::InvalidMemoryRegion(index));
         }
         self.regions[index] = region;
-        self.cache.flush();
+        self.cache.get_mut().flush();
         Ok(())
     }
 }
@@ -261,12 +261,18 @@ impl<'a> MemoryMap for UnalignedMemoryMapping<'a> {
     /// Given a list of regions translate from virtual machine to host address
     #[allow(clippy::integer_arithmetic)]
     fn map<E: UserDefinedError>(
-        &mut self,
+        &self,
         access_type: AccessType,
         vm_addr: u64,
         len: u64,
     ) -> Result<u64, EbpfError<E>> {
-        let (cache_miss, index) = if let Some(region) = self.cache.find(vm_addr) {
+        // Safety:
+        // &mut references to the mapping cache are only created internally here
+        // and in replace_region(). The methods never invoke each other and
+        // UnalignedMemoryMapping is !Sync, so the cache reference below is
+        // guaranteed to be unique.
+        let cache = unsafe { &mut *self.cache.get() };
+        let (cache_miss, index) = if let Some(region) = cache.find(vm_addr) {
             (false, region)
         } else {
             let mut index = 1;
@@ -292,7 +298,7 @@ impl<'a> MemoryMap for UnalignedMemoryMapping<'a> {
         if access_type == AccessType::Load || region.is_writable {
             if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
                 if cache_miss {
-                    self.cache.insert(
+                    cache.insert(
                         region.vm_addr..region.vm_addr.saturating_add(region.len),
                         index,
                     );
@@ -383,7 +389,7 @@ impl<'a> AlignedMemoryMapping<'a> {
 impl<'a> MemoryMap for AlignedMemoryMapping<'a> {
     /// Given a list of regions translate from virtual machine to host address
     fn map<E: UserDefinedError>(
-        &mut self,
+        &self,
         access_type: AccessType,
         vm_addr: u64,
         len: u64,
@@ -566,13 +572,13 @@ mod test {
     #[test]
     fn test_map_empty() {
         let config = Config::default();
-        let mut m = UnalignedMemoryMapping::new::<UserError>(vec![], &config).unwrap();
+        let m = UnalignedMemoryMapping::new::<UserError>(vec![], &config).unwrap();
         assert!(matches!(
             m.map::<UserError>(AccessType::Load, ebpf::MM_INPUT_START, 8),
             Err(EbpfError::AccessViolation(..))
         ));
 
-        let mut m = AlignedMemoryMapping::new::<UserError>(vec![], &config).unwrap();
+        let m = AlignedMemoryMapping::new::<UserError>(vec![], &config).unwrap();
         assert!(matches!(
             m.map::<UserError>(AccessType::Load, ebpf::MM_INPUT_START, 8),
             Err(EbpfError::AccessViolation(..))
@@ -612,7 +618,7 @@ mod test {
         let mem2 = [22, 22];
         let mem3 = [33];
         let mem4 = [44, 44];
-        let mut m = UnalignedMemoryMapping::new::<UserError>(
+        let m = UnalignedMemoryMapping::new::<UserError>(
             vec![
                 MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START),
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64),
