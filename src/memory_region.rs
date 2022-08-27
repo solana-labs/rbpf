@@ -661,4 +661,58 @@ mod test {
             Err(EbpfError::AccessViolation(..))
         ));
     }
+
+    #[test]
+    fn test_unaligned_map_replace_region() {
+        let config = Config::default();
+        let mem1 = [11];
+        let mem2 = [22, 22];
+        let mem3 = [33];
+        let mut m = UnalignedMemoryMapping::new::<UserError>(
+            vec![
+                MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START),
+                MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64),
+            ],
+            &config,
+        )
+        .unwrap();
+
+        assert_eq!(
+            m.map::<UserError>(AccessType::Load, ebpf::MM_INPUT_START, 1)
+                .unwrap(),
+            mem1.as_ptr() as u64
+        );
+
+        assert_eq!(
+            m.map::<UserError>(
+                AccessType::Load,
+                ebpf::MM_INPUT_START + mem1.len() as u64,
+                1
+            )
+            .unwrap(),
+            mem2.as_ptr() as u64
+        );
+
+        let region_index = m
+            .get_regions()
+            .iter()
+            .position(|mem| mem.vm_addr == ebpf::MM_INPUT_START + mem1.len() as u64)
+            .unwrap();
+
+        m.replace_region::<UserError>(
+            region_index,
+            MemoryRegion::new_readonly(&mem3, ebpf::MM_INPUT_START + mem1.len() as u64),
+        )
+        .unwrap();
+
+        assert_eq!(
+            m.map::<UserError>(
+                AccessType::Load,
+                ebpf::MM_INPUT_START + mem1.len() as u64,
+                1
+            )
+            .unwrap(),
+            mem3.as_ptr() as u64
+        );
+    }
 }
