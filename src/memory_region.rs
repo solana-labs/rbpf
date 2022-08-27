@@ -113,6 +113,7 @@ impl MemoryRegion {
         Err(EbpfError::InvalidVirtualAddress(vm_addr))
     }
 }
+
 impl fmt::Debug for MemoryRegion {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
@@ -227,16 +228,6 @@ impl<'a> UnalignedMemoryMapping<'a> {
         Ok(result)
     }
 
-    /// Helper for map to generate errors
-    pub fn generate_access_violation<E: UserDefinedError>(
-        &self,
-        access_type: AccessType,
-        vm_addr: u64,
-        len: u64,
-    ) -> Result<u64, EbpfError<E>> {
-        generate_access_violation(self.config, access_type, vm_addr, len)
-    }
-
     /// Returns the `MemoryRegion`s in this mapping
     pub fn get_regions(&self) -> &[MemoryRegion] {
         &self.regions
@@ -286,7 +277,7 @@ impl<'a> MemoryMap for UnalignedMemoryMapping<'a> {
             }
             index >>= index.trailing_zeros() + 1;
             if index == 0 {
-                return self.generate_access_violation(access_type, vm_addr, len);
+                return generate_access_violation(self.config, access_type, vm_addr, len);
             }
             (true, index)
         };
@@ -307,7 +298,7 @@ impl<'a> MemoryMap for UnalignedMemoryMapping<'a> {
             }
         }
 
-        self.generate_access_violation(access_type, vm_addr, len)
+        generate_access_violation(self.config, access_type, vm_addr, len)
     }
 }
 
@@ -343,16 +334,6 @@ impl<'a> AlignedMemoryMapping<'a> {
             regions: regions.into_boxed_slice(),
             config,
         })
-    }
-
-    /// Helper for map to generate errors
-    pub fn generate_access_violation<E: UserDefinedError>(
-        &self,
-        access_type: AccessType,
-        vm_addr: u64,
-        len: u64,
-    ) -> Result<u64, EbpfError<E>> {
-        generate_access_violation(self.config, access_type, vm_addr, len)
     }
 
     /// Returns the `MemoryRegion`s in this mapping
@@ -405,7 +386,7 @@ impl<'a> MemoryMap for AlignedMemoryMapping<'a> {
                 }
             }
         }
-        self.generate_access_violation(access_type, vm_addr, len)
+        generate_access_violation(self.config, access_type, vm_addr, len)
     }
 }
 
@@ -413,7 +394,7 @@ impl<'a> MemoryMap for AlignedMemoryMapping<'a> {
 pub type MemoryMapping<'a> = UnalignedMemoryMapping<'a>;
 
 /// Helper for map to generate errors
-pub fn generate_access_violation<E: UserDefinedError>(
+fn generate_access_violation<E: UserDefinedError>(
     config: &Config,
     access_type: AccessType,
     vm_addr: u64,
