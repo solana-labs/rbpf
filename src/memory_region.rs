@@ -390,8 +390,45 @@ impl<'a> MemoryMap for AlignedMemoryMapping<'a> {
     }
 }
 
-/// Maps virtual addresses to memory regions.
-pub type MemoryMapping<'a> = UnalignedMemoryMapping<'a>;
+/// Maps virtual memory to host memory.
+#[derive(Debug)]
+pub enum MemoryMapping<'a> {
+    /// Aligned memory mapping which uses the upper half of an address to
+    /// identify the underlying memory region.
+    Aligned(AlignedMemoryMapping<'a>),
+    /// Memory mapping that allows mapping unaligned memory regions.
+    Unaligned(UnalignedMemoryMapping<'a>),
+}
+
+impl<'a> MemoryMapping<'a> {
+    /// Creates a new memory mapping.
+    ///
+    /// Uses aligned or unaligned memory mapping depending on the value of
+    /// `config.aligned_memory_mapping=true`.
+    pub fn new<E: UserDefinedError>(
+        regions: Vec<MemoryRegion>,
+        config: &'a Config,
+    ) -> Result<Self, EbpfError<E>> {
+        if config.aligned_memory_mapping {
+            AlignedMemoryMapping::new(regions, config).map(MemoryMapping::Aligned)
+        } else {
+            UnalignedMemoryMapping::new(regions, config).map(MemoryMapping::Unaligned)
+        }
+    }
+
+    /// Map virtual memory to host memory.
+    pub fn map<E: UserDefinedError>(
+        &self,
+        access_type: AccessType,
+        vm_addr: u64,
+        len: u64,
+    ) -> Result<u64, EbpfError<E>> {
+        match self {
+            MemoryMapping::Aligned(m) => m.map(access_type, vm_addr, len),
+            MemoryMapping::Unaligned(m) => m.map(access_type, vm_addr, len),
+        }
+    }
+}
 
 /// Helper for map to generate errors
 fn generate_access_violation<E: UserDefinedError>(

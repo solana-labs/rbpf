@@ -229,6 +229,8 @@ pub struct Config {
     /// Ensure that rodata sections don't exceed their maximum allowed size and
     /// overlap with the stack
     pub reject_rodata_stack_overlap: bool,
+    /// Use aligned memory mapping
+    pub aligned_memory_mapping: bool,
 }
 
 impl Config {
@@ -261,6 +263,7 @@ impl Default for Config {
             enable_elf_vaddr: true,
             new_elf_parser: true,
             reject_rodata_stack_overlap: true,
+            aligned_memory_mapping: true,
         }
     }
 }
