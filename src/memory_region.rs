@@ -715,6 +715,14 @@ mod test {
             mem2.as_ptr() as u64
         );
 
+        assert!(matches!(
+            m.replace_region(
+                2,
+                MemoryRegion::new_readonly(&mem3, ebpf::MM_INPUT_START + mem1.len() as u64)
+            ),
+            Err(EbpfError::<UserError>::InvalidMemoryRegion(2))
+        ));
+
         let region_index = m
             .get_regions()
             .iter()
@@ -734,6 +742,58 @@ mod test {
                 1
             )
             .unwrap(),
+            mem3.as_ptr() as u64
+        );
+    }
+
+    #[test]
+    fn test_aligned_map_replace_region() {
+        let config = Config::default();
+        let mem1 = [11];
+        let mem2 = [22, 22];
+        let mem3 = [33, 33];
+        let mut m = AlignedMemoryMapping::new::<UserError>(
+            vec![
+                MemoryRegion::new_readonly(&mem1, ebpf::MM_PROGRAM_START),
+                MemoryRegion::new_readonly(&mem2, ebpf::MM_STACK_START),
+            ],
+            &config,
+        )
+        .unwrap();
+
+        assert_eq!(
+            m.map::<UserError>(AccessType::Load, ebpf::MM_STACK_START, 1)
+                .unwrap(),
+            mem2.as_ptr() as u64
+        );
+
+        // index > regions.len()
+        assert!(matches!(
+            m.replace_region(3, MemoryRegion::new_readonly(&mem3, ebpf::MM_STACK_START)),
+            Err(EbpfError::<UserError>::InvalidMemoryRegion(3))
+        ));
+
+        // index != addr >> VIRTUAL_ADDRESS_BITS
+        assert!(matches!(
+            m.replace_region(2, MemoryRegion::new_readonly(&mem3, ebpf::MM_HEAP_START)),
+            Err(EbpfError::<UserError>::InvalidMemoryRegion(2))
+        ));
+
+        // index + len != addr >> VIRTUAL_ADDRESS_BITS
+        assert!(matches!(
+            m.replace_region(
+                2,
+                MemoryRegion::new_readonly(&mem3, ebpf::MM_HEAP_START - 1)
+            ),
+            Err(EbpfError::<UserError>::InvalidMemoryRegion(2))
+        ));
+
+        m.replace_region::<UserError>(2, MemoryRegion::new_readonly(&mem3, ebpf::MM_STACK_START))
+            .unwrap();
+
+        assert_eq!(
+            m.map::<UserError>(AccessType::Load, ebpf::MM_STACK_START, 1)
+                .unwrap(),
             mem3.as_ptr() as u64
         );
     }
