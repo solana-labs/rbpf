@@ -156,17 +156,6 @@ impl fmt::Display for AccessType {
     }
 }
 
-/// Maps virtual memory to host memory.
-pub trait MemoryMap {
-    /// Map virtual memory to host memory.
-    fn map<E: UserDefinedError>(
-        &self,
-        access_type: AccessType,
-        vm_addr: u64,
-        len: u64,
-    ) -> Result<u64, EbpfError<E>>;
-}
-
 /// Memory mapping based on eytzinger search.
 #[derive(Debug)]
 pub struct UnalignedMemoryMapping<'a> {
@@ -228,30 +217,9 @@ impl<'a> UnalignedMemoryMapping<'a> {
         Ok(result)
     }
 
-    /// Returns the `MemoryRegion`s in this mapping
-    pub fn get_regions(&self) -> &[MemoryRegion] {
-        &self.regions
-    }
-
-    /// Replaces the `MemoryRegion` at the given index
-    pub fn replace_region<E: UserDefinedError>(
-        &mut self,
-        index: usize,
-        region: MemoryRegion,
-    ) -> Result<(), EbpfError<E>> {
-        if index >= self.regions.len() {
-            return Err(EbpfError::InvalidMemoryRegion(index));
-        }
-        self.regions[index] = region;
-        self.cache.get_mut().flush();
-        Ok(())
-    }
-}
-
-impl<'a> MemoryMap for UnalignedMemoryMapping<'a> {
     /// Given a list of regions translate from virtual machine to host address
     #[allow(clippy::integer_arithmetic)]
-    fn map<E: UserDefinedError>(
+    pub fn map<E: UserDefinedError>(
         &self,
         access_type: AccessType,
         vm_addr: u64,
@@ -300,6 +268,25 @@ impl<'a> MemoryMap for UnalignedMemoryMapping<'a> {
 
         generate_access_violation(self.config, access_type, vm_addr, len)
     }
+
+    /// Returns the `MemoryRegion`s in this mapping
+    pub fn get_regions(&self) -> &[MemoryRegion] {
+        &self.regions
+    }
+
+    /// Replaces the `MemoryRegion` at the given index
+    pub fn replace_region<E: UserDefinedError>(
+        &mut self,
+        index: usize,
+        region: MemoryRegion,
+    ) -> Result<(), EbpfError<E>> {
+        if index >= self.regions.len() {
+            return Err(EbpfError::InvalidMemoryRegion(index));
+        }
+        self.regions[index] = region;
+        self.cache.get_mut().flush();
+        Ok(())
+    }
 }
 
 /// Memory mapping that uses the upper half of an address to identify the
@@ -336,6 +323,27 @@ impl<'a> AlignedMemoryMapping<'a> {
         })
     }
 
+    /// Given a list of regions translate from virtual machine to host address
+    pub fn map<E: UserDefinedError>(
+        &self,
+        access_type: AccessType,
+        vm_addr: u64,
+        len: u64,
+    ) -> Result<u64, EbpfError<E>> {
+        let index = vm_addr
+            .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
+            .unwrap_or(0) as usize;
+        if (1..self.regions.len()).contains(&index) {
+            let region = &self.regions[index];
+            if access_type == AccessType::Load || region.is_writable {
+                if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
+                    return Ok(host_addr);
+                }
+            }
+        }
+        generate_access_violation(self.config, access_type, vm_addr, len)
+    }
+
     /// Returns the `MemoryRegion`s in this mapping
     pub fn get_regions(&self) -> &[MemoryRegion] {
         &self.regions
@@ -364,29 +372,6 @@ impl<'a> AlignedMemoryMapping<'a> {
         }
         self.regions[index] = region;
         Ok(())
-    }
-}
-
-impl<'a> MemoryMap for AlignedMemoryMapping<'a> {
-    /// Given a list of regions translate from virtual machine to host address
-    fn map<E: UserDefinedError>(
-        &self,
-        access_type: AccessType,
-        vm_addr: u64,
-        len: u64,
-    ) -> Result<u64, EbpfError<E>> {
-        let index = vm_addr
-            .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
-            .unwrap_or(0) as usize;
-        if (1..self.regions.len()).contains(&index) {
-            let region = &self.regions[index];
-            if access_type == AccessType::Load || region.is_writable {
-                if let Ok(host_addr) = region.vm_to_host::<E>(vm_addr, len as u64) {
-                    return Ok(host_addr);
-                }
-            }
-        }
-        generate_access_violation(self.config, access_type, vm_addr, len)
     }
 }
 

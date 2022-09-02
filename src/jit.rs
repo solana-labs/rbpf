@@ -28,7 +28,7 @@ use crate::{
     vm::{Config, ProgramResult, InstructionMeter, Tracer, ProgramEnvironment},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, FRAME_PTR_REG, MM_STACK_START, STACK_PTR_REG},
     error::{UserDefinedError, EbpfError},
-    memory_region::{AccessType, MemoryMapping, MemoryMap},
+    memory_region::{AccessType, MemoryMapping},
     user_error::UserError,
     x86::*,
 };

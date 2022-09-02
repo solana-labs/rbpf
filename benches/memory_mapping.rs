@@ -12,9 +12,7 @@ extern crate test;
 
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use solana_rbpf::{
-    memory_region::{
-        AccessType, AlignedMemoryMapping, MemoryMap, MemoryRegion, UnalignedMemoryMapping,
-    },
+    memory_region::{AccessType, AlignedMemoryMapping, MemoryRegion, UnalignedMemoryMapping},
     user_error::UserError,
     vm::Config,
 };

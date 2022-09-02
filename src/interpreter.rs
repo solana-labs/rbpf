@@ -16,7 +16,7 @@ use crate::{
     ebpf,
     ebpf::STACK_PTR_REG,
     error::{EbpfError, UserDefinedError},
-    memory_region::{AccessType, MemoryMap},
+    memory_region::AccessType,
     user_error::UserError,
     verifier::Verifier,
     vm::{EbpfVm, InstructionMeter, ProgramResult, SyscallFunction},
