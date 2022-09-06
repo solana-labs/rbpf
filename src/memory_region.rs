@@ -413,6 +413,26 @@ impl<'a> MemoryMapping<'a> {
             MemoryMapping::Unaligned(m) => m.map(access_type, vm_addr, len),
         }
     }
+
+    /// Returns the `MemoryRegion`s in this mapping.
+    pub fn get_regions(&self) -> &[MemoryRegion] {
+        match self {
+            MemoryMapping::Aligned(m) => m.get_regions(),
+            MemoryMapping::Unaligned(m) => m.get_regions(),
+        }
+    }
+
+    /// Replaces the `MemoryRegion` at the given index
+    pub fn replace_region<E: UserDefinedError>(
+        &mut self,
+        index: usize,
+        region: MemoryRegion,
+    ) -> Result<(), EbpfError<E>> {
+        match self {
+            MemoryMapping::Aligned(m) => m.replace_region(index, region),
+            MemoryMapping::Unaligned(m) => m.replace_region(index, region),
+        }
+    }
 }
 
 /// Helper for map to generate errors
