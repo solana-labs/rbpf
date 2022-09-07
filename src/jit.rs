@@ -20,7 +20,7 @@ use std::{
     fmt::{Debug, Error as FormatterError, Formatter},
     mem,
     ops::{Index, IndexMut},
-    pin::Pin, ptr,
+    ptr,
 };
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
@@ -163,7 +163,7 @@ impl<E: UserDefinedError, I: InstructionMeter> PartialEq for JitProgram<E, I> {
 }
 
 impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
-    pub fn new(executable: &Pin<Box<Executable<E, I>>>) -> Result<Self, EbpfError<E>> {
+    pub fn new(executable: &Executable<E, I>) -> Result<Self, EbpfError<E>> {
         let program = executable.get_text_bytes().1;
         let mut jit = JitCompiler::new::<E>(program, executable.get_config())?;
         jit.compile::<E, I>(executable)?;
@@ -963,7 +963,7 @@ impl JitCompiler {
     }
 
     fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self,
-            executable: &Pin<Box<Executable<E, I>>>) -> Result<(), EbpfError<E>> {
+            executable: &Executable<E, I>) -> Result<(), EbpfError<E>> {
         let text_section_base = self.result.text_section.as_ptr();
         let (program_vm_addr, program) = executable.get_text_bytes();
         self.program_vm_addr = program_vm_addr;
@@ -1299,7 +1299,7 @@ impl JitCompiler {
         Ok(())
     }
 
-    fn generate_prologue<E: UserDefinedError, I: InstructionMeter>(&mut self, executable: &Pin<Box<Executable<E, I>>>) -> Result<(), EbpfError<E>> {
+    fn generate_prologue<E: UserDefinedError, I: InstructionMeter>(&mut self, executable: &Executable<E, I>) -> Result<(), EbpfError<E>> {
         // Place the environment on the stack according to EnvironmentStackSlot
 
         // Save registers
@@ -1742,7 +1742,7 @@ mod tests {
     use std::collections::BTreeMap;
     use byteorder::{LittleEndian, ByteOrder};
 
-    fn create_mockup_executable(program: &[u8]) -> Pin<Box<Executable::<UserError, TestInstructionMeter>>> {
+    fn create_mockup_executable(program: &[u8]) -> Executable::<UserError, TestInstructionMeter> {
         let config = Config {
             noop_instruction_rate: 0,
             ..Config::default()

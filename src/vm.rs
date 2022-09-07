@@ -27,9 +27,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
     marker::PhantomData,
-    mem,
-    pin::Pin,
-    ptr,
+    mem, ptr,
 };
 
 /// Return value of programs and syscalls
@@ -274,9 +272,9 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> Executable<E, I> {
         elf_bytes: &[u8],
         config: Config,
         syscall_registry: SyscallRegistry,
-    ) -> Result<Pin<Box<Self>>, EbpfError<E>> {
+    ) -> Result<Self, EbpfError<E>> {
         let executable = Executable::load(config, elf_bytes, syscall_registry)?;
-        Ok(Pin::new(Box::new(executable)))
+        Ok(executable)
     }
     /// Creates an executable from machine code
     pub fn from_text_bytes(
@@ -284,13 +282,13 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> Executable<E, I> {
         config: Config,
         syscall_registry: SyscallRegistry,
         bpf_functions: BTreeMap<u32, (usize, String)>,
-    ) -> Result<Pin<Box<Self>>, EbpfError<E>> {
-        Ok(Pin::new(Box::new(Executable::new_from_text_bytes(
+    ) -> Result<Self, EbpfError<E>> {
+        Ok(Executable::new_from_text_bytes(
             config,
             text_bytes,
             syscall_registry,
             bpf_functions,
-        ))))
+        ))
     }
 }
 
@@ -298,13 +296,13 @@ impl<E: UserDefinedError, I: 'static + InstructionMeter> Executable<E, I> {
 #[derive(Debug, PartialEq)]
 #[repr(transparent)]
 pub struct VerifiedExecutable<V: Verifier, E: UserDefinedError, I: InstructionMeter> {
-    executable: Pin<Box<Executable<E, I>>>,
+    executable: Executable<E, I>,
     _verifier: PhantomData<V>,
 }
 
 impl<V: Verifier, E: UserDefinedError, I: InstructionMeter> VerifiedExecutable<V, E, I> {
     /// Verify an executable
-    pub fn from_executable(executable: Pin<Box<Executable<E, I>>>) -> Result<Self, EbpfError<E>> {
+    pub fn from_executable(executable: Executable<E, I>) -> Result<Self, EbpfError<E>> {
         <V as Verifier>::verify(executable.get_text_bytes().1, executable.get_config())?;
         Ok(VerifiedExecutable {
             executable,

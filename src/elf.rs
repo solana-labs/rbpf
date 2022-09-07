@@ -25,6 +25,8 @@ use crate::{
     vm::{Config, InstructionMeter, SyscallRegistry},
 };
 
+#[cfg(feature = "jit")]
+use crate::jit::JitProgram;
 use byteorder::{ByteOrder, LittleEndian};
 use std::{
     collections::{btree_map::Entry, BTreeMap},
@@ -34,8 +36,6 @@ use std::{
     ops::Range,
     str,
 };
-#[cfg(feature = "jit")]
-use {crate::jit::JitProgram, std::pin::Pin};
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -350,8 +350,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
     /// JIT compile the executable
     #[cfg(feature = "jit")]
-    pub fn jit_compile(executable: &mut Pin<Box<Self>>) -> Result<(), EbpfError<E>> {
-        // TODO: Turn back to `executable: &mut self` once Self::report_unresolved_symbol() is gone
+    pub fn jit_compile(executable: &mut Self) -> Result<(), EbpfError<E>> {
         executable.compiled_program = Some(JitProgram::<E, I>::new(executable)?);
         Ok(())
     }
