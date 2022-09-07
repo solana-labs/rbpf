@@ -26,10 +26,11 @@ use crate::{
 };
 
 use byteorder::{ByteOrder, LittleEndian};
+#[cfg(not(feature = "jit"))]
+use std::marker::PhantomData;
 use std::{
     collections::{btree_map::Entry, BTreeMap},
     fmt::Debug,
-    marker::PhantomData,
     mem,
     ops::Range,
     str,
@@ -274,7 +275,8 @@ pub struct Executable<E: UserDefinedError, I: InstructionMeter> {
     /// Compiled program and argument
     #[cfg(feature = "jit")]
     compiled_program: Option<JitProgram<E, I>>,
-    _marker: PhantomData<Box<(E, I)>>,
+    #[cfg(not(feature = "jit"))]
+    _marker: PhantomData<(E, I)>,
 }
 
 impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
@@ -397,6 +399,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             syscall_registry,
             #[cfg(feature = "jit")]
             compiled_program: None,
+            #[cfg(not(feature = "jit"))]
             _marker: PhantomData,
         }
     }
@@ -520,6 +523,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
             syscall_registry,
             #[cfg(feature = "jit")]
             compiled_program: None,
+            #[cfg(not(feature = "jit"))]
             _marker: PhantomData,
         })
     }
