@@ -181,7 +181,7 @@ impl SyscallObject<UserError> for BpfGatherBytes {
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_writable(val, val_va)], &config).unwrap();
+/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::new_writable(val, val_va)], &config).unwrap();
 /// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert_eq!(val, &[0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
 /// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &mut memory_mapping, &mut result);
@@ -233,11 +233,11 @@ impl SyscallObject<UserError> for BpfMemFrob {
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_readonly(foo.as_bytes(), va_foo)], &config).unwrap();
+/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo)], &config).unwrap();
 /// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_foo, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert!(result.unwrap() == 0);
 /// let mut result: Result = Ok(0);
-/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::default(), MemoryRegion::new_readonly(foo.as_bytes(), va_foo), MemoryRegion::new_readonly(bar.as_bytes(), va_bar)], &config).unwrap();
+/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo), MemoryRegion::new_readonly(bar.as_bytes(), va_bar)], &config).unwrap();
 /// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_bar, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert!(result.unwrap() != 0);
 /// ```
