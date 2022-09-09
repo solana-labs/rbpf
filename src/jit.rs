@@ -36,6 +36,7 @@ use crate::{
 
 const MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH: usize = 4096;
 const MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION: usize = 110;
+const MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT: usize = 13;
 
 struct JitProgramSections {
     /// OS page size in bytes and the alignment of the sections
@@ -444,6 +445,7 @@ fn emit_stopwatch(jit: &mut JitCompiler, begin: bool) {
 
 #[inline]
 fn emit_validate_instruction_count(jit: &mut JitCompiler, exclusive: bool, pc: Option<usize>) {
+    // Update `MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT` if you change the code generation here
     if let Some(pc) = pc {
         jit.last_instruction_meter_validation_pc = pc;
         emit_ins(jit, X86Instruction::cmp_immediate(OperandSize::S64, ARGUMENT_REGISTERS[0], pc as i64 + 1, None));
@@ -930,6 +932,9 @@ impl JitCompiler {
         let mut code_length_estimate = MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION * pc;
         if config.noop_instruction_rate != 0 {
             code_length_estimate += code_length_estimate / config.noop_instruction_rate as usize;
+        }
+        if config.instruction_meter_checkpoint_distance != 0 {
+            code_length_estimate += pc / config.instruction_meter_checkpoint_distance * MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT;
         }
         let result = JitProgramSections::new(pc + 1, code_length_estimate)?;
 
