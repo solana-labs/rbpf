@@ -1,7 +1,7 @@
 #![allow(clippy::integer_arithmetic)]
 //! Aligned memory
 
-use std::mem;
+use std::{mem, ptr};
 
 /// Provides u8 slices at a specified alignment
 #[derive(Debug, PartialEq, Eq)]
@@ -118,6 +118,48 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
         }
         Ok(())
     }
+
+    /// Write one byte into the memory.
+    ///
+    /// # Safety
+    ///
+    /// Unsafe since it assumes that there is enough capacity.
+    pub unsafe fn write_u8_unchecked(&mut self, value: u8) {
+        let pos = self.mem.len();
+        debug_assert!(pos < self.align_offset + self.max_len);
+        self.mem.set_len(pos + 1);
+        *self.mem.get_unchecked_mut(pos) = value;
+    }
+
+    /// Write one u64 into the memory.
+    ///
+    /// # Safety
+    ///
+    /// Unsafe since it assumes that there is enough capacity.
+    pub unsafe fn write_u64_unchecked(&mut self, value: u64) {
+        let pos = self.mem.len();
+        let new_len = pos + mem::size_of::<u64>();
+        debug_assert!(new_len <= self.align_offset + self.max_len);
+        self.mem.set_len(new_len);
+        ptr::write_unaligned(
+            self.mem.get_unchecked_mut(pos..new_len).as_mut_ptr().cast(),
+            value,
+        );
+    }
+
+    /// Write a slice of bytes into the memory.
+    ///
+    /// # Safety
+    ///
+    /// Unsafe since it assumes that there is enough capacity.
+    pub unsafe fn write_all_unchecked(&mut self, value: &[u8]) {
+        let pos = self.mem.len();
+        debug_assert!(pos + value.len() <= self.align_offset + self.max_len);
+        self.mem.set_len(pos + value.len());
+        self.mem
+            .get_unchecked_mut(pos..pos + value.len())
+            .copy_from_slice(value);
+    }
 }
 
 // Custom Clone impl is needed to ensure alignment. Derived clone would just
@@ -189,11 +231,65 @@ mod tests {
         let aligned_memory = AlignedMemory::<ALIGN>::zero_filled(10);
         assert_eq!(aligned_memory.len(), 10);
         assert_eq!(aligned_memory.as_slice(), &[0u8; 10]);
+
+        let mut aligned_memory = AlignedMemory::<ALIGN>::with_capacity_zeroed(15);
+        unsafe {
+            aligned_memory.write_u8_unchecked(42);
+            assert_eq!(aligned_memory.len(), 1);
+            aligned_memory.write_u64_unchecked(0xCAFEBADDDEADCAFE);
+            assert_eq!(aligned_memory.len(), 9);
+            aligned_memory.fill_write(3, 0).unwrap();
+            aligned_memory.write_all_unchecked(b"foo");
+            assert_eq!(aligned_memory.len(), 15);
+        }
+        let mem = aligned_memory.as_slice();
+        assert_eq!(mem[0], 42);
+        assert_eq!(
+            unsafe {
+                ptr::read_unaligned::<u64>(mem[1..1 + mem::size_of::<u64>()].as_ptr().cast())
+            },
+            0xCAFEBADDDEADCAFE
+        );
+        assert_eq!(&mem[1 + mem::size_of::<u64>()..][..3], &[0, 0, 0]);
+        assert_eq!(&mem[1 + mem::size_of::<u64>() + 3..], b"foo");
     }
 
     #[test]
     fn test_aligned_memory() {
         do_test::<1>();
         do_test::<32768>();
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "< self.align_offset + self.max_len")]
+    fn test_write_u8_unchecked_debug_assert() {
+        let mut aligned_memory = AlignedMemory::<8>::with_capacity(1);
+        unsafe {
+            aligned_memory.write_u8_unchecked(42);
+            aligned_memory.write_u8_unchecked(24);
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "<= self.align_offset + self.max_len")]
+    fn test_write_u64_unchecked_debug_assert() {
+        let mut aligned_memory = AlignedMemory::<8>::with_capacity(15);
+        unsafe {
+            aligned_memory.write_u64_unchecked(42);
+            aligned_memory.write_u64_unchecked(24);
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "<= self.align_offset + self.max_len")]
+    fn test_write_all_unchecked_debug_assert() {
+        let mut aligned_memory = AlignedMemory::<8>::with_capacity(5);
+        unsafe {
+            aligned_memory.write_all_unchecked(b"foo");
+            aligned_memory.write_all_unchecked(b"bar");
+        }
     }
 }
