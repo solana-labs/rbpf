@@ -147,7 +147,7 @@ pub struct JitProgram<E: UserDefinedError, I: InstructionMeter> {
     /// Holds and manages the protected memory
     sections: JitProgramSections,
     /// Call this with the ProgramEnvironment to execute the compiled code
-    pub main: unsafe fn(&ProgramResult<E>, u64, &ProgramEnvironment, &mut I) -> i64,
+    pub main: unsafe fn(&mut ProgramResult<E>, u64, &ProgramEnvironment, &mut I) -> i64,
 }
 
 impl<E: UserDefinedError, I: InstructionMeter> Debug for JitProgram<E, I> {

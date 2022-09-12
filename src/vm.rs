@@ -702,13 +702,13 @@ impl<'a, V: Verifier, E: UserDefinedError, I: InstructionMeter> EbpfVm<'a, V, E,
         } else {
             0
         };
-        let result: ProgramResult<E> = Ok(0);
+        let mut result: ProgramResult<E> = Ok(0);
         let compiled_program = executable
             .get_compiled_program()
             .ok_or(EbpfError::JitNotCompiled)?;
         let instruction_meter_final = unsafe {
             (compiled_program.main)(
-                &result,
+                &mut result,
                 ebpf::MM_INPUT_START,
                 &self.program_environment,
                 instruction_meter,
