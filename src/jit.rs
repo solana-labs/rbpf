@@ -1227,11 +1227,6 @@ impl JitCompiler {
                             if self.config.enable_instruction_meter {
                                 emit_undo_profile_instruction_count(self, 0);
                             }
-                            // Throw error if the result indicates one
-                            emit_ins(self, X86Instruction::cmp_immediate(OperandSize::S64, R11, 0, Some(X86IndirectAccess::Offset(0))));
-                            emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
-                            emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 6)));
-
                             resolved = true;
                         }
                     }
@@ -1512,8 +1507,12 @@ impl JitCompiler {
             ], Some(ARGUMENT_REGISTERS[0]), false);
             emit_ins(self, X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))));
         }
-        emit_ins(self, X86Instruction::pop(R11));
+        // Throw error if the result indicates one
+        emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))));
+        emit_ins(self, X86Instruction::cmp_immediate(OperandSize::S64, R11, 0, Some(X86IndirectAccess::Offset(0))));
+        emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 6)));
         // Store Ok value in result register
+        emit_ins(self, X86Instruction::pop(R11));
         emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))));
         emit_ins(self, X86Instruction::load(OperandSize::S64, R11, REGISTER_MAP[0], X86IndirectAccess::Offset(8)));
         emit_ins(self, X86Instruction::return_near());
