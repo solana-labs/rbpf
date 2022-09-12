@@ -464,7 +464,7 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
                     }
                 }
 
-                if calls {
+                if calls && !resolved {
                     if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
                         resolved = true;
 
