@@ -846,10 +846,11 @@ fn emit_set_exception_kind<E: UserDefinedError>(jit: &mut JitCompiler, err: Ebpf
     emit_ins(jit, X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * jit.err_kind_offset) as i32), err_kind as i64));
 }
 
-fn emit_result_is_err<E: UserDefinedError>(jit: &mut JitCompiler, result_reg: u8) {
+fn emit_result_is_err<E: UserDefinedError>(jit: &mut JitCompiler, source: u8, destination: u8, indirect: X86IndirectAccess) {
     let ok = Result::<u64, EbpfError<E>>::Ok(0);
     let err_kind = unsafe { *(&ok as *const _ as *const u64).add(jit.err_kind_offset) };
-    emit_ins(jit, X86Instruction::cmp_immediate(OperandSize::S64, result_reg, err_kind as i64, Some(X86IndirectAccess::Offset(0))));
+    emit_ins(jit, X86Instruction::load(OperandSize::S64, source, destination, indirect));
+    emit_ins(jit, X86Instruction::cmp_immediate(OperandSize::S64, destination, err_kind as i64, Some(X86IndirectAccess::Offset(0))));
 }
 
 #[derive(Debug)]
@@ -1519,8 +1520,7 @@ impl JitCompiler {
         }
 
         // Test if result indicates that an error occured
-        emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))));
-        emit_result_is_err::<E>(self, R11);
+        emit_result_is_err::<E>(self, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr)));
         emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 6)));
         // Store Ok value in result register
         emit_ins(self, X86Instruction::pop(R11));
@@ -1611,6 +1611,12 @@ impl JitCompiler {
         emit_ins(self, X86Instruction::pop(REGISTER_MAP[0])); // Restore REGISTER_MAP[0]
         emit_ins(self, X86Instruction::return_near());
 
+        self.set_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION);
+        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, 8, None));
+        emit_ins(self, X86Instruction::pop(R11)); // Put callers PC in R11
+        emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRANSLATE_PC, 5)));
+        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
+
         // Translates a vm memory address to a host memory address
         for (access_type, len) in &[
             (AccessType::Load, 1i32),
@@ -1623,15 +1629,9 @@ impl JitCompiler {
             (AccessType::Store, 8i32),
         ] {
             let target_offset = len.trailing_zeros() as usize + 4 * (*access_type as usize);
-
-            self.set_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION + target_offset);
-            emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, 8, None));
-            emit_ins(self, X86Instruction::pop(R11)); // Put callers PC in R11
-            emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRANSLATE_PC, 5)));
-            emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
-
             self.set_anchor(ANCHOR_TRANSLATE_MEMORY_ADDRESS + target_offset);
             emit_ins(self, X86Instruction::push(R11, None));
+            // call MemoryMapping::map() storing the result in EnvironmentStackSlot::OptRetValPtr
             emit_rust_call(self, Value::Constant64(MemoryMapping::map::<UserError> as *const u8 as i64, false), &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
@@ -1641,11 +1641,10 @@ impl JitCompiler {
             ], None);
 
             // Throw error if the result indicates one
-            emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))));
-            emit_result_is_err::<E>(self, R11);
-            emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION + target_offset, 6)));
+            emit_result_is_err::<E>(self, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr)));
+            emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION, 6)));
 
-            // unwrap
+            // unwrap() the host addr into R11
             emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))));
             emit_ins(self, X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)));
 
