@@ -34,7 +34,6 @@ use crate::{
     x86::*,
 };
 
-const ERR_KIND_OFFSET: usize = 1;
 const MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH: usize = 4096;
 const MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION: usize = 110;
 
@@ -492,11 +491,11 @@ fn emit_profile_instruction_count_finalize(jit: &mut JitCompiler, store_pc_in_ex
     }
     if store_pc_in_exception {
         emit_ins(jit, X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::OptRetValPtr))));
-        if ERR_KIND_OFFSET == 1 {
+        if jit.err_kind_offset == 1 {
             emit_ins(jit, X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(0), 1)); // result.is_err = true;
         }
         emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x81, 0, R11, ebpf::ELF_INSN_DUMP_OFFSET as i64 - 1, None));
-        emit_ins(jit, X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 1)) as i32))); // result.pc = jit.pc + ebpf::ELF_INSN_DUMP_OFFSET;
+        emit_ins(jit, X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (jit.err_kind_offset + 1)) as i32))); // result.pc = jit.pc + ebpf::ELF_INSN_DUMP_OFFSET;
     }
 }
 
@@ -841,9 +840,9 @@ fn emit_muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: Option<
 
 fn emit_set_exception_kind<E: UserDefinedError>(jit: &mut JitCompiler, err: EbpfError<E>) {
     let err = Result::<u64, EbpfError<E>>::Err(err);
-    let err_kind = unsafe { *(&err as *const _ as *const u64).add(ERR_KIND_OFFSET) };
+    let err_kind = unsafe { *(&err as *const _ as *const u64).add(jit.err_kind_offset) };
     emit_ins(jit, X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::OptRetValPtr))));
-    emit_ins(jit, X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * ERR_KIND_OFFSET) as i32), err_kind as i64));
+    emit_ins(jit, X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * jit.err_kind_offset) as i32), err_kind as i64));
 }
 
 #[derive(Debug)]
@@ -862,10 +861,11 @@ pub struct JitCompiler {
     program_vm_addr: u64,
     anchors: [*const u8; ANCHOR_COUNT],
     pub(crate) config: Config,
-    pub(crate) diversification_rng: SmallRng,
+    diversification_rng: SmallRng,
     stopwatch_is_active: bool,
     environment_stack_key: i32,
     program_argument_key: i32,
+    err_kind_offset: usize,
 }
 
 impl Index<usize> for JitCompiler {
@@ -941,6 +941,9 @@ impl JitCompiler {
                     diversification_rng.gen::<i32>() / 2, // -1 bit to have encoding space for (ProgramEnvironment::SYSCALLS_OFFSET + syscall.context_object_slot) * 8
                 )
             } else { (0, 0) };
+        
+        let ok = Result::<u64, EbpfError<E>>::Ok(0);
+        let is_err = unsafe { *(&ok as *const _ as *const u64) };
 
         Ok(Self {
             result,
@@ -956,6 +959,7 @@ impl JitCompiler {
             stopwatch_is_active: false,
             environment_stack_key,
             program_argument_key,
+            err_kind_offset: (is_err == 0) as usize,
         })
     }
 
@@ -1433,13 +1437,13 @@ impl JitCompiler {
         // Handler for EbpfError::CallDepthExceeded
         self.set_anchor(ANCHOR_CALL_DEPTH_EXCEEDED);
         emit_set_exception_kind::<E>(self, EbpfError::CallDepthExceeded(0, 0));
-        emit_ins(self, X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 2)) as i32), self.config.max_call_depth as i64)); // depth = jit.config.max_call_depth;
+        emit_ins(self, X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (self.err_kind_offset + 2)) as i32), self.config.max_call_depth as i64)); // depth = jit.config.max_call_depth;
         emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
         // Handler for EbpfError::CallOutsideTextSegment
         self.set_anchor(ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT);
         emit_set_exception_kind::<E>(self, EbpfError::CallOutsideTextSegment(0, 0));
-        emit_ins(self, X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 2)) as i32))); // target_address = RAX;
+        emit_ins(self, X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (self.err_kind_offset + 2)) as i32))); // target_address = RAX;
         emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
         // Handler for EbpfError::DivideByZero
@@ -1505,7 +1509,7 @@ impl JitCompiler {
         }
         // Test if result indicates that an error occured
         let ok = Result::<u64, EbpfError<E>>::Ok(0);
-        let err_kind = unsafe { *(&ok as *const _ as *const u64).add(ERR_KIND_OFFSET) };
+        let err_kind = unsafe { *(&ok as *const _ as *const u64).add(self.err_kind_offset) };
         emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))));
         emit_ins(self, X86Instruction::cmp_immediate(OperandSize::S64, R11, err_kind as i64, Some(X86IndirectAccess::Offset(0))));
         emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 6)));
