@@ -4159,51 +4159,6 @@ fn test_tcp_sack_nomatch() {
     );
 }
 
-#[inline(never)]
-fn copy_ebpf_error(err: &mut EbpfError<UserError>) {
-    *err = EbpfError::DivideByZero(0);
-}
-
-#[inline(never)]
-fn copy_result(err: &mut Result) {
-    *err = Result::Err(EbpfError::DivideByZero(0));
-}
-
-#[test]
-fn test_result_discriminant_size() {
-    unsafe {
-        // Create a Result<u64, EbpfError<UserError>> filled with 0xaa
-        let test: [u8; std::mem::size_of::<Result>()] = [0xaa; std::mem::size_of::<Result>()];
-        let mut test_result =
-            std::mem::transmute::<[u8; std::mem::size_of::<Result>()], Result>(test);
-        // Overwrite the Result with another result
-        copy_result(&mut test_result);
-
-        // Check that all 64-bits of the discriminant were changed
-        let err_kind = *(&test_result as *const _ as *const u64);
-        assert_eq!(err_kind, 1u64);
-    }
-}
-
-#[test]
-fn test_err_discriminant_size() {
-    unsafe {
-        // Create a EbpfError filled with 0xaa
-        let test: [u8; std::mem::size_of::<EbpfError<UserError>>()] =
-            [0xaa; std::mem::size_of::<EbpfError<UserError>>()];
-        let mut test_err = std::mem::transmute::<
-            [u8; std::mem::size_of::<EbpfError<UserError>>()],
-            EbpfError<UserError>,
-        >(test);
-        // Overwrite the EbpfError with another error
-        copy_ebpf_error(&mut test_err);
-
-        // Check that all 64-bits of the discriminant were changed
-        let err_kind = *(&test_err as *const _ as *const u64);
-        assert_eq!(err_kind, 8u64);
-    }
-}
-
 // Fuzzy
 
 #[cfg(all(not(windows), target_arch = "x86_64"))]
