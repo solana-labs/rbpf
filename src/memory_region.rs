@@ -280,7 +280,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         index: usize,
         region: MemoryRegion,
     ) -> Result<(), EbpfError<E>> {
-        if index >= self.regions.len() {
+        if index >= self.regions.len() || self.regions[index].vm_addr != region.vm_addr {
             return Err(EbpfError::InvalidMemoryRegion(index));
         }
         self.regions[index] = region;
@@ -748,6 +748,15 @@ mod test {
             .iter()
             .position(|mem| mem.vm_addr == ebpf::MM_INPUT_START + mem1.len() as u64)
             .unwrap();
+
+        // old.vm_addr != new.vm_addr
+        assert!(matches!(
+            m.replace_region(
+                region_index,
+                MemoryRegion::new_readonly(&mem3, ebpf::MM_INPUT_START + mem1.len() as u64 + 1)
+            ),
+            Err(EbpfError::<UserError>::InvalidMemoryRegion(i)) if i == region_index
+        ));
 
         m.replace_region::<UserError>(
             region_index,
