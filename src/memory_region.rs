@@ -147,15 +147,6 @@ pub enum AccessType {
     Store,
 }
 
-impl fmt::Display for AccessType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AccessType::Load => f.write_str("load"),
-            AccessType::Store => f.write_str("store"),
-        }
-    }
-}
-
 /// Memory mapping based on eytzinger search.
 #[derive(Debug)]
 pub struct UnalignedMemoryMapping<'a> {
