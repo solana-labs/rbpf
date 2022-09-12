@@ -591,7 +591,7 @@ struct Argument {
     value: Value,
 }
 
-fn emit_rust_call(jit: &mut JitCompiler, dst: Value, arguments: &[Argument], result_reg: Option<u8>, check_exception: bool) {
+fn emit_rust_call(jit: &mut JitCompiler, dst: Value, arguments: &[Argument], result_reg: Option<u8>) {
     let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
     if let Some(reg) = result_reg {
         let dst = saved_registers.iter().position(|x| *x == reg);
@@ -682,12 +682,6 @@ fn emit_rust_call(jit: &mut JitCompiler, dst: Value, arguments: &[Argument], res
     emit_ins(jit, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, stack_arguments * 8, None));
     for reg in saved_registers.iter().rev() {
         emit_ins(jit, X86Instruction::pop(*reg));
-    }
-
-    if check_exception {
-        // Test if result indicates that an error occured
-        emit_ins(jit, X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::OptRetValPtr))));
-        emit_ins(jit, X86Instruction::cmp_immediate(OperandSize::S64, R11, 0, Some(X86IndirectAccess::Offset(0))));
     }
 }
 
@@ -1330,7 +1324,7 @@ impl JitCompiler {
         // Save initial value of instruction_meter.get_remaining()
         emit_rust_call(self, Value::Constant64(I::get_remaining as *const u8 as i64, false), &[
             Argument { index: 0, value: Value::Register(ARGUMENT_REGISTERS[3]) },
-        ], Some(ARGUMENT_REGISTERS[0]), false);
+        ], Some(ARGUMENT_REGISTERS[0]));
         emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
 
         // Save instruction meter
@@ -1378,7 +1372,7 @@ impl JitCompiler {
             emit_rust_call(self, Value::Constant64(stopwatch_result as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::StopwatchDenominator), false) },
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::StopwatchNumerator), false) },
-            ], None, false);
+            ], None);
         }
         // Store instruction_meter in RAX
         emit_ins(self, X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], RAX));
@@ -1403,7 +1397,7 @@ impl JitCompiler {
             emit_rust_call(self, Value::Constant64(Tracer::trace as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
                 Argument { index: 0, value: Value::RegisterPlusConstant32(R10, ProgramEnvironment::TRACER_OFFSET as i32 + self.program_argument_key, false) }, // jit.tracer
-            ], None, false);
+            ], None);
             // Pop stack and return
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, 8 * 3, None)); // RSP += 8 * 3;
             emit_ins(self, X86Instruction::pop(REGISTER_MAP[0]));
@@ -1488,7 +1482,7 @@ impl JitCompiler {
             emit_rust_call(self, Value::Constant64(I::consume as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[0]) },
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr), false) },
-            ], None, false);
+            ], None);
         }
         emit_rust_call(self, Value::Register(R11), &[
             Argument { index: 7, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
@@ -1499,14 +1493,14 @@ impl JitCompiler {
             Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
             Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
             Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the SyscallObject
-        ], None, false);
+        ], None);
         if self.config.enable_instruction_meter {
             emit_rust_call(self, Value::Constant64(I::get_remaining as *const u8 as i64, false), &[
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr), false) },
-            ], Some(ARGUMENT_REGISTERS[0]), false);
+            ], Some(ARGUMENT_REGISTERS[0]));
             emit_ins(self, X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))));
         }
-        // Throw error if the result indicates one
+        // Test if result indicates that an error occured
         emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))));
         emit_ins(self, X86Instruction::cmp_immediate(OperandSize::S64, R11, 0, Some(X86IndirectAccess::Offset(0))));
         emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 6)));
@@ -1626,7 +1620,7 @@ impl JitCompiler {
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
                 Argument { index: 1, value: Value::RegisterPlusConstant32(R10, ProgramEnvironment::MEMORY_MAPPING_OFFSET as i32 + self.program_argument_key, false) }, // jit_program_argument.memory_mapping
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) }, // Pointer to optional typed return value
-            ], None, true);
+            ], None);
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, stack_offset as i64 + 8, None)); // Drop R11, RAX, RCX, RDX from stack
             emit_ins(self, X86Instruction::pop(R11)); // Put callers PC in R11
             emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRANSLATE_PC, 5)));
