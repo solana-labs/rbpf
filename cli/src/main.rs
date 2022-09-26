@@ -128,7 +128,7 @@ fn main() {
     let syscall_registry = SyscallRegistry::default();
     let executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
-            let mut file = File::open(&Path::new(asm_file_name)).unwrap();
+            let mut file = File::open(Path::new(asm_file_name)).unwrap();
             let mut source = Vec::new();
             file.read_to_end(&mut source).unwrap();
             assemble::<UserError, TestInstructionMeter>(
@@ -138,7 +138,7 @@ fn main() {
             )
         }
         None => {
-            let mut file = File::open(&Path::new(matches.value_of("elf").unwrap())).unwrap();
+            let mut file = File::open(Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
             Executable::<UserError, TestInstructionMeter>::from_elf(&elf, config, syscall_registry)
@@ -156,7 +156,7 @@ fn main() {
     let mut mem = match matches.value_of("input").unwrap().parse::<usize>() {
         Ok(allocate) => vec![0u8; allocate],
         Err(_) => {
-            let mut file = File::open(&Path::new(matches.value_of("input").unwrap())).unwrap();
+            let mut file = File::open(Path::new(matches.value_of("input").unwrap())).unwrap();
             let mut memory = Vec::new();
             file.read_to_end(&mut memory).unwrap();
             memory

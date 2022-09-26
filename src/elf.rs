@@ -1651,7 +1651,7 @@ mod test {
         let range = Uniform::new(0, 255);
         println!("random bytes");
         for _ in 0..1_000 {
-            let elf_bytes: Vec<u8> = (0..100).map(|_| rng.sample(&range)).collect();
+            let elf_bytes: Vec<u8> = (0..100).map(|_| rng.sample(range)).collect();
             let _ = ElfExecutable::load(Config::default(), &elf_bytes, SyscallRegistry::default());
         }
 
