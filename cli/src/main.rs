@@ -6,11 +6,10 @@ use solana_rbpf::{
     interpreter::Interpreter,
     memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
-    syscalls::Result,
     verifier::RequisiteVerifier,
     vm::{
-        Config, DynamicAnalysis, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter,
-        VerifiedExecutable,
+        Config, DynamicAnalysis, EbpfVm, ProgramResult, SyscallObject, SyscallRegistry,
+        TestInstructionMeter, VerifiedExecutable,
     },
 };
 use std::{fs::File, io::Read, path::Path};
@@ -28,13 +27,13 @@ impl SyscallObject for MockSyscall {
         arg4: u64,
         arg5: u64,
         _memory_mapping: &mut MemoryMapping,
-        result: &mut Result,
+        result: &mut ProgramResult,
     ) {
         println!(
             "Syscall {}: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}",
             self.name, arg1, arg2, arg3, arg4, arg5,
         );
-        *result = Result::Ok(0);
+        *result = ProgramResult::Ok(0);
     }
 }
 
