@@ -13,7 +13,6 @@ extern crate test;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use solana_rbpf::{
     memory_region::{AccessType, AlignedMemoryMapping, MemoryRegion, UnalignedMemoryMapping},
-    user_error::UserError,
     vm::Config,
 };
 use test::Bencher;
@@ -69,12 +68,11 @@ macro_rules! bench_gapped_randomized_access_with_1024_entries {
             )];
             bencher.bench(|bencher| {
                 let config = Config::default();
-                let memory_mapping =
-                    $mem::new::<UserError>(memory_regions.clone(), &config).unwrap();
+                let memory_mapping = $mem::new(memory_regions.clone(), &config).unwrap();
                 let mut prng = new_prng!();
                 bencher.iter(|| {
                     assert!(memory_mapping
-                        .map::<UserError>(
+                        .map(
                             AccessType::Load,
                             0x100000000 + (prng.gen::<u64>() % frame_count * (frame_size * 2)),
                             1
@@ -106,10 +104,10 @@ macro_rules! bench_randomized_access_with_0001_entry {
             let content = vec![0; 1024 * 2];
             let memory_regions = vec![MemoryRegion::new_readonly(&content[..], 0x100000000)];
             let config = Config::default();
-            let memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
+            let memory_mapping = $mem::new(memory_regions, &config).unwrap();
             let mut prng = new_prng!();
             bencher.iter(|| {
-                let _ = memory_mapping.map::<UserError>(
+                let _ = memory_mapping.map(
                     AccessType::Load,
                     0x100000000 + (prng.gen::<u64>() % content.len() as u64),
                     1,
@@ -139,9 +137,9 @@ macro_rules! bench_randomized_access_with_n_entries {
             let mut prng = new_prng!();
             let (memory_regions, end_address) = generate_memory_regions($n, false, Some(&mut prng));
             let config = Config::default();
-            let memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
+            let memory_mapping = $mem::new(memory_regions, &config).unwrap();
             bencher.iter(|| {
-                let _ = memory_mapping.map::<UserError>(
+                let _ = memory_mapping.map(
                     AccessType::Load,
                     0x100000000 + (prng.gen::<u64>() % end_address),
                     1,
@@ -188,9 +186,9 @@ macro_rules! bench_randomized_mapping_with_n_entries {
             let (memory_regions, _end_address) =
                 generate_memory_regions($n, false, Some(&mut prng));
             let config = Config::default();
-            let memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
+            let memory_mapping = $mem::new(memory_regions, &config).unwrap();
             bencher.iter(|| {
-                let _ = memory_mapping.map::<UserError>(AccessType::Load, 0x100000000, 1);
+                let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1);
             });
         }
     };
@@ -236,9 +234,9 @@ macro_rules! bench_mapping_with_n_entries {
         fn $name(bencher: &mut Bencher) {
             let (memory_regions, _end_address) = generate_memory_regions($n, false, None);
             let config = Config::default();
-            let memory_mapping = $mem::new::<UserError>(memory_regions, &config).unwrap();
+            let memory_mapping = $mem::new(memory_regions, &config).unwrap();
             bencher.iter(|| {
-                let _ = memory_mapping.map::<UserError>(AccessType::Load, 0x100000000, 1);
+                let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1);
             });
         }
     };

@@ -10,7 +10,6 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     assembler::assemble,
     static_analysis::Analysis,
-    user_error::UserError,
     vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
 
@@ -23,8 +22,7 @@ macro_rules! disasm {
             ..Config::default()
         };
         let executable =
-            assemble::<UserError, TestInstructionMeter>(src, config, SyscallRegistry::default())
-                .unwrap();
+            assemble::<TestInstructionMeter>(src, config, SyscallRegistry::default()).unwrap();
         let analysis = Analysis::from_executable(&executable).unwrap();
         let mut reasm = Vec::new();
         analysis.disassemble(&mut reasm).unwrap();

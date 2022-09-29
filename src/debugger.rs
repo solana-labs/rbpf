@@ -23,11 +23,10 @@ use gdbstub::target::ext::section_offsets::Offsets;
 
 use crate::{
     ebpf,
-    error::{EbpfError, UserDefinedError},
+    error::EbpfError,
     interpreter::{DebugState, Interpreter},
     memory_region::AccessType,
     translate_memory_access,
-    user_error::UserError,
     verifier::Verifier,
     vm::{InstructionMeter, ProgramResult},
 };
@@ -46,10 +45,10 @@ fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
 }
 
 /// Connect to the debugger and hand over the control of the interpreter
-pub fn execute<V: Verifier, E: UserDefinedError, I: InstructionMeter>(
-    interpreter: &mut Interpreter<V, E, I>,
+pub fn execute<V: Verifier, I: InstructionMeter>(
+    interpreter: &mut Interpreter<V, I>,
     port: u16,
-) -> ProgramResult<E> {
+) -> ProgramResult {
     let connection: Box<dyn ConnectionExt<Error = std::io::Error>> =
         Box::new(wait_for_tcp(port).expect("Cannot connect to Debugger"));
 
@@ -137,9 +136,7 @@ pub fn execute<V: Verifier, E: UserDefinedError, I: InstructionMeter>(
     Ok(interpreter.reg[0])
 }
 
-impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Target
-    for Interpreter<'a, 'b, V, E, I>
-{
+impl<'a, 'b, V: Verifier, I: InstructionMeter> Target for Interpreter<'a, 'b, V, I> {
     type Arch = Bpf;
     type Error = &'static str;
 
@@ -171,11 +168,11 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Target
     }
 }
 
-fn get_host_ptr<V: Verifier, E: UserDefinedError, I: InstructionMeter>(
-    interpreter: &mut Interpreter<V, E, I>,
+fn get_host_ptr<V: Verifier, I: InstructionMeter>(
+    interpreter: &mut Interpreter<V, I>,
     mut vm_addr: u64,
     pc: usize,
-) -> Result<*mut u8, EbpfError<E>> {
+) -> Result<*mut u8, EbpfError> {
     if vm_addr < ebpf::MM_PROGRAM_START {
         vm_addr += ebpf::MM_PROGRAM_START;
     }
@@ -188,9 +185,7 @@ fn get_host_ptr<V: Verifier, E: UserDefinedError, I: InstructionMeter>(
     ))
 }
 
-impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> SingleThreadBase
-    for Interpreter<'a, 'b, V, E, I>
-{
+impl<'a, 'b, V: Verifier, I: InstructionMeter> SingleThreadBase for Interpreter<'a, 'b, V, I> {
     fn read_registers(&mut self, regs: &mut BpfRegs) -> TargetResult<(), Self> {
         for i in 0..10 {
             regs.r[i] = self.reg[i];
@@ -244,9 +239,9 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> SingleThread
     }
 }
 
-impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
+impl<'a, 'b, V: Verifier, I: InstructionMeter>
     target::ext::base::single_register_access::SingleRegisterAccess<()>
-    for Interpreter<'a, 'b, V, E, I>
+    for Interpreter<'a, 'b, V, I>
 {
     fn read_register(
         &mut self,
@@ -284,9 +279,7 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
     }
 }
 
-impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> SingleThreadResume
-    for Interpreter<'a, 'b, V, E, I>
-{
+impl<'a, 'b, V: Verifier, I: InstructionMeter> SingleThreadResume for Interpreter<'a, 'b, V, I> {
     fn resume(&mut self, signal: Option<Signal>) -> Result<(), Self::Error> {
         if signal.is_some() {
             return Err("no support for continuing with signal");
@@ -305,8 +298,8 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> SingleThread
     }
 }
 
-impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
-    target::ext::base::singlethread::SingleThreadSingleStep for Interpreter<'a, 'b, V, E, I>
+impl<'a, 'b, V: Verifier, I: InstructionMeter>
+    target::ext::base::singlethread::SingleThreadSingleStep for Interpreter<'a, 'b, V, I>
 {
     fn step(&mut self, signal: Option<Signal>) -> Result<(), Self::Error> {
         if signal.is_some() {
@@ -319,8 +312,8 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
     }
 }
 
-impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
-    target::ext::section_offsets::SectionOffsets for Interpreter<'a, 'b, V, E, I>
+impl<'a, 'b, V: Verifier, I: InstructionMeter> target::ext::section_offsets::SectionOffsets
+    for Interpreter<'a, 'b, V, I>
 {
     fn get_section_offsets(&mut self) -> Result<Offsets<u64>, Self::Error> {
         Ok(Offsets::Sections {
@@ -331,8 +324,8 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
     }
 }
 
-impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
-    target::ext::breakpoints::Breakpoints for Interpreter<'a, 'b, V, E, I>
+impl<'a, 'b, V: Verifier, I: InstructionMeter> target::ext::breakpoints::Breakpoints
+    for Interpreter<'a, 'b, V, I>
 {
     #[inline(always)]
     fn support_sw_breakpoint(
@@ -342,8 +335,8 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
     }
 }
 
-impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
-    target::ext::breakpoints::SwBreakpoint for Interpreter<'a, 'b, V, E, I>
+impl<'a, 'b, V: Verifier, I: InstructionMeter> target::ext::breakpoints::SwBreakpoint
+    for Interpreter<'a, 'b, V, I>
 {
     fn add_sw_breakpoint(
         &mut self,
@@ -369,9 +362,9 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
     }
 }
 
-impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter>
+impl<'a, 'b, V: Verifier, I: InstructionMeter>
     target::ext::lldb_register_info_override::LldbRegisterInfoOverride
-    for Interpreter<'a, 'b, V, E, I>
+    for Interpreter<'a, 'b, V, I>
 {
     fn lldb_register_info<'c>(
         &mut self,

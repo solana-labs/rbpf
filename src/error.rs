@@ -23,12 +23,12 @@ use crate::{elf::ElfError, memory_region::AccessType, verifier::VerifierError};
 pub trait UserDefinedError: 'static + std::error::Error {}
 
 /// Error definitions
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 #[repr(u64)] // discriminant size, used in emit_exception_kind in JIT
-pub enum EbpfError<E: UserDefinedError> {
+pub enum EbpfError {
     /// User defined error
     #[error("{0}")]
-    UserError(#[from] E),
+    UserError(Box<dyn std::error::Error>),
     /// ELF error
     #[error("ELF error: {0}")]
     ElfError(#[from] ElfError),
@@ -96,7 +96,7 @@ pub enum EbpfError<E: UserDefinedError> {
     /// Libc function call returned an error
     #[error("Libc calling {0} {1:?} returned error code {2}")]
     LibcInvocationFailed(&'static str, Vec<String>, i32),
-    /// ELF error
+    /// Verifier error
     #[error("Verifier error: {0}")]
     VerifierError(#[from] VerifierError),
 }

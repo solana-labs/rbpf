@@ -4,7 +4,7 @@
 use crate::{
     aligned_memory::AlignedMemory,
     ebpf::{ELF_INSN_DUMP_OFFSET, HOST_ALIGN, MM_STACK_START, SCRATCH_REGS},
-    error::{EbpfError, UserDefinedError},
+    error::EbpfError,
     memory_region::MemoryRegion,
     vm::Config,
 };
@@ -108,11 +108,7 @@ impl<'a> CallFrames<'a> {
     }
 
     /// Push a frame
-    pub fn push<E: UserDefinedError>(
-        &mut self,
-        saved_reg: &[u64],
-        return_ptr: usize,
-    ) -> Result<u64, EbpfError<E>> {
+    pub fn push(&mut self, saved_reg: &[u64], return_ptr: usize) -> Result<u64, EbpfError> {
         if self.frame_index + 1 >= self.frames.len() {
             return Err(EbpfError::CallDepthExceeded(
                 return_ptr + ELF_INSN_DUMP_OFFSET - 1,
@@ -147,9 +143,7 @@ impl<'a> CallFrames<'a> {
     }
 
     /// Pop a frame
-    pub fn pop<E: UserDefinedError>(
-        &mut self,
-    ) -> Result<([u64; SCRATCH_REGS], u64, usize), EbpfError<E>> {
+    pub fn pop(&mut self) -> Result<([u64; SCRATCH_REGS], u64, usize), EbpfError> {
         if self.frame_index == 0 {
             return Err(EbpfError::ExitRootCallFrame);
         }
@@ -178,7 +172,6 @@ impl<'a> CallFrames<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::user_error::UserError;
 
     #[test]
     fn test_frames() {
@@ -212,7 +205,7 @@ mod tests {
 
                 // push the next frame, get the new frame pointers and check
                 // that push returns the newly added frame pointer
-                let top = frames.push::<UserError>(&registers[0..4], i).unwrap();
+                let top = frames.push(&registers[0..4], i).unwrap();
                 let new_ptrs = frames.get_frame_pointers();
                 assert_eq!(top, new_ptrs[i + 1]);
 
@@ -228,18 +221,16 @@ mod tests {
             assert_eq!(frames.get_frame_index(), i);
             frame_ptrs.push(frames.get_frame_pointers()[i]);
 
-            assert!(frames
-                .push::<UserError>(&registers, config.max_call_depth - 1)
-                .is_err());
+            assert!(frames.push(&registers, config.max_call_depth - 1).is_err());
 
             for i in (0..config.max_call_depth - 1).rev() {
-                let (saved_reg, frame_ptr, return_ptr) = frames.pop::<UserError>().unwrap();
+                let (saved_reg, frame_ptr, return_ptr) = frames.pop().unwrap();
                 assert_eq!(saved_reg, [i as u64, i as u64, i as u64, i as u64]);
                 assert_eq!(frame_ptrs[i], frame_ptr);
                 assert_eq!(i, return_ptr);
             }
 
-            assert!(frames.pop::<UserError>().is_err());
+            assert!(frames.pop().is_err());
         }
     }
 

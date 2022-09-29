@@ -20,7 +20,7 @@ use crate::{
         ElfParser, ElfProgramHeader, ElfRelocation, ElfSectionHeader, ElfSymbol, GoblinParser,
         NewParser,
     },
-    error::{EbpfError, UserDefinedError},
+    error::EbpfError,
     memory_region::MemoryRegion,
     vm::{Config, InstructionMeter, SyscallRegistry},
 };
@@ -257,7 +257,7 @@ pub(crate) enum Section {
 
 /// Elf loader/relocator
 #[derive(Debug, PartialEq)]
-pub struct Executable<E: UserDefinedError, I: InstructionMeter> {
+pub struct Executable<I: InstructionMeter> {
     /// Configuration settings
     config: Config,
     /// Loaded and executable elf
@@ -274,12 +274,12 @@ pub struct Executable<E: UserDefinedError, I: InstructionMeter> {
     syscall_registry: SyscallRegistry,
     /// Compiled program and argument
     #[cfg(feature = "jit")]
-    compiled_program: Option<JitProgram<E, I>>,
+    compiled_program: Option<JitProgram<I>>,
     #[cfg(not(feature = "jit"))]
-    _marker: PhantomData<(E, I)>,
+    _marker: PhantomData<(I)>,
 }
 
-impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
+impl<I: InstructionMeter> Executable<I> {
     /// Get the configuration settings
     pub fn get_config(&self) -> &Config {
         &self.config
@@ -321,7 +321,7 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
     }
 
     /// Get the entry point offset into the text section
-    pub fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError<E>> {
+    pub fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError> {
         self.bpf_functions
             .get(&ebpf::hash_symbol_name(b"entrypoint"))
             .map(|(pc, _name)| *pc)
@@ -346,14 +346,14 @@ impl<E: UserDefinedError, I: InstructionMeter> Executable<E, I> {
 
     /// Get the JIT compiled program
     #[cfg(feature = "jit")]
-    pub fn get_compiled_program(&self) -> Option<&JitProgram<E, I>> {
+    pub fn get_compiled_program(&self) -> Option<&JitProgram<I>> {
         self.compiled_program.as_ref()
     }
 
     /// JIT compile the executable
     #[cfg(feature = "jit")]
-    pub fn jit_compile(executable: &mut Self) -> Result<(), EbpfError<E>> {
-        executable.compiled_program = Some(JitProgram::<E, I>::new(executable)?);
+    pub fn jit_compile(executable: &mut Self) -> Result<(), EbpfError> {
+        executable.compiled_program = Some(JitProgram::<I>::new(executable)?);
         Ok(())
     }
 
@@ -1214,26 +1214,25 @@ mod test {
         },
         fuzz::fuzz,
         syscalls::{BpfSyscallContext, BpfSyscallString, BpfSyscallU64},
-        user_error::UserError,
         vm::{SyscallObject, TestInstructionMeter},
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
-    type ElfExecutable = Executable<UserError, TestInstructionMeter>;
+    type ElfExecutable = Executable<TestInstructionMeter>;
 
     fn syscall_registry() -> SyscallRegistry {
         let mut syscall_registry = SyscallRegistry::default();
         syscall_registry
             .register_syscall_by_name(
                 b"log",
-                BpfSyscallString::init::<BpfSyscallContext, UserError>,
+                BpfSyscallString::init::<BpfSyscallContext>,
                 BpfSyscallString::call,
             )
             .unwrap();
         syscall_registry
             .register_syscall_by_name(
                 b"log_64",
-                BpfSyscallU64::init::<BpfSyscallContext, UserError>,
+                BpfSyscallU64::init::<BpfSyscallContext>,
                 BpfSyscallU64::call,
             )
             .unwrap();
@@ -1380,7 +1379,7 @@ mod test {
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
         let parsed_elf = NewParser::parse(&elf_bytes).unwrap();
-        let executable: &Executable<UserError, TestInstructionMeter> = &elf;
+        let executable: &Executable<TestInstructionMeter> = &elf;
         assert_eq!(
             0,
             executable
@@ -1401,7 +1400,7 @@ mod test {
         let elf_bytes = write_header(header.clone());
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
-        let executable: &Executable<UserError, TestInstructionMeter> = &elf;
+        let executable: &Executable<TestInstructionMeter> = &elf;
         assert_eq!(
             1,
             executable
@@ -1434,7 +1433,7 @@ mod test {
         let elf_bytes = write_header(header);
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
-        let executable: &Executable<UserError, TestInstructionMeter> = &elf;
+        let executable: &Executable<TestInstructionMeter> = &elf;
         assert_eq!(
             0,
             executable
@@ -1884,18 +1883,18 @@ mod test {
         };
 
         // [0..s3.sh_addr + s3.sh_size] is the valid ro memory area
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START, s3.sh_addr + s3.sh_size),
-            Ok(owned_section.as_ptr() as u64),
-        );
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START, s3.sh_addr + s3.sh_size),
+            Ok(ptr) if ptr == owned_section.as_ptr() as u64,
+        ));
 
         // one byte past the ro section is not mappable
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
             Err(EbpfError::InvalidVirtualAddress(
-                ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
-            ))
-        );
+                address
+            )) if address == ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size,
+        ));
     }
 
     #[test]
@@ -1930,18 +1929,18 @@ mod test {
         // [s1.sh_addr..s3.sh_addr + s3.sh_size] is where the readonly data is.
         // But for backwards compatibility (config.optimize_rodata=false)
         // [0..s1.sh_addr] is mappable too (and zeroed).
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START, s3.sh_addr + s3.sh_size),
-            Ok(owned_section.as_ptr() as u64),
-        );
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START, s3.sh_addr + s3.sh_size),
+            Ok(ptr) if ptr == owned_section.as_ptr() as u64,
+        ));
 
         // one byte past the ro section is not mappable
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
             Err(EbpfError::InvalidVirtualAddress(
-                ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
-            ))
-        );
+                address
+            )) if address == ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size,
+        ));
     }
 
     #[test]
@@ -1973,33 +1972,33 @@ mod test {
         // s1 starts at sh_addr=10 so [MM_PROGRAM_START..MM_PROGRAM_START + 10] is not mappable
 
         // the low bound of the initial gap is not mappable
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START, 1),
-            Err(EbpfError::InvalidVirtualAddress(ebpf::MM_PROGRAM_START))
-        );
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START, 1),
+            Err(EbpfError::InvalidVirtualAddress(address)) if address == ebpf::MM_PROGRAM_START,
+        ));
 
         // the hi bound of the initial gap is not mappable
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s1.sh_addr - 1, 1),
-            Err(EbpfError::InvalidVirtualAddress(ebpf::MM_PROGRAM_START + 9))
-        );
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s1.sh_addr - 1, 1),
+            Err(EbpfError::InvalidVirtualAddress(address)) if address == ebpf::MM_PROGRAM_START + 9,
+        ));
 
         // [s1.sh_addr..s3.sh_addr + s3.sh_size] is the valid ro memory area
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(
+        assert!(matches!(
+            ro_region.vm_to_host(
                 ebpf::MM_PROGRAM_START + s1.sh_addr,
                 s3.sh_addr + s3.sh_size - s1.sh_addr
             ),
-            Ok(owned_section.as_ptr() as u64),
-        );
+            Ok(ptr) if ptr == owned_section.as_ptr() as u64,
+        ));
 
         // one byte past the ro section is not mappable
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
             Err(EbpfError::InvalidVirtualAddress(
-                ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
-            ))
-        );
+                address
+            )) if address == ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size,
+        ));
     }
 
     #[test]
@@ -2073,18 +2072,18 @@ mod test {
 
         // s1 starts at sh_addr=0 so [0..s2.sh_addr + s2.sh_size] is the valid
         // ro memory area
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START, s2.sh_addr + s2.sh_size),
-            Ok(elf_bytes.as_ptr() as u64),
-        );
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START, s2.sh_addr + s2.sh_size),
+            Ok(ptr) if ptr == elf_bytes.as_ptr() as u64,
+        ));
 
         // one byte past the ro section is not mappable
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size, 1),
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size, 1),
             Err(EbpfError::InvalidVirtualAddress(
-                ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size
-            ))
-        );
+                address
+            )) if address == ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size,
+        ));
     }
 
     #[test]
@@ -2110,33 +2109,33 @@ mod test {
         // s2 starts at sh_addr=10 so [0..10] is not mappable
 
         // the low bound of the initial gap is not mappable
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START, 1),
-            Err(EbpfError::InvalidVirtualAddress(ebpf::MM_PROGRAM_START))
-        );
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START, 1),
+            Err(EbpfError::InvalidVirtualAddress(address)) if address == ebpf::MM_PROGRAM_START,
+        ));
 
         // the hi bound of the initial gap is not mappable
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s2.sh_addr - 1, 1),
-            Err(EbpfError::InvalidVirtualAddress(ebpf::MM_PROGRAM_START + 9))
-        );
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s2.sh_addr - 1, 1),
+            Err(EbpfError::InvalidVirtualAddress(address)) if address == ebpf::MM_PROGRAM_START + 9,
+        ));
 
         // [s2.sh_addr..s3.sh_addr + s3.sh_size] is the valid ro memory area
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(
+        assert!(matches!(
+            ro_region.vm_to_host(
                 ebpf::MM_PROGRAM_START + s2.sh_addr,
                 s3.sh_addr + s3.sh_size - s2.sh_addr
             ),
-            Ok(elf_bytes[s2.sh_addr as usize..].as_ptr() as u64),
-        );
+            Ok(ptr) if ptr == elf_bytes[s2.sh_addr as usize..].as_ptr() as u64,
+        ));
 
         // one byte past the ro section is not mappable
-        assert_eq!(
-            ro_region.vm_to_host::<UserError>(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+        assert!(matches!(
+            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
             Err(EbpfError::InvalidVirtualAddress(
-                ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
-            ))
-        );
+                address
+            )) if address == ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size,
+        ));
     }
 
     #[test]

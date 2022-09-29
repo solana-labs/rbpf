@@ -21,7 +21,7 @@ use crate::{
         },
         Elf64, ElfParserError,
     },
-    error::{EbpfError, UserDefinedError},
+    error::EbpfError,
 };
 
 /// The common trait implemented by LegacyParser and NewParser.
@@ -541,7 +541,7 @@ impl From<GoblinError> for ElfError {
     }
 }
 
-impl<E: UserDefinedError> From<GoblinError> for EbpfError<E> {
+impl From<GoblinError> for EbpfError {
     fn from(error: GoblinError) -> Self {
         ElfError::from(error).into()
     }

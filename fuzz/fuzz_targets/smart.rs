@@ -12,7 +12,6 @@ use solana_rbpf::{
     elf::{register_bpf_function, Executable},
     insn_builder::{Arch, IntoBytes},
     memory_region::MemoryRegion,
-    user_error::UserError,
     verifier::{RequisiteVerifier, Verifier},
     vm::{EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
@@ -42,7 +41,7 @@ fuzz_target!(|data: FuzzData| {
     let registry = SyscallRegistry::default();
     let mut bpf_functions = BTreeMap::new();
     register_bpf_function(&config, &mut bpf_functions, &registry, 0, "entrypoint").unwrap();
-    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
         prog.into_bytes(),
         config,
         SyscallRegistry::default(),
@@ -50,10 +49,8 @@ fuzz_target!(|data: FuzzData| {
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::<TautologyVerifier, UserError, TestInstructionMeter>::from_executable(
-            executable,
-        )
-        .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
+            .unwrap();
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
 

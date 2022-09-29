@@ -26,7 +26,6 @@ use solana_rbpf::{
     elf::Executable,
     fuzz::fuzz,
     syscalls::{BpfSyscallContext, BpfSyscallString, BpfSyscallU64},
-    user_error::UserError,
     verifier::RequisiteVerifier,
     vm::{
         Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
@@ -119,29 +118,28 @@ fn test_fuzz_execute() {
             syscall_registry
                 .register_syscall_by_name(
                     b"log",
-                    BpfSyscallString::init::<BpfSyscallContext, UserError>,
+                    BpfSyscallString::init::<BpfSyscallContext>,
                     BpfSyscallString::call,
                 )
                 .unwrap();
             syscall_registry
                 .register_syscall_by_name(
                     b"log_64",
-                    BpfSyscallU64::init::<BpfSyscallContext, UserError>,
+                    BpfSyscallU64::init::<BpfSyscallContext>,
                     BpfSyscallU64::call,
                 )
                 .unwrap();
-            if let Ok(executable) = Executable::<UserError, TestInstructionMeter>::from_elf(
+            if let Ok(executable) = Executable::<TestInstructionMeter>::from_elf(
                 bytes,
                 Config::default(),
                 syscall_registry,
             ) {
                 if let Ok(verified_executable) = VerifiedExecutable::<
                     RequisiteVerifier,
-                    UserError,
                     TestInstructionMeter,
                 >::from_executable(executable)
                 {
-                    let mut vm = EbpfVm::<RequisiteVerifier, UserError, TestInstructionMeter>::new(
+                    let mut vm = EbpfVm::<RequisiteVerifier, TestInstructionMeter>::new(
                         &verified_executable,
                         &mut [],
                         Vec::new(),

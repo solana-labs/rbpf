@@ -5,7 +5,7 @@ use crate::disassembler::disassemble_instruction;
 use crate::{
     ebpf,
     elf::{self, Executable},
-    error::{EbpfError, UserDefinedError},
+    error::EbpfError,
     vm::{DynamicAnalysis, InstructionMeter},
 };
 use rustc_demangle::demangle;
@@ -119,9 +119,9 @@ impl Default for CfgNode {
 }
 
 /// Result of the executable analysis
-pub struct Analysis<'a, E: UserDefinedError, I: InstructionMeter> {
+pub struct Analysis<'a, I: InstructionMeter> {
     /// The program which is analyzed
-    pub executable: &'a Executable<E, I>,
+    pub executable: &'a Executable<I>,
     /// Plain list of instructions as they occur in the executable
     pub instructions: Vec<ebpf::Insn>,
     /// Functions in the executable
@@ -140,9 +140,9 @@ pub struct Analysis<'a, E: UserDefinedError, I: InstructionMeter> {
     pub dfg_reverse_edges: BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
 }
 
-impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
+impl<'a, I: InstructionMeter> Analysis<'a, I> {
     /// Analyze an executable statically
-    pub fn from_executable(executable: &'a Executable<E, I>) -> Result<Self, EbpfError<E>> {
+    pub fn from_executable(executable: &'a Executable<I>) -> Result<Self, EbpfError> {
         let (_program_vm_addr, program) = executable.get_text_bytes();
         let functions = executable.get_function_symbols();
         debug_assert!(
@@ -484,10 +484,10 @@ impl<'a, E: UserDefinedError, I: InstructionMeter> Analysis<'a, E, I> {
                 .replace('>', "&gt;")
                 .replace('\"', "&quot;")
         }
-        fn emit_cfg_node<W: std::io::Write, E: UserDefinedError, I: InstructionMeter>(
+        fn emit_cfg_node<W: std::io::Write, I: InstructionMeter>(
             output: &mut W,
             dynamic_analysis: Option<&DynamicAnalysis>,
-            analysis: &Analysis<E, I>,
+            analysis: &Analysis<I>,
             function_range: std::ops::Range<usize>,
             alias_nodes: &mut HashSet<usize>,
             cfg_node_start: usize,

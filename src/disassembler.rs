@@ -9,14 +9,10 @@
 //! for example to disassemble the code into a human-readable format.
 
 use crate::ebpf;
-use crate::error::UserDefinedError;
 use crate::static_analysis::Analysis;
 use crate::vm::InstructionMeter;
 
-fn resolve_label<'a, E: UserDefinedError, I: InstructionMeter>(
-    analysis: &'a Analysis<E, I>,
-    pc: usize,
-) -> &'a str {
+fn resolve_label<'a, I: InstructionMeter>(analysis: &'a Analysis<I>, pc: usize) -> &'a str {
     analysis
         .cfg_nodes
         .get(&pc)
@@ -99,10 +95,10 @@ fn ldind_str(name: &str, insn: &ebpf::Insn) -> String {
 }
 
 #[inline]
-fn jmp_imm_str<E: UserDefinedError, I: InstructionMeter>(
+fn jmp_imm_str<I: InstructionMeter>(
     name: &str,
     insn: &ebpf::Insn,
-    analysis: &Analysis<E, I>,
+    analysis: &Analysis<I>,
 ) -> String {
     let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
     format!(
@@ -115,10 +111,10 @@ fn jmp_imm_str<E: UserDefinedError, I: InstructionMeter>(
 }
 
 #[inline]
-fn jmp_reg_str<E: UserDefinedError, I: InstructionMeter>(
+fn jmp_reg_str<I: InstructionMeter>(
     name: &str,
     insn: &ebpf::Insn,
-    analysis: &Analysis<E, I>,
+    analysis: &Analysis<I>,
 ) -> String {
     let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
     format!(
@@ -132,7 +128,7 @@ fn jmp_reg_str<E: UserDefinedError, I: InstructionMeter>(
 
 /// Disassemble an eBPF instruction
 #[rustfmt::skip]
-pub fn disassemble_instruction<E: UserDefinedError, I: InstructionMeter>(insn: &ebpf::Insn, analysis: &Analysis<E, I>) -> String {
+pub fn disassemble_instruction<I: InstructionMeter>(insn: &ebpf::Insn, analysis: &Analysis<I>) -> String {
     let name;
     let desc;
     match insn.opc {

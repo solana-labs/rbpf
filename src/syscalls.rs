@@ -24,7 +24,6 @@ use crate::{
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
     question_mark,
-    user_error::UserError,
     vm::SyscallObject,
 };
 use std::{slice::from_raw_parts, str::from_utf8};
@@ -33,7 +32,7 @@ use std::{slice::from_raw_parts, str::from_utf8};
 pub type BpfSyscallContext = u64;
 
 /// Return type of syscalls
-pub type Result = std::result::Result<u64, EbpfError<UserError>>;
+pub type Result = std::result::Result<u64, EbpfError>;
 
 // bpf_trace_printk()
 
@@ -53,11 +52,10 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// use solana_rbpf::syscalls::{BpfTracePrintf, Result};
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::vm::{Config, SyscallObject};
-/// use solana_rbpf::user_error::UserError;
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
+/// let mut memory_mapping = MemoryMapping::new(vec![], &config).unwrap();
 /// BpfTracePrintf::call(&mut BpfTracePrintf {}, 0, 0, 1, 15, 32, &mut memory_mapping, &mut result);
 /// assert_eq!(result.unwrap() as usize, "BpfTracePrintf: 0x1, 0xf, 0x20\n".len());
 /// ```
@@ -85,11 +83,11 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 pub struct BpfTracePrintf {}
 impl BpfTracePrintf {
     /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
+    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
         Box::new(Self {})
     }
 }
-impl SyscallObject<UserError> for BpfTracePrintf {
+impl SyscallObject for BpfTracePrintf {
     fn call(
         &mut self,
         _arg1: u64,
@@ -128,22 +126,21 @@ impl SyscallObject<UserError> for BpfTracePrintf {
 /// use solana_rbpf::syscalls::{BpfGatherBytes, Result};
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::vm::{Config, SyscallObject};
-/// use solana_rbpf::user_error::UserError;
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
+/// let mut memory_mapping = MemoryMapping::new(vec![], &config).unwrap();
 /// BpfGatherBytes::call(&mut BpfGatherBytes {}, 0x11, 0x22, 0x33, 0x44, 0x55, &mut memory_mapping, &mut result);
 /// assert_eq!(result.unwrap(), 0x1122334455);
 /// ```
 pub struct BpfGatherBytes {}
 impl BpfGatherBytes {
     /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
+    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
         Box::new(Self {})
     }
 }
-impl SyscallObject<UserError> for BpfGatherBytes {
+impl SyscallObject for BpfGatherBytes {
     fn call(
         &mut self,
         arg1: u64,
@@ -174,14 +171,13 @@ impl SyscallObject<UserError> for BpfGatherBytes {
 /// use solana_rbpf::syscalls::{BpfMemFrob, Result};
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
 /// use solana_rbpf::vm::{Config, SyscallObject};
-/// use solana_rbpf::user_error::UserError;
 ///
 /// let mut val = &mut [0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
 /// let val_va = 0x100000000;
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::new_writable(val, val_va)], &config).unwrap();
+/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_writable(val, val_va)], &config).unwrap();
 /// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert_eq!(val, &[0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
 /// BpfMemFrob::call(&mut BpfMemFrob {}, val_va, 8, 0, 0, 0, &mut memory_mapping, &mut result);
@@ -190,11 +186,11 @@ impl SyscallObject<UserError> for BpfGatherBytes {
 pub struct BpfMemFrob {}
 impl BpfMemFrob {
     /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
+    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
         Box::new(Self {})
     }
 }
-impl SyscallObject<UserError> for BpfMemFrob {
+impl SyscallObject for BpfMemFrob {
     fn call(
         &mut self,
         vm_addr: u64,
@@ -229,26 +225,25 @@ impl SyscallObject<UserError> for BpfMemFrob {
 /// let bar = "This is another sting.";
 /// let va_foo = 0x100000000;
 /// let va_bar = 0x200000000;
-/// use solana_rbpf::user_error::UserError;
 ///
 /// let mut result: Result = Ok(0);
 /// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo)], &config).unwrap();
+/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo)], &config).unwrap();
 /// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_foo, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert!(result.unwrap() == 0);
 /// let mut result: Result = Ok(0);
-/// let mut memory_mapping = MemoryMapping::new::<UserError>(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo), MemoryRegion::new_readonly(bar.as_bytes(), va_bar)], &config).unwrap();
+/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo), MemoryRegion::new_readonly(bar.as_bytes(), va_bar)], &config).unwrap();
 /// BpfStrCmp::call(&mut BpfStrCmp {}, va_foo, va_bar, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert!(result.unwrap() != 0);
 /// ```
 pub struct BpfStrCmp {}
 impl BpfStrCmp {
     /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
+    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
         Box::new(Self {})
     }
 }
-impl SyscallObject<UserError> for BpfStrCmp {
+impl SyscallObject for BpfStrCmp {
     fn call(
         &mut self,
         arg1: u64,
@@ -290,11 +285,11 @@ impl SyscallObject<UserError> for BpfStrCmp {
 pub struct BpfSyscallString {}
 impl BpfSyscallString {
     /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
+    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
         Box::new(Self {})
     }
 }
-impl SyscallObject<UserError> for BpfSyscallString {
+impl SyscallObject for BpfSyscallString {
     fn call(
         &mut self,
         vm_addr: u64,
@@ -326,11 +321,11 @@ impl SyscallObject<UserError> for BpfSyscallString {
 pub struct BpfSyscallU64 {}
 impl BpfSyscallU64 {
     /// new
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
+    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
         Box::new(Self {})
     }
 }
-impl SyscallObject<UserError> for BpfSyscallU64 {
+impl SyscallObject for BpfSyscallU64 {
     fn call(
         &mut self,
         arg1: u64,
@@ -356,11 +351,11 @@ pub struct SyscallWithContext {
 }
 impl SyscallWithContext {
     /// new
-    pub fn init<C, E>(context: BpfSyscallContext) -> Box<dyn SyscallObject<UserError>> {
+    pub fn init<C>(context: BpfSyscallContext) -> Box<dyn SyscallObject> {
         Box::new(Self { context })
     }
 }
-impl SyscallObject<UserError> for SyscallWithContext {
+impl SyscallObject for SyscallWithContext {
     fn call(
         &mut self,
         arg1: u64,

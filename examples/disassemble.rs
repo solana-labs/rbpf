@@ -8,7 +8,6 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     elf::{register_bpf_function, Executable},
     static_analysis::Analysis,
-    user_error::UserError,
     vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
@@ -42,7 +41,7 @@ fn main() {
         "entrypoint",
     )
     .unwrap();
-    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
         &program,
         config,
         syscall_registry,

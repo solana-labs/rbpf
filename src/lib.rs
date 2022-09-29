@@ -43,7 +43,6 @@ mod jit;
 pub mod memory_region;
 pub mod static_analysis;
 pub mod syscalls;
-pub mod user_error;
 pub mod verifier;
 pub mod vm;
 #[cfg(feature = "jit")]

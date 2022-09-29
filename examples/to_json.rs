@@ -15,7 +15,6 @@ use solana_rbpf::{
     disassembler::disassemble_instruction,
     elf::Executable,
     static_analysis::Analysis,
-    user_error::UserError,
     vm::{Config, SyscallRegistry, TestInstructionMeter},
 };
 use std::collections::BTreeMap;
@@ -29,7 +28,7 @@ use std::collections::BTreeMap;
 // * Print integers as integers, and not as strings containing their hexadecimal representation
 //   (just replace the relevant `format!()` calls by the commented values.
 fn to_json(program: &[u8]) -> String {
-    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
         &program,
         Config::default(),
         SyscallRegistry::default(),

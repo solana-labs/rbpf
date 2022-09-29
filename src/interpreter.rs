@@ -15,9 +15,8 @@
 use crate::{
     ebpf,
     ebpf::STACK_PTR_REG,
-    error::{EbpfError, UserDefinedError},
+    error::EbpfError,
     memory_region::AccessType,
-    user_error::UserError,
     verifier::Verifier,
     vm::{EbpfVm, InstructionMeter, ProgramResult, SyscallFunction},
 };
@@ -26,12 +25,11 @@ use crate::{
 #[cfg_attr(feature = "debugger", macro_export)]
 macro_rules! translate_memory_access {
     ($self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty) => {
-        match $self
-            .vm
-            .program_environment
-            .memory_mapping
-            .map::<UserError>($access_type, $vm_addr, std::mem::size_of::<$T>() as u64)
-        {
+        match $self.vm.program_environment.memory_mapping.map(
+            $access_type,
+            $vm_addr,
+            std::mem::size_of::<$T>() as u64,
+        ) {
             Ok(host_addr) => host_addr as *mut $T,
             Err(EbpfError::AccessViolation(_pc, access_type, vm_addr, len, regions)) => {
                 return Err(EbpfError::AccessViolation(
@@ -66,8 +64,8 @@ pub enum DebugState {
 }
 
 /// State of an interpreter
-pub struct Interpreter<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> {
-    pub(crate) vm: &'a mut EbpfVm<'b, V, E, I>,
+pub struct Interpreter<'a, 'b, V: Verifier, I: InstructionMeter> {
+    pub(crate) vm: &'a mut EbpfVm<'b, V, I>,
 
     pub(crate) instruction_meter: &'a mut I,
 
@@ -86,12 +84,12 @@ pub struct Interpreter<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionM
     pub(crate) breakpoints: Vec<u64>,
 }
 
-impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<'a, 'b, V, E, I> {
+impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
     /// Creates a new interpreter state
     pub fn new(
-        vm: &'a mut EbpfVm<'b, V, E, I>,
+        vm: &'a mut EbpfVm<'b, V, I>,
         instruction_meter: &'a mut I,
-    ) -> Result<Self, EbpfError<E>> {
+    ) -> Result<Self, EbpfError> {
         let executable = vm.verified_executable.get_executable();
         let initial_insn_count = if executable.get_config().enable_instruction_meter {
             instruction_meter.get_remaining()
@@ -128,7 +126,7 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
         })
     }
 
-    fn check_pc(&self, current_pc: usize, target_pc: usize) -> Result<usize, EbpfError<E>> {
+    fn check_pc(&self, current_pc: usize, target_pc: usize) -> Result<usize, EbpfError> {
         let offset =
             target_pc
                 .checked_mul(ebpf::INSN_SIZE)
@@ -160,7 +158,7 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
 
     /// Advances the interpreter state by one instruction
     #[rustfmt::skip]
-    pub fn step(&mut self) -> Result<Option<u64>, EbpfError<E>> {
+    pub fn step(&mut self) -> Result<Option<u64>, EbpfError> {
         let executable = self.vm.verified_executable.get_executable();
         let config = &executable.get_config();
 
@@ -446,8 +444,8 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
                             self.instruction_meter.consume(self.due_insn_count);
                         }
                         self.due_insn_count = 0;
-                        let mut result: ProgramResult<E> = Ok(0);
-                        (unsafe { std::mem::transmute::<u64, SyscallFunction::<E, *mut u8>>(syscall.function) })(
+                        let mut result: ProgramResult = Ok(0);
+                        (unsafe { std::mem::transmute::<u64, SyscallFunction::<*mut u8>>(syscall.function) })(
                             self.vm.program_environment.syscall_context_objects[syscall.context_object_slot],
                             self.reg[1],
                             self.reg[2],
@@ -481,7 +479,7 @@ impl<'a, 'b, V: Verifier, E: UserDefinedError, I: InstructionMeter> Interpreter<
             }
 
             ebpf::EXIT       => {
-                match self.vm.stack.pop::<E>() {
+                match self.vm.stack.pop() {
                     Ok((saved_reg, frame_ptr, ptr)) => {
                         // Return from BPF to BPF call
                         self.reg[ebpf::FIRST_SCRATCH_REG

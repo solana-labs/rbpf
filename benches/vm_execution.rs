@@ -13,7 +13,6 @@ use solana_rbpf::{
     ebpf,
     elf::Executable,
     memory_region::MemoryRegion,
-    user_error::UserError,
     vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 use std::{fs::File, io::Read};
@@ -25,17 +24,15 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = Executable::<UserError, TestInstructionMeter>::from_elf(
+    let executable = Executable::<TestInstructionMeter>::from_elf(
         &elf,
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::<TautologyVerifier, UserError, TestInstructionMeter>::from_executable(
-            executable,
-        )
-        .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
+            .unwrap();
     let mut vm = EbpfVm::new(&verified_executable, &mut [], Vec::new()).unwrap();
     bencher.iter(|| {
         vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 29 })
@@ -49,17 +46,15 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = Executable::<UserError, TestInstructionMeter>::from_elf(
+    let executable = Executable::<TestInstructionMeter>::from_elf(
         &elf,
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::<TautologyVerifier, UserError, TestInstructionMeter>::from_executable(
-            executable,
-        )
-        .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
+            .unwrap();
     verified_executable.jit_compile().unwrap();
     let mut vm = EbpfVm::new(&verified_executable, &mut [], Vec::new()).unwrap();
     bencher.iter(|| {
@@ -76,17 +71,15 @@ fn bench_jit_vs_interpreter(
     instruction_meter: u64,
     mem: &mut [u8],
 ) {
-    let executable = solana_rbpf::assembler::assemble::<UserError, TestInstructionMeter>(
+    let executable = solana_rbpf::assembler::assemble::<TestInstructionMeter>(
         assembly,
         config,
         SyscallRegistry::default(),
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::<TautologyVerifier, UserError, TestInstructionMeter>::from_executable(
-            executable,
-        )
-        .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
+            .unwrap();
     verified_executable.jit_compile().unwrap();
     let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
     let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();

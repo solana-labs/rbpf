@@ -7,7 +7,6 @@ use solana_rbpf::{
     memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
     syscalls::Result,
-    user_error::UserError,
     verifier::RequisiteVerifier,
     vm::{
         Config, DynamicAnalysis, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter,
@@ -20,7 +19,7 @@ use std::{fs::File, io::Read, path::Path};
 struct MockSyscall {
     name: String,
 }
-impl SyscallObject<UserError> for MockSyscall {
+impl SyscallObject for MockSyscall {
     fn call(
         &mut self,
         arg1: u64,
@@ -131,7 +130,7 @@ fn main() {
             let mut file = File::open(Path::new(asm_file_name)).unwrap();
             let mut source = Vec::new();
             file.read_to_end(&mut source).unwrap();
-            assemble::<UserError, TestInstructionMeter>(
+            assemble::<TestInstructionMeter>(
                 std::str::from_utf8(source.as_slice()).unwrap(),
                 config,
                 syscall_registry,
@@ -141,17 +140,15 @@ fn main() {
             let mut file = File::open(Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            Executable::<UserError, TestInstructionMeter>::from_elf(&elf, config, syscall_registry)
+            Executable::<TestInstructionMeter>::from_elf(&elf, config, syscall_registry)
                 .map_err(|err| format!("Executable constructor failed: {:?}", err))
         }
     }
     .unwrap();
 
     let mut verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, UserError, TestInstructionMeter>::from_executable(
-            executable,
-        )
-        .unwrap();
+        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+            .unwrap();
 
     let mut mem = match matches.value_of("input").unwrap().parse::<usize>() {
         Ok(allocate) => vec![0u8; allocate],

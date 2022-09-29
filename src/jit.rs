@@ -27,9 +27,8 @@ use crate::{
     elf::Executable,
     vm::{Config, ProgramResult, InstructionMeter, Tracer, ProgramEnvironment},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, FRAME_PTR_REG, MM_STACK_START, STACK_PTR_REG},
-    error::{UserDefinedError, EbpfError},
+    error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
-    user_error::UserError,
     x86::*,
 };
 
@@ -78,7 +77,7 @@ fn round_to_page_size(value: usize, page_size: usize) -> usize {
 
 #[allow(unused_variables)]
 impl JitProgramSections {
-    fn new<E: UserDefinedError>(pc: usize, code_size: usize) -> Result<Self, EbpfError<E>> {
+    fn new(pc: usize, code_size: usize) -> Result<Self, EbpfError> {
         #[cfg(target_os = "windows")]
         {
             Ok(Self {
@@ -102,7 +101,7 @@ impl JitProgramSections {
         }
     }
 
-    fn seal<E: UserDefinedError>(&mut self, text_section_usage: usize) -> Result<(), EbpfError<E>> {
+    fn seal(&mut self, text_section_usage: usize) -> Result<(), EbpfError> {
         if self.page_size > 0 {
             let raw = self.pc_section.as_ptr() as *mut u8;
             let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
@@ -143,30 +142,30 @@ impl Drop for JitProgramSections {
 }
 
 /// eBPF JIT-compiled program
-pub struct JitProgram<E: UserDefinedError, I: InstructionMeter> {
+pub struct JitProgram<I: InstructionMeter> {
     /// Holds and manages the protected memory
     sections: JitProgramSections,
     /// Call this with the ProgramEnvironment to execute the compiled code
-    pub main: unsafe fn(&mut ProgramResult<E>, u64, &ProgramEnvironment, &mut I) -> i64,
+    pub main: unsafe fn(&mut ProgramResult, u64, &ProgramEnvironment, &mut I) -> i64,
 }
 
-impl<E: UserDefinedError, I: InstructionMeter> Debug for JitProgram<E, I> {
+impl<I: InstructionMeter> Debug for JitProgram<I> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.write_fmt(format_args!("JitProgram {:?}", &self.main as *const _))
     }
 }
 
-impl<E: UserDefinedError, I: InstructionMeter> PartialEq for JitProgram<E, I> {
+impl<I: InstructionMeter> PartialEq for JitProgram<I> {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self.main as *const u8, other.main as *const u8)
     }
 }
 
-impl<E: UserDefinedError, I: InstructionMeter> JitProgram<E, I> {
-    pub fn new(executable: &Executable<E, I>) -> Result<Self, EbpfError<E>> {
+impl<I: InstructionMeter> JitProgram<I> {
+    pub fn new(executable: &Executable<I>) -> Result<Self, EbpfError> {
         let program = executable.get_text_bytes().1;
-        let mut jit = JitCompiler::new::<E>(program, executable.get_config())?;
-        jit.compile::<E, I>(executable)?;
+        let mut jit = JitCompiler::new(program, executable.get_config())?;
+        jit.compile::<I>(executable)?;
         let main = unsafe { mem::transmute(jit.result.text_section.as_ptr()) };
         Ok(Self {
             sections: jit.result,
@@ -839,15 +838,15 @@ fn emit_muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: Option<
     }
 }
 
-fn emit_set_exception_kind<E: UserDefinedError>(jit: &mut JitCompiler, err: EbpfError<E>) {
-    let err = Result::<u64, EbpfError<E>>::Err(err);
+fn emit_set_exception_kind(jit: &mut JitCompiler, err: EbpfError) {
+    let err = Result::<u64, EbpfError>::Err(err);
     let err_kind = unsafe { *(&err as *const _ as *const u64).add(jit.err_kind_offset) };
     emit_ins(jit, X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::OptRetValPtr))));
     emit_ins(jit, X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * jit.err_kind_offset) as i32), err_kind as i64));
 }
 
-fn emit_result_is_err<E: UserDefinedError>(jit: &mut JitCompiler, source: u8, destination: u8, indirect: X86IndirectAccess) {
-    let ok = Result::<u64, EbpfError<E>>::Ok(0);
+fn emit_result_is_err(jit: &mut JitCompiler, source: u8, destination: u8, indirect: X86IndirectAccess) {
+    let ok = Result::<u64, EbpfError>::Ok(0);
     let err_kind = unsafe { *(&ok as *const _ as *const u64).add(jit.err_kind_offset) };
     emit_ins(jit, X86Instruction::load(OperandSize::S64, source, destination, indirect));
     emit_ins(jit, X86Instruction::cmp_immediate(OperandSize::S64, destination, err_kind as i64, Some(X86IndirectAccess::Offset(0))));
@@ -910,7 +909,7 @@ impl std::fmt::Debug for JitCompiler {
 
 impl JitCompiler {
     // Arguments are unused on windows
-    fn new<E: UserDefinedError>(program: &[u8], config: &Config) -> Result<Self, EbpfError<E>> {
+    fn new(program: &[u8], config: &Config) -> Result<Self, EbpfError> {
         #[cfg(target_os = "windows")]
         {
             let _ = program;
@@ -953,7 +952,7 @@ impl JitCompiler {
                 )
             } else { (0, 0) };
         
-        let ok = Result::<u64, EbpfError<E>>::Ok(0);
+        let ok = Result::<u64, EbpfError>::Ok(0);
         let is_err = unsafe { *(&ok as *const _ as *const u64) };
 
         Ok(Self {
@@ -974,16 +973,16 @@ impl JitCompiler {
         })
     }
 
-    fn compile<E: UserDefinedError, I: InstructionMeter>(&mut self,
-            executable: &Executable<E, I>) -> Result<(), EbpfError<E>> {
+    fn compile<I: InstructionMeter>(&mut self,
+            executable: &Executable<I>) -> Result<(), EbpfError> {
         let text_section_base = self.result.text_section.as_ptr();
         let (program_vm_addr, program) = executable.get_text_bytes();
         self.program_vm_addr = program_vm_addr;
 
-        self.generate_prologue::<E, I>(executable)?;
+        self.generate_prologue::<I>(executable)?;
 
         // Have these in front so that the linear search of ANCHOR_TRANSLATE_PC does not terminate early
-        self.generate_subroutines::<E, I>()?;
+        self.generate_subroutines::<I>()?;
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
             if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
@@ -1293,7 +1292,7 @@ impl JitCompiler {
         }        
         emit_validate_and_profile_instruction_count(self, true, Some(self.pc + 2));
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
-        emit_set_exception_kind::<E>(self, EbpfError::ExecutionOverrun(0));
+        emit_set_exception_kind(self, EbpfError::ExecutionOverrun(0));
         emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
         self.resolve_jumps();
@@ -1306,7 +1305,7 @@ impl JitCompiler {
         Ok(())
     }
 
-    fn generate_prologue<E: UserDefinedError, I: InstructionMeter>(&mut self, executable: &Executable<E, I>) -> Result<(), EbpfError<E>> {
+    fn generate_prologue<I: InstructionMeter>(&mut self, executable: &Executable<I>) -> Result<(), EbpfError> {
         // Place the environment on the stack according to EnvironmentStackSlot
 
         // Save registers
@@ -1379,7 +1378,7 @@ impl JitCompiler {
         Ok(())
     }
 
-    fn generate_subroutines<E: UserDefinedError, I: InstructionMeter>(&mut self) -> Result<(), EbpfError<E>> {
+    fn generate_subroutines<I: InstructionMeter>(&mut self) -> Result<(), EbpfError> {
         // Epilogue
         self.set_anchor(ANCHOR_EPILOGUE);
         // Print stop watch value
@@ -1431,7 +1430,7 @@ impl JitCompiler {
 
         // Handler for EbpfError::ExceededMaxInstructions
         self.set_anchor(ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS);
-        emit_set_exception_kind::<E>(self, EbpfError::ExceededMaxInstructions(0, 0));
+        emit_set_exception_kind(self, EbpfError::ExceededMaxInstructions(0, 0));
         emit_ins(self, X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], R11)); // R11 = instruction_meter;
         emit_profile_instruction_count_finalize(self, true);
         emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
@@ -1447,24 +1446,24 @@ impl JitCompiler {
 
         // Handler for EbpfError::CallDepthExceeded
         self.set_anchor(ANCHOR_CALL_DEPTH_EXCEEDED);
-        emit_set_exception_kind::<E>(self, EbpfError::CallDepthExceeded(0, 0));
+        emit_set_exception_kind(self, EbpfError::CallDepthExceeded(0, 0));
         emit_ins(self, X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (self.err_kind_offset + 2)) as i32), self.config.max_call_depth as i64)); // depth = jit.config.max_call_depth;
         emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
         // Handler for EbpfError::CallOutsideTextSegment
         self.set_anchor(ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT);
-        emit_set_exception_kind::<E>(self, EbpfError::CallOutsideTextSegment(0, 0));
+        emit_set_exception_kind(self, EbpfError::CallOutsideTextSegment(0, 0));
         emit_ins(self, X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (self.err_kind_offset + 2)) as i32))); // target_address = RAX;
         emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
         // Handler for EbpfError::DivideByZero
         self.set_anchor(ANCHOR_DIV_BY_ZERO);
-        emit_set_exception_kind::<E>(self, EbpfError::DivideByZero(0));
+        emit_set_exception_kind(self, EbpfError::DivideByZero(0));
         emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
         // Handler for EbpfError::DivideOverflow
         self.set_anchor(ANCHOR_DIV_OVERFLOW);
-        emit_set_exception_kind::<E>(self, EbpfError::DivideOverflow(0));
+        emit_set_exception_kind(self, EbpfError::DivideOverflow(0));
         emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
         // Handler for EbpfError::UnsupportedInstruction
@@ -1478,7 +1477,7 @@ impl JitCompiler {
         if self.config.enable_instruction_tracing {
             emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRACE, 5)));
         }
-        emit_set_exception_kind::<E>(self, EbpfError::UnsupportedInstruction(0));
+        emit_set_exception_kind(self, EbpfError::UnsupportedInstruction(0));
         emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
         // Quit gracefully
@@ -1520,7 +1519,7 @@ impl JitCompiler {
         }
 
         // Test if result indicates that an error occured
-        emit_result_is_err::<E>(self, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr)));
+        emit_result_is_err(self, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr)));
         emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 6)));
         // Store Ok value in result register
         emit_ins(self, X86Instruction::pop(R11));
@@ -1632,7 +1631,7 @@ impl JitCompiler {
             self.set_anchor(ANCHOR_TRANSLATE_MEMORY_ADDRESS + target_offset);
             emit_ins(self, X86Instruction::push(R11, None));
             // call MemoryMapping::map() storing the result in EnvironmentStackSlot::OptRetValPtr
-            emit_rust_call(self, Value::Constant64(MemoryMapping::map::<UserError> as *const u8 as i64, false), &[
+            emit_rust_call(self, Value::Constant64(MemoryMapping::map as *const u8 as i64, false), &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
@@ -1641,7 +1640,7 @@ impl JitCompiler {
             ], None);
 
             // Throw error if the result indicates one
-            emit_result_is_err::<E>(self, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr)));
+            emit_result_is_err(self, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr)));
             emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION, 6)));
 
             // unwrap() the host addr into R11
@@ -1710,7 +1709,7 @@ mod tests {
     use std::collections::BTreeMap;
     use byteorder::{LittleEndian, ByteOrder};
 
-    fn create_mockup_executable(program: &[u8]) -> Executable::<UserError, TestInstructionMeter> {
+    fn create_mockup_executable(program: &[u8]) -> Executable::<TestInstructionMeter> {
         let config = Config {
             noop_instruction_rate: 0,
             ..Config::default()
@@ -1719,7 +1718,7 @@ mod tests {
         syscall_registry
             .register_syscall_by_hash(
                 0xFFFFFFFF,
-                syscalls::BpfGatherBytes::init::<syscalls::BpfSyscallContext, UserError>,
+                syscalls::BpfGatherBytes::init::<syscalls::BpfSyscallContext>,
                 syscalls::BpfGatherBytes::call,
             )
             .unwrap();
@@ -1733,7 +1732,7 @@ mod tests {
         )
         .unwrap();
         bpf_functions.insert(0xFFFFFFFF, (8, "foo".to_string()));
-        Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+        Executable::<TestInstructionMeter>::from_text_bytes(
             program,
             config,
             syscall_registry,
@@ -1750,7 +1749,7 @@ mod tests {
         let empty_program_machine_code_length = {
             prog[0] = ebpf::EXIT;
             let mut executable = create_mockup_executable(&[]);
-            Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable).unwrap();
+            Executable::<TestInstructionMeter>::jit_compile(&mut executable).unwrap();
             executable.get_compiled_program().unwrap().machine_code_length()
         };
         assert!(empty_program_machine_code_length <= MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH);
@@ -1768,7 +1767,7 @@ mod tests {
                 });
             }
             let mut executable = create_mockup_executable(&prog);
-            let result = Executable::<UserError, TestInstructionMeter>::jit_compile(&mut executable);
+            let result = Executable::<TestInstructionMeter>::jit_compile(&mut executable);
             if result.is_err() {
                 assert!(matches!(result.unwrap_err(), EbpfError::UnsupportedInstruction(_)));
                 continue;

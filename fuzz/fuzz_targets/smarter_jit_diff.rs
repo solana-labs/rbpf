@@ -8,11 +8,10 @@ use semantic_aware::*;
 use solana_rbpf::{
     ebpf,
     elf::{register_bpf_function, Executable},
-    error::{EbpfError, UserDefinedError},
+    error::EbpfError,
     insn_builder::IntoBytes,
     memory_region::MemoryRegion,
     static_analysis::Analysis,
-    user_error::UserError,
     verifier::{RequisiteVerifier, Verifier},
     vm::{EbpfVm, InstructionMeter, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
 };
@@ -30,9 +29,7 @@ struct FuzzData {
     mem: Vec<u8>,
 }
 
-fn dump_insns<V: Verifier, E: UserDefinedError, I: InstructionMeter>(
-    verified_executable: &VerifiedExecutable<V, E, I>,
-) {
+fn dump_insns<V: Verifier, I: InstructionMeter>(verified_executable: &VerifiedExecutable<V, I>) {
     let analysis = Analysis::from_executable(verified_executable.get_executable()).unwrap();
     eprint!("Using the following disassembly");
     analysis.disassemble(&mut std::io::stderr().lock()).unwrap();
@@ -50,7 +47,7 @@ fuzz_target!(|data: FuzzData| {
     let registry = SyscallRegistry::default();
     let mut bpf_functions = BTreeMap::new();
     register_bpf_function(&config, &mut bpf_functions, &registry, 0, "entrypoint").unwrap();
-    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
         prog.into_bytes(),
         config,
         SyscallRegistry::default(),
@@ -58,10 +55,8 @@ fuzz_target!(|data: FuzzData| {
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::<TautologyVerifier, UserError, TestInstructionMeter>::from_executable(
-            executable,
-        )
-        .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
+            .unwrap();
     if verified_executable.jit_compile().is_ok() {
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
         let mut interp_vm =
@@ -73,13 +68,10 @@ fuzz_target!(|data: FuzzData| {
         let interp_res = interp_vm.execute_program_interpreted(&mut interp_meter);
         let mut jit_meter = TestInstructionMeter { remaining: 1 << 16 };
         let jit_res = jit_vm.execute_program_jit(&mut jit_meter);
-        if interp_res != jit_res {
+        if format!("{:?}", interp_res) != format!("{:?}", jit_res) {
             // spot check: there's a meaningless bug where ExceededMaxInstructions is different due to jump calculations
-            if let Err(EbpfError::<UserError>::ExceededMaxInstructions(interp_count, _)) =
-                interp_res
-            {
-                if let Err(EbpfError::<UserError>::ExceededMaxInstructions(jit_count, _)) = jit_res
-                {
+            if let Err(EbpfError::ExceededMaxInstructions(interp_count, _)) = interp_res {
+                if let Err(EbpfError::ExceededMaxInstructions(jit_count, _)) = jit_res {
                     if interp_count != jit_count {
                         return;
                     }

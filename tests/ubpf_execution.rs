@@ -22,7 +22,6 @@ use solana_rbpf::{
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     syscalls::{self, BpfSyscallContext, Result},
-    user_error::UserError,
     verifier::RequisiteVerifier,
     vm::{
         Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
@@ -44,12 +43,11 @@ macro_rules! test_interpreter_and_jit {
         #[allow(unused_mut)]
         let mut check_closure = $check;
         #[allow(unused_mut)]
-        let mut verified_executable = VerifiedExecutable::<
-            RequisiteVerifier,
-            UserError,
-            TestInstructionMeter,
-        >::from_executable($executable)
-        .unwrap();
+        let mut verified_executable =
+            VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(
+                $executable,
+            )
+            .unwrap();
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
@@ -144,7 +142,7 @@ macro_rules! test_interpreter_and_jit_elf {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_init; $syscall_function);)*
-            let mut executable = Executable::<UserError, TestInstructionMeter>::from_elf(&elf, $config, syscall_registry).unwrap();
+            let mut executable = Executable::<TestInstructionMeter>::from_elf(&elf, $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
         }
     };
@@ -2342,8 +2340,8 @@ fn test_stack2() {
         exit",
         [],
         (
-            b"BpfMemFrob" => syscalls::BpfMemFrob::init::<BpfSyscallContext, UserError>; syscalls::BpfMemFrob::call,
-            b"BpfGatherBytes" => syscalls::BpfGatherBytes::init::<BpfSyscallContext, UserError>; syscalls::BpfGatherBytes::call,
+            b"BpfMemFrob" => syscalls::BpfMemFrob::init::<BpfSyscallContext>; syscalls::BpfMemFrob::call,
+            b"BpfGatherBytes" => syscalls::BpfGatherBytes::init::<BpfSyscallContext>; syscalls::BpfGatherBytes::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0x01020304 } },
@@ -2385,7 +2383,7 @@ fn test_string_stack() {
         exit",
         [],
         (
-            b"BpfStrCmp" => syscalls::BpfStrCmp::init::<BpfSyscallContext, UserError>; syscalls::BpfStrCmp::call,
+            b"BpfStrCmp" => syscalls::BpfStrCmp::init::<BpfSyscallContext>; syscalls::BpfStrCmp::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0x0 } },
@@ -2696,7 +2694,7 @@ fn test_err_mem_access_out_of_bound() {
         )
         .unwrap();
         #[allow(unused_mut)]
-        let mut executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+        let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(
             &prog,
             config,
             syscall_registry,
@@ -2728,7 +2726,7 @@ fn test_relative_call() {
         "tests/elfs/relative_call.so",
         [1],
         (
-            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 2 } },
@@ -2742,7 +2740,7 @@ fn test_bpf_to_bpf_scratch_registers() {
         "tests/elfs/scratch_registers.so",
         [1],
         (
-            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
+            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext>; syscalls::BpfSyscallU64::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 112 } },
@@ -2774,7 +2772,7 @@ fn test_syscall_parameter_on_stack() {
         exit",
         [],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
@@ -2969,7 +2967,7 @@ fn test_bpf_to_bpf_depth() {
             config,
             [i as u8],
             (
-                b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+                b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
             ),
             0,
             { |_vm, res: Result| { res.unwrap() == 0 } },
@@ -2986,7 +2984,7 @@ fn test_err_bpf_to_bpf_too_deep() {
         config,
         [config.max_call_depth as u8],
         (
-            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
         ),
         0,
         {
@@ -3062,7 +3060,7 @@ fn test_err_syscall_string() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
         ),
         0,
         {
@@ -3087,7 +3085,7 @@ fn test_syscall_string() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
@@ -3109,7 +3107,7 @@ fn test_syscall() {
         exit",
         [],
         (
-            b"BpfSyscallU64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
+            b"BpfSyscallU64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext>; syscalls::BpfSyscallU64::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
@@ -3130,7 +3128,7 @@ fn test_call_gather_bytes() {
         exit",
         [],
         (
-            b"BpfGatherBytes" => syscalls::BpfGatherBytes::init::<BpfSyscallContext, UserError>; syscalls::BpfGatherBytes::call,
+            b"BpfGatherBytes" => syscalls::BpfGatherBytes::init::<BpfSyscallContext>; syscalls::BpfGatherBytes::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0x0102030405 } },
@@ -3153,7 +3151,7 @@ fn test_call_memfrob() {
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, //
         ],
         (
-            b"BpfMemFrob" => syscalls::BpfMemFrob::init::<BpfSyscallContext, UserError>; syscalls::BpfMemFrob::call,
+            b"BpfMemFrob" => syscalls::BpfMemFrob::init::<BpfSyscallContext>; syscalls::BpfMemFrob::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0x102292e2f2c0708 } },
@@ -3175,10 +3173,10 @@ fn test_syscall_with_context() {
         exit",
         [],
         (
-            b"SyscallWithContext" => syscalls::SyscallWithContext::init::< syscalls::BpfSyscallContext, UserError>; syscalls::SyscallWithContext::call
+            b"SyscallWithContext" => syscalls::SyscallWithContext::init::< syscalls::BpfSyscallContext>; syscalls::SyscallWithContext::call
         ),
         42,
-        { |vm: &EbpfVm<RequisiteVerifier, UserError, TestInstructionMeter>, res: Result| {
+        { |vm: &EbpfVm<RequisiteVerifier, TestInstructionMeter>, res: Result| {
             let syscall_context_object = unsafe { &*(vm.get_syscall_context_object(syscalls::SyscallWithContext::call as usize).unwrap() as *const syscalls::SyscallWithContext) };
             assert_eq!(syscall_context_object.context, 84);
             res.unwrap() == 0
@@ -3190,11 +3188,11 @@ fn test_syscall_with_context() {
 type UserContext = u64;
 pub struct NestedVmSyscall {}
 impl NestedVmSyscall {
-    pub fn init<C, E>(_unused: C) -> Box<dyn SyscallObject<UserError>> {
+    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
         Box::new(Self {})
     }
 }
-impl SyscallObject<UserError> for NestedVmSyscall {
+impl SyscallObject for NestedVmSyscall {
     fn call(
         &mut self,
         depth: u64,
@@ -3211,12 +3209,12 @@ impl SyscallObject<UserError> for NestedVmSyscall {
             syscall_registry
                 .register_syscall_by_name(
                     b"NestedVmSyscall",
-                    NestedVmSyscall::init::<UserContext, UserError>,
+                    NestedVmSyscall::init::<UserContext>,
                     NestedVmSyscall::call,
                 )
                 .unwrap();
             let mem = [depth as u8 - 1, throw as u8];
-            let mut executable = assemble::<UserError, TestInstructionMeter>(
+            let mut executable = assemble::<TestInstructionMeter>(
                 "
                 ldxb r2, [r1+1]
                 ldxb r1, [r1]
@@ -3252,7 +3250,7 @@ impl SyscallObject<UserError> for NestedVmSyscall {
 fn test_nested_vm_syscall() {
     let config = Config::default();
     let mut nested_vm_syscall = NestedVmSyscall {};
-    let mut memory_mapping = MemoryMapping::new::<UserError>(vec![], &config).unwrap();
+    let mut memory_mapping = MemoryMapping::new(vec![], &config).unwrap();
     let mut result = Ok(0);
     nested_vm_syscall.call(1, 0, 0, 0, 0, &mut memory_mapping, &mut result);
     assert!(result.unwrap() == 42);
@@ -3272,8 +3270,8 @@ fn test_load_elf() {
         "tests/elfs/noop.so",
         [],
         (
-            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
-            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
+            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
+            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext>; syscalls::BpfSyscallU64::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
@@ -3287,7 +3285,7 @@ fn test_load_elf_empty_noro() {
         "tests/elfs/noro.so",
         [],
         (
-            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
+            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext>; syscalls::BpfSyscallU64::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
@@ -3301,7 +3299,7 @@ fn test_load_elf_empty_rodata() {
         "tests/elfs/empty_rodata.so",
         [],
         (
-            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call,
+            b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext>; syscalls::BpfSyscallU64::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
@@ -3353,13 +3351,12 @@ fn test_custom_entrypoint() {
         ..Config::default()
     };
     let mut syscall_registry = SyscallRegistry::default();
-    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call);
+    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call);
     let mut syscall_registry = SyscallRegistry::default();
-    test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallU64::call);
+    test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::BpfSyscallU64::init::<BpfSyscallContext>; syscalls::BpfSyscallU64::call);
     #[allow(unused_mut)]
     let mut executable =
-        Executable::<UserError, TestInstructionMeter>::from_elf(&elf, config, syscall_registry)
-            .unwrap();
+        Executable::<TestInstructionMeter>::from_elf(&elf, config, syscall_registry).unwrap();
     test_interpreter_and_jit!(
         executable,
         [],
@@ -3471,7 +3468,7 @@ fn test_instruction_count_syscall() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
@@ -3489,7 +3486,7 @@ fn test_err_instruction_count_syscall_capped() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
         ),
         0,
         {
@@ -3573,7 +3570,7 @@ fn test_err_non_terminate_capped() {
         exit",
         [],
         (
-            b"BpfTracePrintf" => syscalls::BpfTracePrintf::init::<BpfSyscallContext, UserError>; syscalls::BpfTracePrintf::call,
+            b"BpfTracePrintf" => syscalls::BpfTracePrintf::init::<BpfSyscallContext>; syscalls::BpfTracePrintf::call,
         ),
         0,
         {
@@ -3600,7 +3597,7 @@ fn test_err_non_terminate_capped() {
         exit",
         [],
         (
-            b"BpfTracePrintf" => syscalls::BpfTracePrintf::init::<BpfSyscallContext, UserError>; syscalls::BpfTracePrintf::call,
+            b"BpfTracePrintf" => syscalls::BpfTracePrintf::init::<BpfSyscallContext>; syscalls::BpfTracePrintf::call,
         ),
         0,
         {
@@ -3740,7 +3737,7 @@ fn test_symbol_relocation() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call
+            b"BpfSyscallString" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
@@ -3773,7 +3770,7 @@ fn test_err_call_unresolved() {
 #[test]
 fn test_err_unresolved_elf() {
     let mut syscall_registry = SyscallRegistry::default();
-    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call);
+    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call);
     let mut file = File::open("tests/elfs/unresolved_syscall.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
@@ -3782,7 +3779,7 @@ fn test_err_unresolved_elf() {
         ..Config::default()
     };
     assert!(
-        matches!(Executable::<UserError, TestInstructionMeter>::from_elf(&elf, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
+        matches!(Executable::<TestInstructionMeter>::from_elf(&elf, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
     );
 }
 
@@ -3792,7 +3789,7 @@ fn test_syscall_static() {
         "tests/elfs/syscall_static.so",
         [],
         (
-            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
         ),
         0,
         { |_vm, res: Result| { res.unwrap() == 0 } },
@@ -3810,7 +3807,7 @@ fn test_syscall_unknown_static() {
         "tests/elfs/syscall_static_unknown.so",
         [],
         (
-            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext, UserError>; syscalls::BpfSyscallString::call,
+            b"log" => syscalls::BpfSyscallString::init::<BpfSyscallContext>; syscalls::BpfSyscallString::call,
         ),
         0,
         { |_vm, res: Result| { matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(29)) } },
@@ -4179,7 +4176,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         "entrypoint",
     )
     .unwrap();
-    let executable = Executable::<UserError, TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
         prog,
         config,
         syscall_registry,
@@ -4192,7 +4189,6 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     };
     let verified_executable = VerifiedExecutable::<
         solana_rbpf::verifier::RequisiteVerifier,
-        UserError,
         TestInstructionMeter,
     >::from_executable(executable);
     let mut verified_executable = if let Ok(verified_executable) = verified_executable {
@@ -4224,7 +4220,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         remaining: max_instruction_count,
     });
     let tracer_jit = vm.get_tracer();
-    if result_interpreter != result_jit
+    if format!("{:?}", result_interpreter) != format!("{:?}", result_jit)
         || !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit)
     {
         let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
