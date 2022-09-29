@@ -1,4 +1,3 @@
-#![feature(bench_black_box)]
 #![no_main]
 
 use std::collections::BTreeMap;
