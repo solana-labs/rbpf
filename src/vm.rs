@@ -30,8 +30,70 @@ use std::{
     mem, ptr,
 };
 
+/// Same as `Result` but provides a stable memory layout
+#[derive(Debug)]
+#[repr(C, u64)]
+pub enum StableResult<T, E> {
+    /// Success
+    Ok(T),
+    /// Failure
+    Err(E),
+}
+
+impl<T: Debug, E: Debug> StableResult<T, E> {
+    /// `true` if `Ok`
+    pub fn is_ok(&self) -> bool {
+        match self {
+            Self::Ok(_) => true,
+            Self::Err(_) => false,
+        }
+    }
+
+    /// `true` if `Err`
+    pub fn is_err(&self) -> bool {
+        match self {
+            Self::Ok(_) => false,
+            Self::Err(_) => true,
+        }
+    }
+
+    /// Returns the inner value if `Ok`, panics otherwise
+    pub fn unwrap(self) -> T {
+        match self {
+            Self::Ok(value) => value,
+            Self::Err(error) => panic!("unwrap {:?}", error),
+        }
+    }
+
+    /// Returns the inner error if `Err`, panics otherwise
+    pub fn unwrap_err(self) -> E {
+        match self {
+            Self::Ok(value) => panic!("unwrap_err {:?}", value),
+            Self::Err(error) => error,
+        }
+    }
+}
+
+impl<T, E> From<StableResult<T, E>> for Result<T, E> {
+    fn from(result: StableResult<T, E>) -> Self {
+        match result {
+            StableResult::Ok(value) => Ok(value),
+            StableResult::Err(value) => Err(value),
+        }
+    }
+}
+
+impl<T, E> From<Result<T, E>> for StableResult<T, E> {
+    fn from(result: Result<T, E>) -> Self {
+        match result {
+            Ok(value) => Self::Ok(value),
+            Err(value) => Self::Err(value),
+        }
+    }
+}
+
 /// Return value of programs and syscalls
-pub type ProgramResult = Result<u64, EbpfError>;
+pub type ProgramResult = StableResult<u64, EbpfError>;
 
 /// Error handling for SyscallObject::call methods
 #[macro_export]
@@ -767,6 +829,14 @@ impl<'a> ProgramEnvironment<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_program_result_is_stable() {
+        let ok = ProgramResult::Ok(42);
+        assert_eq!(unsafe { *(&ok as *const _ as *const u64) }, 0);
+        let err = ProgramResult::Err(EbpfError::JitNotCompiled);
+        assert_eq!(unsafe { *(&err as *const _ as *const u64) }, 1);
+    }
 
     #[test]
     fn test_program_environment_offsets() {
