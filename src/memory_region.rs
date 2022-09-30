@@ -1,6 +1,10 @@
 //! This module defines memory regions
 
-use crate::{ebpf, error::EbpfError, vm::Config};
+use crate::{
+    ebpf,
+    error::EbpfError,
+    vm::{Config, ProgramResult},
+};
 use std::{array, cell::UnsafeCell, fmt, ops::Range};
 
 /* Explaination of the Gapped Memory
@@ -80,12 +84,12 @@ impl MemoryRegion {
     }
 
     /// Convert a virtual machine address into a host address
-    pub fn vm_to_host(&self, vm_addr: u64, len: u64) -> Result<u64, EbpfError> {
+    pub fn vm_to_host(&self, vm_addr: u64, len: u64) -> ProgramResult {
         // This can happen if a region starts at an offset from the base region
         // address, eg with rodata regions if config.optimize_rodata = true, see
         // Elf::get_ro_region.
         if vm_addr < self.vm_addr {
-            return Err(EbpfError::InvalidVirtualAddress(vm_addr));
+            return ProgramResult::Err(EbpfError::InvalidVirtualAddress(vm_addr));
         }
 
         let begin_offset = vm_addr.saturating_sub(self.vm_addr);
@@ -99,10 +103,10 @@ impl MemoryRegion {
             (begin_offset & gap_mask).checked_shr(1).unwrap_or(0) | (begin_offset & !gap_mask);
         if let Some(end_offset) = gapped_offset.checked_add(len as u64) {
             if end_offset <= self.len && !is_in_gap {
-                return Ok(self.host_addr.saturating_add(gapped_offset));
+                return ProgramResult::Ok(self.host_addr.saturating_add(gapped_offset));
             }
         }
-        Err(EbpfError::InvalidVirtualAddress(vm_addr))
+        ProgramResult::Err(EbpfError::InvalidVirtualAddress(vm_addr))
     }
 }
 
@@ -199,7 +203,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
 
     /// Given a list of regions translate from virtual machine to host address
     #[allow(clippy::integer_arithmetic)]
-    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64) -> Result<u64, EbpfError> {
+    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64) -> ProgramResult {
         // Safety:
         // &mut references to the mapping cache are only created internally here
         // and in replace_region(). The methods never invoke each other and
@@ -230,14 +234,14 @@ impl<'a> UnalignedMemoryMapping<'a> {
         // must be contained in region
         let region = unsafe { self.regions.get_unchecked(index - 1) };
         if access_type == AccessType::Load || region.is_writable {
-            if let Ok(host_addr) = region.vm_to_host(vm_addr, len as u64) {
+            if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len as u64) {
                 if cache_miss {
                     cache.insert(
                         region.vm_addr..region.vm_addr.saturating_add(region.len),
                         index,
                     );
                 }
-                return Ok(host_addr);
+                return ProgramResult::Ok(host_addr);
             }
         }
 
@@ -292,15 +296,15 @@ impl<'a> AlignedMemoryMapping<'a> {
     }
 
     /// Given a list of regions translate from virtual machine to host address
-    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64) -> Result<u64, EbpfError> {
+    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64) -> ProgramResult {
         let index = vm_addr
             .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
             .unwrap_or(0) as usize;
         if (1..self.regions.len()).contains(&index) {
             let region = &self.regions[index];
             if access_type == AccessType::Load || region.is_writable {
-                if let Ok(host_addr) = region.vm_to_host(vm_addr, len as u64) {
-                    return Ok(host_addr);
+                if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len as u64) {
+                    return ProgramResult::Ok(host_addr);
                 }
             }
         }
@@ -358,7 +362,7 @@ impl<'a> MemoryMapping<'a> {
     }
 
     /// Map virtual memory to host memory.
-    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64) -> Result<u64, EbpfError> {
+    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64) -> ProgramResult {
         match self {
             MemoryMapping::Aligned(m) => m.map(access_type, vm_addr, len),
             MemoryMapping::Unaligned(m) => m.map(access_type, vm_addr, len),
@@ -388,7 +392,7 @@ fn generate_access_violation(
     access_type: AccessType,
     vm_addr: u64,
     len: u64,
-) -> Result<u64, EbpfError> {
+) -> ProgramResult {
     let stack_frame = (vm_addr as i64)
         .saturating_sub(ebpf::MM_STACK_START as i64)
         .checked_div(config.stack_frame_size as i64)
@@ -396,7 +400,7 @@ fn generate_access_violation(
     if !config.dynamic_stack_frames
         && (-1..(config.max_call_depth as i64).saturating_add(1)).contains(&stack_frame)
     {
-        Err(EbpfError::StackAccessViolation(
+        ProgramResult::Err(EbpfError::StackAccessViolation(
             0, // Filled out later
             access_type,
             vm_addr,
@@ -411,7 +415,7 @@ fn generate_access_violation(
             ebpf::MM_INPUT_START => "input",
             _ => "unknown",
         };
-        Err(EbpfError::AccessViolation(
+        ProgramResult::Err(EbpfError::AccessViolation(
             0, // Filled out later
             access_type,
             vm_addr,
@@ -543,13 +547,13 @@ mod test {
         let m = UnalignedMemoryMapping::new(vec![], &config).unwrap();
         assert!(matches!(
             m.map(AccessType::Load, ebpf::MM_INPUT_START, 8),
-            Err(EbpfError::AccessViolation(..))
+            ProgramResult::Err(EbpfError::AccessViolation(..))
         ));
 
         let m = AlignedMemoryMapping::new(vec![], &config).unwrap();
         assert!(matches!(
             m.map(AccessType::Load, ebpf::MM_INPUT_START, 8),
-            Err(EbpfError::AccessViolation(..))
+            ProgramResult::Err(EbpfError::AccessViolation(..))
         ));
     }
 
@@ -644,7 +648,7 @@ mod test {
                 ebpf::MM_INPUT_START + (mem1.len() + mem2.len() + mem3.len() + mem4.len()) as u64,
                 1
             ),
-            Err(EbpfError::AccessViolation(..))
+            ProgramResult::Err(EbpfError::AccessViolation(..))
         ));
     }
 

@@ -112,7 +112,7 @@ pub fn execute<V: Verifier, I: InstructionMeter>(
                                     )
                                     .unwrap();
                             }
-                            Err(e) => return Err(e),
+                            Err(e) => return ProgramResult::Err(e),
                         };
                     },
                 }
@@ -133,7 +133,7 @@ pub fn execute<V: Verifier, I: InstructionMeter>(
             interpreter.initial_insn_count - interpreter.instruction_meter.get_remaining();
     }
 
-    Ok(interpreter.reg[0])
+    ProgramResult::Ok(interpreter.reg[0])
 }
 
 impl<'a, 'b, V: Verifier, I: InstructionMeter> Target for Interpreter<'a, 'b, V, I> {

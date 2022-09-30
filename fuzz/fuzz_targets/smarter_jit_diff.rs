@@ -13,7 +13,10 @@ use solana_rbpf::{
     memory_region::MemoryRegion,
     static_analysis::Analysis,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{EbpfVm, InstructionMeter, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
+    vm::{
+        EbpfVm, InstructionMeter, ProgramResult, SyscallRegistry, TestInstructionMeter,
+        VerifiedExecutable,
+    },
 };
 use test_utils::TautologyVerifier;
 
@@ -70,8 +73,12 @@ fuzz_target!(|data: FuzzData| {
         let jit_res = jit_vm.execute_program_jit(&mut jit_meter);
         if format!("{:?}", interp_res) != format!("{:?}", jit_res) {
             // spot check: there's a meaningless bug where ExceededMaxInstructions is different due to jump calculations
-            if let Err(EbpfError::ExceededMaxInstructions(interp_count, _)) = interp_res {
-                if let Err(EbpfError::ExceededMaxInstructions(jit_count, _)) = jit_res {
+            if let ProgramResult::Err(EbpfError::ExceededMaxInstructions(interp_count, _)) =
+                interp_res
+            {
+                if let ProgramResult::Err(EbpfError::ExceededMaxInstructions(jit_count, _)) =
+                    jit_res
+                {
                     if interp_count != jit_count {
                         return;
                     }

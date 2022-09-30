@@ -839,14 +839,14 @@ fn emit_muldivmod(jit: &mut JitCompiler, opc: u8, src: u8, dst: u8, imm: Option<
 }
 
 fn emit_set_exception_kind(jit: &mut JitCompiler, err: EbpfError) {
-    let err = Result::<u64, EbpfError>::Err(err);
+    let err = ProgramResult::Err(err);
     let err_kind = unsafe { *(&err as *const _ as *const u64).add(jit.err_kind_offset) };
     emit_ins(jit, X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(slot_on_environment_stack(jit, EnvironmentStackSlot::OptRetValPtr))));
     emit_ins(jit, X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * jit.err_kind_offset) as i32), err_kind as i64));
 }
 
 fn emit_result_is_err(jit: &mut JitCompiler, source: u8, destination: u8, indirect: X86IndirectAccess) {
-    let ok = Result::<u64, EbpfError>::Ok(0);
+    let ok = ProgramResult::Ok(0);
     let err_kind = unsafe { *(&ok as *const _ as *const u64).add(jit.err_kind_offset) };
     emit_ins(jit, X86Instruction::load(OperandSize::S64, source, destination, indirect));
     emit_ins(jit, X86Instruction::cmp_immediate(OperandSize::S64, destination, err_kind as i64, Some(X86IndirectAccess::Offset(0))));
@@ -952,7 +952,7 @@ impl JitCompiler {
                 )
             } else { (0, 0) };
         
-        let ok = Result::<u64, EbpfError>::Ok(0);
+        let ok = ProgramResult::Ok(0);
         let is_err = unsafe { *(&ok as *const _ as *const u64) };
 
         Ok(Self {

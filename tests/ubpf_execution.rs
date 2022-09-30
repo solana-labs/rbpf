@@ -70,7 +70,7 @@ macro_rules! test_interpreter_and_jit {
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
             let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
             match compilation_result {
-                Err(err) => assert!(check_closure(&vm, Err(err))),
+                Err(err) => assert!(check_closure(&vm, ProgramResult::Err(err))),
                 Ok(()) => {
                     test_interpreter_and_jit!(bind, vm, $syscall_context);
                     let result = vm.execute_program_jit(&mut TestInstructionMeter {
@@ -3261,9 +3261,9 @@ impl SyscallObject for NestedVmSyscall {
             );
         } else {
             *result = if throw == 0 {
-                Ok(42)
+                ProgramResult::Ok(42)
             } else {
-                Err(EbpfError::CallDepthExceeded(33, 0))
+                ProgramResult::Err(EbpfError::CallDepthExceeded(33, 0))
             };
         }
     }
@@ -3274,10 +3274,10 @@ fn test_nested_vm_syscall() {
     let config = Config::default();
     let mut nested_vm_syscall = NestedVmSyscall {};
     let mut memory_mapping = MemoryMapping::new(vec![], &config).unwrap();
-    let mut result = Ok(0);
+    let mut result = ProgramResult::Ok(0);
     nested_vm_syscall.call(1, 0, 0, 0, 0, &mut memory_mapping, &mut result);
     assert!(result.unwrap() == 42);
-    let mut result = Ok(0);
+    let mut result = ProgramResult::Ok(0);
     nested_vm_syscall.call(1, 1, 0, 0, 0, &mut memory_mapping, &mut result);
     assert!(matches!(result.unwrap_err(),
         EbpfError::CallDepthExceeded(pc, depth)

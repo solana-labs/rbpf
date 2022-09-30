@@ -667,7 +667,10 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     pub fn execute_program_interpreted(&mut self, instruction_meter: &mut I) -> ProgramResult {
         let mut result = Ok(None);
         let (initial_insn_count, due_insn_count) = {
-            let mut interpreter = Interpreter::new(self, instruction_meter)?;
+            let mut interpreter = match Interpreter::new(self, instruction_meter) {
+                Ok(interpreter) => interpreter,
+                Err(error) => return ProgramResult::Err(error),
+            };
             while let Ok(None) = result {
                 result = interpreter.step();
             }
@@ -682,7 +685,11 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
             instruction_meter.consume(due_insn_count);
             self.total_insn_count = initial_insn_count - instruction_meter.get_remaining();
         }
-        Ok(result?.unwrap_or(0))
+        match result {
+            Ok(None) => unreachable!(),
+            Ok(Some(value)) => ProgramResult::Ok(value),
+            Err(error) => ProgramResult::Err(error),
+        }
     }
 
     /// Execute the previously JIT-compiled program, with the given packet data in a manner
@@ -701,10 +708,14 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
         } else {
             0
         };
-        let mut result: ProgramResult = Ok(0);
-        let compiled_program = executable
+        let mut result = ProgramResult::Ok(0);
+        let compiled_program = match executable
             .get_compiled_program()
-            .ok_or(EbpfError::JitNotCompiled)?;
+            .ok_or(EbpfError::JitNotCompiled)
+        {
+            Ok(compiled_program) => compiled_program,
+            Err(error) => return ProgramResult::Err(error),
+        };
         let instruction_meter_final = unsafe {
             (compiled_program.main)(
                 &mut result,
@@ -723,8 +734,8 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
             // self.total_insn_count = initial_insn_count - instruction_meter.get_remaining();
         }
         match result {
-            Err(EbpfError::ExceededMaxInstructions(pc, _)) => {
-                Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count))
+            ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, _)) => {
+                ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count))
             }
             x => x,
         }

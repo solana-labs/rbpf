@@ -30,8 +30,14 @@ macro_rules! translate_memory_access {
             $vm_addr,
             std::mem::size_of::<$T>() as u64,
         ) {
-            Ok(host_addr) => host_addr as *mut $T,
-            Err(EbpfError::AccessViolation(_pc, access_type, vm_addr, len, regions)) => {
+            ProgramResult::Ok(host_addr) => host_addr as *mut $T,
+            ProgramResult::Err(EbpfError::AccessViolation(
+                _pc,
+                access_type,
+                vm_addr,
+                len,
+                regions,
+            )) => {
                 return Err(EbpfError::AccessViolation(
                     $pc + ebpf::ELF_INSN_DUMP_OFFSET,
                     access_type,
@@ -40,7 +46,13 @@ macro_rules! translate_memory_access {
                     regions,
                 ));
             }
-            Err(EbpfError::StackAccessViolation(_pc, access_type, vm_addr, len, stack_frame)) => {
+            ProgramResult::Err(EbpfError::StackAccessViolation(
+                _pc,
+                access_type,
+                vm_addr,
+                len,
+                stack_frame,
+            )) => {
                 return Err(EbpfError::StackAccessViolation(
                     $pc + ebpf::ELF_INSN_DUMP_OFFSET,
                     access_type,
@@ -444,7 +456,7 @@ impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
                             self.instruction_meter.consume(self.due_insn_count);
                         }
                         self.due_insn_count = 0;
-                        let mut result: ProgramResult = Ok(0);
+                        let mut result = ProgramResult::Ok(0);
                         (unsafe { std::mem::transmute::<u64, SyscallFunction::<*mut u8>>(syscall.function) })(
                             self.vm.program_environment.syscall_context_objects[syscall.context_object_slot],
                             self.reg[1],
@@ -455,7 +467,10 @@ impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
                             &mut self.vm.program_environment.memory_mapping,
                             &mut result,
                         );
-                        self.reg[0] = result?;
+                        self.reg[0] = match result {
+                            ProgramResult::Ok(value) => value,
+                            ProgramResult::Err(err) => return Err(err),
+                        };
                         if config.enable_instruction_meter {
                             self.remaining_insn_count = self.instruction_meter.get_remaining();
                         }
