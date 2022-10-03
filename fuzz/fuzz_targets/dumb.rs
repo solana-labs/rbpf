@@ -47,7 +47,7 @@ fuzz_target!(|data: DumbFuzzData| {
         VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
             .unwrap();
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
+    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
 
     drop(black_box(vm.execute_program_interpreted(
         &mut TestInstructionMeter { remaining: 1024 },

@@ -27,7 +27,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
     marker::PhantomData,
-    mem, ptr,
+    mem,
 };
 
 /// Same as `Result` but provides a stable memory layout
@@ -441,7 +441,7 @@ impl Tracer {
 /// let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
 /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
 /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
-/// let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
+/// let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
 ///
 /// // Provide a reference to the packet data.
 /// let res = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 }).unwrap();
@@ -476,10 +476,11 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
     /// let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
     /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
-    /// let mut vm = EbpfVm::new(&verified_executable, &mut [], Vec::new()).unwrap();
+    /// let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], Vec::new()).unwrap();
     /// ```
-    pub fn new(
+    pub fn new<O>(
         verified_executable: &'a VerifiedExecutable<V, I>,
+        syscall_context_object: &mut O,
         heap_region: &mut [u8],
         additional_regions: Vec<MemoryRegion>,
     ) -> Result<EbpfVm<'a, V, I>, EbpfError> {
@@ -501,7 +502,7 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
             program_vm_addr,
             program_environment: ProgramEnvironment {
                 memory_mapping: MemoryMapping::new(regions, config)?,
-                syscall_context_object: ptr::null_mut(),
+                syscall_context_object: syscall_context_object as *mut O as *mut (),
                 tracer: Tracer::default(),
             },
             stack,
@@ -524,48 +525,6 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// Returns the tracer
     pub fn get_program_environment(&self) -> &ProgramEnvironment {
         &self.program_environment
-    }
-
-    /// Initializes and binds the context object instances for all previously registered syscalls
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable}, syscalls::BpfTracePrintf, verifier::RequisiteVerifier};
-    ///
-    /// // This program was compiled with clang, from a C program containing the following single
-    /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
-    /// let prog = &[
-    ///     0x18, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // load 0 as u64 into r1 (That would be
-    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // replaced by tc by the address of
-    ///                                                     // the format string, in the .map
-    ///                                                     // section of the ELF file).
-    ///     0xb7, 0x02, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, // mov r2, 10
-    ///     0xb7, 0x03, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // mov r3, 1
-    ///     0xb7, 0x04, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov r4, 2
-    ///     0xb7, 0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, // mov r5, 3
-    ///     0x85, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, // call syscall with key 6
-    ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
-    /// ];
-    ///
-    /// // Register a syscall.
-    /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
-    /// // standard output.
-    /// let mut syscall_registry = SyscallRegistry::default();
-    /// syscall_registry.register_syscall_by_hash(6, BpfTracePrintf::call).unwrap();
-    /// // Instantiate an Executable and VM
-    /// let config = Config::default();
-    /// let mut bpf_functions = std::collections::BTreeMap::new();
-    /// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
-    /// let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
-    /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
-    /// let mut vm = EbpfVm::new(&verified_executable, &mut [], Vec::new()).unwrap();
-    /// // Bind a context object instance to the previously registered syscall
-    /// vm.bind_syscall_context_object(&mut ());
-    /// ```
-    pub fn bind_syscall_context_object<O>(&mut self, syscall_context_object: &mut O) {
-        self.program_environment.syscall_context_object =
-            syscall_context_object as *mut O as *mut ();
     }
 
     /// Execute the program loaded, with the given packet data.
@@ -593,7 +552,7 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
     /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
     /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
-    /// let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
+    /// let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
     ///
     /// // Provide a reference to the packet data.
     /// let res = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 }).unwrap();
@@ -715,7 +674,7 @@ mod tests {
         let config = Config::default();
         let env = ProgramEnvironment {
             memory_mapping: MemoryMapping::new(vec![], &config).unwrap(),
-            syscall_context_object: ptr::null_mut(),
+            syscall_context_object: std::ptr::null_mut(),
             tracer: Tracer::default(),
         };
         assert_eq!(

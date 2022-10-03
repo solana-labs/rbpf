@@ -49,8 +49,13 @@ macro_rules! test_interpreter_and_jit {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
 
-            let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
-            vm.bind_syscall_context_object($syscall_context);
+            let mut vm = EbpfVm::new(
+                &verified_executable,
+                $syscall_context,
+                &mut [],
+                vec![mem_region],
+            )
+            .unwrap();
             let result = vm.execute_program_interpreted(&mut TestInstructionMeter {
                 remaining: $expected_instruction_count,
             });
@@ -67,11 +72,16 @@ macro_rules! test_interpreter_and_jit {
             let compilation_result = verified_executable.jit_compile();
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-            let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
+            let mut vm = EbpfVm::new(
+                &verified_executable,
+                $syscall_context,
+                &mut [],
+                vec![mem_region],
+            )
+            .unwrap();
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, ProgramResult::Err(err))),
                 Ok(()) => {
-                    vm.bind_syscall_context_object($syscall_context);
                     let result = vm.execute_program_jit(&mut TestInstructionMeter {
                         remaining: $expected_instruction_count,
                     });
@@ -4215,7 +4225,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {
         let mut mem = vec![0u8; mem_size];
         let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-        let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
+        let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
         let result_interpreter = vm.execute_program_interpreted(&mut TestInstructionMeter {
             remaining: max_instruction_count,
         });
@@ -4228,7 +4238,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     };
     let mut mem = vec![0u8; mem_size];
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
+    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
     let result_jit = vm.execute_program_jit(&mut TestInstructionMeter {
         remaining: max_instruction_count,
     });

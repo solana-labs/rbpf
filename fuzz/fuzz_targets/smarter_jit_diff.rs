@@ -63,9 +63,9 @@ fuzz_target!(|data: FuzzData| {
     if verified_executable.jit_compile().is_ok() {
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
         let mut interp_vm =
-            EbpfVm::new(&verified_executable, &mut [], vec![interp_mem_region]).unwrap();
+            EbpfVm::new(&verified_executable, &mut (), &mut [], vec![interp_mem_region]).unwrap();
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
-        let mut jit_vm = EbpfVm::new(&verified_executable, &mut [], vec![jit_mem_region]).unwrap();
+        let mut jit_vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![jit_mem_region]).unwrap();
 
         let mut interp_meter = TestInstructionMeter { remaining: 1 << 16 };
         let interp_res = interp_vm.execute_program_interpreted(&mut interp_meter);

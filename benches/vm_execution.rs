@@ -33,7 +33,7 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     let verified_executable =
         VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
             .unwrap();
-    let mut vm = EbpfVm::new(&verified_executable, &mut [], Vec::new()).unwrap();
+    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], Vec::new()).unwrap();
     bencher.iter(|| {
         vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 29 })
             .unwrap()
@@ -56,7 +56,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
         VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
             .unwrap();
     verified_executable.jit_compile().unwrap();
-    let mut vm = EbpfVm::new(&verified_executable, &mut [], Vec::new()).unwrap();
+    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], Vec::new()).unwrap();
     bencher.iter(|| {
         vm.execute_program_jit(&mut TestInstructionMeter { remaining: 29 })
             .unwrap()
@@ -82,7 +82,7 @@ fn bench_jit_vs_interpreter(
             .unwrap();
     verified_executable.jit_compile().unwrap();
     let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::new(&verified_executable, &mut [], vec![mem_region]).unwrap();
+    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
     let interpreter_summary = bencher
         .bench(|bencher| {
             bencher.iter(|| {

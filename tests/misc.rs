@@ -131,11 +131,11 @@ fn test_fuzz_execute() {
                 {
                     let mut vm = EbpfVm::<RequisiteVerifier, TestInstructionMeter>::new(
                         &verified_executable,
+                        &mut (),
                         &mut [],
                         Vec::new(),
                     )
                     .unwrap();
-                    vm.bind_syscall_context_object(&mut ());
                     let _ = vm.execute_program_interpreted(&mut TestInstructionMeter {
                         remaining: 1_000_000,
                     });

@@ -153,7 +153,7 @@ fn main() {
         verified_executable.jit_compile().unwrap();
     }
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::new(&verified_executable, &mut heap, vec![mem_region]).unwrap();
+    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut heap, vec![mem_region]).unwrap();
 
     let analysis = if matches.value_of("use") == Some("cfg")
         || matches.value_of("use") == Some("disassembler")
@@ -186,7 +186,6 @@ fn main() {
         _ => {}
     }
 
-    vm.bind_syscall_context_object(&mut ());
     let result = if matches.value_of("use").unwrap() == "debugger" {
         let mut interpreter = Interpreter::new(&mut vm, &mut instruction_meter).unwrap();
         let port = matches.value_of("port").unwrap().parse::<u16>().unwrap();

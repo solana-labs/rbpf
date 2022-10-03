@@ -62,6 +62,7 @@ fn test_verifier_success() {
             .unwrap();
     let _vm = EbpfVm::<TautologyVerifier, TestInstructionMeter>::new(
         &verified_executable,
+        &mut (),
         &mut [],
         Vec::new(),
     )
