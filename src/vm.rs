@@ -95,21 +95,6 @@ impl<T, E> From<Result<T, E>> for StableResult<T, E> {
 /// Return value of programs and syscalls
 pub type ProgramResult = StableResult<u64, EbpfError>;
 
-/// Error handling for SyscallObject::call methods
-#[macro_export]
-macro_rules! question_mark {
-    ( $value:expr, $result:ident ) => {{
-        let value = $value;
-        match value {
-            Err(err) => {
-                *$result = Err(err.into());
-                return;
-            }
-            Ok(value) => value,
-        }
-    }};
-}
-
 /// Syscall initialization function
 pub type SyscallInit<'a, C> = fn(C) -> Box<(dyn SyscallObject + 'a)>;
 

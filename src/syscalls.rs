@@ -22,10 +22,23 @@
 
 use crate::{
     memory_region::{AccessType, MemoryMapping},
-    question_mark,
     vm::{ProgramResult, SyscallObject},
 };
 use std::{slice::from_raw_parts, str::from_utf8};
+
+/// Error handling for SyscallObject::call methods
+macro_rules! question_mark {
+    ( $value:expr, $result:ident ) => {{
+        let value = $value;
+        match value {
+            ProgramResult::Err(err) => {
+                *$result = ProgramResult::Err(err.into());
+                return;
+            }
+            ProgramResult::Ok(value) => value,
+        }
+    }};
+}
 
 /// Test syscall context
 pub type BpfSyscallContext = u64;
