@@ -95,39 +95,9 @@ impl<T, E> From<Result<T, E>> for StableResult<T, E> {
 /// Return value of programs and syscalls
 pub type ProgramResult = StableResult<u64, EbpfError>;
 
-/// Syscall initialization function
-pub type SyscallInit<'a, C> = fn(C) -> Box<(dyn SyscallObject + 'a)>;
-
 /// Syscall function without context
 pub type SyscallFunction<O> =
     fn(O, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
-
-/// Syscall with context
-pub trait SyscallObject {
-    /// Call the syscall function
-    #[allow(clippy::too_many_arguments)]
-    fn call(
-        &mut self,
-        arg1: u64,
-        arg2: u64,
-        arg3: u64,
-        arg4: u64,
-        arg5: u64,
-        memory_mapping: &mut MemoryMapping,
-        result: &mut ProgramResult,
-    );
-}
-
-/// Syscall function and binding slot for a context object
-#[derive(Debug, PartialEq, Eq)]
-pub struct Syscall {
-    /// Syscall init
-    pub init: u64,
-    /// Call the syscall function
-    pub function: u64,
-    /// Slot of context object
-    pub context_object_slot: usize,
-}
 
 /// A virtual method table for dyn trait objects
 pub struct DynTraitVtable {
@@ -142,7 +112,7 @@ pub struct DynTraitVtable {
 }
 
 // Could be replaced by https://doc.rust-lang.org/std/raw/struct.TraitObject.html
-/// A dyn trait fat pointer for SyscallObject
+/// A dyn trait fat pointer
 #[derive(Clone, Copy)]
 pub struct DynTraitFatPointer {
     /// Pointer to the actual object
@@ -155,42 +125,26 @@ pub struct DynTraitFatPointer {
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct SyscallRegistry {
     /// Function pointers by symbol
-    entries: HashMap<u32, Syscall>,
-    /// Context object slots by function pointer
-    context_object_slots: HashMap<u64, usize>,
+    entries: HashMap<u32, u64>,
 }
 
 impl SyscallRegistry {
     const MAX_SYSCALLS: usize = 128;
 
     /// Register a syscall function by its symbol hash
-    pub fn register_syscall_by_hash<'a, C, O: SyscallObject>(
+    pub fn register_syscall_by_hash<O>(
         &mut self,
         hash: u32,
-        init: SyscallInit<'a, C>,
-        function: SyscallFunction<&mut O>,
+        function: SyscallFunction<O>,
     ) -> Result<(), EbpfError> {
-        let init = init as *const u8 as u64;
-        let function = function as *const u8 as u64;
         let context_object_slot = self.entries.len();
         if context_object_slot == SyscallRegistry::MAX_SYSCALLS {
             return Err(EbpfError::TooManySyscalls);
         }
         if self
             .entries
-            .insert(
-                hash,
-                Syscall {
-                    init,
-                    function,
-                    context_object_slot,
-                },
-            )
+            .insert(hash, function as usize as u64)
             .is_some()
-            || self
-                .context_object_slots
-                .insert(function, context_object_slot)
-                .is_some()
         {
             Err(EbpfError::SyscallAlreadyRegistered(hash as usize))
         } else {
@@ -199,23 +153,19 @@ impl SyscallRegistry {
     }
 
     /// Register a syscall function by its symbol name
-    pub fn register_syscall_by_name<'a, C, O: SyscallObject>(
+    pub fn register_syscall_by_name<O>(
         &mut self,
         name: &[u8],
-        init: SyscallInit<'a, C>,
-        function: SyscallFunction<&mut O>,
+        function: SyscallFunction<O>,
     ) -> Result<(), EbpfError> {
-        self.register_syscall_by_hash::<C, O>(ebpf::hash_symbol_name(name), init, function)
+        self.register_syscall_by_hash::<O>(ebpf::hash_symbol_name(name), function)
     }
 
-    /// Get a symbol's function pointer and context object slot
-    pub fn lookup_syscall(&self, hash: u32) -> Option<&Syscall> {
-        self.entries.get(&hash)
-    }
-
-    /// Get a function pointer's and context object slot
-    pub fn lookup_context_object_slot(&self, function_pointer: u64) -> Option<usize> {
-        self.context_object_slots.get(&function_pointer).copied()
+    /// Get a symbol's function pointer
+    pub fn lookup_syscall(&self, hash: u32) -> Option<SyscallFunction<*mut ()>> {
+        self.entries
+            .get(&hash)
+            .map(|syscall| unsafe { std::mem::transmute(*syscall) })
     }
 
     /// Get the number of registered syscalls
@@ -226,8 +176,7 @@ impl SyscallRegistry {
     /// Calculate memory size
     pub fn mem_size(&self) -> usize {
         mem::size_of::<Self>()
-            + self.entries.capacity() * mem::size_of::<(u32, Syscall)>()
-            + self.context_object_slots.capacity() * mem::size_of::<(u64, usize)>()
+            + self.entries.capacity() * mem::size_of::<(u32, SyscallFunction<*mut ()>)>()
     }
 }
 
@@ -525,7 +474,6 @@ pub struct EbpfVm<'a, V: Verifier, I: InstructionMeter> {
     pub(crate) program: &'a [u8],
     pub(crate) program_vm_addr: u64,
     pub(crate) program_environment: ProgramEnvironment<'a>,
-    syscall_context_object_pool: Vec<Box<dyn SyscallObject + 'a>>,
     pub(crate) stack: CallFrames<'a>,
     pub(crate) total_insn_count: u64,
 }
@@ -569,17 +517,15 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
         .chain(additional_regions.into_iter())
         .collect();
         let (program_vm_addr, program) = executable.get_text_bytes();
-        let number_of_syscalls = executable.get_syscall_registry().get_number_of_syscalls();
         let vm = EbpfVm {
             verified_executable,
             program,
             program_vm_addr,
             program_environment: ProgramEnvironment {
                 memory_mapping: MemoryMapping::new(regions, config)?,
-                syscall_context_objects: [ptr::null_mut(); SyscallRegistry::MAX_SYSCALLS],
+                syscall_context_object: ptr::null_mut(),
                 tracer: Tracer::default(),
             },
-            syscall_context_object_pool: Vec::with_capacity(number_of_syscalls),
             stack,
             total_insn_count: 0,
         };
@@ -598,8 +544,8 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     }
 
     /// Returns the tracer
-    pub fn get_tracer(&self) -> &Tracer {
-        &self.program_environment.tracer
+    pub fn get_program_environment(&self) -> &ProgramEnvironment {
+        &self.program_environment
     }
 
     /// Initializes and binds the context object instances for all previously registered syscalls
@@ -607,7 +553,7 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, vm::{Config, EbpfVm, SyscallObject, SyscallRegistry, TestInstructionMeter, VerifiedExecutable}, syscalls::BpfTracePrintf, verifier::RequisiteVerifier};
+    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable}, syscalls::BpfTracePrintf, verifier::RequisiteVerifier};
     ///
     /// // This program was compiled with clang, from a C program containing the following single
     /// // instruction: `return bpf_trace_printk("foo %c %c %c\n", 10, 1, 2, 3);`
@@ -628,7 +574,7 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// // On running the program this syscall will print the content of registers r3, r4 and r5 to
     /// // standard output.
     /// let mut syscall_registry = SyscallRegistry::default();
-    /// syscall_registry.register_syscall_by_hash(6, BpfTracePrintf::init::<u64>, BpfTracePrintf::call).unwrap();
+    /// syscall_registry.register_syscall_by_hash(6, BpfTracePrintf::call).unwrap();
     /// // Instantiate an Executable and VM
     /// let config = Config::default();
     /// let mut bpf_functions = std::collections::BTreeMap::new();
@@ -637,47 +583,11 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
     /// let mut vm = EbpfVm::new(&verified_executable, &mut [], Vec::new()).unwrap();
     /// // Bind a context object instance to the previously registered syscall
-    /// vm.bind_syscall_context_objects(0);
+    /// vm.bind_syscall_context_object(&mut ());
     /// ```
-    pub fn bind_syscall_context_objects<C: Clone>(
-        &mut self,
-        syscall_context: C,
-    ) -> Result<(), EbpfError> {
-        let syscall_registry = self
-            .verified_executable
-            .get_executable()
-            .get_syscall_registry();
-
-        for syscall in syscall_registry.entries.values() {
-            let syscall_object_init_fn: SyscallInit<C> =
-                unsafe { std::mem::transmute(syscall.init) };
-            let syscall_context_object: Box<dyn SyscallObject + 'a> =
-                syscall_object_init_fn(syscall_context.clone());
-            let fat_ptr: DynTraitFatPointer =
-                unsafe { std::mem::transmute(&*syscall_context_object) };
-            let slot = syscall_registry
-                .lookup_context_object_slot(fat_ptr.vtable.methods[0] as u64)
-                .ok_or(EbpfError::SyscallNotRegistered(
-                    fat_ptr.vtable.methods[0] as usize,
-                ))?;
-
-            debug_assert!(self.program_environment.syscall_context_objects[slot].is_null());
-            self.program_environment.syscall_context_objects[slot] = fat_ptr.data;
-            // Keep the dyn trait objects so that they can be dropped properly later
-            self.syscall_context_object_pool
-                .push(syscall_context_object);
-        }
-
-        Ok(())
-    }
-
-    /// Lookup a syscall context object by its function pointer. Used for testing and validation.
-    pub fn get_syscall_context_object(&self, syscall_function: usize) -> Option<*mut u8> {
-        self.verified_executable
-            .get_executable()
-            .get_syscall_registry()
-            .lookup_context_object_slot(syscall_function as u64)
-            .map(|slot| self.program_environment.syscall_context_objects[slot])
+    pub fn bind_syscall_context_object<O>(&mut self, syscall_context_object: &mut O) {
+        self.program_environment.syscall_context_object =
+            syscall_context_object as *mut O as *mut ();
     }
 
     /// Execute the program loaded, with the given packet data.
@@ -794,8 +704,8 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
 pub struct ProgramEnvironment<'a> {
     /// The MemoryMapping describing the address space of the program
     pub memory_mapping: MemoryMapping<'a>,
-    /// Pointers to the context objects of syscalls
-    pub syscall_context_objects: [*mut u8; SyscallRegistry::MAX_SYSCALLS],
+    /// Pointer to the context object of syscalls
+    pub syscall_context_object: *mut (),
     /// The instruction tracer
     pub tracer: Tracer,
 }
@@ -804,11 +714,10 @@ impl<'a> ProgramEnvironment<'a> {
     /// Offset to Self::memory_mapping
     pub const MEMORY_MAPPING_OFFSET: usize = 0;
     /// Offset of Self::syscalls
-    pub const SYSCALLS_OFFSET: usize =
+    pub const SYSCALL_CONTEXT_OBJECT: usize =
         Self::MEMORY_MAPPING_OFFSET + mem::size_of::<MemoryMapping>();
     /// Offset of Self::tracer
-    pub const TRACER_OFFSET: usize =
-        Self::SYSCALLS_OFFSET + mem::size_of::<[*mut u8; SyscallRegistry::MAX_SYSCALLS]>();
+    pub const TRACER_OFFSET: usize = Self::SYSCALL_CONTEXT_OBJECT + mem::size_of::<*mut ()>();
 }
 
 #[cfg(test)]
@@ -828,7 +737,7 @@ mod tests {
         let config = Config::default();
         let env = ProgramEnvironment {
             memory_mapping: MemoryMapping::new(vec![], &config).unwrap(),
-            syscall_context_objects: [ptr::null_mut(); SyscallRegistry::MAX_SYSCALLS],
+            syscall_context_object: ptr::null_mut(),
             tracer: Tracer::default(),
         };
         assert_eq!(
@@ -840,10 +749,10 @@ mod tests {
         );
         assert_eq!(
             unsafe {
-                (&env.syscall_context_objects as *const _ as *const u8)
+                (&env.syscall_context_object as *const _ as *const u8)
                     .offset_from(&env as *const _ as *const _)
             },
-            ProgramEnvironment::SYSCALLS_OFFSET as isize
+            ProgramEnvironment::SYSCALL_CONTEXT_OBJECT as isize
         );
         assert_eq!(
             unsafe {

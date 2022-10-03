@@ -1,4 +1,5 @@
 #![allow(clippy::integer_arithmetic)]
+#![allow(clippy::too_many_arguments)]
 // Copyright 2015 Big Switch Networks, Inc
 //      (Algorithms for uBPF syscalls, originally in C)
 // Copyright 2016 6WIND S.A. <quentin.monnet@6wind.com>
@@ -22,11 +23,11 @@
 
 use crate::{
     memory_region::{AccessType, MemoryMapping},
-    vm::{ProgramResult, SyscallObject},
+    vm::ProgramResult,
 };
 use std::{slice::from_raw_parts, str::from_utf8};
 
-/// Error handling for SyscallObject::call methods
+/// Error handling for syscall methods
 macro_rules! question_mark {
     ( $value:expr, $result:ident ) => {{
         let value = $value;
@@ -39,9 +40,6 @@ macro_rules! question_mark {
         }
     }};
 }
-
-/// Test syscall context
-pub type BpfSyscallContext = u64;
 
 // bpf_trace_printk()
 
@@ -60,7 +58,7 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// ```
 /// use solana_rbpf::syscalls::BpfTracePrintf;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
-/// use solana_rbpf::vm::{Config, SyscallObject, ProgramResult};
+/// use solana_rbpf::vm::{Config, ProgramResult};
 ///
 /// let mut result = ProgramResult::Ok(0);
 /// let config = Config::default();
@@ -91,13 +89,8 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// program is run.
 pub struct BpfTracePrintf {}
 impl BpfTracePrintf {
-    /// new
-    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
-        Box::new(Self {})
-    }
-}
-impl SyscallObject for BpfTracePrintf {
-    fn call(
+    /// Syscall handler method
+    pub fn call(
         &mut self,
         _arg1: u64,
         _arg2: u64,
@@ -134,7 +127,7 @@ impl SyscallObject for BpfTracePrintf {
 /// ```
 /// use solana_rbpf::syscalls::BpfGatherBytes;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
-/// use solana_rbpf::vm::{Config, SyscallObject, ProgramResult};
+/// use solana_rbpf::vm::{Config, ProgramResult};
 ///
 /// let mut result = ProgramResult::Ok(0);
 /// let config = Config::default();
@@ -144,13 +137,8 @@ impl SyscallObject for BpfTracePrintf {
 /// ```
 pub struct BpfGatherBytes {}
 impl BpfGatherBytes {
-    /// new
-    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
-        Box::new(Self {})
-    }
-}
-impl SyscallObject for BpfGatherBytes {
-    fn call(
+    /// Syscall handler method
+    pub fn call(
         &mut self,
         arg1: u64,
         arg2: u64,
@@ -179,7 +167,7 @@ impl SyscallObject for BpfGatherBytes {
 /// ```
 /// use solana_rbpf::syscalls::BpfMemFrob;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
-/// use solana_rbpf::vm::{Config, SyscallObject, ProgramResult};
+/// use solana_rbpf::vm::{Config, ProgramResult};
 ///
 /// let mut val = &mut [0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
 /// let val_va = 0x100000000;
@@ -194,13 +182,8 @@ impl SyscallObject for BpfGatherBytes {
 /// ```
 pub struct BpfMemFrob {}
 impl BpfMemFrob {
-    /// new
-    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
-        Box::new(Self {})
-    }
-}
-impl SyscallObject for BpfMemFrob {
-    fn call(
+    /// Syscall handler method
+    pub fn call(
         &mut self,
         vm_addr: u64,
         len: u64,
@@ -228,7 +211,7 @@ impl SyscallObject for BpfMemFrob {
 /// ```
 /// use solana_rbpf::syscalls::BpfStrCmp;
 /// use solana_rbpf::memory_region::{MemoryRegion, MemoryMapping};
-/// use solana_rbpf::vm::{Config, SyscallObject, ProgramResult};
+/// use solana_rbpf::vm::{Config, ProgramResult};
 ///
 /// let foo = "This is a string.";
 /// let bar = "This is another sting.";
@@ -247,13 +230,8 @@ impl SyscallObject for BpfMemFrob {
 /// ```
 pub struct BpfStrCmp {}
 impl BpfStrCmp {
-    /// new
-    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
-        Box::new(Self {})
-    }
-}
-impl SyscallObject for BpfStrCmp {
-    fn call(
+    /// Syscall handler method
+    pub fn call(
         &mut self,
         arg1: u64,
         arg2: u64,
@@ -293,13 +271,8 @@ impl SyscallObject for BpfStrCmp {
 /// Prints a NULL-terminated UTF-8 string.
 pub struct BpfSyscallString {}
 impl BpfSyscallString {
-    /// new
-    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
-        Box::new(Self {})
-    }
-}
-impl SyscallObject for BpfSyscallString {
-    fn call(
+    /// Syscall handler method
+    pub fn call(
         &mut self,
         vm_addr: u64,
         len: u64,
@@ -329,13 +302,8 @@ impl SyscallObject for BpfSyscallString {
 /// Prints the five arguments formated as u64 in decimal.
 pub struct BpfSyscallU64 {}
 impl BpfSyscallU64 {
-    /// new
-    pub fn init<C>(_unused: C) -> Box<dyn SyscallObject> {
-        Box::new(Self {})
-    }
-}
-impl SyscallObject for BpfSyscallU64 {
-    fn call(
+    /// Syscall handler method
+    pub fn call(
         &mut self,
         arg1: u64,
         arg2: u64,
@@ -356,16 +324,11 @@ impl SyscallObject for BpfSyscallU64 {
 /// Example of a syscall with internal state.
 pub struct SyscallWithContext {
     /// Mutable state
-    pub context: BpfSyscallContext,
+    pub context: u64,
 }
 impl SyscallWithContext {
-    /// new
-    pub fn init<C>(context: BpfSyscallContext) -> Box<dyn SyscallObject> {
-        Box::new(Self { context })
-    }
-}
-impl SyscallObject for SyscallWithContext {
-    fn call(
+    /// Syscall handler method
+    pub fn call(
         &mut self,
         arg1: u64,
         arg2: u64,

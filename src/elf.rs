@@ -1213,8 +1213,8 @@ mod test {
             types::{Elf64Ehdr, Elf64Shdr},
         },
         fuzz::fuzz,
-        syscalls::{BpfSyscallContext, BpfSyscallString, BpfSyscallU64},
-        vm::{ProgramResult, SyscallObject, TestInstructionMeter},
+        syscalls::{BpfSyscallString, BpfSyscallU64},
+        vm::{ProgramResult, TestInstructionMeter},
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
@@ -1223,18 +1223,10 @@ mod test {
     fn syscall_registry() -> SyscallRegistry {
         let mut syscall_registry = SyscallRegistry::default();
         syscall_registry
-            .register_syscall_by_name(
-                b"log",
-                BpfSyscallString::init::<BpfSyscallContext>,
-                BpfSyscallString::call,
-            )
+            .register_syscall_by_name(b"log", BpfSyscallString::call)
             .unwrap();
         syscall_registry
-            .register_syscall_by_name(
-                b"log_64",
-                BpfSyscallU64::init::<BpfSyscallContext>,
-                BpfSyscallU64::call,
-            )
+            .register_syscall_by_name(b"log_64", BpfSyscallU64::call)
             .unwrap();
         syscall_registry
     }
@@ -2242,6 +2234,6 @@ mod test {
             Executable::jit_compile(&mut executable).unwrap();
         }
 
-        assert_eq!(18656, executable.mem_size());
+        assert_eq!(18464, executable.mem_size());
     }
 }

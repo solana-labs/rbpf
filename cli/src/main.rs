@@ -4,38 +4,14 @@ use solana_rbpf::{
     debugger, ebpf,
     elf::Executable,
     interpreter::Interpreter,
-    memory_region::{MemoryMapping, MemoryRegion},
+    memory_region::MemoryRegion,
     static_analysis::Analysis,
     verifier::RequisiteVerifier,
     vm::{
-        Config, DynamicAnalysis, EbpfVm, ProgramResult, SyscallObject, SyscallRegistry,
-        TestInstructionMeter, VerifiedExecutable,
+        Config, DynamicAnalysis, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
     },
 };
 use std::{fs::File, io::Read, path::Path};
-
-#[derive(Clone)]
-struct MockSyscall {
-    name: String,
-}
-impl SyscallObject for MockSyscall {
-    fn call(
-        &mut self,
-        arg1: u64,
-        arg2: u64,
-        arg3: u64,
-        arg4: u64,
-        arg5: u64,
-        _memory_mapping: &mut MemoryMapping,
-        result: &mut ProgramResult,
-    ) {
-        println!(
-            "Syscall {}: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}",
-            self.name, arg1, arg2, arg3, arg4, arg5,
-        );
-        *result = ProgramResult::Ok(0);
-    }
-}
 
 fn main() {
     let matches = App::new("Solana RBPF CLI")
@@ -210,7 +186,7 @@ fn main() {
         _ => {}
     }
 
-    vm.bind_syscall_context_objects(0).unwrap();
+    vm.bind_syscall_context_object(&mut ());
     let result = if matches.value_of("use").unwrap() == "debugger" {
         let mut interpreter = Interpreter::new(&mut vm, &mut instruction_meter).unwrap();
         let port = matches.value_of("port").unwrap().parse::<u16>().unwrap();
@@ -225,12 +201,13 @@ fn main() {
     if matches.is_present("trace") {
         println!("Trace:\n");
         let stdout = std::io::stdout();
-        vm.get_tracer()
+        vm.get_program_environment()
+            .tracer
             .write(&mut stdout.lock(), analysis.as_ref().unwrap())
             .unwrap();
     }
     if matches.is_present("profile") {
-        let tracer = &vm.get_tracer();
+        let tracer = &vm.get_program_environment().tracer;
         let dynamic_analysis = DynamicAnalysis::new(tracer, analysis.as_ref().unwrap());
         let mut file = File::create("profile.dot").unwrap();
         analysis

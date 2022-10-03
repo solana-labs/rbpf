@@ -25,7 +25,7 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
     elf::Executable,
-    vm::{Config, ProgramResult, InstructionMeter, Tracer, ProgramEnvironment},
+    vm::{Config, ProgramResult, InstructionMeter, Tracer, ProgramEnvironment, SyscallFunction},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, FRAME_PTR_REG, MM_STACK_START, STACK_PTR_REG},
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
@@ -946,7 +946,7 @@ impl JitCompiler {
             if config.encrypt_environment_registers {
                 (
                     diversification_rng.gen::<i32>() / 16, // -3 bits for 8 Byte alignment, and -1 bit to have encoding space for EnvironmentStackSlot::SlotCount
-                    diversification_rng.gen::<i32>() / 2, // -1 bit to have encoding space for (ProgramEnvironment::SYSCALLS_OFFSET + syscall.context_object_slot) * 8
+                    diversification_rng.gen::<i32>() / 2, // -1 bit to have encoding space for (ProgramEnvironment::SYSCALL_CONTEXT_OBJECT + syscall.context_object_slot) * 8
                 )
             } else { (0, 0) };
 
@@ -1226,8 +1226,8 @@ impl JitCompiler {
                             if self.config.enable_instruction_meter {
                                 emit_validate_and_profile_instruction_count(self, true, Some(0));
                             }
-                            emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, syscall.function as *const u8 as i64));
-                            emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset(ProgramEnvironment::SYSCALLS_OFFSET as i32 + syscall.context_object_slot as i32 * 8 + self.program_argument_key)));
+                            emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, syscall as *const SyscallFunction<*mut ()> as i64));
+                            emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset(ProgramEnvironment::SYSCALL_CONTEXT_OBJECT as i32 + self.program_argument_key)));
                             emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_SYSCALL, 5)));
                             if self.config.enable_instruction_meter {
                                 emit_undo_profile_instruction_count(self, 0);
@@ -1503,7 +1503,7 @@ impl JitCompiler {
             Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
             Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
             Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
-            Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the SyscallObject
+            Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the syscall
         ], None);
         if self.config.enable_instruction_meter {
             emit_rust_call(self, Value::Constant64(I::get_remaining as *const u8 as i64, false), &[
@@ -1699,7 +1699,7 @@ impl JitCompiler {
 #[cfg(all(test, target_arch = "x86_64", not(target_os = "windows")))]
 mod tests {
     use super::*;
-    use crate::{syscalls, vm::{SyscallRegistry, SyscallObject, TestInstructionMeter}, elf::register_bpf_function};
+    use crate::{syscalls, vm::{SyscallRegistry, TestInstructionMeter}, elf::register_bpf_function};
     use std::collections::BTreeMap;
     use byteorder::{LittleEndian, ByteOrder};
 
@@ -1712,7 +1712,6 @@ mod tests {
         syscall_registry
             .register_syscall_by_hash(
                 0xFFFFFFFF,
-                syscalls::BpfGatherBytes::init::<syscalls::BpfSyscallContext>,
                 syscalls::BpfGatherBytes::call,
             )
             .unwrap();

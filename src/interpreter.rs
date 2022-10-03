@@ -18,7 +18,7 @@ use crate::{
     error::EbpfError,
     memory_region::AccessType,
     verifier::Verifier,
-    vm::{EbpfVm, InstructionMeter, ProgramResult, SyscallFunction},
+    vm::{EbpfVm, InstructionMeter, ProgramResult},
 };
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
@@ -457,8 +457,8 @@ impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
                         }
                         self.due_insn_count = 0;
                         let mut result = ProgramResult::Ok(0);
-                        (unsafe { std::mem::transmute::<u64, SyscallFunction::<*mut u8>>(syscall.function) })(
-                            self.vm.program_environment.syscall_context_objects[syscall.context_object_slot],
+                        syscall(
+                            self.vm.program_environment.syscall_context_object,
                             self.reg[1],
                             self.reg[2],
                             self.reg[3],
