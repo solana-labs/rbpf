@@ -99,28 +99,6 @@ pub type ProgramResult = StableResult<u64, EbpfError>;
 pub type SyscallFunction<O> =
     fn(O, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
 
-/// A virtual method table for dyn trait objects
-pub struct DynTraitVtable {
-    /// Drops the dyn trait object
-    pub drop: fn(*const u8),
-    /// Size of the dyn trait object in bytes
-    pub size: usize,
-    /// Alignment of the dyn trait object in bytes
-    pub align: usize,
-    /// The methods of the trait
-    pub methods: [*const u8; 32],
-}
-
-// Could be replaced by https://doc.rust-lang.org/std/raw/struct.TraitObject.html
-/// A dyn trait fat pointer
-#[derive(Clone, Copy)]
-pub struct DynTraitFatPointer {
-    /// Pointer to the actual object
-    pub data: *mut u8,
-    /// Pointer to the virtual method table
-    pub vtable: &'static DynTraitVtable,
-}
-
 /// Holds the syscall function pointers of an Executable
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct SyscallRegistry {
