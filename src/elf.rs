@@ -414,7 +414,7 @@ impl<I: InstructionMeter> Executable<I> {
             // it must be properly aligned. We assume that HOST_ALIGN is a
             // multiple of the ELF "natural" alignment. See test_load_unaligned.
             let aligned;
-            let bytes = if is_memory_aligned(bytes, HOST_ALIGN) {
+            let bytes = if is_memory_aligned(bytes.as_ptr() as usize, HOST_ALIGN) {
                 bytes
             } else {
                 aligned = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
