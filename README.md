@@ -4,7 +4,7 @@
 
 Rust (user-space) virtual machine for eBPF
 
-[![Build Status](https://api.travis-ci.com/solana-labs/rbpf.svg?branch=main)](https://app.travis-ci.com/github/solana-labs/rbpf)
+[![Build Status](https://github.com/solana-labs/rbpf/actions/workflows/main.yml/badge.svg)](https://github.com/solana-labs/rbpf/actions/workflows/main.yml)
 [![Crates.io](https://img.shields.io/crates/v/solana_rbpf.svg)](https://crates.io/crates/solana_rbpf)
 
 ## Description
