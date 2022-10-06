@@ -66,20 +66,23 @@ macro_rules! bench_gapped_randomized_access_with_1024_entries {
                 frame_size,
                 false,
             )];
-            bencher.bench(|bencher| {
-                let config = Config::default();
-                let memory_mapping = $mem::new(memory_regions.clone(), &config).unwrap();
-                let mut prng = new_prng!();
-                bencher.iter(|| {
-                    assert!(memory_mapping
-                        .map(
-                            AccessType::Load,
-                            0x100000000 + (prng.gen::<u64>() % frame_count * (frame_size * 2)),
-                            1
-                        )
-                        .is_ok());
-                });
-            });
+            bencher
+                .bench(|bencher| {
+                    let config = Config::default();
+                    let memory_mapping = $mem::new(memory_regions.clone(), &config).unwrap();
+                    let mut prng = new_prng!();
+                    bencher.iter(|| {
+                        assert!(memory_mapping
+                            .map(
+                                AccessType::Load,
+                                0x100000000 + (prng.gen::<u64>() % frame_count * (frame_size * 2)),
+                                1
+                            )
+                            .is_ok());
+                    });
+                    Ok(())
+                })
+                .unwrap();
         }
     };
     () => {
@@ -199,13 +202,13 @@ macro_rules! bench_randomized_mapping_with_n_entries {
 }
 bench_randomized_mapping_with_n_entries!(
     1,
-    bench_randomized_mapping_with_001_entries_aligned,
-    bench_randomized_mapping_with_001_entries_unaligned
+    bench_randomized_mapping_with_0001_entries_aligned,
+    bench_randomized_mapping_with_0001_entries_unaligned
 );
 bench_randomized_mapping_with_n_entries!(
     4,
-    bench_randomized_mapping_with_004_entries_aligned,
-    bench_randomized_mapping_with_004_entries_unaligned
+    bench_randomized_mapping_with_0004_entries_aligned,
+    bench_randomized_mapping_with_0004_entries_unaligned
 );
 bench_randomized_mapping_with_n_entries!(
     16,

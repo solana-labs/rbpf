@@ -92,7 +92,9 @@ fn bench_jit_vs_interpreter(
                 assert!(result.is_ok(), "{:?}", result);
                 assert_eq!(vm.get_total_instruction_count(), instruction_meter);
             });
+            Ok(())
         })
+        .unwrap()
         .unwrap();
     let jit_summary = bencher
         .bench(|bencher| {
@@ -103,7 +105,9 @@ fn bench_jit_vs_interpreter(
                 assert!(result.is_ok(), "{:?}", result);
                 assert_eq!(vm.get_total_instruction_count(), instruction_meter);
             });
+            Ok(())
         })
+        .unwrap()
         .unwrap();
     println!(
         "jit_vs_interpreter_ratio={}",
