@@ -16,6 +16,7 @@ pub const EI_OSABI: u8 = 7;
 pub const ELFOSABI_NONE: u8 = 0;
 
 pub const EM_BPF: Elf64Half = 247;
+pub const EM_SBF: Elf64Half = 263;
 
 pub const ET_NONE: Elf64Half = 0;
 pub const ET_REL: Elf64Half = 1;

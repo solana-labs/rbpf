@@ -11,8 +11,8 @@ use crate::{
     ebpf::{self, EF_SBF_V2, HOST_ALIGN, INSN_SIZE},
     elf_parser::{
         consts::{
-            ELFCLASS64, ELFDATA2LSB, ELFOSABI_NONE, EM_BPF, ET_DYN, R_X86_64_32, R_X86_64_64,
-            R_X86_64_NONE, R_X86_64_RELATIVE,
+            ELFCLASS64, ELFDATA2LSB, ELFOSABI_NONE, EM_BPF, EM_SBF, ET_DYN, R_X86_64_32,
+            R_X86_64_64, R_X86_64_NONE, R_X86_64_RELATIVE,
         },
         types::Elf64Word,
     },
@@ -636,7 +636,7 @@ impl<I: InstructionMeter> Executable<I> {
         if header.e_ident.ei_osabi != ELFOSABI_NONE {
             return Err(ElfError::WrongAbi);
         }
-        if header.e_machine != EM_BPF {
+        if header.e_machine != EM_BPF && header.e_machine != EM_SBF {
             return Err(ElfError::WrongMachine);
         }
         if header.e_type != ET_DYN {
