@@ -201,10 +201,8 @@ const ANCHOR_EXIT: usize = 11;
 const ANCHOR_SYSCALL: usize = 12;
 const ANCHOR_BPF_CALL_PROLOGUE: usize = 13;
 const ANCHOR_BPF_CALL_REG: usize = 14;
-const ANCHOR_TRANSLATE_PC: usize = 15;
-const ANCHOR_TRANSLATE_PC_LOOP: usize = 16;
-const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 24;
-const ANCHOR_COUNT: usize = 33; // Update me when adding or removing anchors
+const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 22;
+const ANCHOR_COUNT: usize = 31; // Update me when adding or removing anchors
 
 const REGISTER_MAP: [u8; 11] = [
     CALLER_SAVED_REGISTERS[0],
@@ -939,7 +937,7 @@ impl JitCompiler {
         if config.instruction_meter_checkpoint_distance != 0 {
             code_length_estimate += pc / config.instruction_meter_checkpoint_distance * MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT;
         }
-        let result = JitProgramSections::new(pc + 1, code_length_estimate)?;
+        let result = JitProgramSections::new(pc, code_length_estimate)?;
 
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
         let (environment_stack_key, program_argument_key) =
@@ -974,8 +972,6 @@ impl JitCompiler {
         self.program_vm_addr = program_vm_addr;
 
         self.generate_prologue::<I>(executable)?;
-
-        // Have these in front so that the linear search of ANCHOR_TRANSLATE_PC does not terminate early
         self.generate_subroutines::<I>()?;
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
@@ -1277,8 +1273,6 @@ impl JitCompiler {
 
             self.pc += 1;
         }
-        // Bumper so that the linear search of ANCHOR_TRANSLATE_PC can not run off
-        self.result.pc_section[self.pc] = unsafe { text_section_base.add(self.offset_in_text_section) } as usize;
 
         // Bumper in case there was no final exit
         if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
@@ -1562,7 +1556,7 @@ impl JitCompiler {
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i64 - 1), None)); // RAX &= !(INSN_SIZE - 1);
         // Upper bound check
         // if(RAX >= self.program_vm_addr + number_of_instructions * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
-        let number_of_instructions = self.result.pc_section.len() - 1;
+        let number_of_instructions = self.result.pc_section.len();
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], self.program_vm_addr as i64 + (number_of_instructions * INSN_SIZE) as i64));
         emit_ins(self, X86Instruction::cmp(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0], None));
         emit_ins(self, X86Instruction::conditional_jump_immediate(0x83, self.relative_to_anchor(ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT, 6)));
@@ -1587,21 +1581,6 @@ impl JitCompiler {
         emit_ins(self, X86Instruction::load(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], X86IndirectAccess::Offset(0))); // RAX = self.result.pc_section[RAX / 8];
         // Load the frame pointer again since we've clobbered REGISTER_MAP[FRAME_PTR_REG]
         emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[FRAME_PTR_REG], X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::BpfFramePtr))));
-        emit_ins(self, X86Instruction::return_near());
-
-        // Translates a host pc back to a BPF pc by linear search of the pc_section table
-        self.set_anchor(ANCHOR_TRANSLATE_PC);
-        emit_ins(self, X86Instruction::push(REGISTER_MAP[0], None)); // Save REGISTER_MAP[0]
-        emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], self.result.pc_section.as_ptr() as i64 - 8)); // Loop index and pointer to look up
-        self.set_anchor(ANCHOR_TRANSLATE_PC_LOOP); // Loop label
-        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_MAP[0], 8, None)); // Increase index
-        emit_ins(self, X86Instruction::cmp(OperandSize::S64, R11, REGISTER_MAP[0], Some(X86IndirectAccess::Offset(8)))); // Look up and compare against value at next index
-        emit_ins(self, X86Instruction::conditional_jump_immediate(0x86, self.relative_to_anchor(ANCHOR_TRANSLATE_PC_LOOP, 6))); // Continue while *REGISTER_MAP[0] <= R11
-        emit_ins(self, X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11)); // R11 = REGISTER_MAP[0];
-        emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], self.result.pc_section.as_ptr() as i64)); // REGISTER_MAP[0] = self.result.pc_section;
-        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_MAP[0], R11, 0, None)); // R11 -= REGISTER_MAP[0];
-        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0xc1, 5, R11, 3, None)); // R11 >>= 3;
-        emit_ins(self, X86Instruction::pop(REGISTER_MAP[0])); // Restore REGISTER_MAP[0]
         emit_ins(self, X86Instruction::return_near());
 
         // Translates a vm memory address to a host memory address
@@ -1726,7 +1705,7 @@ mod tests {
     
         let empty_program_machine_code_length = {
             prog[0] = ebpf::EXIT;
-            let mut executable = create_mockup_executable(&[]);
+            let mut executable = create_mockup_executable(&prog[0..ebpf::INSN_SIZE]);
             Executable::<TestInstructionMeter>::jit_compile(&mut executable).unwrap();
             executable.get_compiled_program().unwrap().machine_code_length()
         };
