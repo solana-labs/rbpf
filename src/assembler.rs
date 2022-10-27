@@ -259,12 +259,23 @@ pub fn assemble<I: 'static + InstructionMeter>(
     let statements = parse(src)?;
     let instruction_map = make_instruction_map();
     let mut insn_ptr = 0;
+    let mut function_registry = FunctionRegistry::default();
     let mut labels = HashMap::new();
     labels.insert("entrypoint", 0);
     for statement in statements.iter() {
         match statement {
             Statement::Label { name } => {
                 labels.insert(name.as_str(), insn_ptr);
+                if name.starts_with("function_") {
+                    resolve_call(
+                        &config,
+                        &mut function_registry,
+                        &syscall_registry,
+                        &labels,
+                        name,
+                        Some(insn_ptr),
+                    )?;
+                }
             }
             Statement::Instruction { name, .. } => {
                 insn_ptr += if name == "lddw" { 2 } else { 1 };
@@ -272,7 +283,6 @@ pub fn assemble<I: 'static + InstructionMeter>(
         }
     }
     insn_ptr = 0;
-    let mut function_registry = FunctionRegistry::default();
     resolve_call(
         &config,
         &mut function_registry,
