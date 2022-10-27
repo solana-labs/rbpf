@@ -23,7 +23,10 @@
 //!
 //! Contrary to the verifier of the Linux kernel, this one does not modify the bytecode at all.
 
-use crate::{ebpf, vm::Config};
+use crate::{
+    ebpf,
+    vm::{Config, FunctionRegistry},
+};
 use thiserror::Error;
 
 /// Error definitions
@@ -89,7 +92,11 @@ pub trait Verifier {
     ///   - Unknown instructions.
     ///   - Bad formed instruction.
     ///   - Unknown eBPF syscall index.
-    fn verify(prog: &[u8], config: &Config) -> Result<(), VerifierError>;
+    fn verify(
+        prog: &[u8],
+        config: &Config,
+        function_registry: &FunctionRegistry,
+    ) -> Result<(), VerifierError>;
 }
 
 fn adj_insn_ptr(insn_ptr: usize) -> usize {
@@ -209,7 +216,7 @@ pub struct RequisiteVerifier {}
 impl Verifier for RequisiteVerifier {
     /// Check the program against the verifier's rules
     #[rustfmt::skip]
-    fn verify(prog: &[u8], config: &Config) -> Result<(), VerifierError> {
+    fn verify(prog: &[u8], config: &Config, _function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
         check_prog_len(prog)?;
 
         let mut insn_ptr: usize = 0;
@@ -351,7 +358,11 @@ impl Verifier for RequisiteVerifier {
 // Warning: For test purposes only
 pub(crate) struct TautologyVerifier {}
 impl Verifier for TautologyVerifier {
-    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
+    fn verify(
+        _prog: &[u8],
+        _config: &Config,
+        _function_registry: &FunctionRegistry,
+    ) -> std::result::Result<(), VerifierError> {
         Ok(())
     }
 }

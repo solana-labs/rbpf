@@ -157,6 +157,7 @@ impl solana_rbpf::verifier::Verifier for TautologyVerifier {
     fn verify(
         _prog: &[u8],
         _config: &solana_rbpf::vm::Config,
+        _function_registry: &solana_rbpf::vm::FunctionRegistry,
     ) -> std::result::Result<(), solana_rbpf::verifier::VerifierError> {
         Ok(())
     }

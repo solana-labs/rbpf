@@ -3,8 +3,7 @@
 use libfuzzer_sys::fuzz_target;
 
 use semantic_aware::*;
-use solana_rbpf::insn_builder::IntoBytes;
-use solana_rbpf::verifier::{RequisiteVerifier, Verifier};
+use solana_rbpf::{insn_builder::IntoBytes, verifier::{RequisiteVerifier, Verifier}, vm::FunctionRegistry};
 
 use crate::common::ConfigTemplate;
 
@@ -20,5 +19,6 @@ struct FuzzData {
 fuzz_target!(|data: FuzzData| {
     let prog = make_program(&data.prog);
     let config = data.template.into();
-    RequisiteVerifier::verify(prog.into_bytes(), &config).unwrap();
+    let function_registry = FunctionRegistry::default();
+    RequisiteVerifier::verify(prog.into_bytes(), &config, &function_registry).unwrap();
 });

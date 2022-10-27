@@ -1,6 +1,5 @@
 #![no_main]
 
-use std::collections::BTreeMap;
 use std::hint::black_box;
 
 use libfuzzer_sys::fuzz_target;
@@ -32,7 +31,8 @@ struct FuzzData {
 fuzz_target!(|data: FuzzData| {
     let prog = make_program(&data.prog, data.arch);
     let config = data.template.into();
-    if RequisiteVerifier::verify(prog.into_bytes(), &config).is_err() {
+    let function_registry = FunctionRegistry::default();
+    if RequisiteVerifier::verify(prog.into_bytes(), &config, &function_registry).is_err() {
         // verify please
         return;
     }
@@ -41,7 +41,7 @@ fuzz_target!(|data: FuzzData| {
         prog.into_bytes(),
         config,
         SyscallRegistry::default(),
-        FunctionRegistry::default(),
+        function_registry,
     )
     .unwrap();
     let verified_executable =

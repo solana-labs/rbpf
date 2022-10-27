@@ -43,7 +43,11 @@ pub enum VerifierTestError {
 
 struct ContradictionVerifier {}
 impl Verifier for ContradictionVerifier {
-    fn verify(_prog: &[u8], _config: &Config) -> std::result::Result<(), VerifierError> {
+    fn verify(
+        _prog: &[u8],
+        _config: &Config,
+        _function_registry: &FunctionRegistry,
+    ) -> std::result::Result<(), VerifierError> {
         Err(VerifierError::NoProgram)
     }
 }

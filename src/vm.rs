@@ -279,7 +279,11 @@ pub struct VerifiedExecutable<V: Verifier, I: InstructionMeter> {
 impl<V: Verifier, I: InstructionMeter> VerifiedExecutable<V, I> {
     /// Verify an executable
     pub fn from_executable(executable: Executable<I>) -> Result<Self, EbpfError> {
-        <V as Verifier>::verify(executable.get_text_bytes().1, executable.get_config())?;
+        <V as Verifier>::verify(
+            executable.get_text_bytes().1,
+            executable.get_config(),
+            executable.get_function_registry(),
+        )?;
         Ok(VerifiedExecutable {
             executable,
             _verifier: PhantomData,
