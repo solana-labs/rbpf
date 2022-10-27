@@ -203,8 +203,7 @@ const ANCHOR_BPF_CALL_PROLOGUE: usize = 13;
 const ANCHOR_BPF_CALL_REG: usize = 14;
 const ANCHOR_TRANSLATE_PC: usize = 15;
 const ANCHOR_TRANSLATE_PC_LOOP: usize = 16;
-const ANCHOR_MEMORY_ACCESS_VIOLATION: usize = 17;
-const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 25;
+const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 24;
 const ANCHOR_COUNT: usize = 33; // Update me when adding or removing anchors
 
 const REGISTER_MAP: [u8; 11] = [
@@ -710,6 +709,7 @@ fn emit_address_translation(jit: &mut JitCompiler, host_addr: u8, vm_addr: Value
         },
     }
     let anchor = ANCHOR_TRANSLATE_MEMORY_ADDRESS + len.trailing_zeros() as usize + 4 * (access_type as usize);
+    emit_ins(jit, X86Instruction::push_immediate(OperandSize::S64, jit.pc as i32));
     emit_ins(jit, X86Instruction::call_immediate(jit.relative_to_anchor(anchor, 5)));
     emit_ins(jit, X86Instruction::mov(OperandSize::S64, R11, host_addr));
 }
@@ -1604,12 +1604,6 @@ impl JitCompiler {
         emit_ins(self, X86Instruction::pop(REGISTER_MAP[0])); // Restore REGISTER_MAP[0]
         emit_ins(self, X86Instruction::return_near());
 
-        self.set_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION);
-        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, 8, None));
-        emit_ins(self, X86Instruction::pop(R11)); // Put callers PC in R11
-        emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRANSLATE_PC, 5)));
-        emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
-
         // Translates a vm memory address to a host memory address
         for (access_type, len) in &[
             (AccessType::Load, 1i32),
@@ -1623,7 +1617,6 @@ impl JitCompiler {
         ] {
             let target_offset = len.trailing_zeros() as usize + 4 * (*access_type as usize);
             self.set_anchor(ANCHOR_TRANSLATE_MEMORY_ADDRESS + target_offset);
-            emit_ins(self, X86Instruction::push(R11, None));
             // call MemoryMapping::map() storing the result in EnvironmentStackSlot::OptRetValPtr
             emit_rust_call(self, Value::Constant64(MemoryMapping::map as *const u8 as i64, false), &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
@@ -1635,13 +1628,14 @@ impl JitCompiler {
 
             // Throw error if the result indicates one
             emit_result_is_err(self, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr)));
-            emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_MEMORY_ACCESS_VIOLATION, 6)));
+            emit_ins(self, X86Instruction::pop(R11)); // R11 = self.pc
+            emit_ins(self, X86Instruction::xchg(OperandSize::S64, R11, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Swap return address and self.pc
+            emit_ins(self, X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 6)));
 
             // unwrap() the host addr into R11
             emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr))));
             emit_ins(self, X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)));
 
-            emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, 8, None));
             emit_ins(self, X86Instruction::return_near());
         }
         Ok(())
