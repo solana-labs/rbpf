@@ -18,7 +18,7 @@ use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
-    elf::{register_bpf_function, ElfError, Executable},
+    elf::{ElfError, Executable},
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     syscalls,
@@ -2715,16 +2715,8 @@ fn test_err_mem_access_out_of_bound() {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
         let config = Config::default();
-        let mut bpf_functions = BTreeMap::new();
+        let bpf_functions = BTreeMap::new();
         let syscall_registry = SyscallRegistry::default();
-        register_bpf_function(
-            &config,
-            &mut bpf_functions,
-            &syscall_registry,
-            0,
-            "entrypoint",
-        )
-        .unwrap();
         #[allow(unused_mut)]
         let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(
             &prog,
@@ -4185,20 +4177,12 @@ fn test_tcp_sack_nomatch() {
 fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
-    let mut bpf_functions = BTreeMap::new();
+    let bpf_functions = BTreeMap::new();
     let config = Config {
         enable_instruction_tracing: true,
         ..Config::default()
     };
     let syscall_registry = SyscallRegistry::default();
-    register_bpf_function(
-        &config,
-        &mut bpf_functions,
-        &syscall_registry,
-        0,
-        "entrypoint",
-    )
-    .unwrap();
     let executable = Executable::<TestInstructionMeter>::from_text_bytes(
         prog,
         config,

@@ -171,7 +171,7 @@ impl<'a, I: InstructionMeter> Analysis<'a, I> {
             functions,
             cfg_nodes: BTreeMap::new(),
             topological_order: Vec::new(),
-            entrypoint: executable.get_entrypoint_instruction_offset()?,
+            entrypoint: executable.get_entrypoint_instruction_offset(),
             super_root: insn_ptr,
             dfg_forward_edges: BTreeMap::new(),
             dfg_reverse_edges: BTreeMap::new(),

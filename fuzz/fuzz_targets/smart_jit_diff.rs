@@ -7,7 +7,7 @@ use libfuzzer_sys::fuzz_target;
 use grammar_aware::*;
 use solana_rbpf::{
     ebpf,
-    elf::{register_bpf_function, Executable},
+    elf::Executable,
     insn_builder::{Arch, Instruction, IntoBytes},
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, Verifier},
@@ -46,14 +46,11 @@ fuzz_target!(|data: FuzzData| {
     }
     let mut interp_mem = data.mem.clone();
     let mut jit_mem = data.mem;
-    let registry = SyscallRegistry::default();
-    let mut bpf_functions = BTreeMap::new();
-    register_bpf_function(&config, &mut bpf_functions, &registry, 0, "entrypoint").unwrap();
     let executable = Executable::<TestInstructionMeter>::from_text_bytes(
         prog.into_bytes(),
         config,
         SyscallRegistry::default(),
-        bpf_functions,
+        BTreeMap::new(),
     )
     .unwrap();
     let mut verified_executable =

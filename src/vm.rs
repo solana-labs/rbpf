@@ -260,12 +260,8 @@ impl<I: 'static + InstructionMeter> Executable<I> {
         syscall_registry: SyscallRegistry,
         bpf_functions: BTreeMap<u32, (usize, String)>,
     ) -> Result<Self, EbpfError> {
-        Ok(Executable::new_from_text_bytes(
-            config,
-            text_bytes,
-            syscall_registry,
-            bpf_functions,
-        ))
+        Executable::new_from_text_bytes(config, text_bytes, syscall_registry, bpf_functions)
+            .map_err(EbpfError::ElfError)
     }
 }
 
@@ -437,7 +433,6 @@ impl Tracer {
 /// let config = Config::default();
 /// let mut bpf_functions = std::collections::BTreeMap::new();
 /// let syscall_registry = SyscallRegistry::default();
-/// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
 /// let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
 /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
 /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
@@ -473,7 +468,6 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// let config = Config::default();
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// let syscall_registry = SyscallRegistry::default();
-    /// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
     /// let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
     /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
     /// let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], Vec::new()).unwrap();
@@ -548,7 +542,6 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// let config = Config::default();
     /// let mut bpf_functions = std::collections::BTreeMap::new();
     /// let syscall_registry = SyscallRegistry::default();
-    /// register_bpf_function(&config, &mut bpf_functions, &syscall_registry, 0, "entrypoint").unwrap();
     /// let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, bpf_functions).unwrap();
     /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
     /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);

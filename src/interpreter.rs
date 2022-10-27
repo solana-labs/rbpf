@@ -122,7 +122,7 @@ impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
             0,
             vm.stack.get_frame_ptr(),
         ];
-        let pc = executable.get_entrypoint_instruction_offset()?;
+        let pc = executable.get_entrypoint_instruction_offset();
         Ok(Self {
             vm,
             instruction_meter,

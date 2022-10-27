@@ -1361,7 +1361,7 @@ impl JitCompiler {
         }
 
         // Jump to entry point
-        let entry = executable.get_entrypoint_instruction_offset().unwrap_or(0);
+        let entry = executable.get_entrypoint_instruction_offset();
         if self.config.enable_instruction_meter {
             emit_profile_instruction_count(self, Some(entry + 1));
         }
@@ -1699,7 +1699,7 @@ impl JitCompiler {
 #[cfg(all(test, target_arch = "x86_64", not(target_os = "windows")))]
 mod tests {
     use super::*;
-    use crate::{syscalls, vm::{SyscallRegistry, TestInstructionMeter}, elf::register_bpf_function};
+    use crate::{syscalls, vm::{SyscallRegistry, TestInstructionMeter}};
     use std::collections::BTreeMap;
     use byteorder::{LittleEndian, ByteOrder};
 
@@ -1716,14 +1716,6 @@ mod tests {
             )
             .unwrap();
         let mut bpf_functions = BTreeMap::new();
-        register_bpf_function(
-            &config,
-            &mut bpf_functions,
-            &syscall_registry,
-            0,
-            "entrypoint",
-        )
-        .unwrap();
         bpf_functions.insert(0xFFFFFFFF, (8, "foo".to_string()));
         Executable::<TestInstructionMeter>::from_text_bytes(
             program,

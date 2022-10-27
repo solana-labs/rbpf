@@ -273,6 +273,8 @@ pub struct Executable<I: InstructionMeter> {
     ro_section: Section,
     /// Text section info
     text_section_info: SectionInfo,
+    /// Address of the entry point
+    entry_pc: usize,
     /// Call resolution map (hash, pc, name)
     bpf_functions: BTreeMap<u32, (usize, String)>,
     /// Syscall symbol map (hash, name)
@@ -328,12 +330,8 @@ impl<I: InstructionMeter> Executable<I> {
     }
 
     /// Get the entry point offset into the text section
-    pub fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError> {
-        self.bpf_functions
-            .values()
-            .find(|(_pc, name)| name == "entrypoint")
-            .map(|(pc, _name)| *pc)
-            .ok_or(EbpfError::ElfError(ElfError::InvalidEntrypoint))
+    pub fn get_entrypoint_instruction_offset(&self) -> usize {
+        self.entry_pc
     }
 
     /// Get the text section offset
@@ -384,11 +382,26 @@ impl<I: InstructionMeter> Executable<I> {
         config: Config,
         text_bytes: &[u8],
         syscall_registry: SyscallRegistry,
-        bpf_functions: BTreeMap<u32, (usize, String)>,
-    ) -> Self {
+        mut bpf_functions: BTreeMap<u32, (usize, String)>,
+    ) -> Result<Self, ElfError> {
         let elf_bytes = AlignedMemory::from_slice(text_bytes);
         let enable_symbol_and_section_labels = config.enable_symbol_and_section_labels;
-        Self {
+        let entry_pc = if let Some((pc, _name)) = bpf_functions
+            .values()
+            .find(|(_pc, name)| name == "entrypoint")
+        {
+            *pc
+        } else {
+            register_bpf_function(
+                &config,
+                &mut bpf_functions,
+                &syscall_registry,
+                0,
+                "entrypoint",
+            )?;
+            0
+        };
+        Ok(Self {
             config,
             elf_bytes,
             ro_section: Section::Borrowed(0, 0..text_bytes.len()),
@@ -401,6 +414,7 @@ impl<I: InstructionMeter> Executable<I> {
                 vaddr: ebpf::MM_PROGRAM_START,
                 offset_range: 0..text_bytes.len(),
             },
+            entry_pc,
             bpf_functions,
             syscall_symbols: BTreeMap::default(),
             syscall_registry,
@@ -408,7 +422,7 @@ impl<I: InstructionMeter> Executable<I> {
             compiled_program: None,
             #[cfg(not(feature = "jit"))]
             _marker: PhantomData,
-        }
+        })
     }
 
     /// Fully loads an ELF, including validation and relocation
@@ -500,7 +514,7 @@ impl<I: InstructionMeter> Executable<I> {
         if offset.checked_rem(ebpf::INSN_SIZE as u64) != Some(0) {
             return Err(ElfError::InvalidEntrypoint);
         }
-        if let Some(entrypoint) = (offset as usize).checked_div(ebpf::INSN_SIZE) {
+        let entry_pc = if let Some(entry_pc) = (offset as usize).checked_div(ebpf::INSN_SIZE) {
             if !config.static_syscalls {
                 bpf_functions.remove(&ebpf::hash_symbol_name(b"entrypoint"));
             }
@@ -508,12 +522,13 @@ impl<I: InstructionMeter> Executable<I> {
                 &config,
                 &mut bpf_functions,
                 &syscall_registry,
-                entrypoint,
+                entry_pc,
                 "entrypoint",
             )?;
+            entry_pc
         } else {
             return Err(ElfError::InvalidEntrypoint);
-        }
+        };
 
         let ro_section = Self::parse_ro_sections(
             &config,
@@ -527,6 +542,7 @@ impl<I: InstructionMeter> Executable<I> {
             elf_bytes,
             ro_section,
             text_section_info,
+            entry_pc,
             bpf_functions,
             syscall_symbols,
             syscall_registry,
@@ -1382,12 +1398,7 @@ mod test {
             .expect("validation failed");
         let parsed_elf = NewParser::parse(&elf_bytes).unwrap();
         let executable: &Executable<TestInstructionMeter> = &elf;
-        assert_eq!(
-            0,
-            executable
-                .get_entrypoint_instruction_offset()
-                .expect("failed to get entrypoint")
-        );
+        assert_eq!(0, executable.get_entrypoint_instruction_offset());
 
         let write_header = |header: Elf64Ehdr| unsafe {
             let mut bytes = elf_bytes.clone();
@@ -1403,12 +1414,7 @@ mod test {
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
         let executable: &Executable<TestInstructionMeter> = &elf;
-        assert_eq!(
-            1,
-            executable
-                .get_entrypoint_instruction_offset()
-                .expect("failed to get entrypoint")
-        );
+        assert_eq!(1, executable.get_entrypoint_instruction_offset());
 
         header.e_entry = 1;
         let elf_bytes = write_header(header.clone());
@@ -1436,12 +1442,7 @@ mod test {
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
         let executable: &Executable<TestInstructionMeter> = &elf;
-        assert_eq!(
-            0,
-            executable
-                .get_entrypoint_instruction_offset()
-                .expect("failed to get entrypoint")
-        );
+        assert_eq!(0, executable.get_entrypoint_instruction_offset());
     }
 
     #[test]
@@ -2246,6 +2247,6 @@ mod test {
             Executable::jit_compile(&mut executable).unwrap();
         }
 
-        assert_eq!(18474, executable.mem_size());
+        assert_eq!(18482, executable.mem_size());
     }
 }
