@@ -144,7 +144,10 @@ impl<'a, I: InstructionMeter> Analysis<'a, I> {
     /// Analyze an executable statically
     pub fn from_executable(executable: &'a Executable<I>) -> Result<Self, EbpfError> {
         let (_program_vm_addr, program) = executable.get_text_bytes();
-        let functions = executable.get_function_symbols();
+        let mut functions = BTreeMap::new();
+        for (key, (pc, name)) in executable.get_function_registry().iter() {
+            functions.insert(*pc, (*key, name.clone()));
+        }
         debug_assert!(
             program.len() % ebpf::INSN_SIZE == 0,
             "eBPF program length must be a multiple of {:?} octets is {:?}",

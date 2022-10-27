@@ -363,13 +363,9 @@ impl<I: InstructionMeter> Executable<I> {
         Ok(())
     }
 
-    /// Get syscalls and BPF functions (if debug symbols are not stripped)
-    pub fn get_function_symbols(&self) -> BTreeMap<usize, (u32, String)> {
-        let mut bpf_functions = BTreeMap::new();
-        for (hash, (pc, name)) in self.function_registry.iter() {
-            bpf_functions.insert(*pc, (*hash, name.clone()));
-        }
-        bpf_functions
+    /// Get normal functions (if debug symbols are not stripped)
+    pub fn get_function_registry(&self) -> &FunctionRegistry {
+        &self.function_registry
     }
 
     /// Get syscalls symbols
