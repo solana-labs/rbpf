@@ -12,7 +12,7 @@ use solana_rbpf::{
     insn_builder::{Arch, IntoBytes},
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
+    vm::{EbpfVm, SyscallRegistry, FunctionRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 use test_utils::TautologyVerifier;
 
@@ -41,7 +41,7 @@ fuzz_target!(|data: FuzzData| {
         prog.into_bytes(),
         config,
         SyscallRegistry::default(),
-        BTreeMap::new(),
+        FunctionRegistry::default(),
     )
     .unwrap();
     let verified_executable =

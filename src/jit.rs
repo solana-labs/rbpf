@@ -1699,8 +1699,7 @@ impl JitCompiler {
 #[cfg(all(test, target_arch = "x86_64", not(target_os = "windows")))]
 mod tests {
     use super::*;
-    use crate::{syscalls, vm::{SyscallRegistry, TestInstructionMeter}};
-    use std::collections::BTreeMap;
+    use crate::{syscalls, vm::{SyscallRegistry, TestInstructionMeter, FunctionRegistry}};
     use byteorder::{LittleEndian, ByteOrder};
 
     fn create_mockup_executable(program: &[u8]) -> Executable::<TestInstructionMeter> {
@@ -1715,13 +1714,13 @@ mod tests {
                 syscalls::BpfGatherBytes::call,
             )
             .unwrap();
-        let mut bpf_functions = BTreeMap::new();
-        bpf_functions.insert(0xFFFFFFFF, (8, "foo".to_string()));
+        let mut function_registry = FunctionRegistry::default();
+        function_registry.insert(0xFFFFFFFF, (8, "foo".to_string()));
         Executable::<TestInstructionMeter>::from_text_bytes(
             program,
             config,
             syscall_registry,
-            bpf_functions,
+            function_registry,
         )
         .unwrap()
     }

@@ -22,7 +22,7 @@ use crate::{
     },
     error::EbpfError,
     memory_region::MemoryRegion,
-    vm::{Config, InstructionMeter, SyscallRegistry},
+    vm::{Config, FunctionRegistry, InstructionMeter, SyscallRegistry},
 };
 
 #[cfg(feature = "jit")]
@@ -129,7 +129,7 @@ pub fn hash_bpf_function(pc: usize, name: &str) -> u32 {
 /// Register a symbol or throw ElfError::SymbolHashCollision
 pub fn register_bpf_function<T: AsRef<str> + ToString + std::cmp::PartialEq<&'static str>>(
     config: &Config,
-    bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+    function_registry: &mut FunctionRegistry,
     syscall_registry: &SyscallRegistry,
     pc: usize,
     name: T,
@@ -147,7 +147,7 @@ pub fn register_bpf_function<T: AsRef<str> + ToString + std::cmp::PartialEq<&'st
         }
         hash
     };
-    match bpf_functions.entry(key) {
+    match function_registry.entry(key) {
         Entry::Vacant(entry) => {
             entry.insert((
                 pc,
@@ -276,7 +276,7 @@ pub struct Executable<I: InstructionMeter> {
     /// Address of the entry point
     entry_pc: usize,
     /// Call resolution map (hash, pc, name)
-    bpf_functions: BTreeMap<u32, (usize, String)>,
+    function_registry: FunctionRegistry,
     /// Syscall symbol map (hash, name)
     syscall_symbols: BTreeMap<u32, String>,
     /// Syscall resolution map
@@ -342,7 +342,7 @@ impl<I: InstructionMeter> Executable<I> {
 
     /// Get a symbol's instruction offset
     pub fn lookup_bpf_function(&self, hash: u32) -> Option<usize> {
-        self.bpf_functions.get(&hash).map(|(pc, _name)| *pc)
+        self.function_registry.get(&hash).map(|(pc, _name)| *pc)
     }
 
     /// Get the syscall registry
@@ -366,7 +366,7 @@ impl<I: InstructionMeter> Executable<I> {
     /// Get syscalls and BPF functions (if debug symbols are not stripped)
     pub fn get_function_symbols(&self) -> BTreeMap<usize, (u32, String)> {
         let mut bpf_functions = BTreeMap::new();
-        for (hash, (pc, name)) in self.bpf_functions.iter() {
+        for (hash, (pc, name)) in self.function_registry.iter() {
             bpf_functions.insert(*pc, (*hash, name.clone()));
         }
         bpf_functions
@@ -382,11 +382,11 @@ impl<I: InstructionMeter> Executable<I> {
         config: Config,
         text_bytes: &[u8],
         syscall_registry: SyscallRegistry,
-        mut bpf_functions: BTreeMap<u32, (usize, String)>,
+        mut function_registry: FunctionRegistry,
     ) -> Result<Self, ElfError> {
         let elf_bytes = AlignedMemory::from_slice(text_bytes);
         let enable_symbol_and_section_labels = config.enable_symbol_and_section_labels;
-        let entry_pc = if let Some((pc, _name)) = bpf_functions
+        let entry_pc = if let Some((pc, _name)) = function_registry
             .values()
             .find(|(_pc, name)| name == "entrypoint")
         {
@@ -394,7 +394,7 @@ impl<I: InstructionMeter> Executable<I> {
         } else {
             register_bpf_function(
                 &config,
-                &mut bpf_functions,
+                &mut function_registry,
                 &syscall_registry,
                 0,
                 "entrypoint",
@@ -415,7 +415,7 @@ impl<I: InstructionMeter> Executable<I> {
                 offset_range: 0..text_bytes.len(),
             },
             entry_pc,
-            bpf_functions,
+            function_registry,
             syscall_symbols: BTreeMap::default(),
             syscall_registry,
             #[cfg(feature = "jit")]
@@ -498,11 +498,11 @@ impl<I: InstructionMeter> Executable<I> {
         }
 
         // relocate symbols
-        let mut bpf_functions = BTreeMap::default();
+        let mut function_registry = FunctionRegistry::default();
         let mut syscall_symbols = BTreeMap::default();
         Self::relocate(
             &config,
-            &mut bpf_functions,
+            &mut function_registry,
             &mut syscall_symbols,
             &syscall_registry,
             elf,
@@ -516,11 +516,11 @@ impl<I: InstructionMeter> Executable<I> {
         }
         let entry_pc = if let Some(entry_pc) = (offset as usize).checked_div(ebpf::INSN_SIZE) {
             if !config.static_syscalls {
-                bpf_functions.remove(&ebpf::hash_symbol_name(b"entrypoint"));
+                function_registry.remove(&ebpf::hash_symbol_name(b"entrypoint"));
             }
             register_bpf_function(
                 &config,
-                &mut bpf_functions,
+                &mut function_registry,
                 &syscall_registry,
                 entry_pc,
                 "entrypoint",
@@ -543,7 +543,7 @@ impl<I: InstructionMeter> Executable<I> {
             ro_section,
             text_section_info,
             entry_pc,
-            bpf_functions,
+            function_registry,
             syscall_symbols,
             syscall_registry,
             #[cfg(feature = "jit")]
@@ -568,8 +568,8 @@ impl<I: InstructionMeter> Executable<I> {
             // text section info
             .saturating_add(self.text_section_info.mem_size())
             // bpf functions
-            .saturating_add(mem::size_of_val(&self.bpf_functions))
-            .saturating_add(self.bpf_functions
+            .saturating_add(mem::size_of_val(&self.function_registry))
+            .saturating_add(self.function_registry
             .iter()
             .fold(0, |state: usize, (_, (val, name))| state
                 .saturating_add(mem::size_of_val(&val)
@@ -600,7 +600,7 @@ impl<I: InstructionMeter> Executable<I> {
     /// Fix-ups relative calls
     pub fn fixup_relative_calls(
         config: &Config,
-        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+        function_registry: &mut FunctionRegistry,
         syscall_registry: &SyscallRegistry,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
@@ -630,7 +630,7 @@ impl<I: InstructionMeter> Executable<I> {
 
                 let key = register_bpf_function(
                     config,
-                    bpf_functions,
+                    function_registry,
                     syscall_registry,
                     target_pc as usize,
                     name,
@@ -915,7 +915,7 @@ impl<I: InstructionMeter> Executable<I> {
     /// Relocates the ELF in-place
     fn relocate<'a, P: ElfParser<'a>>(
         config: &Config,
-        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+        function_registry: &mut FunctionRegistry,
         syscall_symbols: &mut BTreeMap<u32, String>,
         syscall_registry: &SyscallRegistry,
         elf: &'a P,
@@ -927,7 +927,7 @@ impl<I: InstructionMeter> Executable<I> {
         // Fixup all program counter relative call instructions
         Self::fixup_relative_calls(
             config,
-            bpf_functions,
+            function_registry,
             syscall_registry,
             elf_bytes
                 .get_mut(text_section.file_range().unwrap_or_default())
@@ -1133,7 +1133,7 @@ impl<I: InstructionMeter> Executable<I> {
                             .unwrap_or_default();
                         register_bpf_function(
                             config,
-                            bpf_functions,
+                            function_registry,
                             syscall_registry,
                             target_pc,
                             name,
@@ -1191,7 +1191,13 @@ impl<I: InstructionMeter> Executable<I> {
                 let name = elf
                     .symbol_name(symbol.st_name() as Elf64Word)
                     .ok_or_else(|| ElfError::UnknownSymbol(symbol.st_name() as usize))?;
-                register_bpf_function(config, bpf_functions, syscall_registry, target_pc, name)?;
+                register_bpf_function(
+                    config,
+                    function_registry,
+                    syscall_registry,
+                    target_pc,
+                    name,
+                )?;
             }
         }
 
@@ -1452,7 +1458,7 @@ mod test {
             enable_symbol_and_section_labels: true,
             ..Config::default()
         };
-        let mut bpf_functions = BTreeMap::new();
+        let mut function_registry = FunctionRegistry::default();
         let syscall_registry = SyscallRegistry::default();
 
         // call -2
@@ -1467,7 +1473,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(
             &config,
-            &mut bpf_functions,
+            &mut function_registry,
             &syscall_registry,
             &mut prog,
         )
@@ -1482,14 +1488,14 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (4, name));
+        assert_eq!(*function_registry.get(&hash).unwrap(), (4, name));
 
         // call +6
-        let mut bpf_functions = BTreeMap::new();
+        let mut function_registry = FunctionRegistry::default();
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
         ElfExecutable::fixup_relative_calls(
             &config,
-            &mut bpf_functions,
+            &mut function_registry,
             &syscall_registry,
             &mut prog,
         )
@@ -1504,7 +1510,7 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (0, name));
+        assert_eq!(*function_registry.get(&hash).unwrap(), (0, name));
     }
 
     #[test]
@@ -1514,7 +1520,7 @@ mod test {
             enable_symbol_and_section_labels: true,
             ..Config::default()
         };
-        let mut bpf_functions = BTreeMap::new();
+        let mut function_registry = FunctionRegistry::default();
         let syscall_registry = SyscallRegistry::default();
 
         // call +0
@@ -1529,7 +1535,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(
             &config,
-            &mut bpf_functions,
+            &mut function_registry,
             &syscall_registry,
             &mut prog,
         )
@@ -1544,14 +1550,14 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (1, name));
+        assert_eq!(*function_registry.get(&hash).unwrap(), (1, name));
 
         // call +4
-        let mut bpf_functions = BTreeMap::new();
+        let mut function_registry = FunctionRegistry::default();
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
         ElfExecutable::fixup_relative_calls(
             &config,
-            &mut bpf_functions,
+            &mut function_registry,
             &syscall_registry,
             &mut prog,
         )
@@ -1566,7 +1572,7 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (5, name));
+        assert_eq!(*function_registry.get(&hash).unwrap(), (5, name));
     }
 
     #[test]
@@ -1575,7 +1581,7 @@ mod test {
     )]
     fn test_fixup_relative_calls_out_of_bounds_forward() {
         let config = Config::default();
-        let mut bpf_functions = BTreeMap::new();
+        let mut function_registry = FunctionRegistry::default();
         let syscall_registry = SyscallRegistry::default();
 
         // call +5
@@ -1590,7 +1596,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(
             &config,
-            &mut bpf_functions,
+            &mut function_registry,
             &syscall_registry,
             &mut prog,
         )
@@ -1605,7 +1611,7 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[..8]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (1, name));
+        assert_eq!(*function_registry.get(&hash).unwrap(), (1, name));
     }
 
     #[test]
@@ -1614,7 +1620,7 @@ mod test {
     )]
     fn test_fixup_relative_calls_out_of_bounds_back() {
         let config = Config::default();
-        let mut bpf_functions = BTreeMap::new();
+        let mut function_registry = FunctionRegistry::default();
         let syscall_registry = SyscallRegistry::default();
 
         // call -7
@@ -1629,7 +1635,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(
             &config,
-            &mut bpf_functions,
+            &mut function_registry,
             &syscall_registry,
             &mut prog,
         )
@@ -1644,7 +1650,7 @@ mod test {
             ..ebpf::Insn::default()
         };
         assert_eq!(insn.to_array(), prog[40..]);
-        assert_eq!(*bpf_functions.get(&hash).unwrap(), (4, name));
+        assert_eq!(*function_registry.get(&hash).unwrap(), (4, name));
     }
 
     #[test]

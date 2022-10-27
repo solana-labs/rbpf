@@ -10,7 +10,7 @@ use solana_rbpf::{
     elf::Executable,
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
+    vm::{EbpfVm, SyscallRegistry, FunctionRegistry, TestInstructionMeter, VerifiedExecutable},
 };
 use test_utils::TautologyVerifier;
 
@@ -37,7 +37,7 @@ fuzz_target!(|data: DumbFuzzData| {
         &prog,
         config,
         SyscallRegistry::default(),
-        BTreeMap::new(),
+        FunctionRegistry::default(),
     )
     .unwrap();
     let verified_executable =

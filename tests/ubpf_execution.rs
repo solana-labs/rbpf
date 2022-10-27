@@ -24,10 +24,11 @@ use solana_rbpf::{
     syscalls,
     verifier::RequisiteVerifier,
     vm::{
-        Config, EbpfVm, ProgramResult, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
+        Config, EbpfVm, FunctionRegistry, ProgramResult, SyscallRegistry, TestInstructionMeter,
+        VerifiedExecutable,
     },
 };
-use std::{collections::BTreeMap, fs::File, io::Read};
+use std::{fs::File, io::Read};
 use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 
 macro_rules! test_interpreter_and_jit {
@@ -2715,14 +2716,12 @@ fn test_err_mem_access_out_of_bound() {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
         let config = Config::default();
-        let bpf_functions = BTreeMap::new();
-        let syscall_registry = SyscallRegistry::default();
         #[allow(unused_mut)]
         let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(
             &prog,
             config,
-            syscall_registry,
-            bpf_functions,
+            SyscallRegistry::default(),
+            FunctionRegistry::default(),
         )
         .unwrap();
         test_interpreter_and_jit!(
@@ -4177,17 +4176,15 @@ fn test_tcp_sack_nomatch() {
 fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
-    let bpf_functions = BTreeMap::new();
     let config = Config {
         enable_instruction_tracing: true,
         ..Config::default()
     };
-    let syscall_registry = SyscallRegistry::default();
     let executable = Executable::<TestInstructionMeter>::from_text_bytes(
         prog,
         config,
-        syscall_registry,
-        bpf_functions,
+        SyscallRegistry::default(),
+        FunctionRegistry::default(),
     );
     let executable = if let Ok(executable) = executable {
         executable

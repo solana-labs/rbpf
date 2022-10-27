@@ -15,7 +15,7 @@ use solana_rbpf::{
     verifier::{RequisiteVerifier, Verifier},
     vm::{
         EbpfVm, InstructionMeter, ProgramResult, SyscallRegistry, TestInstructionMeter,
-        VerifiedExecutable,
+        VerifiedExecutable, FunctionRegistry,
     },
 };
 use test_utils::TautologyVerifier;
@@ -51,7 +51,7 @@ fuzz_target!(|data: FuzzData| {
         prog.into_bytes(),
         config,
         SyscallRegistry::default(),
-        BTreeMap::new(),
+        FunctionRegistry::default(),
     )
     .unwrap();
     let mut verified_executable =

@@ -15,9 +15,8 @@ use solana_rbpf::{
     disassembler::disassemble_instruction,
     elf::Executable,
     static_analysis::Analysis,
-    vm::{Config, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, FunctionRegistry, SyscallRegistry, TestInstructionMeter},
 };
-use std::collections::BTreeMap;
 // Turn a program into a JSON string.
 //
 // Relies on `json` crate.
@@ -32,7 +31,7 @@ fn to_json(program: &[u8]) -> String {
         &program,
         Config::default(),
         SyscallRegistry::default(),
-        BTreeMap::default(),
+        FunctionRegistry::default(),
     )
     .unwrap();
     let analysis = Analysis::from_executable(&executable).unwrap();

@@ -19,9 +19,9 @@ use crate::{
     },
     ebpf::{self, Insn},
     elf::{register_bpf_function, Executable},
-    vm::{Config, InstructionMeter, SyscallRegistry},
+    vm::{Config, FunctionRegistry, InstructionMeter, SyscallRegistry},
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum InstructionType {
@@ -232,7 +232,7 @@ pub fn assemble<I: 'static + InstructionMeter>(
 
     fn resolve_call(
         config: &Config,
-        bpf_functions: &mut BTreeMap<u32, (usize, String)>,
+        function_registry: &mut FunctionRegistry,
         syscall_registry: &SyscallRegistry,
         labels: &HashMap<&str, usize>,
         label: &str,
@@ -245,8 +245,14 @@ pub fn assemble<I: 'static + InstructionMeter>(
                 .get(label)
                 .ok_or_else(|| format!("Label not found {}", label))?
         };
-        let key = register_bpf_function(config, bpf_functions, syscall_registry, target_pc, label)
-            .map_err(|_| format!("Label hash collision {}", label))?;
+        let key = register_bpf_function(
+            config,
+            function_registry,
+            syscall_registry,
+            target_pc,
+            label,
+        )
+        .map_err(|_| format!("Label hash collision {}", label))?;
         Ok(key as i32 as i64)
     }
 
@@ -266,10 +272,10 @@ pub fn assemble<I: 'static + InstructionMeter>(
         }
     }
     insn_ptr = 0;
-    let mut bpf_functions = BTreeMap::new();
+    let mut function_registry = FunctionRegistry::default();
     resolve_call(
         &config,
-        &mut bpf_functions,
+        &mut function_registry,
         &syscall_registry,
         &labels,
         "entrypoint",
@@ -314,7 +320,7 @@ pub fn assemble<I: 'static + InstructionMeter>(
                             let label = format!("function_{}", target_pc);
                             let key = resolve_call(
                                 &config,
-                                &mut bpf_functions,
+                                &mut function_registry,
                                 &syscall_registry,
                                 &labels,
                                 &label,
@@ -347,7 +353,7 @@ pub fn assemble<I: 'static + InstructionMeter>(
                         (CallImm, [Label(label)]) => {
                             let key = resolve_call(
                                 &config,
-                                &mut bpf_functions,
+                                &mut function_registry,
                                 &syscall_registry,
                                 &labels,
                                 label,
@@ -383,6 +389,6 @@ pub fn assemble<I: 'static + InstructionMeter>(
         .iter()
         .flat_map(|insn| insn.to_vec())
         .collect::<Vec<_>>();
-    Executable::<I>::from_text_bytes(&program, config, syscall_registry, bpf_functions)
+    Executable::<I>::from_text_bytes(&program, config, syscall_registry, function_registry)
         .map_err(|err| format!("Executable constructor {:?}", err))
 }

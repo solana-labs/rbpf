@@ -27,9 +27,10 @@ use solana_rbpf::{
     ebpf,
     elf::Executable,
     verifier::{RequisiteVerifier, Verifier, VerifierError},
-    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
+    vm::{
+        Config, EbpfVm, FunctionRegistry, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
+    },
 };
-use std::collections::BTreeMap;
 use test_utils::TautologyVerifier;
 use thiserror::Error;
 
@@ -116,7 +117,7 @@ fn test_verifier_err_endian_size() {
         prog,
         Config::default(),
         SyscallRegistry::default(),
-        BTreeMap::default(),
+        FunctionRegistry::default(),
     )
     .unwrap();
     let _verified_executable =
@@ -136,7 +137,7 @@ fn test_verifier_err_incomplete_lddw() {
         prog,
         Config::default(),
         SyscallRegistry::default(),
-        BTreeMap::default(),
+        FunctionRegistry::default(),
     )
     .unwrap();
     let _verified_executable =
@@ -282,7 +283,7 @@ fn test_verifier_err_unknown_opcode() {
         prog,
         Config::default(),
         SyscallRegistry::default(),
-        BTreeMap::default(),
+        FunctionRegistry::default(),
     )
     .unwrap();
     let _verified_executable =
