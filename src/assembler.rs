@@ -245,9 +245,9 @@ pub fn assemble<I: 'static + InstructionMeter>(
                 .get(label)
                 .ok_or_else(|| format!("Label not found {}", label))?
         };
-        let hash = register_bpf_function(config, bpf_functions, syscall_registry, target_pc, label)
+        let key = register_bpf_function(config, bpf_functions, syscall_registry, target_pc, label)
             .map_err(|_| format!("Label hash collision {}", label))?;
-        Ok(hash as i32 as i64)
+        Ok(key as i32 as i64)
     }
 
     let statements = parse(src)?;
@@ -312,7 +312,7 @@ pub fn assemble<I: 'static + InstructionMeter>(
                         (CallImm, [Integer(imm)]) => {
                             let target_pc = (*imm + insn_ptr as i64 + 1) as usize;
                             let label = format!("function_{}", target_pc);
-                            let hash = resolve_call(
+                            let key = resolve_call(
                                 &config,
                                 &mut bpf_functions,
                                 &syscall_registry,
@@ -320,7 +320,7 @@ pub fn assemble<I: 'static + InstructionMeter>(
                                 &label,
                                 Some(target_pc),
                             )?;
-                            insn(opc, 0, 1, 0, hash as i32 as i64)
+                            insn(opc, 0, 1, 0, key as i32 as i64)
                         }
                         (CallReg, [Register(dst)]) => insn(opc, 0, 0, 0, *dst),
                         (JumpConditional, [Register(dst), Register(src), Label(label)]) => insn(
@@ -345,7 +345,7 @@ pub fn assemble<I: 'static + InstructionMeter>(
                             ebpf::hash_symbol_name(label.as_bytes()) as i32 as i64,
                         ),
                         (CallImm, [Label(label)]) => {
-                            let hash = resolve_call(
+                            let key = resolve_call(
                                 &config,
                                 &mut bpf_functions,
                                 &syscall_registry,
@@ -353,7 +353,7 @@ pub fn assemble<I: 'static + InstructionMeter>(
                                 label,
                                 None,
                             )?;
-                            insn(opc, 0, 1, 0, hash as i32 as i64)
+                            insn(opc, 0, 1, 0, key as i32 as i64)
                         }
                         (Endian(size), [Register(dst)]) => insn(opc, *dst, 0, 0, size),
                         (LoadImm, [Register(dst), Integer(imm)]) => {

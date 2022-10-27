@@ -127,23 +127,31 @@ pub fn hash_bpf_function(pc: usize, name: &str) -> u32 {
 }
 
 /// Register a symbol or throw ElfError::SymbolHashCollision
-pub fn register_bpf_function<T: AsRef<str> + ToString>(
+pub fn register_bpf_function<T: AsRef<str> + ToString + std::cmp::PartialEq<&'static str>>(
     config: &Config,
     bpf_functions: &mut BTreeMap<u32, (usize, String)>,
     syscall_registry: &SyscallRegistry,
     pc: usize,
     name: T,
 ) -> Result<u32, ElfError> {
-    let hash = hash_bpf_function(pc, name.as_ref());
-    if config.syscall_bpf_function_hash_collision && syscall_registry.lookup_syscall(hash).is_some()
-    {
-        return Err(ElfError::SymbolHashCollision(hash));
-    }
-    match bpf_functions.entry(hash) {
+    let key = if config.static_syscalls {
+        // With static_syscalls normal function calls and syscalls are differentiated in the ISA.
+        // Thus, we don't need to hash them here anymore and collisions are gone as well.
+        pc as u32
+    } else {
+        let hash = hash_bpf_function(pc, name.as_ref());
+        if config.syscall_bpf_function_hash_collision
+            && syscall_registry.lookup_syscall(hash).is_some()
+        {
+            return Err(ElfError::SymbolHashCollision(hash));
+        }
+        hash
+    };
+    match bpf_functions.entry(key) {
         Entry::Vacant(entry) => {
             entry.insert((
                 pc,
-                if config.enable_symbol_and_section_labels {
+                if config.enable_symbol_and_section_labels || name == "entrypoint" {
                     name.to_string()
                 } else {
                     String::default()
@@ -152,12 +160,11 @@ pub fn register_bpf_function<T: AsRef<str> + ToString>(
         }
         Entry::Occupied(entry) => {
             if entry.get().0 != pc {
-                return Err(ElfError::SymbolHashCollision(hash));
+                return Err(ElfError::SymbolHashCollision(key));
             }
         }
     }
-
-    Ok(hash)
+    Ok(key)
 }
 
 // For more information on the BPF instruction set:
@@ -323,7 +330,8 @@ impl<I: InstructionMeter> Executable<I> {
     /// Get the entry point offset into the text section
     pub fn get_entrypoint_instruction_offset(&self) -> Result<usize, EbpfError> {
         self.bpf_functions
-            .get(&ebpf::hash_symbol_name(b"entrypoint"))
+            .values()
+            .find(|(_pc, name)| name == "entrypoint")
             .map(|(pc, _name)| *pc)
             .ok_or(EbpfError::ElfError(ElfError::InvalidEntrypoint))
     }
@@ -493,7 +501,9 @@ impl<I: InstructionMeter> Executable<I> {
             return Err(ElfError::InvalidEntrypoint);
         }
         if let Some(entrypoint) = (offset as usize).checked_div(ebpf::INSN_SIZE) {
-            bpf_functions.remove(&ebpf::hash_symbol_name(b"entrypoint"));
+            if !config.static_syscalls {
+                bpf_functions.remove(&ebpf::hash_symbol_name(b"entrypoint"));
+            }
             register_bpf_function(
                 &config,
                 &mut bpf_functions,
@@ -602,14 +612,14 @@ impl<I: InstructionMeter> Executable<I> {
                     String::default()
                 };
 
-                let hash = register_bpf_function(
+                let key = register_bpf_function(
                     config,
                     bpf_functions,
                     syscall_registry,
                     target_pc as usize,
                     name,
                 )?;
-                insn.imm = hash as i64;
+                insn.imm = key as i64;
                 let offset = i.saturating_mul(ebpf::INSN_SIZE);
                 let checked_slice = elf_bytes
                     .get_mut(offset..offset.saturating_add(ebpf::INSN_SIZE))
@@ -1097,7 +1107,7 @@ impl<I: InstructionMeter> Executable<I> {
                         .ok_or_else(|| ElfError::UnknownSymbol(symbol.st_name() as usize))?;
 
                     // If the symbol is defined, this is a bpf-to-bpf call
-                    let hash = if symbol.is_function() && symbol.st_value() != 0 {
+                    let key = if symbol.is_function() && symbol.st_value() != 0 {
                         if !text_section.vm_range().contains(&symbol.st_value()) {
                             return Err(ElfError::ValueOutOfBounds);
                         }
@@ -1138,7 +1148,7 @@ impl<I: InstructionMeter> Executable<I> {
                     let checked_slice = elf_bytes
                         .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                         .ok_or(ElfError::ValueOutOfBounds)?;
-                    LittleEndian::write_u32(checked_slice, hash);
+                    LittleEndian::write_u32(checked_slice, key);
                 }
                 _ => return Err(ElfError::UnknownRelocation(relocation.r_type())),
             }
@@ -1437,6 +1447,7 @@ mod test {
     #[test]
     fn test_fixup_relative_calls_back() {
         let config = Config {
+            static_syscalls: false,
             enable_symbol_and_section_labels: true,
             ..Config::default()
         };
@@ -1498,6 +1509,7 @@ mod test {
     #[test]
     fn test_fixup_relative_calls_forward() {
         let config = Config {
+            static_syscalls: false,
             enable_symbol_and_section_labels: true,
             ..Config::default()
         };
@@ -2234,6 +2246,6 @@ mod test {
             Executable::jit_compile(&mut executable).unwrap();
         }
 
-        assert_eq!(18464, executable.mem_size());
+        assert_eq!(18474, executable.mem_size());
     }
 }

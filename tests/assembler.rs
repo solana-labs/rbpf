@@ -124,8 +124,8 @@ fn test_call_reg() {
 #[test]
 fn test_call_imm() {
     assert_eq!(
-        asm("call 300"),
-        Ok(vec![insn(0, ebpf::CALL_IMM, 0, 1, 0, -1090069135)])
+        asm("call 299"),
+        Ok(vec![insn(0, ebpf::CALL_IMM, 0, 1, 0, 300)])
     );
 }
 
