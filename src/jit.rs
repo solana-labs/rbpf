@@ -1283,7 +1283,7 @@ impl JitCompiler {
         emit_set_exception_kind(self, EbpfError::ExecutionOverrun(0));
         emit_ins(self, X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
-        self.resolve_jumps();
+        self.resolve_jumps(executable);
         self.result.seal(self.offset_in_text_section)?;
 
         // Delete secrets
@@ -1649,7 +1649,7 @@ impl JitCompiler {
         (unsafe { destination.offset_from(instruction_end) } as i32) // Relative jump
     }
 
-    fn resolve_jumps(&mut self) {
+    fn resolve_jumps<I: InstructionMeter>(&mut self, executable: &Executable<I>) {
         // Relocate forward jumps
         for jump in &self.text_section_jumps {
             let destination = self.result.pc_section[jump.target_pc] as *const u8;
@@ -1661,9 +1661,25 @@ impl JitCompiler {
         // There is no `VerifierError::JumpToMiddleOfLDDW` for `call imm` so patch it here
         let call_unsupported_instruction = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
         let callx_unsupported_instruction = self.anchors[ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION] as usize;
-        for offset in self.result.pc_section.iter_mut() {
-            if *offset == call_unsupported_instruction {
-                *offset = callx_unsupported_instruction;
+        if self.config.static_syscalls {
+            let mut prev_pc = 0;
+            for current_pc in executable.get_function_registry().keys() {
+                if *current_pc as usize >= self.result.pc_section.len() {
+                    break;
+                }
+                for pc in prev_pc..*current_pc as usize {
+                    self.result.pc_section[pc] = callx_unsupported_instruction;
+                }
+                prev_pc = *current_pc as usize + 1;
+            }
+            for pc in prev_pc..self.result.pc_section.len() {
+                self.result.pc_section[pc] = callx_unsupported_instruction;
+            }
+        } else {
+            for offset in self.result.pc_section.iter_mut() {
+                if *offset == call_unsupported_instruction {
+                    *offset = callx_unsupported_instruction;
+                }
             }
         }
     }

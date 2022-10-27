@@ -435,7 +435,12 @@ impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
                 if target_address < self.vm.program_vm_addr {
                     return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
                 }
-                self.pc = self.check_pc(pc, (target_address - self.vm.program_vm_addr) as usize / ebpf::INSN_SIZE)?;
+                let target_pc = (target_address - self.vm.program_vm_addr) as usize / ebpf::INSN_SIZE;
+                self.pc = self.check_pc(pc, target_pc)?;
+                if config.static_syscalls && executable.lookup_bpf_function(target_pc as u32).is_none() {
+                    self.due_insn_count += 1;
+                    return Err(EbpfError::UnsupportedInstruction(target_pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                }
             },
 
             // Do not delegate the check to the verifier, since self.registered functions can be

@@ -2804,7 +2804,28 @@ fn test_syscall_parameter_on_stack() {
 }
 
 #[test]
-fn test_call_reg() {
+fn test_callx() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r0, 0x0
+        mov64 r8, 0x1
+        lsh64 r8, 0x20
+        or64 r8, 0x30
+        callx r8
+        exit
+        function_foo:
+        mov64 r0, 0x2A
+        exit",
+        [],
+        (),
+        &mut (),
+        { |_vm, res: ProgramResult| { res.unwrap() == 42 } },
+        8
+    );
+}
+
+#[test]
+fn test_err_callx_unregistered() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r0, 0x0
@@ -2818,8 +2839,10 @@ fn test_call_reg() {
         [],
         (),
         &mut (),
-        { |_vm, res: ProgramResult| { res.unwrap() == 42 } },
-        8
+        {
+            |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(pc) if pc == 35)
+        },
+        6
     );
 }
 
@@ -2914,6 +2937,32 @@ fn test_err_static_jmp_lddw() {
 
 #[test]
 fn test_err_dynamic_jmp_lddw() {
+    let config = Config {
+        static_syscalls: false,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r8, 0x1
+        lsh64 r8, 0x20
+        or64 r8, 0x28
+        callx r8
+        lddw r0, 0x1122334455667788
+        exit",
+        config,
+        [],
+        (),
+        &mut (),
+        {
+            |_vm, res: ProgramResult| {
+                matches!(res.unwrap_err(),
+                    EbpfError::ExceededMaxInstructions(pc, initial_insn_count)
+                    if pc == 33 && initial_insn_count == 4
+                )
+            }
+        },
+        4
+    );
     test_interpreter_and_jit_asm!(
         "
         mov64 r8, 0x1
@@ -2945,6 +2994,7 @@ fn test_err_dynamic_jmp_lddw() {
         lddw r0, 0x1122334455667788
         exit
         ",
+        config,
         [],
         (),
         &mut (),
@@ -2967,6 +3017,7 @@ fn test_err_dynamic_jmp_lddw() {
         lddw r0, 0x1122334455667788
         exit
         ",
+        config,
         [],
         (),
         &mut (),
@@ -3454,6 +3505,7 @@ fn test_tight_infinite_recursion_callx() {
         mov64 r8, 0x1
         lsh64 r8, 0x20
         or64 r8, 0x18
+        function_foo:
         mov64 r3, 0x41414141
         callx r8
         exit",
@@ -3682,6 +3734,7 @@ fn test_err_exit_capped() {
         lsh64 r1, 0x20
         or64 r1, 0x20
         callx r1
+        function_foo:
         exit
         ",
         [],
@@ -3702,6 +3755,7 @@ fn test_err_exit_capped() {
         lsh64 r1, 0x20
         or64 r1, 0x20
         callx r1
+        function_foo:
         mov r0, r0
         exit
         ",
