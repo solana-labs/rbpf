@@ -200,17 +200,17 @@ fn bench_jit_vs_interpreter_call_depth_fixed(bencher: &mut Bencher) {
     mov r6, 0
     add r6, 1
     mov r1, 18
-    call fun
+    call function_foo
     jlt r6, 1024, -4
     exit
-    fun:
+    function_foo:
     stw [r10-4], 0x11223344
     mov r6, r1
     jgt r6, 0, +1
     exit
     mov r1, r6
     sub r1, 1
-    call fun
+    call function_foo
     exit",
         Config {
             dynamic_stack_frames: false,
@@ -230,17 +230,17 @@ fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
     mov r6, 0
     add r6, 1
     mov r1, 18
-    call fun
+    call function_foo
     jlt r6, 1024, -4
     exit
-    fun:
+    function_foo:
     sub r11, 4
     stw [r10-4], 0x11223344
     mov r6, r1
     jeq r6, 0, +3
     mov r1, r6
     sub r1, 1
-    call fun
+    call function_foo
     add r11, 4
     exit",
         Config {

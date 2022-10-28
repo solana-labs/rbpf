@@ -2510,9 +2510,9 @@ fn test_err_dynamic_stack_ptr_overflow() {
         sub r11, 0x7FFFFFFF
         sub r11, 0x7FFFFFFF
         sub r11, 0x14005
-        call foo
+        call function_foo
         exit
-        foo:
+        function_foo:
         stb [r10], 0
         exit",
         config,
@@ -2541,9 +2541,9 @@ fn test_dynamic_stack_frames_empty() {
     // Check that unless explicitly resized the stack doesn't grow
     test_interpreter_and_jit_asm!(
         "
-        call foo
+        call function_foo
         exit
-        foo:
+        function_foo:
         mov r0, r10
         exit",
         config,
@@ -2571,9 +2571,9 @@ fn test_dynamic_frame_ptr() {
     test_interpreter_and_jit_asm!(
         "
         sub r11, 8
-        call foo
+        call function_foo
         exit
-        foo:
+        function_foo:
         mov r0, r10
         exit",
         config,
@@ -2593,10 +2593,10 @@ fn test_dynamic_frame_ptr() {
     test_interpreter_and_jit_asm!(
         "
         sub r11, 8
-        call foo
+        call function_foo
         mov r0, r10
         exit
-        foo:
+        function_foo:
         exit
         ",
         config,
@@ -2631,10 +2631,10 @@ fn test_entrypoint_exit() {
         test_interpreter_and_jit_asm!(
             "
             entrypoint:
-            call foo
+            call function_foo
             mov r0, 42
             exit
-            foo:
+            function_foo:
             mov r0, 12
             exit",
             config,
@@ -2662,10 +2662,10 @@ fn test_stack_call_depth_tracking() {
         // EnvironmentStackSlot::CallDepth on ebpf::EXIT in the jit.
         test_interpreter_and_jit_asm!(
             "
-            call foo
-            call foo
+            call function_foo
+            call function_foo
             exit
-            foo:
+            function_foo:
             exit
             ",
             config,
@@ -2680,12 +2680,12 @@ fn test_stack_call_depth_tracking() {
         test_interpreter_and_jit_asm!(
             "
             entrypoint:
-            call foo
+            call function_foo
             exit
-            foo:
-            call bar
+            function_foo:
+            call function_bar
             exit
-            bar:
+            function_bar:
             exit
             ",
             config,

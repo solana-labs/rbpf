@@ -230,32 +230,6 @@ pub fn assemble<I: 'static + InstructionMeter>(
             .ok_or_else(|| format!("Label not found {}", label))
     }
 
-    fn resolve_call(
-        config: &Config,
-        function_registry: &mut FunctionRegistry,
-        syscall_registry: &SyscallRegistry,
-        labels: &HashMap<&str, usize>,
-        label: &str,
-        target_pc: Option<usize>,
-    ) -> Result<i64, String> {
-        let target_pc = if let Some(target_pc) = target_pc {
-            target_pc
-        } else {
-            *labels
-                .get(label)
-                .ok_or_else(|| format!("Label not found {}", label))?
-        };
-        let key = register_bpf_function(
-            config,
-            function_registry,
-            syscall_registry,
-            target_pc,
-            label,
-        )
-        .map_err(|_| format!("Label hash collision {}", label))?;
-        Ok(key as i32 as i64)
-    }
-
     let statements = parse(src)?;
     let instruction_map = make_instruction_map();
     let mut insn_ptr = 0;
@@ -265,17 +239,17 @@ pub fn assemble<I: 'static + InstructionMeter>(
     for statement in statements.iter() {
         match statement {
             Statement::Label { name } => {
-                labels.insert(name.as_str(), insn_ptr);
-                if name.starts_with("function_") {
-                    resolve_call(
+                if name.starts_with("function_") || name == "entrypoint" {
+                    register_bpf_function(
                         &config,
                         &mut function_registry,
                         &syscall_registry,
-                        &labels,
+                        insn_ptr,
                         name,
-                        Some(insn_ptr),
-                    )?;
+                    )
+                    .map_err(|_| format!("Label hash collision {}", name))?;
                 }
+                labels.insert(name.as_str(), insn_ptr);
             }
             Statement::Instruction { name, .. } => {
                 insn_ptr += if name == "lddw" { 2 } else { 1 };
@@ -283,14 +257,6 @@ pub fn assemble<I: 'static + InstructionMeter>(
         }
     }
     insn_ptr = 0;
-    resolve_call(
-        &config,
-        &mut function_registry,
-        &syscall_registry,
-        &labels,
-        "entrypoint",
-        None,
-    )?;
     let mut instructions: Vec<Insn> = Vec::new();
     for statement in statements.iter() {
         if let Statement::Instruction { name, operands } = statement {
@@ -326,17 +292,17 @@ pub fn assemble<I: 'static + InstructionMeter>(
                             insn(opc, 0, 0, resolve_label(insn_ptr, &labels, label)?, 0)
                         }
                         (CallImm, [Integer(imm)]) => {
-                            let target_pc = (*imm + insn_ptr as i64 + 1) as usize;
-                            let label = format!("function_{}", target_pc);
-                            let key = resolve_call(
+                            let target_pc = *imm + insn_ptr as i64 + 1;
+                            let label = format!("function_{}", target_pc as usize);
+                            register_bpf_function(
                                 &config,
                                 &mut function_registry,
                                 &syscall_registry,
-                                &labels,
-                                &label,
-                                Some(target_pc),
-                            )?;
-                            insn(opc, 0, 1, 0, key as i32 as i64)
+                                target_pc as usize,
+                                label,
+                            )
+                            .map_err(|_| format!("Label hash collision {}", name))?;
+                            insn(opc, 0, 1, 0, target_pc)
                         }
                         (CallReg, [Register(dst)]) => insn(opc, 0, 0, 0, *dst),
                         (JumpConditional, [Register(dst), Register(src), Label(label)]) => insn(
@@ -361,15 +327,11 @@ pub fn assemble<I: 'static + InstructionMeter>(
                             ebpf::hash_symbol_name(label.as_bytes()) as i32 as i64,
                         ),
                         (CallImm, [Label(label)]) => {
-                            let key = resolve_call(
-                                &config,
-                                &mut function_registry,
-                                &syscall_registry,
-                                &labels,
-                                label,
-                                None,
-                            )?;
-                            insn(opc, 0, 1, 0, key as i32 as i64)
+                            let label: &str = label;
+                            let target_pc = *labels
+                                .get(label)
+                                .ok_or_else(|| format!("Label not found {}", label))?;
+                            insn(opc, 0, 1, 0, target_pc as i64)
                         }
                         (Endian(size), [Register(dst)]) => insn(opc, *dst, 0, 0, size),
                         (LoadImm, [Register(dst), Integer(imm)]) => {
