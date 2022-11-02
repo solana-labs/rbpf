@@ -648,7 +648,7 @@ impl<'a, I: InstructionMeter> Analysis<'a, I> {
                         counter,
                         counter as f32 / (dynamic_analysis.edge_counter_max as f32 * 3.0)
                             + 2.0 / 3.0,
-                        if counter == 0 { 0 } else { 1 }
+                        (counter != 0) as i32,
                     )?;
                 }
             }

@@ -563,7 +563,7 @@ fn emit_bpf_call(jit: &mut JitCompiler, dst: Value) {
         Value::Constant64(target_pc, user_provided) => {
             debug_assert!(!user_provided);
             emit_validate_and_profile_instruction_count(jit, false, Some(target_pc as usize));
-            emit_ins(jit, X86Instruction::load_immediate(OperandSize::S64, R11, target_pc as i64));
+            emit_ins(jit, X86Instruction::load_immediate(OperandSize::S64, R11, target_pc));
             let jump_offset = jit.relative_to_target_pc(target_pc as usize, 5);
             emit_ins(jit, X86Instruction::call_immediate(jump_offset));
         },
@@ -1042,19 +1042,19 @@ impl JitCompiler {
                 // BPF_ST class
                 ebpf::ST_B_IMM   => {
                     emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 1, AccessType::Store);
-                    emit_ins(self, X86Instruction::store_immediate(OperandSize::S8, R11, X86IndirectAccess::Offset(0), insn.imm as i64));
+                    emit_ins(self, X86Instruction::store_immediate(OperandSize::S8, R11, X86IndirectAccess::Offset(0), insn.imm));
                 },
                 ebpf::ST_H_IMM   => {
                     emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 2, AccessType::Store);
-                    emit_ins(self, X86Instruction::store_immediate(OperandSize::S16, R11, X86IndirectAccess::Offset(0), insn.imm as i64));
+                    emit_ins(self, X86Instruction::store_immediate(OperandSize::S16, R11, X86IndirectAccess::Offset(0), insn.imm));
                 },
                 ebpf::ST_W_IMM   => {
                     emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 4, AccessType::Store);
-                    emit_ins(self, X86Instruction::store_immediate(OperandSize::S32, R11, X86IndirectAccess::Offset(0), insn.imm as i64));
+                    emit_ins(self, X86Instruction::store_immediate(OperandSize::S32, R11, X86IndirectAccess::Offset(0), insn.imm));
                 },
                 ebpf::ST_DW_IMM  => {
                     emit_address_translation(self, R11, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 8, AccessType::Store);
-                    emit_ins(self, X86Instruction::store_immediate(OperandSize::S64, R11, X86IndirectAccess::Offset(0), insn.imm as i64));
+                    emit_ins(self, X86Instruction::store_immediate(OperandSize::S64, R11, X86IndirectAccess::Offset(0), insn.imm));
                 },
 
                 // BPF_STX class

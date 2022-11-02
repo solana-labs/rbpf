@@ -43,13 +43,8 @@ fn bench_load_elf_without_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        let executable = Executable::<TestInstructionMeter>::from_elf(
-            &elf,
-            Config::default(),
-            syscall_registry(),
-        )
-        .unwrap();
-        executable
+        Executable::<TestInstructionMeter>::from_elf(&elf, Config::default(), syscall_registry())
+            .unwrap()
     });
 }
 
@@ -59,12 +54,7 @@ fn bench_load_elf_with_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        let executable = Executable::<TestInstructionMeter>::from_elf(
-            &elf,
-            Config::default(),
-            syscall_registry(),
-        )
-        .unwrap();
-        executable
+        Executable::<TestInstructionMeter>::from_elf(&elf, Config::default(), syscall_registry())
+            .unwrap()
     });
 }

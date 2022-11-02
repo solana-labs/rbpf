@@ -32,7 +32,7 @@ fn main() {
     let syscall_registry = SyscallRegistry::default();
     let config = Config::default();
     let executable = Executable::<TestInstructionMeter>::from_text_bytes(
-        &program,
+        program,
         config,
         syscall_registry,
         FunctionRegistry::default(),

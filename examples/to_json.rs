@@ -28,7 +28,7 @@ use solana_rbpf::{
 //   (just replace the relevant `format!()` calls by the commented values.
 fn to_json(program: &[u8]) -> String {
     let executable = Executable::<TestInstructionMeter>::from_text_bytes(
-        &program,
+        program,
         Config::default(),
         SyscallRegistry::default(),
         FunctionRegistry::default(),
@@ -51,7 +51,7 @@ fn to_json(program: &[u8]) -> String {
             // number is negative. When values takes more than 32 bits with `lddw`, the cast
             // has no effect and the complete value is printed anyway.
             "imm"  => format!("{:#x}", insn.imm as i32), // => insn.imm,
-            "desc" => disassemble_instruction(&insn, &analysis),
+            "desc" => disassemble_instruction(insn, &analysis),
         ));
     }
     json::stringify_pretty(
@@ -69,7 +69,7 @@ fn main() {
     let filename = "examples/load_elf__block_a_port.o";
 
     let path = PathBuf::from(filename);
-    let file = match elf::File::open_path(&path) {
+    let file = match elf::File::open_path(path) {
         Ok(f) => f,
         Err(e) => panic!("Error: {:?}", e),
     };

@@ -232,7 +232,7 @@ impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
             ebpf::LD_DW_REG  => {
                 let vm_addr = (self.reg[src] as i64).wrapping_add(insn.off as i64) as u64;
                 let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
-                self.reg[dst] = unsafe { *host_ptr as u64 };
+                self.reg[dst] = unsafe { *host_ptr };
             },
 
             // BPF_ST class
@@ -276,7 +276,7 @@ impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
             ebpf::ST_DW_REG  => {
                 let vm_addr = (self.reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
                 let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u64);
-                unsafe { *host_ptr = self.reg[src] as u64 };
+                unsafe { *host_ptr = self.reg[src] };
             },
 
             // BPF_ALU class
@@ -419,13 +419,13 @@ impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
             ebpf::JSET_REG   => if  self.reg[dst] &  self.reg[src] != 0           { self.pc = (self.pc as isize + insn.off as isize) as usize; },
             ebpf::JNE_IMM    => if  self.reg[dst] != insn.imm as u64              { self.pc = (self.pc as isize + insn.off as isize) as usize; },
             ebpf::JNE_REG    => if  self.reg[dst] != self.reg[src]                { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSGT_IMM   => if (self.reg[dst] as i64) >  insn.imm      as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
+            ebpf::JSGT_IMM   => if (self.reg[dst] as i64) >  insn.imm             { self.pc = (self.pc as isize + insn.off as isize) as usize; },
             ebpf::JSGT_REG   => if (self.reg[dst] as i64) >  self.reg[src] as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSGE_IMM   => if (self.reg[dst] as i64) >= insn.imm      as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
+            ebpf::JSGE_IMM   => if (self.reg[dst] as i64) >= insn.imm             { self.pc = (self.pc as isize + insn.off as isize) as usize; },
             ebpf::JSGE_REG   => if (self.reg[dst] as i64) >= self.reg[src] as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSLT_IMM   => if (self.reg[dst] as i64) <  insn.imm      as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
+            ebpf::JSLT_IMM   => if (self.reg[dst] as i64) <  insn.imm             { self.pc = (self.pc as isize + insn.off as isize) as usize; },
             ebpf::JSLT_REG   => if (self.reg[dst] as i64) <  self.reg[src] as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSLE_IMM   => if (self.reg[dst] as i64) <= insn.imm      as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
+            ebpf::JSLE_IMM   => if (self.reg[dst] as i64) <= insn.imm             { self.pc = (self.pc as isize + insn.off as isize) as usize; },
             ebpf::JSLE_REG   => if (self.reg[dst] as i64) <= self.reg[src] as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
 
             ebpf::CALL_REG   => {

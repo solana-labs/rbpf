@@ -346,7 +346,7 @@ pub fn assemble<I: 'static + InstructionMeter>(
                         if let Integer(imm) = operands[1] {
                             instructions.push(Insn {
                                 ptr: insn_ptr,
-                                imm: (imm >> 32) as i64,
+                                imm: imm >> 32,
                                 ..Insn::default()
                             });
                             insn_ptr += 1;

@@ -588,7 +588,7 @@ impl<I: InstructionMeter> Executable<I> {
             total = total.saturating_add(self.compiled_program.as_ref().map_or(0, |program| program.mem_size()));
         }
 
-        total as usize
+        total
     }
 
     // Functions exposed for tests
@@ -867,7 +867,7 @@ impl<I: InstructionMeter> Executable<I> {
                 lowest_addr
             };
 
-            Section::Borrowed(addr_offset, buf_offset_start..buf_offset_end as usize)
+            Section::Borrowed(addr_offset, buf_offset_start..buf_offset_end)
         } else {
             // Read only and other non-ro sections are mixed. Zero the non-ro
             // sections and and copy the ro ones at their intended offsets.
@@ -975,7 +975,7 @@ impl<I: InstructionMeter> Executable<I> {
 
                     // The relocated address is relative to the address of the
                     // symbol at index `r_sym`
-                    let mut addr = symbol.st_value().saturating_add(refd_addr) as u64;
+                    let mut addr = symbol.st_value().saturating_add(refd_addr);
 
                     // The "physical address" from the VM's perspective is rooted
                     // at `MM_PROGRAM_START`. If the linker hasn't already put
@@ -1080,7 +1080,7 @@ impl<I: InstructionMeter> Executable<I> {
                             let addr_slice = elf_bytes
                                 .get(r_offset..r_offset.saturating_add(mem::size_of::<u64>()))
                                 .ok_or(ElfError::ValueOutOfBounds)?;
-                            let mut refd_addr = LittleEndian::read_u64(addr_slice) as u64;
+                            let mut refd_addr = LittleEndian::read_u64(addr_slice);
                             if refd_addr < ebpf::MM_PROGRAM_START {
                                 // Not within MM_PROGRAM_START, do it now
                                 refd_addr = ebpf::MM_PROGRAM_START.saturating_add(refd_addr);

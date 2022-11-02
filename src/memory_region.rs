@@ -101,7 +101,7 @@ impl MemoryRegion {
         let gap_mask = (-1i64).checked_shl(self.vm_gap_shift as u32).unwrap_or(0) as u64;
         let gapped_offset =
             (begin_offset & gap_mask).checked_shr(1).unwrap_or(0) | (begin_offset & !gap_mask);
-        if let Some(end_offset) = gapped_offset.checked_add(len as u64) {
+        if let Some(end_offset) = gapped_offset.checked_add(len) {
             if end_offset <= self.len && !is_in_gap {
                 return ProgramResult::Ok(self.host_addr.saturating_add(gapped_offset));
             }
@@ -234,7 +234,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         // must be contained in region
         let region = unsafe { self.regions.get_unchecked(index - 1) };
         if access_type == AccessType::Load || region.is_writable {
-            if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len as u64) {
+            if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len) {
                 if cache_miss {
                     cache.insert(
                         region.vm_addr..region.vm_addr.saturating_add(region.len),
@@ -303,7 +303,7 @@ impl<'a> AlignedMemoryMapping<'a> {
         if (1..self.regions.len()).contains(&index) {
             let region = &self.regions[index];
             if access_type == AccessType::Load || region.is_writable {
-                if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len as u64) {
+                if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len) {
                     return ProgramResult::Ok(host_addr);
                 }
             }
