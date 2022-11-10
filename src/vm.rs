@@ -25,7 +25,7 @@ use crate::{
 };
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt::Debug,
+    fmt::{Debug, Display, Formatter},
     marker::PhantomData,
     mem,
 };
@@ -416,6 +416,7 @@ impl TestContextObject {
 }
 
 /// Represents analyzed tracer record
+#[derive(Debug)]
 pub struct TraceRecord<'a> {
     /// Registers (0..10)
     pub registers: &'a [u64],
@@ -423,6 +424,22 @@ pub struct TraceRecord<'a> {
     pub offset: usize,
     /// Disassembled instruction
     pub instruction: String,
+}
+
+impl<'a> Display for TraceRecord<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:016X?} {:5?}: {}",
+            self.registers, self.offset, self.instruction
+        )
+    }
+}
+
+impl<'a> AsRef<TraceRecord<'a>> for TraceRecord<'a> {
+    fn as_ref(&self) -> &Self {
+        self
+    }
 }
 
 /// Iterator over the analyzed trace records
@@ -486,24 +503,24 @@ impl Tracer {
         }
     }
 
+    /// Use this method to print the analyzed log of this tracer
+    pub fn print<'a>(
+        output: &mut impl std::io::Write,
+        trace_iterator: impl Iterator<Item = impl AsRef<TraceRecord<'a>>>,
+    ) -> Result<(), std::io::Error> {
+        for (index, entry) in trace_iterator.enumerate() {
+            writeln!(output, "{:5?} {}", index, entry.as_ref())?;
+        }
+        Ok(())
+    }
+
     /// Use this method to print the log of this tracer
     pub fn write<W: std::io::Write, I: InstructionMeter>(
         &self,
         output: &mut W,
         analysis: &Analysis<I>,
     ) -> Result<(), std::io::Error> {
-        for (index, entry) in self.iter(analysis).enumerate() {
-            writeln!(
-                output,
-                "{:5?} {:016X?} {:5?}: {}",
-                index,
-                &entry[0..11],
-                pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                disassemble_instruction(insn, analysis),
-                index, entry.registers, entry.offset, entry.instruction,
-            )?;
-        }
-        Ok(())
+        Self::print(output, self.iter(analysis))
     }
 }
 
