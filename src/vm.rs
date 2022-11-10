@@ -369,18 +369,52 @@ pub struct Tracer {
     pub log: Vec<[u64; 12]>,
 }
 
+/// Represents analyzed tracer record
+pub struct TraceRecord<'a> {
+    /// Registers (0..10)
+    pub registers: &'a [u64],
+    /// Instruction offset
+    pub offset: usize,
+    /// Disassembled instruction
+    pub instruction: String,
+}
+
+/// Iterator over the analyzed trace records
+pub struct TraceIterator<'tracer, 'analysis, I: InstructionMeter> {
+    tracer: &'tracer Tracer,
+    analysis: &'analysis Analysis<'analysis, I>,
+    pc_to_insn_index: Vec<usize>,
+    current_index: usize,
+}
+
+impl<'tracer, 'analysis, I: InstructionMeter> Iterator for TraceIterator<'tracer, 'analysis, I> {
+    type Item = TraceRecord<'tracer>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.tracer.log.get(self.current_index).map(|entry| {
+            self.current_index += 1;
+            let pc = entry[11] as usize;
+            let insn = &self.analysis.instructions[self.pc_to_insn_index[pc]];
+            TraceRecord {
+                registers: &entry[0..11],
+                offset: pc + ebpf::ELF_INSN_DUMP_OFFSET,
+                instruction: disassemble_instruction(insn, self.analysis),
+            }
+        })
+    }
+}
+
 impl Tracer {
     /// Logs the state of a single instruction
     pub fn trace(&mut self, state: [u64; 12]) {
         self.log.push(state);
     }
 
-    /// Use this method to print the log of this tracer
-    pub fn write<W: std::io::Write, I: InstructionMeter>(
-        &self,
-        output: &mut W,
-        analysis: &Analysis<I>,
-    ) -> Result<(), std::io::Error> {
+    /// Returns an iterator over the analyzed trace records
+    pub fn iter<'tracer, 'analysis, I: InstructionMeter>(
+        &'tracer self,
+        analysis: &'analysis Analysis<I>,
+    ) -> TraceIterator<'tracer, 'analysis, I> {
         let mut pc_to_insn_index = vec![
             0usize;
             analysis
@@ -393,17 +427,26 @@ impl Tracer {
             pc_to_insn_index[insn.ptr] = index;
             pc_to_insn_index[insn.ptr + 1] = index;
         }
-        for index in 0..self.log.len() {
-            let entry = &self.log[index];
-            let pc = entry[11] as usize;
-            let insn = &analysis.instructions[pc_to_insn_index[pc]];
+
+        TraceIterator::<'tracer, 'analysis, I> {
+            tracer: self,
+            analysis,
+            pc_to_insn_index,
+            current_index: 0,
+        }
+    }
+
+    /// Use this method to print the log of this tracer
+    pub fn write<W: std::io::Write, I: InstructionMeter>(
+        &self,
+        output: &mut W,
+        analysis: &Analysis<I>,
+    ) -> Result<(), std::io::Error> {
+        for (index, entry) in self.iter(analysis).enumerate() {
             writeln!(
                 output,
                 "{:5?} {:016X?} {:5?}: {}",
-                index,
-                &entry[0..11],
-                pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                disassemble_instruction(insn, analysis),
+                index, entry.registers, entry.offset, entry.instruction,
             )?;
         }
         Ok(())
