@@ -7,9 +7,7 @@ use solana_rbpf::{
     memory_region::MemoryRegion,
     static_analysis::Analysis,
     verifier::RequisiteVerifier,
-    vm::{
-        Config, DynamicAnalysis, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable,
-    },
+    vm::{Config, DynamicAnalysis, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable},
 };
 use std::{fs::File, io::Read, path::Path};
 
@@ -134,13 +132,6 @@ fn main() {
             memory
         }
     };
-    let mut instruction_meter = TestContextObject {
-        remaining: matches
-            .value_of("instruction limit")
-            .unwrap()
-            .parse::<u64>()
-            .unwrap(),
-    };
     let mut heap = vec![
         0_u8;
         matches
@@ -153,7 +144,20 @@ fn main() {
         verified_executable.jit_compile().unwrap();
     }
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut heap, vec![mem_region]).unwrap();
+    let mut context_object = TestContextObject {
+        remaining: matches
+            .value_of("instruction limit")
+            .unwrap()
+            .parse::<u64>()
+            .unwrap(),
+    };
+    let mut vm = EbpfVm::new(
+        &verified_executable,
+        &mut context_object,
+        &mut heap,
+        vec![mem_region],
+    )
+    .unwrap();
 
     let analysis = if matches.value_of("use") == Some("cfg")
         || matches.value_of("use") == Some("disassembler")
@@ -187,13 +191,13 @@ fn main() {
     }
 
     let result = if matches.value_of("use").unwrap() == "debugger" {
-        let mut interpreter = Interpreter::new(&mut vm, &mut instruction_meter).unwrap();
+        let mut interpreter = Interpreter::new(&mut vm).unwrap();
         let port = matches.value_of("port").unwrap().parse::<u16>().unwrap();
         debugger::execute(&mut interpreter, port)
     } else if matches.value_of("use").unwrap() == "interpreter" {
-        vm.execute_program_interpreted(&mut instruction_meter)
+        vm.execute_program_interpreted()
     } else {
-        vm.execute_program_jit(&mut instruction_meter)
+        vm.execute_program_jit()
     };
     println!("Result: {:?}", result);
     println!("Instruction Count: {}", vm.get_total_instruction_count());

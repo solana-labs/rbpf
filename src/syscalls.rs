@@ -23,7 +23,7 @@
 
 use crate::{
     memory_region::{AccessType, MemoryMapping},
-    vm::ProgramResult,
+    vm::{ContextObject, ProgramResult},
 };
 use std::{slice::from_raw_parts, str::from_utf8};
 
@@ -325,6 +325,15 @@ impl BpfSyscallU64 {
 pub struct SyscallWithContext {
     /// Mutable state
     pub context: u64,
+}
+impl ContextObject for SyscallWithContext {
+    fn consume(&mut self, _amount: u64) {}
+
+    fn get_remaining(&self) -> u64 {
+        100
+    }
+
+    fn set_remaining(&mut self, _ammount: u64) {}
 }
 impl SyscallWithContext {
     /// Syscall handler method

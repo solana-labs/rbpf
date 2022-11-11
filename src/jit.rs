@@ -147,7 +147,7 @@ pub struct JitProgram<C: ContextObject> {
     /// Holds and manages the protected memory
     sections: JitProgramSections,
     /// Call this with the ProgramEnvironment to execute the compiled code
-    pub main: unsafe fn(&mut ProgramResult, u64, &ProgramEnvironment, &mut C) -> i64,
+    pub main: unsafe fn(&mut ProgramResult, u64, &ProgramEnvironment<C>, *mut C) -> i64,
 }
 
 impl<C: ContextObject> Debug for JitProgram<C> {
@@ -1223,7 +1223,7 @@ impl JitCompiler {
                                 emit_validate_and_profile_instruction_count(self, true, Some(0));
                             }
                             emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, syscall as *const SyscallFunction<*mut ()> as i64));
-                            emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset(ProgramEnvironment::CONTEXT_OBJECT as i32 + self.program_argument_key)));
+                            emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset(ProgramEnvironment::<C>::CONTEXT_OBJECT as i32 + self.program_argument_key)));
                             emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_SYSCALL, 5)));
                             if self.config.enable_instruction_meter {
                                 emit_undo_profile_instruction_count(self, 0);
@@ -1401,7 +1401,7 @@ impl JitCompiler {
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, - 8 * 3, None)); // RSP -= 8 * 3;
             emit_rust_call(self, Value::Constant64(Tracer::trace as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
-                Argument { index: 0, value: Value::RegisterPlusConstant32(R10, ProgramEnvironment::TRACER_OFFSET as i32 + self.program_argument_key, false) }, // jit.tracer
+                Argument { index: 0, value: Value::RegisterPlusConstant32(R10, ProgramEnvironment::<C>::TRACER_OFFSET as i32 + self.program_argument_key, false) }, // jit.tracer
             ], None);
             // Pop stack and return
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, 8 * 3, None)); // RSP += 8 * 3;
@@ -1601,7 +1601,7 @@ impl JitCompiler {
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
-                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, ProgramEnvironment::MEMORY_MAPPING_OFFSET as i32 + self.program_argument_key, false) }, // jit_program_argument.memory_mapping
+                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, ProgramEnvironment::<C>::MEMORY_MAPPING_OFFSET as i32 + self.program_argument_key, false) }, // jit_program_argument.memory_mapping
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) }, // Pointer to optional typed return value
             ], None);
 

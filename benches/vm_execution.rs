@@ -33,10 +33,17 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     let verified_executable =
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
-    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], Vec::new()).unwrap();
+    let mut context_object = TestContextObject::default();
+    let mut vm = EbpfVm::new(
+        &verified_executable,
+        &mut context_object,
+        &mut [],
+        Vec::new(),
+    )
+    .unwrap();
     bencher.iter(|| {
-        vm.execute_program_interpreted(&mut TestContextObject { remaining: 29 })
-            .unwrap()
+        vm.program_environment.context_object.remaining = 29;
+        vm.execute_program_interpreted().unwrap()
     });
 }
 
@@ -56,10 +63,17 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
     verified_executable.jit_compile().unwrap();
-    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], Vec::new()).unwrap();
+    let mut context_object = TestContextObject::default();
+    let mut vm = EbpfVm::new(
+        &verified_executable,
+        &mut context_object,
+        &mut [],
+        Vec::new(),
+    )
+    .unwrap();
     bencher.iter(|| {
-        vm.execute_program_jit(&mut TestContextObject { remaining: 29 })
-            .unwrap()
+        vm.program_environment.context_object.remaining = 29;
+        vm.execute_program_jit().unwrap()
     });
 }
 
@@ -81,14 +95,20 @@ fn bench_jit_vs_interpreter(
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
     verified_executable.jit_compile().unwrap();
+    let mut context_object = TestContextObject::default();
     let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
+    let mut vm = EbpfVm::new(
+        &verified_executable,
+        &mut context_object,
+        &mut [],
+        vec![mem_region],
+    )
+    .unwrap();
     let interpreter_summary = bencher
         .bench(|bencher| {
             bencher.iter(|| {
-                let result = vm.execute_program_interpreted(&mut TestContextObject {
-                    remaining: instruction_meter,
-                });
+                vm.program_environment.context_object.remaining = instruction_meter;
+                let result = vm.execute_program_interpreted();
                 assert!(result.is_ok(), "{:?}", result);
                 assert_eq!(vm.get_total_instruction_count(), instruction_meter);
             });
@@ -99,9 +119,8 @@ fn bench_jit_vs_interpreter(
     let jit_summary = bencher
         .bench(|bencher| {
             bencher.iter(|| {
-                let result = vm.execute_program_jit(&mut TestContextObject {
-                    remaining: instruction_meter,
-                });
+                vm.program_environment.context_object.remaining = instruction_meter;
+                let result = vm.execute_program_jit();
                 assert!(result.is_ok(), "{:?}", result);
                 assert_eq!(vm.get_total_instruction_count(), instruction_meter);
             });

@@ -67,7 +67,7 @@ fn test_verifier_success() {
             .unwrap();
     let _vm = EbpfVm::<TautologyVerifier, TestContextObject>::new(
         &verified_executable,
-        &mut (),
+        &mut TestContextObject::default(),
         &mut [],
         Vec::new(),
     )

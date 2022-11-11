@@ -24,8 +24,8 @@ use solana_rbpf::{
     syscalls,
     verifier::RequisiteVerifier,
     vm::{
-        Config, EbpfVm, FunctionRegistry, ProgramResult, SyscallRegistry, TestContextObject,
-        VerifiedExecutable,
+        Config, ContextObject, EbpfVm, FunctionRegistry, ProgramResult, SyscallRegistry,
+        TestContextObject, VerifiedExecutable,
     },
 };
 use std::{fs::File, io::Read};
@@ -38,6 +38,7 @@ macro_rules! test_interpreter_and_jit {
             .unwrap();
     };
     ($executable:expr, $mem:tt, $context_object:expr, $check:block, $expected_instruction_count:expr) => {
+        // let expected_instruction_count = $context_object.get_remaining();
         #[allow(unused_mut)]
         let mut check_closure = $check;
         #[allow(unused_mut)]
@@ -49,17 +50,16 @@ macro_rules! test_interpreter_and_jit {
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-
+            let mut context_object = $context_object;
+            context_object.set_remaining($expected_instruction_count);
             let mut vm = EbpfVm::new(
                 &verified_executable,
-                $context_object,
+                &mut context_object,
                 &mut [],
                 vec![mem_region],
             )
             .unwrap();
-            let result = vm.execute_program_interpreted(&mut TestContextObject {
-                remaining: $expected_instruction_count,
-            });
+            let result = vm.execute_program_interpreted();
             assert!(check_closure(&vm, result));
             (
                 vm.get_total_instruction_count(),
@@ -73,9 +73,11 @@ macro_rules! test_interpreter_and_jit {
             let compilation_result = verified_executable.jit_compile();
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
+            let mut context_object = $context_object;
+            context_object.set_remaining($expected_instruction_count);
             let mut vm = EbpfVm::new(
                 &verified_executable,
-                $context_object,
+                &mut context_object,
                 &mut [],
                 vec![mem_region],
             )
@@ -83,9 +85,7 @@ macro_rules! test_interpreter_and_jit {
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, ProgramResult::Err(err))),
                 Ok(()) => {
-                    let result = vm.execute_program_jit(&mut TestContextObject {
-                        remaining: $expected_instruction_count,
-                    });
+                    let result = vm.execute_program_jit();
                     let tracer_jit = &vm.get_program_environment().tracer;
                     if !check_closure(&vm, result)
                         || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit)
@@ -177,7 +177,7 @@ fn test_mov() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         3
     );
@@ -191,7 +191,7 @@ fn test_mov32_imm_large() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xffffffff } },
         2
     );
@@ -206,7 +206,7 @@ fn test_mov_large() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xffffffff } },
         3
     );
@@ -225,7 +225,7 @@ fn test_bounce() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -242,7 +242,7 @@ fn test_add32() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3 } },
         5
     );
@@ -257,7 +257,7 @@ fn test_neg32() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xfffffffe } },
         3
     );
@@ -272,7 +272,7 @@ fn test_neg64() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xfffffffffffffffe } },
         3
     );
@@ -303,7 +303,7 @@ fn test_alu32_arithmetic() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2a } },
         19
     );
@@ -334,7 +334,7 @@ fn test_alu64_arithmetic() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2a } },
         19
     );
@@ -388,7 +388,7 @@ fn test_mul128() {
         exit",
         [0; 16],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 600 } },
         42
     );
@@ -421,7 +421,7 @@ fn test_alu32_logic() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11 } },
         21
     );
@@ -456,7 +456,7 @@ fn test_alu64_logic() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11 } },
         23
     );
@@ -472,7 +472,7 @@ fn test_arsh32_high_shift() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x4 } },
         4
     );
@@ -488,7 +488,7 @@ fn test_arsh32_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xffff8000 } },
         4
     );
@@ -505,7 +505,7 @@ fn test_arsh32_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xffff8000 } },
         5
     );
@@ -523,7 +523,7 @@ fn test_arsh64() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xfffffffffffffff8 } },
         6
     );
@@ -539,7 +539,7 @@ fn test_lsh64_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x10 } },
         4
     );
@@ -555,7 +555,7 @@ fn test_rhs32_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x00ffffff } },
         4
     );
@@ -571,7 +571,7 @@ fn test_rsh64_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         4
     );
@@ -586,7 +586,7 @@ fn test_be16() {
         exit",
         [0x11, 0x22],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122 } },
         3
     );
@@ -601,7 +601,7 @@ fn test_be16_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122 } },
         3
     );
@@ -616,7 +616,7 @@ fn test_be32() {
         exit",
         [0x11, 0x22, 0x33, 0x44],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11223344 } },
         3
     );
@@ -631,7 +631,7 @@ fn test_be32_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11223344 } },
         3
     );
@@ -646,7 +646,7 @@ fn test_be64() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122334455667788 } },
         3
     );
@@ -661,7 +661,7 @@ fn test_le16() {
         exit",
         [0x22, 0x11],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122 } },
         3
     );
@@ -676,7 +676,7 @@ fn test_le16_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2211 } },
         3
     );
@@ -691,7 +691,7 @@ fn test_le32() {
         exit",
         [0x44, 0x33, 0x22, 0x11],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11223344 } },
         3
     );
@@ -706,7 +706,7 @@ fn test_le32_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x44332211 } },
         3
     );
@@ -721,7 +721,7 @@ fn test_le64() {
         exit",
         [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122334455667788 } },
         3
     );
@@ -736,7 +736,7 @@ fn test_mul32_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xc } },
         3
     );
@@ -752,7 +752,7 @@ fn test_mul32_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xc } },
         4
     );
@@ -768,7 +768,7 @@ fn test_mul32_reg_overflow() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x4 } },
         4
     );
@@ -783,7 +783,7 @@ fn test_mul64_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x100000004 } },
         3
     );
@@ -799,7 +799,7 @@ fn test_mul64_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x100000004 } },
         4
     );
@@ -815,7 +815,7 @@ fn test_div32_high_divisor() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3 } },
         4
     );
@@ -830,7 +830,7 @@ fn test_div32_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3 } },
         3
     );
@@ -846,7 +846,7 @@ fn test_div32_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3 } },
         4
     );
@@ -861,7 +861,7 @@ fn test_sdiv32_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xFFFFFFFFE0000000 } },
         3
     );
@@ -876,7 +876,7 @@ fn test_sdiv32_neg_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() as i64 == -0xc } },
         3
     );
@@ -892,7 +892,7 @@ fn test_sdiv32_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xFFFFFFFFE0000000 } },
         4
     );
@@ -908,7 +908,7 @@ fn test_sdiv32_neg_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() as i64 == -0xc } },
         4
     );
@@ -924,7 +924,7 @@ fn test_div64_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x300000000 } },
         4
     );
@@ -941,7 +941,7 @@ fn test_div64_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x300000000 } },
         5
     );
@@ -957,7 +957,7 @@ fn test_sdiv64_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x300000000 } },
         4
     );
@@ -974,7 +974,7 @@ fn test_sdiv64_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x300000000 } },
         5
     );
@@ -990,7 +990,7 @@ fn test_err_div64_by_zero_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -1008,7 +1008,7 @@ fn test_err_div32_by_zero_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -1026,7 +1026,7 @@ fn test_err_sdiv64_by_zero_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -1044,7 +1044,7 @@ fn test_err_sdiv32_by_zero_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -1062,7 +1062,7 @@ fn test_err_sdiv64_overflow_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 31)
         },
@@ -1081,7 +1081,7 @@ fn test_err_sdiv64_overflow_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 32)
         },
@@ -1099,7 +1099,7 @@ fn test_err_sdiv32_overflow_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 31)
         },
@@ -1118,7 +1118,7 @@ fn test_err_sdiv32_overflow_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 32)
         },
@@ -1137,7 +1137,7 @@ fn test_mod32() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x5 } },
         5
     );
@@ -1152,7 +1152,7 @@ fn test_mod32_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
         3
     );
@@ -1173,7 +1173,7 @@ fn test_mod64() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x30ba5a04 } },
         9
     );
@@ -1189,7 +1189,7 @@ fn test_err_mod64_by_zero_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -1207,7 +1207,7 @@ fn test_err_mod_by_zero_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -1225,7 +1225,7 @@ fn test_ldxb() {
         exit",
         [0xaa, 0xbb, 0x11, 0xcc, 0xdd],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11 } },
         2
     );
@@ -1239,7 +1239,7 @@ fn test_ldxh() {
         exit",
         [0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2211 } },
         2
     );
@@ -1255,7 +1255,7 @@ fn test_ldxw() {
             0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0xcc, 0xdd, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x44332211 } },
         2
     );
@@ -1271,7 +1271,7 @@ fn test_ldxh_same_reg() {
         exit",
         [0xff, 0xff],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1234 } },
         4
     );
@@ -1288,7 +1288,7 @@ fn test_lldxdw() {
             0x77, 0x88, 0xcc, 0xdd, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x8877665544332211 } },
         2
     );
@@ -1305,7 +1305,7 @@ fn test_err_ldxdw_oob() {
             0x77, 0x88, 0xcc, 0xdd, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -1326,7 +1326,7 @@ fn test_err_ldxdw_nomem() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -1379,7 +1379,7 @@ fn test_ldxb_all() {
             0x08, 0x09, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x9876543210 } },
         31
     );
@@ -1436,7 +1436,7 @@ fn test_ldxh_all() {
             0x00, 0x08, 0x00, 0x09, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x9876543210 } },
         41
     );
@@ -1483,7 +1483,7 @@ fn test_ldxh_all2() {
             0x01, 0x00, 0x02, 0x00, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3ff } },
         31
     );
@@ -1532,7 +1532,7 @@ fn test_ldxw_all() {
             0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x030f0f } },
         31
     );
@@ -1546,7 +1546,7 @@ fn test_lddw() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122334455667788 } },
         2
     );
@@ -1556,7 +1556,7 @@ fn test_lddw() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x80000000 } },
         2
     );
@@ -1571,7 +1571,7 @@ fn test_stb() {
         exit",
         [0xaa, 0xbb, 0xff, 0xcc, 0xdd],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11 } },
         3
     );
@@ -1588,7 +1588,7 @@ fn test_sth() {
             0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2211 } },
         3
     );
@@ -1605,7 +1605,7 @@ fn test_stw() {
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x44332211 } },
         3
     );
@@ -1623,7 +1623,7 @@ fn test_stdw() {
             0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x44332211 } },
         3
     );
@@ -1641,7 +1641,7 @@ fn test_stxb() {
             0xaa, 0xbb, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11 } },
         4
     );
@@ -1659,7 +1659,7 @@ fn test_stxh() {
             0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2211 } },
         4
     );
@@ -1677,7 +1677,7 @@ fn test_stxw() {
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x44332211 } },
         4
     );
@@ -1698,7 +1698,7 @@ fn test_stxdw() {
             0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x8877665544332211 } },
         6
     );
@@ -1731,7 +1731,7 @@ fn test_stxb_all() {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xf0f2f3f4f5f6f7f8 } },
         19
     );
@@ -1751,7 +1751,7 @@ fn test_stxb_all2() {
         exit",
         [0xff, 0xff],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xf1f9 } },
         8
     );
@@ -1787,7 +1787,7 @@ fn test_stxb_chain() {
             0x00, 0x00, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2a } },
         21
     );
@@ -1802,7 +1802,7 @@ fn test_exit_without_value() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
         1
     );
@@ -1816,7 +1816,7 @@ fn test_exit() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
         2
     );
@@ -1832,7 +1832,7 @@ fn test_early_exit() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3 } },
         2
     );
@@ -1848,7 +1848,7 @@ fn test_ja() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         3
     );
@@ -1868,7 +1868,7 @@ fn test_jeq_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -1889,7 +1889,7 @@ fn test_jeq_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         8
     );
@@ -1909,7 +1909,7 @@ fn test_jge_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -1930,7 +1930,7 @@ fn test_jge_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         8
     );
@@ -1951,7 +1951,7 @@ fn test_jle_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -1974,7 +1974,7 @@ fn test_jle_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         9
     );
@@ -1994,7 +1994,7 @@ fn test_jgt_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -2016,7 +2016,7 @@ fn test_jgt_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         9
     );
@@ -2036,7 +2036,7 @@ fn test_jlt_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -2058,7 +2058,7 @@ fn test_jlt_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         9
     );
@@ -2078,7 +2078,7 @@ fn test_jne_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -2099,7 +2099,7 @@ fn test_jne_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         8
     );
@@ -2119,7 +2119,7 @@ fn test_jset_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -2140,7 +2140,7 @@ fn test_jset_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         8
     );
@@ -2161,7 +2161,7 @@ fn test_jsge_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         8
     );
@@ -2184,7 +2184,7 @@ fn test_jsge_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         10
     );
@@ -2205,7 +2205,7 @@ fn test_jsle_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -2229,7 +2229,7 @@ fn test_jsle_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         10
     );
@@ -2249,7 +2249,7 @@ fn test_jsgt_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -2270,7 +2270,7 @@ fn test_jsgt_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         8
     );
@@ -2290,7 +2290,7 @@ fn test_jslt_imm() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         7
     );
@@ -2312,7 +2312,7 @@ fn test_jslt_reg() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         9
     );
@@ -2335,7 +2335,7 @@ fn test_stack1() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xcd } },
         9
     );
@@ -2366,7 +2366,7 @@ fn test_stack2() {
             b"BpfMemFrob" => syscalls::BpfMemFrob::call,
             b"BpfGatherBytes" => syscalls::BpfGatherBytes::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x01020304 } },
         16
     );
@@ -2408,7 +2408,7 @@ fn test_string_stack() {
         (
             b"BpfStrCmp" => syscalls::BpfStrCmp::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
         28
     );
@@ -2428,7 +2428,7 @@ fn test_err_fixed_stack_out_of_bound() {
         config,
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2459,7 +2459,7 @@ fn test_err_dynamic_stack_out_of_bound() {
         config,
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2479,7 +2479,7 @@ fn test_err_dynamic_stack_out_of_bound() {
         config,
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2518,7 +2518,7 @@ fn test_err_dynamic_stack_ptr_overflow() {
         config,
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2549,7 +2549,7 @@ fn test_dynamic_stack_frames_empty() {
         config,
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64
@@ -2579,7 +2579,7 @@ fn test_dynamic_frame_ptr() {
         config,
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64 - 8
@@ -2602,7 +2602,7 @@ fn test_dynamic_frame_ptr() {
         config,
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64
@@ -2640,7 +2640,7 @@ fn test_entrypoint_exit() {
             config,
             [],
             (),
-            &mut (),
+            TestContextObject::default(),
             { |_vm, res: ProgramResult| { res.unwrap() == 42 } },
             5
         );
@@ -2671,7 +2671,7 @@ fn test_stack_call_depth_tracking() {
             config,
             [],
             (),
-            &mut (),
+            TestContextObject::default(),
             { |_vm, res: ProgramResult| { res.is_ok() } },
             5
         );
@@ -2691,7 +2691,7 @@ fn test_stack_call_depth_tracking() {
             config,
             [],
             (),
-            &mut (),
+            TestContextObject::default(),
             {
                 |_vm, res: ProgramResult| {
                     matches!(res.unwrap_err(),
@@ -2727,7 +2727,7 @@ fn test_err_mem_access_out_of_bound() {
         test_interpreter_and_jit!(
             executable,
             mem,
-            &mut (),
+            TestContextObject::default(),
             {
                 |_vm, res: ProgramResult| {
                     matches!(res.unwrap_err(),
@@ -2751,7 +2751,7 @@ fn test_relative_call() {
         (
             b"log" => syscalls::BpfSyscallString::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 2 } },
         14
     );
@@ -2765,7 +2765,7 @@ fn test_bpf_to_bpf_scratch_registers() {
         (
             b"log_64" => syscalls::BpfSyscallU64::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 112 } },
         41
     );
@@ -2777,7 +2777,7 @@ fn test_bpf_to_bpf_pass_stack_reference() {
         "tests/elfs/pass_stack_reference.so",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| res.unwrap() == 42 },
         29
     );
@@ -2797,7 +2797,7 @@ fn test_syscall_parameter_on_stack() {
         (
             b"BpfSyscallString" => syscalls::BpfSyscallString::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         6
     );
@@ -2818,7 +2818,7 @@ fn test_callx() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 42 } },
         8
     );
@@ -2838,7 +2838,7 @@ fn test_err_callx_unregistered() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(pc) if pc == 35)
         },
@@ -2855,7 +2855,7 @@ fn test_err_callx_oob_low() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2879,7 +2879,7 @@ fn test_err_callx_oob_high() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2909,7 +2909,7 @@ fn test_err_static_jmp_lddw() {
         ",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2 } },
         9
     );
@@ -2923,7 +2923,7 @@ fn test_err_static_jmp_lddw() {
         ",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2952,7 +2952,7 @@ fn test_err_dynamic_jmp_lddw() {
         config,
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2973,7 +2973,7 @@ fn test_err_dynamic_jmp_lddw() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2997,7 +2997,7 @@ fn test_err_dynamic_jmp_lddw() {
         config,
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3020,7 +3020,7 @@ fn test_err_dynamic_jmp_lddw() {
         config,
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3043,7 +3043,7 @@ fn test_bpf_to_bpf_depth() {
             (
                 b"log" => syscalls::BpfSyscallString::call,
             ),
-            &mut (),
+            TestContextObject::default(),
             { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
             if i == 0 { 4 } else { 3 + 10 * i as u64 }
         );
@@ -3060,7 +3060,7 @@ fn test_err_bpf_to_bpf_too_deep() {
         (
             b"log" => syscalls::BpfSyscallString::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3084,7 +3084,7 @@ fn test_err_reg_stack_depth() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3136,7 +3136,7 @@ fn test_err_syscall_string() {
         (
             b"BpfSyscallString" => syscalls::BpfSyscallString::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3161,7 +3161,7 @@ fn test_syscall_string() {
         (
             b"BpfSyscallString" => syscalls::BpfSyscallString::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         4
     );
@@ -3183,7 +3183,7 @@ fn test_syscall() {
         (
             b"BpfSyscallU64" => syscalls::BpfSyscallU64::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         8
     );
@@ -3204,7 +3204,7 @@ fn test_call_gather_bytes() {
         (
             b"BpfGatherBytes" => syscalls::BpfGatherBytes::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0102030405 } },
         7
     );
@@ -3227,12 +3227,13 @@ fn test_call_memfrob() {
         (
             b"BpfMemFrob" => syscalls::BpfMemFrob::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x102292e2f2c0708 } },
         7
     );
 }
 
+/* TODO
 #[test]
 fn test_syscall_with_context() {
     test_interpreter_and_jit_asm!(
@@ -3257,7 +3258,7 @@ fn test_syscall_with_context() {
         }},
         8
     );
-}
+}*/
 
 pub struct NestedVmSyscall {}
 impl NestedVmSyscall {
@@ -3292,7 +3293,7 @@ impl NestedVmSyscall {
             test_interpreter_and_jit!(
                 executable,
                 mem,
-                &mut (),
+                TestContextObject::default(),
                 {
                     |_vm, res: ProgramResult| {
                         *result = res;
@@ -3338,7 +3339,7 @@ fn test_load_elf() {
             b"log" => syscalls::BpfSyscallString::call,
             b"log_64" => syscalls::BpfSyscallU64::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         11
     );
@@ -3352,7 +3353,7 @@ fn test_load_elf_empty_noro() {
         (
             b"log_64" => syscalls::BpfSyscallU64::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         8
     );
@@ -3366,7 +3367,7 @@ fn test_load_elf_empty_rodata() {
         (
             b"log_64" => syscalls::BpfSyscallU64::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         8
     );
@@ -3386,7 +3387,7 @@ fn test_load_elf_rodata() {
             config,
             [],
             (),
-            &mut (),
+            TestContextObject::default(),
             { |_vm, res: ProgramResult| { res.unwrap() == 42 } },
             3
         );
@@ -3399,7 +3400,7 @@ fn test_load_elf_rodata_high_vaddr() {
         "tests/elfs/rodata_high_vaddr.so",
         [1],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 42 } },
         3
     );
@@ -3425,7 +3426,7 @@ fn test_custom_entrypoint() {
     test_interpreter_and_jit!(
         executable,
         [],
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         2
     );
@@ -3441,7 +3442,7 @@ fn test_tight_infinite_loop_conditional() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3462,7 +3463,7 @@ fn test_tight_infinite_loop_unconditional() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3485,7 +3486,7 @@ fn test_tight_infinite_recursion() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3511,7 +3512,7 @@ fn test_tight_infinite_recursion_callx() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3536,7 +3537,7 @@ fn test_instruction_count_syscall() {
         (
             b"BpfSyscallString" => syscalls::BpfSyscallString::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         4
     );
@@ -3554,7 +3555,7 @@ fn test_err_instruction_count_syscall_capped() {
         (
             b"BpfSyscallString" => syscalls::BpfSyscallString::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3578,7 +3579,7 @@ fn test_err_instruction_count_lddw_capped() {
         ",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3607,7 +3608,7 @@ fn test_non_terminate_early() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3638,7 +3639,7 @@ fn test_err_non_terminate_capped() {
         (
             b"BpfTracePrintf" => syscalls::BpfTracePrintf::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3665,7 +3666,7 @@ fn test_err_non_terminate_capped() {
         (
             b"BpfTracePrintf" => syscalls::BpfTracePrintf::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3691,7 +3692,7 @@ fn test_err_capped_before_exception() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3713,7 +3714,7 @@ fn test_err_capped_before_exception() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3739,7 +3740,7 @@ fn test_err_exit_capped() {
         ",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3761,7 +3762,7 @@ fn test_err_exit_capped() {
         ",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3779,7 +3780,7 @@ fn test_err_exit_capped() {
         ",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3807,7 +3808,7 @@ fn test_symbol_relocation() {
         (
             b"BpfSyscallString" => syscalls::BpfSyscallString::call
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         6
     );
@@ -3827,7 +3828,7 @@ fn test_err_call_unresolved() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(pc) if pc == 34)
         },
@@ -3859,7 +3860,7 @@ fn test_syscall_static() {
         (
             b"log" => syscalls::BpfSyscallString::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         5
     );
@@ -3877,7 +3878,7 @@ fn test_syscall_unknown_static() {
         (
             b"log" => syscalls::BpfSyscallString::call,
         ),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(29)) } },
         1
     );
@@ -3892,7 +3893,7 @@ fn test_reloc_64_64() {
         "tests/elfs/reloc_64_64.so",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0xe8 } },
         2
     );
@@ -3906,7 +3907,7 @@ fn test_reloc_64_64_high_vaddr() {
         "tests/elfs/reloc_64_64_high_vaddr.so",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START } },
         2
     );
@@ -3922,7 +3923,7 @@ fn test_reloc_64_relative() {
         "tests/elfs/reloc_64_relative.so",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x100 } },
         2
     );
@@ -3938,7 +3939,7 @@ fn test_reloc_64_relative_high_vaddr() {
         "tests/elfs/reloc_64_relative_high_vaddr.so",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x18 } },
         2
     );
@@ -3957,7 +3958,7 @@ fn test_reloc_64_relative_data() {
         "tests/elfs/reloc_64_relative_data.so",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x108 } },
         3
     );
@@ -3976,7 +3977,7 @@ fn test_reloc_64_relative_data_high_vaddr() {
         "tests/elfs/reloc_64_relative_data_high_vaddr.so",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x20 } },
         3
     );
@@ -4001,7 +4002,7 @@ fn test_reloc_64_relative_data_pre_sbfv2() {
         "tests/elfs/reloc_64_relative_data_pre_sbfv2.so",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x108 } },
         3
     );
@@ -4025,7 +4026,7 @@ fn test_mul_loop() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x75db9c97 } },
         37
     );
@@ -4053,7 +4054,7 @@ fn test_prime() {
         exit",
         [],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         655
     );
@@ -4090,7 +4091,7 @@ fn test_subnet() {
             0x03, 0x00, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         11
     );
@@ -4116,7 +4117,7 @@ fn test_tcp_port80_match() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
         17
     );
@@ -4142,7 +4143,7 @@ fn test_tcp_port80_nomatch() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
         18
     );
@@ -4168,7 +4169,7 @@ fn test_tcp_port80_nomatch_ethertype() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
         7
     );
@@ -4194,7 +4195,7 @@ fn test_tcp_port80_nomatch_proto() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
         9
     );
@@ -4206,7 +4207,7 @@ fn test_tcp_sack_match() {
         TCP_SACK_ASM,
         TCP_SACK_MATCH,
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| res.unwrap() == 0x1 },
         79
     );
@@ -4218,7 +4219,7 @@ fn test_tcp_sack_nomatch() {
         TCP_SACK_ASM,
         TCP_SACK_NOMATCH,
         (),
-        &mut (),
+        TestContextObject::default(),
         { |_vm, res: ProgramResult| res.unwrap() == 0x0 },
         55
     );
@@ -4259,11 +4260,18 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     }
     let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {
         let mut mem = vec![0u8; mem_size];
-        let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-        let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
-        let result_interpreter = vm.execute_program_interpreted(&mut TestContextObject {
+        let mut context_object = TestContextObject {
             remaining: max_instruction_count,
-        });
+        };
+        let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
+        let mut vm = EbpfVm::new(
+            &verified_executable,
+            &mut context_object,
+            &mut [],
+            vec![mem_region],
+        )
+        .unwrap();
+        let result_interpreter = vm.execute_program_interpreted();
         let tracer_interpreter = vm.get_program_environment().tracer.clone();
         (
             vm.get_total_instruction_count(),
@@ -4272,11 +4280,18 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         )
     };
     let mut mem = vec![0u8; mem_size];
-    let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
-    let result_jit = vm.execute_program_jit(&mut TestContextObject {
+    let mut context_object = TestContextObject {
         remaining: max_instruction_count,
-    });
+    };
+    let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
+    let mut vm = EbpfVm::new(
+        &verified_executable,
+        &mut context_object,
+        &mut [],
+        vec![mem_region],
+    )
+    .unwrap();
+    let result_jit = vm.execute_program_jit();
     let tracer_jit = &vm.get_program_environment().tracer;
     if format!("{:?}", result_interpreter) != format!("{:?}", result_jit)
         || !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit)

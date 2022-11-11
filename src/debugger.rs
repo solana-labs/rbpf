@@ -126,11 +126,10 @@ pub fn execute<V: Verifier, C: ContextObject>(
         .get_config()
         .enable_instruction_meter
     {
-        interpreter
-            .instruction_meter
-            .consume(interpreter.due_insn_count);
+        let context_object = &mut interpreter.vm.program_environment.context_object;
+        context_object.consume(interpreter.due_insn_count);
         interpreter.vm.total_insn_count =
-            interpreter.initial_insn_count - interpreter.instruction_meter.get_remaining();
+            interpreter.initial_insn_count - context_object.get_remaining();
     }
 
     ProgramResult::Ok(interpreter.reg[0])
@@ -256,9 +255,14 @@ impl<'a, 'b, V: Verifier, C: ContextObject>
             }
             BpfRegId::Sp => buf.copy_from_slice(&self.reg[ebpf::FRAME_PTR_REG].to_le_bytes()),
             BpfRegId::Pc => buf.copy_from_slice(&self.get_dbg_pc().to_le_bytes()),
-            BpfRegId::InstructionCountRemaining => {
-                buf.copy_from_slice(&self.instruction_meter.get_remaining().to_le_bytes())
-            }
+            BpfRegId::InstructionCountRemaining => buf.copy_from_slice(
+                &self
+                    .vm
+                    .program_environment
+                    .context_object
+                    .get_remaining()
+                    .to_le_bytes(),
+            ),
         }
         Ok(buf.len())
     }

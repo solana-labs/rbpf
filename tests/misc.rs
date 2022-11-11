@@ -129,16 +129,17 @@ fn test_fuzz_execute() {
                     TestContextObject,
                 >::from_executable(executable)
                 {
+                    let mut context_object = TestContextObject {
+                        remaining: 1_000_000,
+                    };
                     let mut vm = EbpfVm::<RequisiteVerifier, TestContextObject>::new(
                         &verified_executable,
-                        &mut (),
+                        &mut context_object,
                         &mut [],
                         Vec::new(),
                     )
                     .unwrap();
-                    let _ = vm.execute_program_interpreted(&mut TestContextObject {
-                        remaining: 1_000_000,
-                    });
+                    let _ = vm.execute_program_interpreted();
                 }
             }
         },

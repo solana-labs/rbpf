@@ -31,7 +31,16 @@ fn bench_init_vm(bencher: &mut Bencher) {
     let verified_executable =
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
-    bencher.iter(|| EbpfVm::new(&verified_executable, &mut (), &mut [], Vec::new()).unwrap());
+    bencher.iter(|| {
+        let mut context_object = TestContextObject::default();
+        EbpfVm::new(
+            &verified_executable,
+            &mut context_object,
+            &mut [],
+            Vec::new(),
+        )
+        .unwrap();
+    });
 }
 
 #[cfg(not(windows))]
