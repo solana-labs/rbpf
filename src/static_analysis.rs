@@ -6,7 +6,7 @@ use crate::{
     ebpf,
     elf::{self, Executable},
     error::EbpfError,
-    vm::{DynamicAnalysis, InstructionMeter},
+    vm::{ContextObject, DynamicAnalysis},
 };
 use rustc_demangle::demangle;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -119,9 +119,9 @@ impl Default for CfgNode {
 }
 
 /// Result of the executable analysis
-pub struct Analysis<'a, I: InstructionMeter> {
+pub struct Analysis<'a, C: ContextObject> {
     /// The program which is analyzed
-    pub executable: &'a Executable<I>,
+    pub executable: &'a Executable<C>,
     /// Plain list of instructions as they occur in the executable
     pub instructions: Vec<ebpf::Insn>,
     /// Functions in the executable
@@ -140,9 +140,9 @@ pub struct Analysis<'a, I: InstructionMeter> {
     pub dfg_reverse_edges: BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
 }
 
-impl<'a, I: InstructionMeter> Analysis<'a, I> {
+impl<'a, C: ContextObject> Analysis<'a, C> {
     /// Analyze an executable statically
-    pub fn from_executable(executable: &'a Executable<I>) -> Result<Self, EbpfError> {
+    pub fn from_executable(executable: &'a Executable<C>) -> Result<Self, EbpfError> {
         let (_program_vm_addr, program) = executable.get_text_bytes();
         let mut functions = BTreeMap::new();
         for (key, (pc, name)) in executable.get_function_registry().iter() {
@@ -487,10 +487,10 @@ impl<'a, I: InstructionMeter> Analysis<'a, I> {
                 .replace('>', "&gt;")
                 .replace('\"', "&quot;")
         }
-        fn emit_cfg_node<W: std::io::Write, I: InstructionMeter>(
+        fn emit_cfg_node<W: std::io::Write, C: ContextObject>(
             output: &mut W,
             dynamic_analysis: Option<&DynamicAnalysis>,
-            analysis: &Analysis<I>,
+            analysis: &Analysis<C>,
             function_range: std::ops::Range<usize>,
             alias_nodes: &mut HashSet<usize>,
             cfg_node_start: usize,

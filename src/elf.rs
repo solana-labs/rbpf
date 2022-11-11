@@ -22,7 +22,7 @@ use crate::{
     },
     error::EbpfError,
     memory_region::MemoryRegion,
-    vm::{Config, FunctionRegistry, InstructionMeter, SyscallRegistry},
+    vm::{Config, ContextObject, FunctionRegistry, SyscallRegistry},
 };
 
 #[cfg(feature = "jit")]
@@ -264,7 +264,7 @@ pub(crate) enum Section {
 
 /// Elf loader/relocator
 #[derive(Debug, PartialEq)]
-pub struct Executable<I: InstructionMeter> {
+pub struct Executable<C: ContextObject> {
     /// Configuration settings
     config: Config,
     /// Loaded and executable elf
@@ -283,12 +283,12 @@ pub struct Executable<I: InstructionMeter> {
     syscall_registry: SyscallRegistry,
     /// Compiled program and argument
     #[cfg(feature = "jit")]
-    compiled_program: Option<JitProgram<I>>,
+    compiled_program: Option<JitProgram<C>>,
     #[cfg(not(feature = "jit"))]
     _marker: PhantomData<(I)>,
 }
 
-impl<I: InstructionMeter> Executable<I> {
+impl<C: ContextObject> Executable<C> {
     /// Get the configuration settings
     pub fn get_config(&self) -> &Config {
         &self.config
@@ -352,14 +352,14 @@ impl<I: InstructionMeter> Executable<I> {
 
     /// Get the JIT compiled program
     #[cfg(feature = "jit")]
-    pub fn get_compiled_program(&self) -> Option<&JitProgram<I>> {
+    pub fn get_compiled_program(&self) -> Option<&JitProgram<C>> {
         self.compiled_program.as_ref()
     }
 
     /// JIT compile the executable
     #[cfg(feature = "jit")]
     pub fn jit_compile(executable: &mut Self) -> Result<(), EbpfError> {
-        executable.compiled_program = Some(JitProgram::<I>::new(executable)?);
+        executable.compiled_program = Some(JitProgram::<C>::new(executable)?);
         Ok(())
     }
 
@@ -1242,11 +1242,11 @@ mod test {
         },
         fuzz::fuzz,
         syscalls::{BpfSyscallString, BpfSyscallU64},
-        vm::{ProgramResult, TestInstructionMeter},
+        vm::{ProgramResult, TestContextObject},
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
-    type ElfExecutable = Executable<TestInstructionMeter>;
+    type ElfExecutable = Executable<TestContextObject>;
 
     fn syscall_registry() -> SyscallRegistry {
         let mut syscall_registry = SyscallRegistry::default();
@@ -1399,7 +1399,7 @@ mod test {
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
         let parsed_elf = NewParser::parse(&elf_bytes).unwrap();
-        let executable: &Executable<TestInstructionMeter> = &elf;
+        let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(0, executable.get_entrypoint_instruction_offset());
 
         let write_header = |header: Elf64Ehdr| unsafe {
@@ -1415,7 +1415,7 @@ mod test {
         let elf_bytes = write_header(header.clone());
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
-        let executable: &Executable<TestInstructionMeter> = &elf;
+        let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(1, executable.get_entrypoint_instruction_offset());
 
         header.e_entry = 1;
@@ -1443,7 +1443,7 @@ mod test {
         let elf_bytes = write_header(header);
         let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
             .expect("validation failed");
-        let executable: &Executable<TestInstructionMeter> = &elf;
+        let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(0, executable.get_entrypoint_instruction_offset());
     }
 

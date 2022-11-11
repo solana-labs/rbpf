@@ -246,7 +246,7 @@ impl Default for Config {
 }
 
 /// Static constructors for Executable
-impl<I: 'static + InstructionMeter> Executable<I> {
+impl<C: 'static + ContextObject> Executable<C> {
     /// Creates an executable from an ELF file
     pub fn from_elf(
         elf_bytes: &[u8],
@@ -271,14 +271,14 @@ impl<I: 'static + InstructionMeter> Executable<I> {
 /// Verified executable
 #[derive(Debug, PartialEq)]
 #[repr(transparent)]
-pub struct VerifiedExecutable<V: Verifier, I: InstructionMeter> {
-    executable: Executable<I>,
+pub struct VerifiedExecutable<V: Verifier, C: ContextObject> {
+    executable: Executable<C>,
     _verifier: PhantomData<V>,
 }
 
-impl<V: Verifier, I: InstructionMeter> VerifiedExecutable<V, I> {
+impl<V: Verifier, C: ContextObject> VerifiedExecutable<V, C> {
     /// Verify an executable
-    pub fn from_executable(executable: Executable<I>) -> Result<Self, EbpfError> {
+    pub fn from_executable(executable: Executable<C>) -> Result<Self, EbpfError> {
         <V as Verifier>::verify(
             executable.get_text_bytes().1,
             executable.get_config(),
@@ -293,17 +293,17 @@ impl<V: Verifier, I: InstructionMeter> VerifiedExecutable<V, I> {
     /// JIT compile the executable
     #[cfg(feature = "jit")]
     pub fn jit_compile(&mut self) -> Result<(), EbpfError> {
-        Executable::<I>::jit_compile(&mut self.executable)
+        Executable::<C>::jit_compile(&mut self.executable)
     }
 
     /// Get a reference to the underlying executable
-    pub fn get_executable(&self) -> &Executable<I> {
+    pub fn get_executable(&self) -> &Executable<C> {
         &self.executable
     }
 }
 
 /// Instruction meter
-pub trait InstructionMeter {
+pub trait ContextObject {
     /// Consume instructions
     fn consume(&mut self, amount: u64);
     /// Get the number of remaining instructions allowed
@@ -312,12 +312,12 @@ pub trait InstructionMeter {
 
 /// Simple instruction meter for testing
 #[derive(Debug, PartialEq, Eq)]
-pub struct TestInstructionMeter {
+pub struct TestContextObject {
     /// Maximal amount of instructions which still can be executed
     pub remaining: u64,
 }
 
-impl InstructionMeter for TestInstructionMeter {
+impl ContextObject for TestContextObject {
     fn consume(&mut self, amount: u64) {
         debug_assert!(amount <= self.remaining, "Execution count exceeded");
         self.remaining = self.remaining.saturating_sub(amount);
@@ -338,7 +338,7 @@ pub struct DynamicAnalysis {
 
 impl DynamicAnalysis {
     /// Accumulates a trace
-    pub fn new<I: InstructionMeter>(tracer: &Tracer, analysis: &Analysis<I>) -> Self {
+    pub fn new<C: ContextObject>(tracer: &Tracer, analysis: &Analysis<C>) -> Self {
         let mut result = Self {
             edge_counter_max: 0,
             edges: BTreeMap::new(),
@@ -376,10 +376,10 @@ impl Tracer {
     }
 
     /// Use this method to print the log of this tracer
-    pub fn write<W: std::io::Write, I: InstructionMeter>(
+    pub fn write<W: std::io::Write, C: ContextObject>(
         &self,
         output: &mut W,
-        analysis: &Analysis<I>,
+        analysis: &Analysis<C>,
     ) -> Result<(), std::io::Error> {
         let mut pc_to_insn_index = vec![
             0usize;
@@ -427,7 +427,7 @@ impl Tracer {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestInstructionMeter, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
+/// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -440,17 +440,17 @@ impl Tracer {
 /// let config = Config::default();
 /// let syscall_registry = SyscallRegistry::default();
 /// let function_registry = FunctionRegistry::default();
-/// let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
+/// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
 /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
-/// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
+/// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
 /// let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
 ///
 /// // Provide a reference to the packet data.
-/// let res = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 }).unwrap();
+/// let res = vm.execute_program_interpreted(&mut TestContextObject { remaining: 1 }).unwrap();
 /// assert_eq!(res, 0);
 /// ```
-pub struct EbpfVm<'a, V: Verifier, I: InstructionMeter> {
-    pub(crate) verified_executable: &'a VerifiedExecutable<V, I>,
+pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
+    pub(crate) verified_executable: &'a VerifiedExecutable<V, C>,
     pub(crate) program: &'a [u8],
     pub(crate) program_vm_addr: u64,
     pub(crate) program_environment: ProgramEnvironment<'a>,
@@ -458,14 +458,14 @@ pub struct EbpfVm<'a, V: Verifier, I: InstructionMeter> {
     pub(crate) total_insn_count: u64,
 }
 
-impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
+impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     /// Create a new virtual machine instance, and load an eBPF program into that instance.
     /// When attempting to load the program, it passes through a simple verifier.
     ///
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, vm::{Config, EbpfVm, TestInstructionMeter, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
+    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -475,16 +475,16 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// let config = Config::default();
     /// let syscall_registry = SyscallRegistry::default();
     /// let function_registry = FunctionRegistry::default();
-    /// let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
-    /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
+    /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
+    /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
     /// let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], Vec::new()).unwrap();
     /// ```
     pub fn new<O>(
-        verified_executable: &'a VerifiedExecutable<V, I>,
+        verified_executable: &'a VerifiedExecutable<V, C>,
         context_object: &mut O,
         heap_region: &mut [u8],
         additional_regions: Vec<MemoryRegion>,
-    ) -> Result<EbpfVm<'a, V, I>, EbpfError> {
+    ) -> Result<EbpfVm<'a, V, C>, EbpfError> {
         let executable = verified_executable.get_executable();
         let config = executable.get_config();
         let mut stack = CallFrames::new(config);
@@ -536,7 +536,7 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// # Examples
     ///
     /// ```
-    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestInstructionMeter, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
+    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
     ///
     /// let prog = &[
     ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -549,16 +549,16 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// let config = Config::default();
     /// let syscall_registry = SyscallRegistry::default();
     /// let function_registry = FunctionRegistry::default();
-    /// let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
-    /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable).unwrap();
+    /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
+    /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
     /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
     /// let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
     ///
     /// // Provide a reference to the packet data.
-    /// let res = vm.execute_program_interpreted(&mut TestInstructionMeter { remaining: 1 }).unwrap();
+    /// let res = vm.execute_program_interpreted(&mut TestContextObject { remaining: 1 }).unwrap();
     /// assert_eq!(res, 0);
     /// ```
-    pub fn execute_program_interpreted(&mut self, instruction_meter: &mut I) -> ProgramResult {
+    pub fn execute_program_interpreted(&mut self, instruction_meter: &mut C) -> ProgramResult {
         let mut result = Ok(None);
         let (initial_insn_count, due_insn_count) = {
             let mut interpreter = match Interpreter::new(self, instruction_meter) {
@@ -595,7 +595,7 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// the program works with the interpreter before running the JIT-compiled version of it.
     ///
     #[cfg(feature = "jit")]
-    pub fn execute_program_jit(&mut self, instruction_meter: &mut I) -> ProgramResult {
+    pub fn execute_program_jit(&mut self, instruction_meter: &mut C) -> ProgramResult {
         let executable = self.verified_executable.get_executable();
         let initial_insn_count = if executable.get_config().enable_instruction_meter {
             instruction_meter.get_remaining()

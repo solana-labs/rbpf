@@ -11,13 +11,13 @@ extern crate test_utils;
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
-    vm::{Config, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, SyscallRegistry, TestContextObject},
 };
 use test_utils::{TCP_SACK_ASM, TCP_SACK_BIN};
 
 fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
     let executable =
-        assemble::<TestInstructionMeter>(src, Config::default(), SyscallRegistry::default())?;
+        assemble::<TestContextObject>(src, Config::default(), SyscallRegistry::default())?;
     let (_program_vm_addr, program) = executable.get_text_bytes();
     Ok((0..program.len() / ebpf::INSN_SIZE)
         .map(|insn_ptr| ebpf::get_insn(program, insn_ptr))
@@ -536,12 +536,9 @@ fn test_large_immediate() {
 
 #[test]
 fn test_tcp_sack() {
-    let executable = assemble::<TestInstructionMeter>(
-        TCP_SACK_ASM,
-        Config::default(),
-        SyscallRegistry::default(),
-    )
-    .unwrap();
+    let executable =
+        assemble::<TestContextObject>(TCP_SACK_ASM, Config::default(), SyscallRegistry::default())
+            .unwrap();
     let (_program_vm_addr, program) = executable.get_text_bytes();
     assert_eq!(program, TCP_SACK_BIN.to_vec());
 }

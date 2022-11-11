@@ -15,7 +15,7 @@ use solana_rbpf::{
     disassembler::disassemble_instruction,
     elf::Executable,
     static_analysis::Analysis,
-    vm::{Config, FunctionRegistry, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, FunctionRegistry, SyscallRegistry, TestContextObject},
 };
 // Turn a program into a JSON string.
 //
@@ -27,7 +27,7 @@ use solana_rbpf::{
 // * Print integers as integers, and not as strings containing their hexadecimal representation
 //   (just replace the relevant `format!()` calls by the commented values.
 fn to_json(program: &[u8]) -> String {
-    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestContextObject>::from_text_bytes(
         program,
         Config::default(),
         SyscallRegistry::default(),

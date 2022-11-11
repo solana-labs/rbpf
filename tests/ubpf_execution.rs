@@ -24,7 +24,7 @@ use solana_rbpf::{
     syscalls,
     verifier::RequisiteVerifier,
     vm::{
-        Config, EbpfVm, FunctionRegistry, ProgramResult, SyscallRegistry, TestInstructionMeter,
+        Config, EbpfVm, FunctionRegistry, ProgramResult, SyscallRegistry, TestContextObject,
         VerifiedExecutable,
     },
 };
@@ -42,7 +42,7 @@ macro_rules! test_interpreter_and_jit {
         let mut check_closure = $check;
         #[allow(unused_mut)]
         let mut verified_executable =
-            VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(
+            VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(
                 $executable,
             )
             .unwrap();
@@ -57,7 +57,7 @@ macro_rules! test_interpreter_and_jit {
                 vec![mem_region],
             )
             .unwrap();
-            let result = vm.execute_program_interpreted(&mut TestInstructionMeter {
+            let result = vm.execute_program_interpreted(&mut TestContextObject {
                 remaining: $expected_instruction_count,
             });
             assert!(check_closure(&vm, result));
@@ -83,7 +83,7 @@ macro_rules! test_interpreter_and_jit {
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, ProgramResult::Err(err))),
                 Ok(()) => {
-                    let result = vm.execute_program_jit(&mut TestInstructionMeter {
+                    let result = vm.execute_program_jit(&mut TestContextObject {
                         remaining: $expected_instruction_count,
                     });
                     let tracer_jit = &vm.get_program_environment().tracer;
@@ -153,7 +153,7 @@ macro_rules! test_interpreter_and_jit_elf {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function);)*
-            let mut executable = Executable::<TestInstructionMeter>::from_elf(&elf, $config, syscall_registry).unwrap();
+            let mut executable = Executable::<TestContextObject>::from_elf(&elf, $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $check, $expected_instruction_count);
         }
     };
@@ -2717,7 +2717,7 @@ fn test_err_mem_access_out_of_bound() {
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
         let config = Config::default();
         #[allow(unused_mut)]
-        let mut executable = Executable::<TestInstructionMeter>::from_text_bytes(
+        let mut executable = Executable::<TestContextObject>::from_text_bytes(
             &prog,
             config,
             SyscallRegistry::default(),
@@ -3250,7 +3250,7 @@ fn test_syscall_with_context() {
             b"SyscallWithContext" => syscalls::SyscallWithContext::call
         ),
         &mut syscalls::SyscallWithContext { context: 42 },
-        { |vm: &EbpfVm<RequisiteVerifier, TestInstructionMeter>, res: ProgramResult| {
+        { |vm: &EbpfVm<RequisiteVerifier, TestContextObject>, res: ProgramResult| {
             let context_object = unsafe { &*(vm.get_program_environment().context_object as *const syscalls::SyscallWithContext) };
             assert_eq!(context_object.context, 84);
             res.unwrap() == 0
@@ -3279,7 +3279,7 @@ impl NestedVmSyscall {
                 .register_syscall_by_name(b"NestedVmSyscall", NestedVmSyscall::call)
                 .unwrap();
             let mem = [depth as u8 - 1, throw as u8];
-            let mut executable = assemble::<TestInstructionMeter>(
+            let mut executable = assemble::<TestContextObject>(
                 "
                 ldxb r2, [r1+1]
                 ldxb r1, [r1]
@@ -3421,7 +3421,7 @@ fn test_custom_entrypoint() {
     test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::BpfSyscallU64::call);
     #[allow(unused_mut)]
     let mut executable =
-        Executable::<TestInstructionMeter>::from_elf(&elf, config, syscall_registry).unwrap();
+        Executable::<TestContextObject>::from_elf(&elf, config, syscall_registry).unwrap();
     test_interpreter_and_jit!(
         executable,
         [],
@@ -3847,7 +3847,7 @@ fn test_err_unresolved_elf() {
         ..Config::default()
     };
     assert!(
-        matches!(Executable::<TestInstructionMeter>::from_elf(&elf, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
+        matches!(Executable::<TestContextObject>::from_elf(&elf, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
     );
 }
 
@@ -4234,7 +4234,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         enable_instruction_tracing: true,
         ..Config::default()
     };
-    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         config,
         SyscallRegistry::default(),
@@ -4247,7 +4247,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     };
     let verified_executable = VerifiedExecutable::<
         solana_rbpf::verifier::RequisiteVerifier,
-        TestInstructionMeter,
+        TestContextObject,
     >::from_executable(executable);
     let mut verified_executable = if let Ok(verified_executable) = verified_executable {
         verified_executable
@@ -4261,7 +4261,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         let mut mem = vec![0u8; mem_size];
         let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
         let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
-        let result_interpreter = vm.execute_program_interpreted(&mut TestInstructionMeter {
+        let result_interpreter = vm.execute_program_interpreted(&mut TestContextObject {
             remaining: max_instruction_count,
         });
         let tracer_interpreter = vm.get_program_environment().tracer.clone();
@@ -4274,7 +4274,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let mut mem = vec![0u8; mem_size];
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut vm = EbpfVm::new(&verified_executable, &mut (), &mut [], vec![mem_region]).unwrap();
-    let result_jit = vm.execute_program_jit(&mut TestInstructionMeter {
+    let result_jit = vm.execute_program_jit(&mut TestContextObject {
         remaining: max_instruction_count,
     });
     let tracer_jit = &vm.get_program_environment().tracer;

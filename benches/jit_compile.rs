@@ -11,7 +11,7 @@ extern crate test;
 
 use solana_rbpf::{
     elf::Executable,
-    vm::{Config, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable},
+    vm::{Config, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
@@ -22,14 +22,14 @@ fn bench_init_vm(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = Executable::<TestInstructionMeter>::from_elf(
+    let executable = Executable::<TestContextObject>::from_elf(
         &elf,
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
     bencher.iter(|| EbpfVm::new(&verified_executable, &mut (), &mut [], Vec::new()).unwrap());
 }
@@ -40,14 +40,14 @@ fn bench_jit_compile(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = Executable::<TestInstructionMeter>::from_elf(
+    let executable = Executable::<TestContextObject>::from_elf(
         &elf,
         Config::default(),
         SyscallRegistry::default(),
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
     bencher.iter(|| verified_executable.jit_compile().unwrap());
 }

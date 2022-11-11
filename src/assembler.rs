@@ -19,7 +19,7 @@ use crate::{
     },
     ebpf::{self, Insn},
     elf::{register_bpf_function, Executable},
-    vm::{Config, FunctionRegistry, InstructionMeter, SyscallRegistry},
+    vm::{Config, ContextObject, FunctionRegistry, SyscallRegistry},
 };
 use std::collections::HashMap;
 
@@ -182,8 +182,8 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{assembler::assemble, vm::{Config, TestInstructionMeter, SyscallRegistry}};
-/// let executable = assemble::<TestInstructionMeter>(
+/// use solana_rbpf::{assembler::assemble, vm::{Config, TestContextObject, SyscallRegistry}};
+/// let executable = assemble::<TestContextObject>(
 ///    "add64 r1, 0x605
 ///     mov64 r2, 0x32
 ///     mov64 r1, r0
@@ -214,11 +214,11 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///  0x87, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ///  0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
 /// ```
-pub fn assemble<I: 'static + InstructionMeter>(
+pub fn assemble<C: 'static + ContextObject>(
     src: &str,
     config: Config,
     syscall_registry: SyscallRegistry,
-) -> Result<Executable<I>, String> {
+) -> Result<Executable<C>, String> {
     fn resolve_label(
         insn_ptr: usize,
         labels: &HashMap<&str, usize>,
@@ -361,6 +361,6 @@ pub fn assemble<I: 'static + InstructionMeter>(
         .iter()
         .flat_map(|insn| insn.to_vec())
         .collect::<Vec<_>>();
-    Executable::<I>::from_text_bytes(&program, config, syscall_registry, function_registry)
+    Executable::<C>::from_text_bytes(&program, config, syscall_registry, function_registry)
         .map_err(|err| format!("Executable constructor {:?}", err))
 }

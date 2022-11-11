@@ -8,7 +8,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     elf::Executable,
     static_analysis::Analysis,
-    vm::{Config, FunctionRegistry, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, FunctionRegistry, SyscallRegistry, TestContextObject},
 };
 
 // Simply disassemble a program into human-readable instructions.
@@ -31,7 +31,7 @@ fn main() {
     ];
     let syscall_registry = SyscallRegistry::default();
     let config = Config::default();
-    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestContextObject>::from_text_bytes(
         program,
         config,
         syscall_registry,

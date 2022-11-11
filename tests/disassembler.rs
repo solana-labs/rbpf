@@ -10,7 +10,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     assembler::assemble,
     static_analysis::Analysis,
-    vm::{Config, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, SyscallRegistry, TestContextObject},
 };
 
 // Using a macro to keep actual line numbers in failure output
@@ -22,7 +22,7 @@ macro_rules! disasm {
             ..Config::default()
         };
         let executable =
-            assemble::<TestInstructionMeter>(src, config, SyscallRegistry::default()).unwrap();
+            assemble::<TestContextObject>(src, config, SyscallRegistry::default()).unwrap();
         let analysis = Analysis::from_executable(&executable).unwrap();
         let mut reasm = Vec::new();
         analysis.disassemble(&mut reasm).unwrap();

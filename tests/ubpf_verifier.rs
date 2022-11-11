@@ -28,7 +28,7 @@ use solana_rbpf::{
     elf::Executable,
     verifier::{RequisiteVerifier, Verifier, VerifierError},
     vm::{
-        Config, EbpfVm, FunctionRegistry, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
+        Config, EbpfVm, FunctionRegistry, SyscallRegistry, TestContextObject, VerifiedExecutable,
     },
 };
 use test_utils::TautologyVerifier;
@@ -54,7 +54,7 @@ impl Verifier for ContradictionVerifier {
 
 #[test]
 fn test_verifier_success() {
-    let executable = assemble::<TestInstructionMeter>(
+    let executable = assemble::<TestContextObject>(
         "
         mov32 r0, 0xBEE
         exit",
@@ -63,9 +63,9 @@ fn test_verifier_success() {
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
-    let _vm = EbpfVm::<TautologyVerifier, TestInstructionMeter>::new(
+    let _vm = EbpfVm::<TautologyVerifier, TestContextObject>::new(
         &verified_executable,
         &mut (),
         &mut [],
@@ -77,7 +77,7 @@ fn test_verifier_success() {
 #[test]
 #[should_panic(expected = "NoProgram")]
 fn test_verifier_fail() {
-    let executable = assemble::<TestInstructionMeter>(
+    let executable = assemble::<TestContextObject>(
         "
         mov32 r0, 0xBEE
         exit",
@@ -86,16 +86,14 @@ fn test_verifier_fail() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<ContradictionVerifier, TestInstructionMeter>::from_executable(
-            executable,
-        )
-        .unwrap();
+        VerifiedExecutable::<ContradictionVerifier, TestContextObject>::from_executable(executable)
+            .unwrap();
 }
 
 #[test]
 #[should_panic(expected = "DivisionByZero(30)")]
 fn test_verifier_err_div_by_zero_imm() {
-    let executable = assemble::<TestInstructionMeter>(
+    let executable = assemble::<TestContextObject>(
         "
         mov32 r0, 1
         div32 r0, 0
@@ -105,7 +103,7 @@ fn test_verifier_err_div_by_zero_imm() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
 }
 
@@ -117,7 +115,7 @@ fn test_verifier_err_endian_size() {
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         Config::default(),
         SyscallRegistry::default(),
@@ -125,7 +123,7 @@ fn test_verifier_err_endian_size() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
 }
 
@@ -137,7 +135,7 @@ fn test_verifier_err_incomplete_lddw() {
         0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         Config::default(),
         SyscallRegistry::default(),
@@ -145,7 +143,7 @@ fn test_verifier_err_incomplete_lddw() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
 }
 
@@ -154,7 +152,7 @@ fn test_verifier_err_invalid_reg_dst() {
     // r11 is disabled when dynamic_stack_frames=false, and only sub and add are
     // allowed when dynamic_stack_frames=true
     for dynamic_stack_frames in [false, true] {
-        let executable = assemble::<TestInstructionMeter>(
+        let executable = assemble::<TestContextObject>(
             "
             mov r11, 1
             exit",
@@ -166,10 +164,8 @@ fn test_verifier_err_invalid_reg_dst() {
         )
         .unwrap();
         let result =
-            VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(
-                executable,
-            )
-            .map_err(|err| format!("Executable constructor {:?}", err));
+            VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
+                .map_err(|err| format!("Executable constructor {:?}", err));
 
         assert_eq!(
             result.unwrap_err(),
@@ -183,7 +179,7 @@ fn test_verifier_err_invalid_reg_src() {
     // r11 is disabled when dynamic_stack_frames=false, and only sub and add are
     // allowed when dynamic_stack_frames=true
     for dynamic_stack_frames in [false, true] {
-        let executable = assemble::<TestInstructionMeter>(
+        let executable = assemble::<TestContextObject>(
             "
             mov r0, r11
             exit",
@@ -195,10 +191,8 @@ fn test_verifier_err_invalid_reg_src() {
         )
         .unwrap();
         let result =
-            VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(
-                executable,
-            )
-            .map_err(|err| format!("Executable constructor {:?}", err));
+            VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
+                .map_err(|err| format!("Executable constructor {:?}", err));
 
         assert_eq!(
             result.unwrap_err(),
@@ -209,7 +203,7 @@ fn test_verifier_err_invalid_reg_src() {
 
 #[test]
 fn test_verifier_resize_stack_ptr_success() {
-    let executable = assemble::<TestInstructionMeter>(
+    let executable = assemble::<TestContextObject>(
         "
         sub r11, 1
         add r11, 1
@@ -223,14 +217,14 @@ fn test_verifier_resize_stack_ptr_success() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
 }
 
 #[test]
 #[should_panic(expected = "JumpToMiddleOfLDDW(2, 29)")]
 fn test_verifier_err_jmp_lddw() {
-    let executable = assemble::<TestInstructionMeter>(
+    let executable = assemble::<TestContextObject>(
         "
         ja +1
         lddw r0, 0x1122334455667788
@@ -240,14 +234,14 @@ fn test_verifier_err_jmp_lddw() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
 }
 
 #[test]
 #[should_panic(expected = "JumpOutOfCode(3, 29)")]
 fn test_verifier_err_jmp_out() {
-    let executable = assemble::<TestInstructionMeter>(
+    let executable = assemble::<TestContextObject>(
         "
         ja +2
         exit",
@@ -256,14 +250,14 @@ fn test_verifier_err_jmp_out() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
 }
 
 #[test]
 #[should_panic(expected = "JumpOutOfCode(18446744073709551615, 29)")]
 fn test_verifier_err_jmp_out_start() {
-    let executable = assemble::<TestInstructionMeter>(
+    let executable = assemble::<TestContextObject>(
         "
         ja -2
         exit",
@@ -272,7 +266,7 @@ fn test_verifier_err_jmp_out_start() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
 }
 
@@ -283,7 +277,7 @@ fn test_verifier_err_unknown_opcode() {
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let executable = Executable::<TestInstructionMeter>::from_text_bytes(
+    let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         Config::default(),
         SyscallRegistry::default(),
@@ -291,14 +285,14 @@ fn test_verifier_err_unknown_opcode() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
 }
 
 #[test]
 #[should_panic(expected = "CannotWriteR10(29)")]
 fn test_verifier_err_write_r10() {
-    let executable = assemble::<TestInstructionMeter>(
+    let executable = assemble::<TestContextObject>(
         "
         mov r10, 1
         exit",
@@ -307,7 +301,7 @@ fn test_verifier_err_write_r10() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
 }
 
@@ -339,17 +333,12 @@ fn test_verifier_err_all_shift_overflows() {
 
     for (overflowing_instruction, expected) in testcases {
         let assembly = format!("\n{}\nexit", overflowing_instruction);
-        let executable = assemble::<TestInstructionMeter>(
-            &assembly,
-            Config::default(),
-            SyscallRegistry::default(),
-        )
-        .unwrap();
+        let executable =
+            assemble::<TestContextObject>(&assembly, Config::default(), SyscallRegistry::default())
+                .unwrap();
         let result =
-            VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(
-                executable,
-            )
-            .map_err(|err| format!("Executable constructor {:?}", err));
+            VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
+                .map_err(|err| format!("Executable constructor {:?}", err));
         match expected {
             Ok(()) => assert!(result.is_ok()),
             Err(overflow_msg) => match result {
@@ -375,7 +364,7 @@ fn test_sdiv_disabled() {
     for (opc, instruction) in instructions {
         for enable_sdiv in [true, false] {
             let assembly = format!("\n{}\nexit", instruction);
-            let executable = assemble::<TestInstructionMeter>(
+            let executable = assemble::<TestContextObject>(
                 &assembly,
                 Config {
                     enable_sdiv,
@@ -385,7 +374,7 @@ fn test_sdiv_disabled() {
             )
             .unwrap();
             let result =
-                VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(
+                VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(
                     executable,
                 )
                 .map_err(|err| format!("Executable constructor {:?}", err));

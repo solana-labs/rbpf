@@ -18,7 +18,7 @@ use crate::{
     error::EbpfError,
     memory_region::AccessType,
     verifier::Verifier,
-    vm::{EbpfVm, InstructionMeter, ProgramResult},
+    vm::{ContextObject, EbpfVm, ProgramResult},
 };
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
@@ -76,10 +76,10 @@ pub enum DebugState {
 }
 
 /// State of an interpreter
-pub struct Interpreter<'a, 'b, V: Verifier, I: InstructionMeter> {
-    pub(crate) vm: &'a mut EbpfVm<'b, V, I>,
+pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
+    pub(crate) vm: &'a mut EbpfVm<'b, V, C>,
 
-    pub(crate) instruction_meter: &'a mut I,
+    pub(crate) instruction_meter: &'a mut C,
 
     pub(crate) initial_insn_count: u64,
     remaining_insn_count: u64,
@@ -96,11 +96,11 @@ pub struct Interpreter<'a, 'b, V: Verifier, I: InstructionMeter> {
     pub(crate) breakpoints: Vec<u64>,
 }
 
-impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
+impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Creates a new interpreter state
     pub fn new(
-        vm: &'a mut EbpfVm<'b, V, I>,
-        instruction_meter: &'a mut I,
+        vm: &'a mut EbpfVm<'b, V, C>,
+        instruction_meter: &'a mut C,
     ) -> Result<Self, EbpfError> {
         let executable = vm.verified_executable.get_executable();
         let initial_insn_count = if executable.get_config().enable_instruction_meter {

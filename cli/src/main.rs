@@ -8,7 +8,7 @@ use solana_rbpf::{
     static_analysis::Analysis,
     verifier::RequisiteVerifier,
     vm::{
-        Config, DynamicAnalysis, EbpfVm, SyscallRegistry, TestInstructionMeter, VerifiedExecutable,
+        Config, DynamicAnalysis, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable,
     },
 };
 use std::{fs::File, io::Read, path::Path};
@@ -105,7 +105,7 @@ fn main() {
             let mut file = File::open(Path::new(asm_file_name)).unwrap();
             let mut source = Vec::new();
             file.read_to_end(&mut source).unwrap();
-            assemble::<TestInstructionMeter>(
+            assemble::<TestContextObject>(
                 std::str::from_utf8(source.as_slice()).unwrap(),
                 config,
                 syscall_registry,
@@ -115,14 +115,14 @@ fn main() {
             let mut file = File::open(Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            Executable::<TestInstructionMeter>::from_elf(&elf, config, syscall_registry)
+            Executable::<TestContextObject>::from_elf(&elf, config, syscall_registry)
                 .map_err(|err| format!("Executable constructor failed: {:?}", err))
         }
     }
     .unwrap();
 
     let mut verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestInstructionMeter>::from_executable(executable)
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
 
     let mut mem = match matches.value_of("input").unwrap().parse::<usize>() {
@@ -134,7 +134,7 @@ fn main() {
             memory
         }
     };
-    let mut instruction_meter = TestInstructionMeter {
+    let mut instruction_meter = TestContextObject {
         remaining: matches
             .value_of("instruction limit")
             .unwrap()

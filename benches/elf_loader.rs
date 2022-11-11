@@ -13,7 +13,7 @@ extern crate test_utils;
 use solana_rbpf::{
     elf::Executable,
     syscalls::BpfSyscallU64,
-    vm::{Config, SyscallRegistry, TestInstructionMeter},
+    vm::{Config, SyscallRegistry, TestContextObject},
 };
 use std::{fs::File, io::Read};
 use test::Bencher;
@@ -32,7 +32,7 @@ fn bench_load_elf(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        Executable::<TestInstructionMeter>::from_elf(&elf, Config::default(), syscall_registry())
+        Executable::<TestContextObject>::from_elf(&elf, Config::default(), syscall_registry())
             .unwrap()
     });
 }
@@ -43,7 +43,7 @@ fn bench_load_elf_without_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        Executable::<TestInstructionMeter>::from_elf(&elf, Config::default(), syscall_registry())
+        Executable::<TestContextObject>::from_elf(&elf, Config::default(), syscall_registry())
             .unwrap()
     });
 }
@@ -54,7 +54,7 @@ fn bench_load_elf_with_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     bencher.iter(|| {
-        Executable::<TestInstructionMeter>::from_elf(&elf, Config::default(), syscall_registry())
+        Executable::<TestContextObject>::from_elf(&elf, Config::default(), syscall_registry())
             .unwrap()
     });
 }
