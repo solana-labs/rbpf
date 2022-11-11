@@ -147,7 +147,7 @@ pub struct JitProgram<C: ContextObject> {
     /// Holds and manages the protected memory
     sections: JitProgramSections,
     /// Call this with the ProgramEnvironment to execute the compiled code
-    pub main: unsafe fn(&mut ProgramResult, u64, &ProgramEnvironment<C>, *mut C) -> i64,
+    pub main: unsafe fn(&mut ProgramResult, u64, &ProgramEnvironment<C>) -> i64,
 }
 
 impl<C: ContextObject> Debug for JitProgram<C> {
@@ -353,10 +353,10 @@ enum EnvironmentStackSlot {
     BpfStackPtr = 8,
     /// Constant pointer to optional typed return value
     OptRetValPtr = 9,
+    /// ProgramEnvironment
+    _ProgramEnvironment = 10,
     /// Last return value of instruction_meter.get_remaining()
-    PrevInsnMeter = 10,
-    /// Constant pointer to instruction_meter
-    InsnMeterPtr = 11,
+    PrevInsnMeter = 11,
     /// CPU cycles accumulated by the stop watch
     StopwatchNumerator = 12,
     /// Number of times the stop watch was used
@@ -1223,7 +1223,6 @@ impl JitCompiler {
                                 emit_validate_and_profile_instruction_count(self, true, Some(0));
                             }
                             emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, syscall as *const SyscallFunction<*mut ()> as i64));
-                            emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset(ProgramEnvironment::<C>::CONTEXT_OBJECT as i32 + self.program_argument_key)));
                             emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_SYSCALL, 5)));
                             if self.config.enable_instruction_meter {
                                 emit_undo_profile_instruction_count(self, 0);
@@ -1326,14 +1325,15 @@ impl JitCompiler {
         // Save pointer to optional typed return value
         emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
 
-        // Save initial value of instruction_meter.get_remaining()
+        // Save ProgramEnvironment
+        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[2], None));
+        emit_ins(self, X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], R10, Some(X86IndirectAccess::Offset(-self.program_argument_key))));
+
+        // Save initial value of program_environment.context_object.get_remaining()
         emit_rust_call(self, Value::Constant64(C::get_remaining as *const u8 as i64, false), &[
-            Argument { index: 0, value: Value::Register(ARGUMENT_REGISTERS[3]) },
+            Argument { index: 0, value: Value::RegisterIndirect(R10, ProgramEnvironment::<C>::CONTEXT_OBJECT as i32 + self.program_argument_key, false) },
         ], Some(ARGUMENT_REGISTERS[0]));
         emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
-
-        // Save instruction meter
-        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[3], None));
 
         // Initialize stop watch
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x31, R11, R11, 0, None)); // R11 ^= R11;
@@ -1343,9 +1343,6 @@ impl JitCompiler {
         // Initialize frame pointer
         emit_ins(self, X86Instruction::mov(OperandSize::S64, RSP, RBP));
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, 8 * (EnvironmentStackSlot::SlotCount as i64 - 1 + self.environment_stack_key as i64), None));
-
-        // Save ProgramEnvironment
-        emit_ins(self, X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], R10, Some(X86IndirectAccess::Offset(-self.program_argument_key))));
 
         // Zero BPF registers
         for reg in REGISTER_MAP.iter() {
@@ -1480,13 +1477,14 @@ impl JitCompiler {
         // Routine for syscall
         self.set_anchor(ANCHOR_SYSCALL);
         emit_ins(self, X86Instruction::push(R11, None)); // Padding for stack alignment
+        emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset(ProgramEnvironment::<C>::CONTEXT_OBJECT as i32 + self.program_argument_key))); // RAX = program_environment.context_object;
         if self.config.enable_instruction_meter {
             // RDI = *PrevInsnMeter - RDI;
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x2B, ARGUMENT_REGISTERS[0], RBP, 0, Some(X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))))); // RDI -= *PrevInsnMeter;
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0xf7, 3, ARGUMENT_REGISTERS[0], 0, None)); // RDI = -RDI;
             emit_rust_call(self, Value::Constant64(C::consume as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[0]) },
-                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr), false) },
+                Argument { index: 0, value: Value::Register(RAX) },
             ], None);
         }
         emit_rust_call(self, Value::Register(R11), &[
@@ -1497,11 +1495,11 @@ impl JitCompiler {
             Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
             Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
             Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
-            Argument { index: 0, value: Value::Register(RAX) }, // "&mut self" in the "call" method of the syscall
+            Argument { index: 0, value: Value::Register(RAX) },
         ], None);
         if self.config.enable_instruction_meter {
             emit_rust_call(self, Value::Constant64(C::get_remaining as *const u8 as i64, false), &[
-                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::InsnMeterPtr), false) },
+                Argument { index: 0, value: Value::Register(RAX) },
             ], Some(ARGUMENT_REGISTERS[0]));
             emit_ins(self, X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))));
         }

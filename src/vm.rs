@@ -616,15 +616,9 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             Ok(compiled_program) => compiled_program,
             Err(error) => return ProgramResult::Err(error),
         };
-        let instruction_meter = self.program_environment.context_object as *mut C;
         let instruction_meter_final = unsafe {
-            (compiled_program.main)(
-                &mut result,
-                ebpf::MM_INPUT_START,
-                &self.program_environment,
-                instruction_meter, // TODO
-            )
-            .max(0) as u64
+            (compiled_program.main)(&mut result, ebpf::MM_INPUT_START, &self.program_environment)
+                .max(0) as u64
         };
         if executable.get_config().enable_instruction_meter {
             let remaining_insn_count = self.program_environment.context_object.get_remaining();
