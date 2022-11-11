@@ -43,10 +43,7 @@ macro_rules! test_interpreter_and_jit {
         let mut check_closure = $check;
         #[allow(unused_mut)]
         let mut verified_executable =
-            VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(
-                $executable,
-            )
-            .unwrap();
+            VerifiedExecutable::<RequisiteVerifier, _>::from_executable($executable).unwrap();
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
@@ -3082,7 +3079,6 @@ fn test_call_memfrob() {
     );
 }
 
-/* TODO
 #[test]
 fn test_syscall_with_context() {
     test_interpreter_and_jit_asm!(
@@ -3099,14 +3095,14 @@ fn test_syscall_with_context() {
         (
             b"SyscallWithContext" => syscalls::SyscallWithContext::call
         ),
-        &mut syscalls::SyscallWithContext { remaining: 8, context: 42 },
-        { |vm: &EbpfVm<RequisiteVerifier, TestContextObject>, res: ProgramResult| {
+        syscalls::SyscallWithContext { remaining: 8, context: 42 },
+        { |vm: &EbpfVm<RequisiteVerifier, syscalls::SyscallWithContext>, res: ProgramResult| {
             let context_object = unsafe { &*(vm.get_program_environment().context_object as *const syscalls::SyscallWithContext) };
             assert_eq!(context_object.context, 84);
             res.unwrap() == 0
         }},
     );
-}*/
+}
 
 pub struct NestedVmSyscall {}
 impl NestedVmSyscall {
