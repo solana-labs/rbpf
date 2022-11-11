@@ -332,8 +332,6 @@ impl ContextObject for SyscallWithContext {
     fn get_remaining(&self) -> u64 {
         100
     }
-
-    fn set_remaining(&mut self, _ammount: u64) {}
 }
 impl SyscallWithContext {
     /// Syscall handler method

@@ -308,8 +308,6 @@ pub trait ContextObject {
     fn consume(&mut self, amount: u64);
     /// Get the number of remaining instructions allowed
     fn get_remaining(&self) -> u64;
-    /// Use only in tests and benches
-    fn set_remaining(&mut self, ammount: u64);
 }
 
 /// Simple instruction meter for testing
@@ -327,10 +325,6 @@ impl ContextObject for TestContextObject {
 
     fn get_remaining(&self) -> u64 {
         self.remaining
-    }
-
-    fn set_remaining(&mut self, amount: u64) {
-        self.remaining = amount;
     }
 }
 
