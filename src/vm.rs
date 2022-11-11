@@ -525,11 +525,6 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         self.program
     }
 
-    /// Returns the tracer
-    pub fn get_program_environment(&self) -> &ProgramEnvironment<C> {
-        &self.program_environment
-    }
-
     /// Execute the program loaded, with the given packet data.
     ///
     /// Warning: The program is executed without limiting the number of
