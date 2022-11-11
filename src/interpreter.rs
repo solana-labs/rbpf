@@ -463,7 +463,7 @@ impl<'a, 'b, V: Verifier, I: InstructionMeter> Interpreter<'a, 'b, V, I> {
                         self.due_insn_count = 0;
                         let mut result = ProgramResult::Ok(0);
                         syscall(
-                            self.vm.program_environment.syscall_context_object,
+                            self.vm.program_environment.context_object,
                             self.reg[1],
                             self.reg[2],
                             self.reg[3],

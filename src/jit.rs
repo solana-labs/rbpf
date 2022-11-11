@@ -944,7 +944,7 @@ impl JitCompiler {
             if config.encrypt_environment_registers {
                 (
                     diversification_rng.gen::<i32>() / 16, // -3 bits for 8 Byte alignment, and -1 bit to have encoding space for EnvironmentStackSlot::SlotCount
-                    diversification_rng.gen::<i32>() / 2, // -1 bit to have encoding space for (ProgramEnvironment::SYSCALL_CONTEXT_OBJECT + syscall.context_object_slot) * 8
+                    diversification_rng.gen::<i32>() / 2, // -1 bit to have encoding space for (ProgramEnvironment::CONTEXT_OBJECT + syscall.context_object_slot) * 8
                 )
             } else { (0, 0) };
 
@@ -1223,7 +1223,7 @@ impl JitCompiler {
                                 emit_validate_and_profile_instruction_count(self, true, Some(0));
                             }
                             emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, syscall as *const SyscallFunction<*mut ()> as i64));
-                            emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset(ProgramEnvironment::SYSCALL_CONTEXT_OBJECT as i32 + self.program_argument_key)));
+                            emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset(ProgramEnvironment::CONTEXT_OBJECT as i32 + self.program_argument_key)));
                             emit_ins(self, X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_SYSCALL, 5)));
                             if self.config.enable_instruction_meter {
                                 emit_undo_profile_instruction_count(self, 0);

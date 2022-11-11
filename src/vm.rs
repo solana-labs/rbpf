@@ -481,7 +481,7 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
     /// ```
     pub fn new<O>(
         verified_executable: &'a VerifiedExecutable<V, I>,
-        syscall_context_object: &mut O,
+        context_object: &mut O,
         heap_region: &mut [u8],
         additional_regions: Vec<MemoryRegion>,
     ) -> Result<EbpfVm<'a, V, I>, EbpfError> {
@@ -503,7 +503,7 @@ impl<'a, V: Verifier, I: InstructionMeter> EbpfVm<'a, V, I> {
             program_vm_addr,
             program_environment: ProgramEnvironment {
                 memory_mapping: MemoryMapping::new(regions, config)?,
-                syscall_context_object: syscall_context_object as *mut O as *mut (),
+                context_object: context_object as *mut O as *mut (),
                 tracer: Tracer::default(),
             },
             stack,
@@ -642,7 +642,7 @@ pub struct ProgramEnvironment<'a> {
     /// The MemoryMapping describing the address space of the program
     pub memory_mapping: MemoryMapping<'a>,
     /// Pointer to the context object of syscalls
-    pub syscall_context_object: *mut (),
+    pub context_object: *mut (),
     /// The instruction tracer
     pub tracer: Tracer,
 }
@@ -651,10 +651,9 @@ impl<'a> ProgramEnvironment<'a> {
     /// Offset to Self::memory_mapping
     pub const MEMORY_MAPPING_OFFSET: usize = 0;
     /// Offset of Self::syscalls
-    pub const SYSCALL_CONTEXT_OBJECT: usize =
-        Self::MEMORY_MAPPING_OFFSET + mem::size_of::<MemoryMapping>();
+    pub const CONTEXT_OBJECT: usize = Self::MEMORY_MAPPING_OFFSET + mem::size_of::<MemoryMapping>();
     /// Offset of Self::tracer
-    pub const TRACER_OFFSET: usize = Self::SYSCALL_CONTEXT_OBJECT + mem::size_of::<*mut ()>();
+    pub const TRACER_OFFSET: usize = Self::CONTEXT_OBJECT + mem::size_of::<*mut ()>();
 }
 
 #[cfg(test)]
@@ -674,7 +673,7 @@ mod tests {
         let config = Config::default();
         let env = ProgramEnvironment {
             memory_mapping: MemoryMapping::new(vec![], &config).unwrap(),
-            syscall_context_object: std::ptr::null_mut(),
+            context_object: std::ptr::null_mut(),
             tracer: Tracer::default(),
         };
         assert_eq!(
@@ -686,10 +685,10 @@ mod tests {
         );
         assert_eq!(
             unsafe {
-                (&env.syscall_context_object as *const _ as *const u8)
+                (&env.context_object as *const _ as *const u8)
                     .offset_from(&env as *const _ as *const _)
             },
-            ProgramEnvironment::SYSCALL_CONTEXT_OBJECT as isize
+            ProgramEnvironment::CONTEXT_OBJECT as isize
         );
         assert_eq!(
             unsafe {

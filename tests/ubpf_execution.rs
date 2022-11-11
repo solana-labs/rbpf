@@ -37,7 +37,7 @@ macro_rules! test_interpreter_and_jit {
             .register_syscall_by_name($location, $syscall_function)
             .unwrap();
     };
-    ($executable:expr, $mem:tt, $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
+    ($executable:expr, $mem:tt, $context_object:expr, $check:block, $expected_instruction_count:expr) => {
         #[allow(unused_mut)]
         let mut check_closure = $check;
         #[allow(unused_mut)]
@@ -52,7 +52,7 @@ macro_rules! test_interpreter_and_jit {
 
             let mut vm = EbpfVm::new(
                 &verified_executable,
-                $syscall_context,
+                $context_object,
                 &mut [],
                 vec![mem_region],
             )
@@ -75,7 +75,7 @@ macro_rules! test_interpreter_and_jit {
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
             let mut vm = EbpfVm::new(
                 &verified_executable,
-                $syscall_context,
+                $context_object,
                 &mut [],
                 vec![mem_region],
             )
@@ -123,29 +123,29 @@ macro_rules! test_interpreter_and_jit {
 }
 
 macro_rules! test_interpreter_and_jit_asm {
-    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
+    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $check:block, $expected_instruction_count:expr) => {
         #[allow(unused_mut)]
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function);)*
             let mut executable = assemble($source, $config, syscall_registry).unwrap();
-            test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
+            test_interpreter_and_jit!(executable, $mem, $context_object, $check, $expected_instruction_count);
         }
     };
-    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
+    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $check:block, $expected_instruction_count:expr) => {
         #[allow(unused_mut)]
         {
             let config = Config {
                 enable_instruction_tracing: true,
                 ..Config::default()
             };
-            test_interpreter_and_jit_asm!($source, config, $mem, ($($location => $syscall_function),*), $syscall_context, $check, $expected_instruction_count);
+            test_interpreter_and_jit_asm!($source, config, $mem, ($($location => $syscall_function),*), $context_object, $check, $expected_instruction_count);
         }
     };
 }
 
 macro_rules! test_interpreter_and_jit_elf {
-    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
+    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $check:block, $expected_instruction_count:expr) => {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
@@ -154,15 +154,15 @@ macro_rules! test_interpreter_and_jit_elf {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function);)*
             let mut executable = Executable::<TestInstructionMeter>::from_elf(&elf, $config, syscall_registry).unwrap();
-            test_interpreter_and_jit!(executable, $mem, $syscall_context, $check, $expected_instruction_count);
+            test_interpreter_and_jit!(executable, $mem, $context_object, $check, $expected_instruction_count);
         }
     };
-    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $syscall_context:expr, $check:block, $expected_instruction_count:expr) => {
+    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $check:block, $expected_instruction_count:expr) => {
         let config = Config {
             enable_instruction_tracing: true,
             ..Config::default()
         };
-        test_interpreter_and_jit_elf!($source, config, $mem, ($($location => $syscall_function),*), $syscall_context, $check, $expected_instruction_count);
+        test_interpreter_and_jit_elf!($source, config, $mem, ($($location => $syscall_function),*), $context_object, $check, $expected_instruction_count);
     };
 }
 
@@ -3251,8 +3251,8 @@ fn test_syscall_with_context() {
         ),
         &mut syscalls::SyscallWithContext { context: 42 },
         { |vm: &EbpfVm<RequisiteVerifier, TestInstructionMeter>, res: ProgramResult| {
-            let syscall_context_object = unsafe { &*(vm.get_program_environment().syscall_context_object as *const syscalls::SyscallWithContext) };
-            assert_eq!(syscall_context_object.context, 84);
+            let context_object = unsafe { &*(vm.get_program_environment().context_object as *const syscalls::SyscallWithContext) };
+            assert_eq!(context_object.context, 84);
             res.unwrap() == 0
         }},
         8
