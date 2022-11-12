@@ -1334,7 +1334,7 @@ impl JitCompiler {
         // Save Tracer
         emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[3], None));
 
-        // Save initial value of program_environment.context_object.get_remaining()
+        // Save initial value of context_object.get_remaining()
         emit_rust_call(self, Value::Constant64(C::get_remaining as *const u8 as i64, false), &[
             Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::ContextObject), false) },
         ], Some(ARGUMENT_REGISTERS[0]));

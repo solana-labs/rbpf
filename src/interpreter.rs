@@ -25,11 +25,11 @@ use crate::{
 #[cfg_attr(feature = "debugger", macro_export)]
 macro_rules! translate_memory_access {
     ($self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty) => {
-        match $self.vm.program_environment.memory_mapping.map(
-            $access_type,
-            $vm_addr,
-            std::mem::size_of::<$T>() as u64,
-        ) {
+        match $self
+            .vm
+            .memory_mapping
+            .map($access_type, $vm_addr, std::mem::size_of::<$T>() as u64)
+        {
             ProgramResult::Ok(host_addr) => host_addr as *mut $T,
             ProgramResult::Err(EbpfError::AccessViolation(
                 _pc,
@@ -99,7 +99,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     pub fn new(vm: &'a mut EbpfVm<'b, V, C>) -> Result<Self, EbpfError> {
         let executable = vm.verified_executable.get_executable();
         let initial_insn_count = if executable.get_config().enable_instruction_meter {
-            vm.program_environment.context_object.get_remaining()
+            vm.context_object.get_remaining()
         } else {
             0
         };
@@ -185,7 +185,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             let mut state = [0u64; 12];
             state[0..11].copy_from_slice(&self.reg);
             state[11] = pc as u64;
-            self.vm.program_environment.tracer.trace(state);
+            self.vm.tracer.trace(state);
         }
 
         match insn.opc {
@@ -452,18 +452,18 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                         resolved = true;
 
                         if config.enable_instruction_meter {
-                            self.vm.program_environment.context_object.consume(self.due_insn_count);
+                            self.vm.context_object.consume(self.due_insn_count);
                         }
                         self.due_insn_count = 0;
                         let mut result = ProgramResult::Ok(0);
                         syscall(
-                            self.vm.program_environment.context_object,
+                            self.vm.context_object,
                             self.reg[1],
                             self.reg[2],
                             self.reg[3],
                             self.reg[4],
                             self.reg[5],
-                            &mut self.vm.program_environment.memory_mapping,
+                            &mut self.vm.memory_mapping,
                             &mut result,
                         );
                         self.reg[0] = match result {
@@ -471,7 +471,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                             ProgramResult::Err(err) => return Err(err),
                         };
                         if config.enable_instruction_meter {
-                            self.remaining_insn_count = self.vm.program_environment.context_object.get_remaining();
+                            self.remaining_insn_count = self.vm.context_object.get_remaining();
                         }
                     }
                 }

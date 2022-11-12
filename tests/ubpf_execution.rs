@@ -57,10 +57,7 @@ macro_rules! test_interpreter_and_jit {
             .unwrap();
             let result = vm.execute_program_interpreted();
             assert!(check_closure(&vm, result));
-            (
-                vm.get_total_instruction_count(),
-                vm.program_environment.tracer.clone(),
-            )
+            (vm.get_total_instruction_count(), vm.tracer.clone())
         };
         #[cfg(all(not(windows), target_arch = "x86_64"))]
         {
@@ -81,7 +78,7 @@ macro_rules! test_interpreter_and_jit {
                 Err(err) => assert!(check_closure(&vm, ProgramResult::Err(err))),
                 Ok(()) => {
                     let result = vm.execute_program_jit();
-                    let tracer_jit = &vm.program_environment.tracer;
+                    let tracer_jit = &vm.tracer;
                     if !check_closure(&vm, result)
                         || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit)
                     {
@@ -3097,7 +3094,7 @@ fn test_syscall_with_context() {
         ),
         syscalls::SyscallWithContext { remaining: 8, context: 42 },
         { |vm: &EbpfVm<RequisiteVerifier, syscalls::SyscallWithContext>, res: ProgramResult| {
-            let context_object = unsafe { &*(vm.program_environment.context_object as *const syscalls::SyscallWithContext) };
+            let context_object = unsafe { &*(vm.context_object as *const syscalls::SyscallWithContext) };
             assert_eq!(context_object.context, 84);
             res.unwrap() == 0
         }},
@@ -4088,7 +4085,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         )
         .unwrap();
         let result_interpreter = vm.execute_program_interpreted();
-        let tracer_interpreter = vm.program_environment.tracer.clone();
+        let tracer_interpreter = vm.tracer.clone();
         (
             vm.get_total_instruction_count(),
             tracer_interpreter,
@@ -4108,7 +4105,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     )
     .unwrap();
     let result_jit = vm.execute_program_jit();
-    let tracer_jit = &vm.program_environment.tracer;
+    let tracer_jit = &vm.tracer;
     if format!("{:?}", result_interpreter) != format!("{:?}", result_jit)
         || !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit)
     {

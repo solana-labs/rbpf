@@ -204,13 +204,12 @@ fn main() {
     if matches.is_present("trace") {
         println!("Trace:\n");
         let stdout = std::io::stdout();
-        vm.program_environment
-            .tracer
+        vm.tracer
             .write(&mut stdout.lock(), analysis.as_ref().unwrap())
             .unwrap();
     }
     if matches.is_present("profile") {
-        let tracer = &vm.program_environment.tracer;
+        let tracer = &vm.tracer;
         let dynamic_analysis = DynamicAnalysis::new(tracer, analysis.as_ref().unwrap());
         let mut file = File::create("profile.dot").unwrap();
         analysis

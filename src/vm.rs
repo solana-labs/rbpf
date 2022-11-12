@@ -478,8 +478,12 @@ pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
     pub(crate) verified_executable: &'a VerifiedExecutable<V, C>,
     pub(crate) program: &'a [u8],
     pub(crate) program_vm_addr: u64,
-    /// MemoryMapping, ContextObject and Tracer
-    pub program_environment: ProgramEnvironment<'a, C>,
+    /// The MemoryMapping describing the address space of the program
+    pub(crate) memory_mapping: MemoryMapping<'a>,
+    /// Pointer to the context object of syscalls
+    pub context_object: &'a mut C,
+    /// The instruction tracer
+    pub tracer: Tracer,
     pub(crate) stack: CallFrames<'a>,
     pub(crate) total_insn_count: u64,
 }
@@ -527,11 +531,9 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             verified_executable,
             program,
             program_vm_addr,
-            program_environment: ProgramEnvironment {
-                memory_mapping: MemoryMapping::new(regions, config)?,
-                context_object,
-                tracer: Tracer::default(),
-            },
+            memory_mapping: MemoryMapping::new(regions, config)?,
+            context_object,
+            tracer: Tracer::default(),
             stack,
             total_insn_count: 0,
         };
@@ -598,11 +600,8 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             .get_config()
             .enable_instruction_meter
         {
-            self.program_environment
-                .context_object
-                .consume(due_insn_count);
-            self.total_insn_count =
-                initial_insn_count - self.program_environment.context_object.get_remaining();
+            self.context_object.consume(due_insn_count);
+            self.total_insn_count = initial_insn_count - self.context_object.get_remaining();
         }
         match result {
             Ok(None) => unreachable!(),
@@ -623,7 +622,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     pub fn execute_program_jit(&mut self) -> ProgramResult {
         let executable = self.verified_executable.get_executable();
         let initial_insn_count = if executable.get_config().enable_instruction_meter {
-            self.program_environment.context_object.get_remaining()
+            self.context_object.get_remaining()
         } else {
             0
         };
@@ -638,21 +637,19 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         let instruction_meter_final = unsafe {
             (compiled_program.main)(
                 &mut result,
-                &mut self.program_environment.memory_mapping,
-                self.program_environment.context_object,
-                &mut self.program_environment.tracer,
+                &mut self.memory_mapping,
+                self.context_object,
+                &mut self.tracer,
             )
         }
         .max(0) as u64;
         if executable.get_config().enable_instruction_meter {
-            let remaining_insn_count = self.program_environment.context_object.get_remaining();
+            let remaining_insn_count = self.context_object.get_remaining();
             let due_insn_count = remaining_insn_count - instruction_meter_final;
-            self.program_environment
-                .context_object
-                .consume(due_insn_count);
+            self.context_object.consume(due_insn_count);
             self.total_insn_count = initial_insn_count + due_insn_count - remaining_insn_count;
             // Same as:
-            // self.total_insn_count = initial_insn_count - self.program_environment.context_object.get_remaining();
+            // self.total_insn_count = initial_insn_count - self.context_object.get_remaining();
         }
         match result {
             ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, _)) => {
@@ -661,17 +658,6 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             x => x,
         }
     }
-}
-
-/// The execution environment of a program instance.
-#[repr(C)]
-pub struct ProgramEnvironment<'a, C: ContextObject> {
-    /// The MemoryMapping describing the address space of the program
-    pub memory_mapping: MemoryMapping<'a>,
-    /// Pointer to the context object of syscalls
-    pub context_object: &'a mut C,
-    /// The instruction tracer
-    pub tracer: Tracer,
 }
 
 #[cfg(test)]
