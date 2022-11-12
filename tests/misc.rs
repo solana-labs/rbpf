@@ -25,7 +25,7 @@ extern crate test_utils;
 use solana_rbpf::{
     elf::Executable,
     fuzz::fuzz,
-    syscalls::{BpfSyscallString, BpfSyscallU64},
+    syscalls,
     verifier::RequisiteVerifier,
     vm::{Config, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable},
 };
@@ -114,10 +114,10 @@ fn test_fuzz_execute() {
         |bytes: &mut [u8]| {
             let mut syscall_registry = SyscallRegistry::default();
             syscall_registry
-                .register_syscall_by_name(b"log", BpfSyscallString::call)
+                .register_syscall_by_name(b"log", syscalls::bpf_syscall_string)
                 .unwrap();
             syscall_registry
-                .register_syscall_by_name(b"log_64", BpfSyscallU64::call)
+                .register_syscall_by_name(b"log_64", syscalls::bpf_syscall_u64)
                 .unwrap();
             if let Ok(executable) = Executable::<TestContextObject>::from_elf(
                 bytes,

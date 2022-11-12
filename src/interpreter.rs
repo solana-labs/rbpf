@@ -457,7 +457,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                         self.due_insn_count = 0;
                         let mut result = ProgramResult::Ok(0);
                         syscall(
-                            self.vm.program_environment.context_object as *mut _ as *mut (),
+                            self.vm.program_environment.context_object,
                             self.reg[1],
                             self.reg[2],
                             self.reg[3],

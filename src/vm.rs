@@ -99,34 +99,29 @@ pub type ProgramResult = StableResult<u64, EbpfError>;
 pub type FunctionRegistry = BTreeMap<u32, (usize, String)>;
 
 /// Syscall function without context
-pub type SyscallFunction<O> =
-    fn(O, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
+pub type SyscallFunction<C> =
+    fn(&mut C, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
 
 /// Holds the syscall function pointers of an Executable
-#[derive(Debug, PartialEq, Eq, Default)]
-pub struct SyscallRegistry {
+pub struct SyscallRegistry<C: ContextObject> {
     /// Function pointers by symbol
-    entries: HashMap<u32, u64>,
+    entries: HashMap<u32, SyscallFunction<C>>,
 }
 
-impl SyscallRegistry {
+impl<C: ContextObject> SyscallRegistry<C> {
     const MAX_SYSCALLS: usize = 128;
 
     /// Register a syscall function by its symbol hash
-    pub fn register_syscall_by_hash<O>(
+    pub fn register_syscall_by_hash(
         &mut self,
         hash: u32,
-        function: SyscallFunction<O>,
+        function: SyscallFunction<C>,
     ) -> Result<(), EbpfError> {
         let context_object_slot = self.entries.len();
-        if context_object_slot == SyscallRegistry::MAX_SYSCALLS {
+        if context_object_slot == Self::MAX_SYSCALLS {
             return Err(EbpfError::TooManySyscalls);
         }
-        if self
-            .entries
-            .insert(hash, function as usize as u64)
-            .is_some()
-        {
+        if self.entries.insert(hash, function).is_some() {
             Err(EbpfError::SyscallAlreadyRegistered(hash as usize))
         } else {
             Ok(())
@@ -134,19 +129,17 @@ impl SyscallRegistry {
     }
 
     /// Register a syscall function by its symbol name
-    pub fn register_syscall_by_name<O>(
+    pub fn register_syscall_by_name(
         &mut self,
         name: &[u8],
-        function: SyscallFunction<O>,
+        function: SyscallFunction<C>,
     ) -> Result<(), EbpfError> {
-        self.register_syscall_by_hash::<O>(ebpf::hash_symbol_name(name), function)
+        self.register_syscall_by_hash(ebpf::hash_symbol_name(name), function)
     }
 
     /// Get a symbol's function pointer
-    pub fn lookup_syscall(&self, hash: u32) -> Option<SyscallFunction<*mut ()>> {
-        self.entries
-            .get(&hash)
-            .map(|syscall| unsafe { std::mem::transmute(*syscall) })
+    pub fn lookup_syscall(&self, hash: u32) -> Option<SyscallFunction<C>> {
+        self.entries.get(&hash).cloned()
     }
 
     /// Get the number of registered syscalls
@@ -157,7 +150,38 @@ impl SyscallRegistry {
     /// Calculate memory size
     pub fn mem_size(&self) -> usize {
         mem::size_of::<Self>()
-            + self.entries.capacity() * mem::size_of::<(u32, SyscallFunction<*mut ()>)>()
+            + self.entries.capacity() * mem::size_of::<(u32, SyscallFunction<C>)>()
+    }
+}
+
+impl<C: ContextObject> Default for SyscallRegistry<C> {
+    fn default() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+}
+
+impl<C: ContextObject> Debug for SyscallRegistry<C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        writeln!(f, "{:?}", unsafe {
+            std::mem::transmute::<_, &HashMap<u32, *const u8>>(&self.entries)
+        })?;
+        Ok(())
+    }
+}
+
+impl<C: ContextObject> PartialEq for SyscallRegistry<C> {
+    fn eq(&self, other: &Self) -> bool {
+        for ((a_key, a_function), (b_key, b_function)) in
+            self.entries.iter().zip(other.entries.iter())
+        {
+            if a_key != b_key || a_function as *const _ as usize != b_function as *const _ as usize
+            {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -251,7 +275,7 @@ impl<C: 'static + ContextObject> Executable<C> {
     pub fn from_elf(
         elf_bytes: &[u8],
         config: Config,
-        syscall_registry: SyscallRegistry,
+        syscall_registry: SyscallRegistry<C>,
     ) -> Result<Self, EbpfError> {
         let executable = Executable::load(config, elf_bytes, syscall_registry)?;
         Ok(executable)
@@ -260,7 +284,7 @@ impl<C: 'static + ContextObject> Executable<C> {
     pub fn from_text_bytes(
         text_bytes: &[u8],
         config: Config,
-        syscall_registry: SyscallRegistry,
+        syscall_registry: SyscallRegistry<C>,
         function_registry: FunctionRegistry,
     ) -> Result<Self, EbpfError> {
         Executable::new_from_text_bytes(config, text_bytes, syscall_registry, function_registry)

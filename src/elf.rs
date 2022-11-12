@@ -127,10 +127,13 @@ pub fn hash_bpf_function(pc: usize, name: &str) -> u32 {
 }
 
 /// Register a symbol or throw ElfError::SymbolHashCollision
-pub fn register_bpf_function<T: AsRef<str> + ToString + std::cmp::PartialEq<&'static str>>(
+pub fn register_bpf_function<
+    C: ContextObject,
+    T: AsRef<str> + ToString + std::cmp::PartialEq<&'static str>,
+>(
     config: &Config,
     function_registry: &mut FunctionRegistry,
-    syscall_registry: &SyscallRegistry,
+    syscall_registry: &SyscallRegistry<C>,
     pc: usize,
     name: T,
 ) -> Result<u32, ElfError> {
@@ -280,7 +283,7 @@ pub struct Executable<C: ContextObject> {
     /// Syscall symbol map (hash, name)
     syscall_symbols: BTreeMap<u32, String>,
     /// Syscall resolution map
-    syscall_registry: SyscallRegistry,
+    syscall_registry: SyscallRegistry<C>,
     /// Compiled program and argument
     #[cfg(feature = "jit")]
     compiled_program: Option<JitProgram<C>>,
@@ -346,7 +349,7 @@ impl<C: ContextObject> Executable<C> {
     }
 
     /// Get the syscall registry
-    pub fn get_syscall_registry(&self) -> &SyscallRegistry {
+    pub fn get_syscall_registry(&self) -> &SyscallRegistry<C> {
         &self.syscall_registry
     }
 
@@ -377,7 +380,7 @@ impl<C: ContextObject> Executable<C> {
     pub fn new_from_text_bytes(
         config: Config,
         text_bytes: &[u8],
-        syscall_registry: SyscallRegistry,
+        syscall_registry: SyscallRegistry<C>,
         mut function_registry: FunctionRegistry,
     ) -> Result<Self, ElfError> {
         let elf_bytes = AlignedMemory::from_slice(text_bytes);
@@ -425,7 +428,7 @@ impl<C: ContextObject> Executable<C> {
     pub fn load(
         config: Config,
         bytes: &[u8],
-        syscall_registry: SyscallRegistry,
+        syscall_registry: SyscallRegistry<C>,
     ) -> Result<Self, ElfError> {
         if config.new_elf_parser {
             // The new parser creates references from the input byte slice, so
@@ -453,7 +456,7 @@ impl<C: ContextObject> Executable<C> {
         elf: &'a P,
         mut config: Config,
         bytes: &[u8],
-        syscall_registry: SyscallRegistry,
+        syscall_registry: SyscallRegistry<C>,
     ) -> Result<Self, ElfError> {
         let mut elf_bytes = AlignedMemory::from_slice(bytes);
 
@@ -597,7 +600,7 @@ impl<C: ContextObject> Executable<C> {
     pub fn fixup_relative_calls(
         config: &Config,
         function_registry: &mut FunctionRegistry,
-        syscall_registry: &SyscallRegistry,
+        syscall_registry: &SyscallRegistry<C>,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
         let instruction_count = elf_bytes
@@ -913,7 +916,7 @@ impl<C: ContextObject> Executable<C> {
         config: &Config,
         function_registry: &mut FunctionRegistry,
         syscall_symbols: &mut BTreeMap<u32, String>,
-        syscall_registry: &SyscallRegistry,
+        syscall_registry: &SyscallRegistry<C>,
         elf: &'a P,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
@@ -1241,20 +1244,20 @@ mod test {
             types::{Elf64Ehdr, Elf64Shdr},
         },
         fuzz::fuzz,
-        syscalls::{BpfSyscallString, BpfSyscallU64},
+        syscalls,
         vm::{ProgramResult, TestContextObject},
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
     type ElfExecutable = Executable<TestContextObject>;
 
-    fn syscall_registry() -> SyscallRegistry {
+    fn syscall_registry() -> SyscallRegistry<TestContextObject> {
         let mut syscall_registry = SyscallRegistry::default();
         syscall_registry
-            .register_syscall_by_name(b"log", BpfSyscallString::call)
+            .register_syscall_by_name(b"log", syscalls::bpf_syscall_string)
             .unwrap();
         syscall_registry
-            .register_syscall_by_name(b"log_64", BpfSyscallU64::call)
+            .register_syscall_by_name(b"log_64", syscalls::bpf_syscall_u64)
             .unwrap();
         syscall_registry
     }

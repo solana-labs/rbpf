@@ -217,7 +217,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 pub fn assemble<C: 'static + ContextObject>(
     src: &str,
     config: Config,
-    syscall_registry: SyscallRegistry,
+    syscall_registry: SyscallRegistry<C>,
 ) -> Result<Executable<C>, String> {
     fn resolve_label(
         insn_ptr: usize,
