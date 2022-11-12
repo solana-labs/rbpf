@@ -221,7 +221,7 @@ const REGISTER_MAP: [u8; 11] = [
 // Special registers:
 //     ARGUMENT_REGISTERS[0]  RDI  BPF program counter limit (used by instruction meter)
 // CALLER_SAVED_REGISTERS[8]  R11  Scratch register
-// CALLER_SAVED_REGISTERS[7]  R10  Constant pointer to ProgramEnvironment (also scratch register for exception handling)
+// CALLER_SAVED_REGISTERS[7]  R10  Unused for the most part, scratch register for exception handling
 // CALLEE_SAVED_REGISTERS[0]  RBP  Constant pointer to initial RSP - 8
 
 #[inline]
@@ -351,18 +351,20 @@ enum EnvironmentStackSlot {
     /// access it. Its value is only stored in this slot and therefore the
     /// register is not tracked in REGISTER_MAP.
     BpfStackPtr = 8,
-    /// Constant pointer to optional typed return value
+    /// Pointer to optional typed return value
     OptRetValPtr = 9,
-    /// ProgramEnvironment
-    _ProgramEnvironment = 10,
+    /// Pointer to MemoryMapping
+    MemoryMapping = 10,
+    /// Pointer to ContextObject
+    ContextObject = 11,
+    /// Pointer to Tracer
+    Tracer = 12,
     /// Last return value of instruction_meter.get_remaining()
-    PrevInsnMeter = 11,
+    PrevInsnMeter = 13,
     /// CPU cycles accumulated by the stop watch
-    StopwatchNumerator = 12,
+    StopwatchNumerator = 14,
     /// Number of times the stop watch was used
-    StopwatchDenominator = 13,
-    /// Bumper for size_of
-    SlotCount = 14,
+    StopwatchDenominator = 15,
 }
 
 fn slot_on_environment_stack(jit: &JitCompiler, slot: EnvironmentStackSlot) -> i32 {
@@ -533,7 +535,7 @@ fn emit_conditional_branch_imm(jit: &mut JitCompiler, op: u8, bitwise: bool, imm
 enum Value {
     Register(u8),
     RegisterIndirect(u8, i32, bool),
-    RegisterPlusConstant32(u8, i32, bool),
+    // RegisterPlusConstant32(u8, i32, bool),
     RegisterPlusConstant64(u8, i64, bool),
     Constant64(i64, bool),
 }
@@ -630,7 +632,7 @@ fn emit_rust_call(jit: &mut JitCompiler, dst: Value, arguments: &[Argument], res
                     emit_ins(jit, X86Instruction::load(OperandSize::S64, reg, dst, X86IndirectAccess::Offset(offset)));
                 }
             },
-            Value::RegisterPlusConstant32(reg, offset, user_provided) => {
+            /*Value::RegisterPlusConstant32(reg, offset, user_provided) => {
                 debug_assert!(!user_provided);
                 if is_stack_argument {
                     emit_ins(jit, X86Instruction::push(reg, None));
@@ -638,7 +640,7 @@ fn emit_rust_call(jit: &mut JitCompiler, dst: Value, arguments: &[Argument], res
                 } else {
                     emit_ins(jit, X86Instruction::lea(OperandSize::S64, reg, dst, Some(X86IndirectAccess::Offset(offset))));
                 }
-            },
+            },*/
             Value::RegisterPlusConstant64(reg, offset, user_provided) => {
                 debug_assert!(!user_provided);
                 if is_stack_argument {
@@ -868,7 +870,6 @@ pub struct JitCompiler {
     diversification_rng: SmallRng,
     stopwatch_is_active: bool,
     environment_stack_key: i32,
-    program_argument_key: i32,
 }
 
 impl Index<usize> for JitCompiler {
@@ -940,13 +941,10 @@ impl JitCompiler {
         let result = JitProgramSections::new(pc, code_length_estimate)?;
 
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
-        let (environment_stack_key, program_argument_key) =
+        let environment_stack_key =
             if config.encrypt_environment_registers {
-                (
-                    diversification_rng.gen::<i32>() / 16, // -3 bits for 8 Byte alignment, and -1 bit to have encoding space for EnvironmentStackSlot::SlotCount
-                    diversification_rng.gen::<i32>() / 2, // -1 bit to have encoding space for (ProgramEnvironment::CONTEXT_OBJECT + syscall.context_object_slot) * 8
-                )
-            } else { (0, 0) };
+                diversification_rng.gen::<i32>() / 16 // -3 bits for 8 Byte alignment, and -1 bit to have encoding space for EnvironmentStackSlot::SlotCount
+            } else { 0 };
 
         Ok(Self {
             result,
@@ -961,7 +959,6 @@ impl JitCompiler {
             diversification_rng,
             stopwatch_is_active: false,
             environment_stack_key,
-            program_argument_key,
         })
     }
 
@@ -1287,7 +1284,6 @@ impl JitCompiler {
 
         // Delete secrets
         self.environment_stack_key = 0;
-        self.program_argument_key = 0;
 
         Ok(())
     }
@@ -1295,10 +1291,14 @@ impl JitCompiler {
     fn generate_prologue<C: ContextObject>(&mut self, executable: &Executable<C>) -> Result<(), EbpfError> {
         // Place the environment on the stack according to EnvironmentStackSlot
 
-        // Save registers
+        // Save CALLEE_SAVED_REGISTERS
         for reg in CALLEE_SAVED_REGISTERS.iter() {
             emit_ins(self, X86Instruction::push(*reg, None));
         }
+
+        // Initialize frame pointer
+        emit_ins(self, X86Instruction::mov(OperandSize::S64, RSP, RBP));
+        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, 8 * (CALLEE_SAVED_REGISTERS.len() as i64 - 1 + self.environment_stack_key as i64), None));
 
         // Initialize CallDepth to 0
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], 0));
@@ -1318,20 +1318,28 @@ impl JitCompiler {
             // Push BpfFramePtr
             emit_ins(self, X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None));
             // When using static frames BpfStackPtr is not used
-            emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, RBP, 0));
-            emit_ins(self, X86Instruction::push(RBP, None));
+            emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, 0));
+            emit_ins(self, X86Instruction::push(R11, None));
         }
 
         // Save pointer to optional typed return value
         emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
 
-        // Save ProgramEnvironment
-        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[2], None));
-        emit_ins(self, X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], R10, Some(X86IndirectAccess::Offset(-self.program_argument_key))));
+        // Save ProgramEnvironment::MemoryMapping
+        emit_ins(self, X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], ARGUMENT_REGISTERS[0], Some(X86IndirectAccess::Offset(ProgramEnvironment::<C>::MEMORY_MAPPING_OFFSET as i32))));
+        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
+
+        // Save ProgramEnvironment::ContextObject
+        emit_ins(self, X86Instruction::load(OperandSize::S64, ARGUMENT_REGISTERS[2], ARGUMENT_REGISTERS[0], X86IndirectAccess::Offset(ProgramEnvironment::<C>::CONTEXT_OBJECT as i32)));
+        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
+
+        // Save ProgramEnvironment::Tracer
+        emit_ins(self, X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], ARGUMENT_REGISTERS[0], Some(X86IndirectAccess::Offset(ProgramEnvironment::<C>::TRACER_OFFSET as i32))));
+        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
 
         // Save initial value of program_environment.context_object.get_remaining()
         emit_rust_call(self, Value::Constant64(C::get_remaining as *const u8 as i64, false), &[
-            Argument { index: 0, value: Value::RegisterIndirect(R10, ProgramEnvironment::<C>::CONTEXT_OBJECT as i32 + self.program_argument_key, false) },
+            Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::ContextObject), false) },
         ], Some(ARGUMENT_REGISTERS[0]));
         emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
 
@@ -1339,10 +1347,6 @@ impl JitCompiler {
         emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x31, R11, R11, 0, None)); // R11 ^= R11;
         emit_ins(self, X86Instruction::push(R11, None));
         emit_ins(self, X86Instruction::push(R11, None));
-
-        // Initialize frame pointer
-        emit_ins(self, X86Instruction::mov(OperandSize::S64, RSP, RBP));
-        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, 8 * (EnvironmentStackSlot::SlotCount as i64 - 1 + self.environment_stack_key as i64), None));
 
         // Zero BPF registers
         for reg in REGISTER_MAP.iter() {
@@ -1398,7 +1402,7 @@ impl JitCompiler {
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, - 8 * 3, None)); // RSP -= 8 * 3;
             emit_rust_call(self, Value::Constant64(Tracer::trace as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
-                Argument { index: 0, value: Value::RegisterPlusConstant32(R10, ProgramEnvironment::<C>::TRACER_OFFSET as i32 + self.program_argument_key, false) }, // jit.tracer
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::Tracer), false) },
             ], None);
             // Pop stack and return
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, 8 * 3, None)); // RSP += 8 * 3;
@@ -1477,29 +1481,28 @@ impl JitCompiler {
         // Routine for syscall
         self.set_anchor(ANCHOR_SYSCALL);
         emit_ins(self, X86Instruction::push(R11, None)); // Padding for stack alignment
-        emit_ins(self, X86Instruction::load(OperandSize::S64, R10, RAX, X86IndirectAccess::Offset(ProgramEnvironment::<C>::CONTEXT_OBJECT as i32 + self.program_argument_key))); // RAX = program_environment.context_object;
         if self.config.enable_instruction_meter {
             // RDI = *PrevInsnMeter - RDI;
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x2B, ARGUMENT_REGISTERS[0], RBP, 0, Some(X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))))); // RDI -= *PrevInsnMeter;
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0xf7, 3, ARGUMENT_REGISTERS[0], 0, None)); // RDI = -RDI;
             emit_rust_call(self, Value::Constant64(C::consume as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[0]) },
-                Argument { index: 0, value: Value::Register(RAX) },
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::ContextObject), false) },
             ], None);
         }
         emit_rust_call(self, Value::Register(R11), &[
             Argument { index: 7, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) },
-            Argument { index: 6, value: Value::RegisterPlusConstant32(R10, self.program_argument_key, false) }, // jit_program_argument.memory_mapping
+            Argument { index: 6, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::MemoryMapping), false) },
             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
             Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
             Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
             Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
             Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
-            Argument { index: 0, value: Value::Register(RAX) },
+            Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::ContextObject), false) },
         ], None);
         if self.config.enable_instruction_meter {
             emit_rust_call(self, Value::Constant64(C::get_remaining as *const u8 as i64, false), &[
-                Argument { index: 0, value: Value::Register(RAX) },
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::ContextObject), false) },
             ], Some(ARGUMENT_REGISTERS[0]));
             emit_ins(self, X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(slot_on_environment_stack(self, EnvironmentStackSlot::PrevInsnMeter))));
         }
@@ -1599,7 +1602,7 @@ impl JitCompiler {
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
-                Argument { index: 1, value: Value::RegisterPlusConstant32(R10, ProgramEnvironment::<C>::MEMORY_MAPPING_OFFSET as i32 + self.program_argument_key, false) }, // jit_program_argument.memory_mapping
+                Argument { index: 1, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::MemoryMapping), false) },
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::OptRetValPtr), false) }, // Pointer to optional typed return value
             ], None);
 
