@@ -636,9 +636,14 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             Err(error) => return ProgramResult::Err(error),
         };
         let instruction_meter_final = unsafe {
-            (compiled_program.main)(&mut result, ebpf::MM_INPUT_START, &self.program_environment)
-                .max(0) as u64
-        };
+            (compiled_program.main)(
+                &mut result,
+                &mut self.program_environment.memory_mapping,
+                self.program_environment.context_object,
+                &mut self.program_environment.tracer,
+            )
+        }
+        .max(0) as u64;
         if executable.get_config().enable_instruction_meter {
             let remaining_insn_count = self.program_environment.context_object.get_remaining();
             let due_insn_count = remaining_insn_count - instruction_meter_final;
@@ -669,15 +674,6 @@ pub struct ProgramEnvironment<'a, C: ContextObject> {
     pub tracer: Tracer,
 }
 
-impl<'a, C: ContextObject + 'a> ProgramEnvironment<'a, C> {
-    /// Offset to Self::memory_mapping
-    pub const MEMORY_MAPPING_OFFSET: usize = 0;
-    /// Offset of Self::syscalls
-    pub const CONTEXT_OBJECT: usize = Self::MEMORY_MAPPING_OFFSET + mem::size_of::<MemoryMapping>();
-    /// Offset of Self::tracer
-    pub const TRACER_OFFSET: usize = Self::CONTEXT_OBJECT + mem::size_of::<*mut ()>();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,35 +684,5 @@ mod tests {
         assert_eq!(unsafe { *(&ok as *const _ as *const u64) }, 0);
         let err = ProgramResult::Err(EbpfError::JitNotCompiled);
         assert_eq!(unsafe { *(&err as *const _ as *const u64) }, 1);
-    }
-
-    #[test]
-    fn test_program_environment_offsets() {
-        let config = Config::default();
-        let env = ProgramEnvironment::<TestContextObject> {
-            memory_mapping: MemoryMapping::new(vec![], &config).unwrap(),
-            context_object: &mut TestContextObject::default(),
-            tracer: Tracer::default(),
-        };
-        assert_eq!(
-            unsafe {
-                (&env.memory_mapping as *const _ as *const u8)
-                    .offset_from(&env as *const _ as *const _)
-            },
-            ProgramEnvironment::<TestContextObject>::MEMORY_MAPPING_OFFSET as isize
-        );
-        assert_eq!(
-            unsafe {
-                (&env.context_object as *const _ as *const u8)
-                    .offset_from(&env as *const _ as *const _)
-            },
-            ProgramEnvironment::<TestContextObject>::CONTEXT_OBJECT as isize
-        );
-        assert_eq!(
-            unsafe {
-                (&env.tracer as *const _ as *const u8).offset_from(&env as *const _ as *const _)
-            },
-            ProgramEnvironment::<TestContextObject>::TRACER_OFFSET as isize
-        );
     }
 }

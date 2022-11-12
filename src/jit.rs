@@ -25,7 +25,7 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
     elf::Executable,
-    vm::{Config, ProgramResult, ContextObject, Tracer, ProgramEnvironment, SyscallFunction},
+    vm::{Config, ProgramResult, ContextObject, Tracer, SyscallFunction},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, FRAME_PTR_REG, MM_STACK_START, STACK_PTR_REG},
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
@@ -146,8 +146,8 @@ impl Drop for JitProgramSections {
 pub struct JitProgram<C: ContextObject> {
     /// Holds and manages the protected memory
     sections: JitProgramSections,
-    /// Call this with the ProgramEnvironment to execute the compiled code
-    pub main: unsafe fn(&mut ProgramResult, u64, &ProgramEnvironment<C>) -> i64,
+    /// Call this to execute the compiled code
+    pub main: unsafe fn(&mut ProgramResult, &mut MemoryMapping, &mut C, &mut Tracer) -> i64,
 }
 
 impl<C: ContextObject> Debug for JitProgram<C> {
@@ -1325,17 +1325,14 @@ impl JitCompiler {
         // Save pointer to optional typed return value
         emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
 
-        // Save ProgramEnvironment::MemoryMapping
-        emit_ins(self, X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], ARGUMENT_REGISTERS[0], Some(X86IndirectAccess::Offset(ProgramEnvironment::<C>::MEMORY_MAPPING_OFFSET as i32))));
-        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
+        // Save MemoryMapping
+        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[1], None));
 
-        // Save ProgramEnvironment::ContextObject
-        emit_ins(self, X86Instruction::load(OperandSize::S64, ARGUMENT_REGISTERS[2], ARGUMENT_REGISTERS[0], X86IndirectAccess::Offset(ProgramEnvironment::<C>::CONTEXT_OBJECT as i32)));
-        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
+        // Save ContextObject
+        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[2], None));
 
-        // Save ProgramEnvironment::Tracer
-        emit_ins(self, X86Instruction::lea(OperandSize::S64, ARGUMENT_REGISTERS[2], ARGUMENT_REGISTERS[0], Some(X86IndirectAccess::Offset(ProgramEnvironment::<C>::TRACER_OFFSET as i32))));
-        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
+        // Save Tracer
+        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[3], None));
 
         // Save initial value of program_environment.context_object.get_remaining()
         emit_rust_call(self, Value::Constant64(C::get_remaining as *const u8 as i64, false), &[
@@ -1354,6 +1351,7 @@ impl JitCompiler {
                 emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, *reg, 0));
             }
         }
+        emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[1], ebpf::MM_INPUT_START as i64));
 
         // Jump to entry point
         let entry = executable.get_entrypoint_instruction_offset();
