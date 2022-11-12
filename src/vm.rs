@@ -270,7 +270,7 @@ impl Default for Config {
 }
 
 /// Static constructors for Executable
-impl<C: 'static + ContextObject> Executable<C> {
+impl<C: ContextObject> Executable<C> {
     /// Creates an executable from an ELF file
     pub fn from_elf(
         elf_bytes: &[u8],

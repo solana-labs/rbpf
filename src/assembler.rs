@@ -214,7 +214,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///  0x87, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ///  0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
 /// ```
-pub fn assemble<C: 'static + ContextObject>(
+pub fn assemble<C: ContextObject>(
     src: &str,
     config: Config,
     syscall_registry: SyscallRegistry<C>,
