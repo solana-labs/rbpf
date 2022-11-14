@@ -326,22 +326,30 @@ impl<V: Verifier, C: ContextObject> VerifiedExecutable<V, C> {
     }
 }
 
-/// Instruction meter
+/// Runtime context
 pub trait ContextObject {
-    /// Consume instructions
+    /// Called for every instruction executed when tracing is enabled
+    fn trace(&mut self, state: [u64; 12]);
+    /// Consume instructions from meter
     fn consume(&mut self, amount: u64);
     /// Get the number of remaining instructions allowed
     fn get_remaining(&self) -> u64;
 }
 
 /// Simple instruction meter for testing
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TestContextObject {
+    /// Contains the register state at every instruction in order of execution
+    pub trace_log: Vec<[u64; 12]>,
     /// Maximal amount of instructions which still can be executed
     pub remaining: u64,
 }
 
 impl ContextObject for TestContextObject {
+    fn trace(&mut self, state: [u64; 12]) {
+        self.trace_log.push(state);
+    }
+
     fn consume(&mut self, amount: u64) {
         debug_assert!(amount <= self.remaining, "Execution count exceeded");
         self.remaining = self.remaining.saturating_sub(amount);
@@ -355,59 +363,14 @@ impl ContextObject for TestContextObject {
 impl TestContextObject {
     /// Initialize with instruction meter
     pub fn new(remaining: u64) -> Self {
-        Self { remaining }
-    }
-}
-
-/// Statistic of taken branches (from a recorded trace)
-pub struct DynamicAnalysis {
-    /// Maximal edge counter value
-    pub edge_counter_max: usize,
-    /// src_node, dst_node, edge_counter
-    pub edges: BTreeMap<usize, BTreeMap<usize, usize>>,
-}
-
-impl DynamicAnalysis {
-    /// Accumulates a trace
-    pub fn new<C: ContextObject>(tracer: &Tracer, analysis: &Analysis<C>) -> Self {
-        let mut result = Self {
-            edge_counter_max: 0,
-            edges: BTreeMap::new(),
-        };
-        let mut last_basic_block = usize::MAX;
-        for traced_instruction in tracer.log.iter() {
-            let pc = traced_instruction[11] as usize;
-            if analysis.cfg_nodes.contains_key(&pc) {
-                let counter = result
-                    .edges
-                    .entry(last_basic_block)
-                    .or_insert_with(BTreeMap::new)
-                    .entry(pc)
-                    .or_insert(0);
-                *counter += 1;
-                result.edge_counter_max = result.edge_counter_max.max(*counter);
-                last_basic_block = pc;
-            }
+        Self {
+            trace_log: Vec::new(),
+            remaining,
         }
-        result
-    }
-}
-
-/// Used for instruction tracing
-#[derive(Default, Clone)]
-pub struct Tracer {
-    /// Contains the state at every instruction in order of execution
-    pub log: Vec<[u64; 12]>,
-}
-
-impl Tracer {
-    /// Logs the state of a single instruction
-    pub fn trace(&mut self, state: [u64; 12]) {
-        self.log.push(state);
     }
 
-    /// Use this method to print the log of this tracer
-    pub fn write<W: std::io::Write, C: ContextObject>(
+    /// Use this method to print the trace log
+    pub fn write_trace_log<W: std::io::Write, C: ContextObject>(
         &self,
         output: &mut W,
         analysis: &Analysis<C>,
@@ -424,8 +387,7 @@ impl Tracer {
             pc_to_insn_index[insn.ptr] = index;
             pc_to_insn_index[insn.ptr + 1] = index;
         }
-        for index in 0..self.log.len() {
-            let entry = &self.log[index];
+        for (index, entry) in self.trace_log.iter().enumerate() {
             let pc = entry[11] as usize;
             let insn = &analysis.instructions[pc_to_insn_index[pc]];
             writeln!(
@@ -443,13 +405,47 @@ impl Tracer {
     /// Compares an interpreter trace and a JIT trace.
     ///
     /// The log of the JIT can be longer because it only validates the instruction meter at branches.
-    pub fn compare(interpreter: &Self, jit: &Self) -> bool {
-        let interpreter = interpreter.log.as_slice();
-        let mut jit = jit.log.as_slice();
+    pub fn compare_trace_log(interpreter: &Self, jit: &Self) -> bool {
+        let interpreter = interpreter.trace_log.as_slice();
+        let mut jit = jit.trace_log.as_slice();
         if jit.len() > interpreter.len() {
             jit = &jit[0..interpreter.len()];
         }
         interpreter == jit
+    }
+}
+
+/// Statistic of taken branches (from a recorded trace)
+pub struct DynamicAnalysis {
+    /// Maximal edge counter value
+    pub edge_counter_max: usize,
+    /// src_node, dst_node, edge_counter
+    pub edges: BTreeMap<usize, BTreeMap<usize, usize>>,
+}
+
+impl DynamicAnalysis {
+    /// Accumulates a trace
+    pub fn new<C: ContextObject>(trace_log: &[[u64; 12]], analysis: &Analysis<C>) -> Self {
+        let mut result = Self {
+            edge_counter_max: 0,
+            edges: BTreeMap::new(),
+        };
+        let mut last_basic_block = usize::MAX;
+        for traced_instruction in trace_log.iter() {
+            let pc = traced_instruction[11] as usize;
+            if analysis.cfg_nodes.contains_key(&pc) {
+                let counter = result
+                    .edges
+                    .entry(last_basic_block)
+                    .or_insert_with(BTreeMap::new)
+                    .entry(pc)
+                    .or_insert(0);
+                *counter += 1;
+                result.edge_counter_max = result.edge_counter_max.max(*counter);
+                last_basic_block = pc;
+            }
+        }
+        result
     }
 }
 
@@ -489,8 +485,6 @@ pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
     pub(crate) memory_mapping: MemoryMapping<'a>,
     /// Pointer to the context object of syscalls
     pub context_object: &'a mut C,
-    /// The instruction tracer
-    pub tracer: Tracer,
     pub(crate) stack: CallFrames<'a>,
     pub(crate) total_insn_count: u64,
 }
@@ -540,7 +534,6 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             program_vm_addr,
             memory_mapping: MemoryMapping::new(regions, config)?,
             context_object,
-            tracer: Tracer::default(),
             stack,
             total_insn_count: 0,
         };
@@ -642,12 +635,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             Err(error) => return ProgramResult::Err(error),
         };
         let instruction_meter_final = unsafe {
-            (compiled_program.main)(
-                &mut result,
-                &mut self.memory_mapping,
-                self.context_object,
-                &mut self.tracer,
-            )
+            (compiled_program.main)(&mut result, &mut self.memory_mapping, self.context_object)
         }
         .max(0) as u64;
         if executable.get_config().enable_instruction_meter {

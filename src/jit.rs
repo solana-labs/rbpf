@@ -25,7 +25,7 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
     elf::Executable,
-    vm::{Config, ProgramResult, ContextObject, Tracer, SyscallFunction},
+    vm::{Config, ProgramResult, ContextObject, SyscallFunction},
     ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, FRAME_PTR_REG, MM_STACK_START, STACK_PTR_REG},
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
@@ -147,7 +147,7 @@ pub struct JitProgram<C: ContextObject> {
     /// Holds and manages the protected memory
     sections: JitProgramSections,
     /// Call this to execute the compiled code
-    pub main: unsafe fn(&mut ProgramResult, &mut MemoryMapping, &mut C, &mut Tracer) -> i64,
+    pub main: unsafe fn(&mut ProgramResult, &mut MemoryMapping, &mut C) -> i64,
 }
 
 impl<C: ContextObject> Debug for JitProgram<C> {
@@ -357,8 +357,8 @@ enum EnvironmentStackSlot {
     MemoryMapping = 10,
     /// Pointer to ContextObject
     ContextObject = 11,
-    /// Pointer to Tracer
-    Tracer = 12,
+    /// Unused
+    _Padding = 12,
     /// Last return value of instruction_meter.get_remaining()
     PrevInsnMeter = 13,
     /// CPU cycles accumulated by the stop watch
@@ -1331,7 +1331,7 @@ impl JitCompiler {
         // Save ContextObject
         emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[2], None));
 
-        // Save Tracer
+        // Padding / unused
         emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[3], None));
 
         // Save initial value of context_object.get_remaining()
@@ -1398,9 +1398,9 @@ impl JitCompiler {
             }
             emit_ins(self, X86Instruction::mov(OperandSize::S64, RSP, REGISTER_MAP[0]));
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, - 8 * 3, None)); // RSP -= 8 * 3;
-            emit_rust_call(self, Value::Constant64(Tracer::trace as *const u8 as i64, false), &[
+            emit_rust_call(self, Value::Constant64(C::trace as *const u8 as i64, false), &[
                 Argument { index: 1, value: Value::Register(REGISTER_MAP[0]) }, // registers
-                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::Tracer), false) },
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, EnvironmentStackSlot::ContextObject), false) },
             ], None);
             // Pop stack and return
             emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, 8 * 3, None)); // RSP += 8 * 3;

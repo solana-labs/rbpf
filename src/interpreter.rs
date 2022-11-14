@@ -185,7 +185,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             let mut state = [0u64; 12];
             state[0..11].copy_from_slice(&self.reg);
             state[11] = pc as u64;
-            self.vm.tracer.trace(state);
+            self.vm.context_object.trace(state);
         }
 
         match insn.opc {

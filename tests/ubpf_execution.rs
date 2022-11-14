@@ -57,7 +57,7 @@ macro_rules! test_interpreter_and_jit {
             .unwrap();
             let result = vm.execute_program_interpreted();
             assert!(check_closure(&vm, result));
-            (vm.get_total_instruction_count(), vm.tracer.clone())
+            (vm.get_total_instruction_count(), vm.context_object.clone())
         };
         #[cfg(all(not(windows), target_arch = "x86_64"))]
         {
@@ -78,9 +78,9 @@ macro_rules! test_interpreter_and_jit {
                 Err(err) => assert!(check_closure(&vm, ProgramResult::Err(err))),
                 Ok(()) => {
                     let result = vm.execute_program_jit();
-                    let tracer_jit = &vm.tracer;
+                    let tracer_jit = &vm.context_object;
                     if !check_closure(&vm, result)
-                        || !solana_rbpf::vm::Tracer::compare(&_tracer_interpreter, tracer_jit)
+                        || !TestContextObject::compare_trace_log(&_tracer_interpreter, tracer_jit)
                     {
                         let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
                             verified_executable.get_executable(),
@@ -88,9 +88,11 @@ macro_rules! test_interpreter_and_jit {
                         .unwrap();
                         let stdout = std::io::stdout();
                         _tracer_interpreter
-                            .write(&mut stdout.lock(), &analysis)
+                            .write_trace_log(&mut stdout.lock(), &analysis)
                             .unwrap();
-                        tracer_jit.write(&mut stdout.lock(), &analysis).unwrap();
+                        tracer_jit
+                            .write_trace_log(&mut stdout.lock(), &analysis)
+                            .unwrap();
                         panic!();
                     }
                     if verified_executable
@@ -4056,7 +4058,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         )
         .unwrap();
         let result_interpreter = vm.execute_program_interpreted();
-        let tracer_interpreter = vm.tracer.clone();
+        let tracer_interpreter = vm.context_object.clone();
         (
             vm.get_total_instruction_count(),
             tracer_interpreter,
@@ -4074,9 +4076,9 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     )
     .unwrap();
     let result_jit = vm.execute_program_jit();
-    let tracer_jit = &vm.tracer;
+    let tracer_jit = &vm.context_object;
     if format!("{:?}", result_interpreter) != format!("{:?}", result_jit)
-        || !solana_rbpf::vm::Tracer::compare(&tracer_interpreter, tracer_jit)
+        || !TestContextObject::compare_trace_log(&tracer_interpreter, tracer_jit)
     {
         let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
             verified_executable.get_executable(),
@@ -4086,9 +4088,11 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         println!("result_jit={:?}", result_jit);
         let stdout = std::io::stdout();
         tracer_interpreter
-            .write(&mut stdout.lock(), &analysis)
+            .write_trace_log(&mut stdout.lock(), &analysis)
             .unwrap();
-        tracer_jit.write(&mut stdout.lock(), &analysis).unwrap();
+        tracer_jit
+            .write_trace_log(&mut stdout.lock(), &analysis)
+            .unwrap();
         panic!();
     }
     if verified_executable

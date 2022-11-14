@@ -23,7 +23,7 @@
 
 use crate::{
     memory_region::{AccessType, MemoryMapping},
-    vm::{ContextObject, ProgramResult, TestContextObject},
+    vm::{ProgramResult, TestContextObject},
 };
 use std::{slice::from_raw_parts, str::from_utf8};
 
