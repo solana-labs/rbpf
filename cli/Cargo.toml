@@ -1,6 +1,6 @@
 [package]
 name = "rbpf_cli"
-version = "0.2.35"
+version = "0.2.36"
 description = "CLI to test and analyze eBPF programs"
 authors = ["Solana Maintainers <maintainers@solana.foundation>"]
 repository = "https://github.com/solana-labs/rbpf"
