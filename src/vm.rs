@@ -454,7 +454,7 @@ impl DynamicAnalysis {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
+/// use solana_rbpf::{ebpf, elf::Executable, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -463,7 +463,6 @@ impl DynamicAnalysis {
 ///     0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd
 /// ];
 ///
-/// // Instantiate a VM.
 /// let config = Config::default();
 /// let syscall_registry = SyscallRegistry::default();
 /// let function_registry = FunctionRegistry::default();
@@ -473,7 +472,6 @@ impl DynamicAnalysis {
 /// let mut context_object = TestContextObject::new(1);
 /// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
 ///
-/// // Provide a reference to the packet data.
 /// let (instruction_count, result) = vm.execute_program(true);
 /// assert_eq!(instruction_count, 1);
 /// assert_eq!(result.unwrap(), 0);
@@ -490,26 +488,7 @@ pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
 }
 
 impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
-    /// Create a new virtual machine instance, and load an eBPF program into that instance.
-    /// When attempting to load the program, it passes through a simple verifier.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
-    ///
-    /// let prog = &[
-    ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
-    /// ];
-    ///
-    /// // Instantiate a VM.
-    /// let config = Config::default();
-    /// let syscall_registry = SyscallRegistry::default();
-    /// let function_registry = FunctionRegistry::default();
-    /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
-    /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
-    /// let mut vm = EbpfVm::new(&verified_executable, &mut TestContextObject::default(), &mut [], Vec::new()).unwrap();
-    /// ```
+    /// Create a new virtual machine instance
     pub fn new(
         verified_executable: &'a VerifiedExecutable<V, C>,
         context_object: &'a mut C,
@@ -545,36 +524,9 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         self.program
     }
 
-    /// Execute the program loaded, with the given packet data.
+    /// Execute the program
     ///
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use solana_rbpf::{ebpf, elf::{Executable, register_bpf_function}, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
-    ///
-    /// let prog = &[
-    ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
-    /// ];
-    /// let mem = &mut [
-    ///     0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd
-    /// ];
-    ///
-    /// // Instantiate a VM.
-    /// let config = Config::default();
-    /// let syscall_registry = SyscallRegistry::default();
-    /// let function_registry = FunctionRegistry::default();
-    /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
-    /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
-    /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
-    /// let mut context_object = TestContextObject::new(1);
-    /// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
-    ///
-    /// // Provide a reference to the packet data.
-    /// let (instruction_count, result) = vm.execute_program(true);
-    /// assert_eq!(instruction_count, 1);
-    /// assert_eq!(result.unwrap(), 0);
-    /// ```
+    /// If interpreted = `false` then the JIT compiled executable is used.
     pub fn execute_program(&mut self, interpreted: bool) -> (u64, ProgramResult) {
         let executable = self.verified_executable.get_executable();
         let initial_insn_count = if executable.get_config().enable_instruction_meter {
