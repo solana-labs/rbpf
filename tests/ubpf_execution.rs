@@ -3076,31 +3076,6 @@ fn test_call_memfrob() {
     );
 }
 
-#[test]
-fn test_syscall_with_context() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r1, 0xAA
-        mov64 r2, 0xBB
-        mov64 r3, 0xCC
-        mov64 r4, 0xDD
-        mov64 r5, 0xEE
-        syscall SyscallWithContext
-        mov64 r0, 0x0
-        exit",
-        [],
-        (
-            b"SyscallWithContext" => syscalls::SyscallWithContext::call,
-        ),
-        syscalls::SyscallWithContext { remaining: 8, context: 42 },
-        { |vm: &EbpfVm<RequisiteVerifier, syscalls::SyscallWithContext>, res: ProgramResult| {
-            let context_object = unsafe { &*(vm.context_object as *const syscalls::SyscallWithContext) };
-            assert_eq!(context_object.context, 84);
-            res.unwrap() == 0
-        }},
-    );
-}
-
 #[allow(clippy::too_many_arguments)]
 fn nested_vm_syscall(
     _context_object: &mut TestContextObject,
