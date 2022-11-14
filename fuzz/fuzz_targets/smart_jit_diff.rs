@@ -64,8 +64,8 @@ fuzz_target!(|data: FuzzData| {
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
         let mut jit_vm = EbpfVm::new(&verified_executable, &mut jit_syscall_object, &mut [], vec![jit_mem_region]).unwrap();
         
-        let (_interp_ins_count, interp_res) = interp_vm.execute_program_interpreted();
-        let (_jit_ins_count, jit_res) = jit_vm.execute_program_jit();
+        let (_interp_ins_count, interp_res) = interp_vm.execute_program(true);
+        let (_jit_ins_count, jit_res) = jit_vm.execute_program(false);
         if format!("{:?}", interp_res) != format!("{:?}", jit_res) {
             panic!("Expected {:?}, but got {:?}", interp_res, jit_res);
         }

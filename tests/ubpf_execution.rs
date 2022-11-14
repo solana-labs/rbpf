@@ -55,7 +55,7 @@ macro_rules! test_interpreter_and_jit {
                 vec![mem_region],
             )
             .unwrap();
-            let (instruction_count_interpreter, result) = vm.execute_program_interpreted();
+            let (instruction_count_interpreter, result) = vm.execute_program(true);
             assert!(check_closure(&vm, result));
             (instruction_count_interpreter, vm.context_object.clone())
         };
@@ -77,7 +77,7 @@ macro_rules! test_interpreter_and_jit {
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, ProgramResult::Err(err))),
                 Ok(()) => {
-                    let (instruction_count_jit, result) = vm.execute_program_jit();
+                    let (instruction_count_jit, result) = vm.execute_program(false);
                     let tracer_jit = &vm.context_object;
                     if !check_closure(&vm, result)
                         || !TestContextObject::compare_trace_log(&_tracer_interpreter, tracer_jit)
@@ -4056,7 +4056,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
             vec![mem_region],
         )
         .unwrap();
-        let (instruction_count_interpreter, result_interpreter) = vm.execute_program_interpreted();
+        let (instruction_count_interpreter, result_interpreter) = vm.execute_program(true);
         let tracer_interpreter = vm.context_object.clone();
         (
             instruction_count_interpreter,
@@ -4074,7 +4074,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         vec![mem_region],
     )
     .unwrap();
-    let (instruction_count_jit, result_jit) = vm.execute_program_jit();
+    let (instruction_count_jit, result_jit) = vm.execute_program(false);
     let tracer_jit = &vm.context_object;
     if format!("{:?}", result_interpreter) != format!("{:?}", result_jit)
         || !TestContextObject::compare_trace_log(&tracer_interpreter, tracer_jit)

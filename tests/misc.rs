@@ -137,7 +137,7 @@ fn test_fuzz_execute() {
                         Vec::new(),
                     )
                     .unwrap();
-                    let _ = vm.execute_program_interpreted();
+                    let _ = vm.execute_program(true);
                 }
             }
         },
