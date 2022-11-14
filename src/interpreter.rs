@@ -78,6 +78,8 @@ pub enum DebugState {
 /// State of an interpreter
 pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
     pub(crate) vm: &'a mut EbpfVm<'b, V, C>,
+    pub(crate) program: &'a [u8],
+    pub(crate) program_vm_addr: u64,
 
     pub(crate) initial_insn_count: u64,
     remaining_insn_count: u64,
@@ -98,6 +100,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Creates a new interpreter state
     pub fn new(vm: &'a mut EbpfVm<'b, V, C>) -> Result<Self, EbpfError> {
         let executable = vm.verified_executable.get_executable();
+        let (program_vm_addr, program) = executable.get_text_bytes();
         let initial_insn_count = if executable.get_config().enable_instruction_meter {
             vm.context_object.get_remaining()
         } else {
@@ -120,6 +123,8 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
         let pc = executable.get_entrypoint_instruction_offset();
         Ok(Self {
             vm,
+            program,
+            program_vm_addr,
             initial_insn_count,
             remaining_insn_count: initial_insn_count,
             due_insn_count: 0,
@@ -138,16 +143,14 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 .checked_mul(ebpf::INSN_SIZE)
                 .ok_or(EbpfError::CallOutsideTextSegment(
                     current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    self.vm.program_vm_addr + (target_pc * ebpf::INSN_SIZE) as u64,
+                    self.program_vm_addr + (target_pc * ebpf::INSN_SIZE) as u64,
                 ))?;
-        let _ = self
-            .vm
-            .program
-            .get(offset..offset + ebpf::INSN_SIZE)
-            .ok_or(EbpfError::CallOutsideTextSegment(
+        let _ = self.program.get(offset..offset + ebpf::INSN_SIZE).ok_or(
+            EbpfError::CallOutsideTextSegment(
                 current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                self.vm.program_vm_addr + (target_pc * ebpf::INSN_SIZE) as u64,
-            ))?;
+                self.program_vm_addr + (target_pc * ebpf::INSN_SIZE) as u64,
+            ),
+        )?;
         Ok(target_pc)
     }
 
@@ -172,12 +175,12 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
         self.due_insn_count += 1;
         let pc = self.pc;
         self.pc += instruction_width;
-        if self.pc * ebpf::INSN_SIZE > self.vm.program.len() {
+        if self.pc * ebpf::INSN_SIZE > self.program.len() {
             return Err(EbpfError::ExecutionOverrun(
                 pc + ebpf::ELF_INSN_DUMP_OFFSET,
             ));
         }
-        let mut insn = ebpf::get_insn_unchecked(self.vm.program, pc);
+        let mut insn = ebpf::get_insn_unchecked(self.program, pc);
         let dst = insn.dst as usize;
         let src = insn.src as usize;
 
@@ -201,7 +204,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             }
 
             ebpf::LD_DW_IMM  => {
-                ebpf::augment_lddw_unchecked(self.vm.program, &mut insn);
+                ebpf::augment_lddw_unchecked(self.program, &mut insn);
                 instruction_width = 2;
                 self.pc += 1;
                 self.reg[dst] = insn.imm as u64;
@@ -426,10 +429,10 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 let target_address = self.reg[insn.imm as usize];
                 self.reg[ebpf::FRAME_PTR_REG] =
                     self.vm.stack.push(&self.reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], self.pc)?;
-                if target_address < self.vm.program_vm_addr {
+                if target_address < self.program_vm_addr {
                     return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
                 }
-                let target_pc = (target_address - self.vm.program_vm_addr) as usize / ebpf::INSN_SIZE;
+                let target_pc = (target_address - self.program_vm_addr) as usize / ebpf::INSN_SIZE;
                 self.pc = self.check_pc(pc, target_pc)?;
                 if config.static_syscalls && executable.lookup_bpf_function(target_pc as u32).is_none() {
                     self.due_insn_count += 1;

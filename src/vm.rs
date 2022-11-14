@@ -478,8 +478,6 @@ impl DynamicAnalysis {
 /// ```
 pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
     pub(crate) verified_executable: &'a VerifiedExecutable<V, C>,
-    pub(crate) program: &'a [u8],
-    pub(crate) program_vm_addr: u64,
     /// The MemoryMapping describing the address space of the program
     pub(crate) memory_mapping: MemoryMapping<'a>,
     /// Pointer to the context object of syscalls
@@ -506,22 +504,13 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         .into_iter()
         .chain(additional_regions.into_iter())
         .collect();
-        let (program_vm_addr, program) = executable.get_text_bytes();
         let vm = EbpfVm {
             verified_executable,
-            program,
-            program_vm_addr,
             memory_mapping: MemoryMapping::new(regions, config)?,
             context_object,
             stack,
         };
-
         Ok(vm)
-    }
-
-    /// Returns the program
-    pub fn get_program(&self) -> &[u8] {
-        self.program
     }
 
     /// Execute the program
