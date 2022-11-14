@@ -144,13 +144,13 @@ fn main() {
         verified_executable.jit_compile().unwrap();
     }
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut context_object = TestContextObject {
-        remaining: matches
+    let mut context_object = TestContextObject::new(
+        matches
             .value_of("instruction limit")
             .unwrap()
             .parse::<u64>()
             .unwrap(),
-    };
+    );
     let mut vm = EbpfVm::new(
         &verified_executable,
         &mut context_object,

@@ -169,7 +169,7 @@ fn test_mov() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -182,7 +182,7 @@ fn test_mov32_imm_large() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xffffffff } },
     );
 }
@@ -196,7 +196,7 @@ fn test_mov_large() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xffffffff } },
     );
 }
@@ -214,7 +214,7 @@ fn test_bounce() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -230,7 +230,7 @@ fn test_add32() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3 } },
     );
 }
@@ -244,7 +244,7 @@ fn test_neg32() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xfffffffe } },
     );
 }
@@ -258,7 +258,7 @@ fn test_neg64() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xfffffffffffffffe } },
     );
 }
@@ -288,7 +288,7 @@ fn test_alu32_arithmetic() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 19 },
+        TestContextObject::new(19),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2a } },
     );
 }
@@ -318,7 +318,7 @@ fn test_alu64_arithmetic() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 19 },
+        TestContextObject::new(19),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2a } },
     );
 }
@@ -371,7 +371,7 @@ fn test_mul128() {
         exit",
         [0; 16],
         (),
-        TestContextObject { remaining: 42 },
+        TestContextObject::new(42),
         { |_vm, res: ProgramResult| { res.unwrap() == 600 } },
     );
 }
@@ -403,7 +403,7 @@ fn test_alu32_logic() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 21 },
+        TestContextObject::new(21),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11 } },
     );
 }
@@ -437,7 +437,7 @@ fn test_alu64_logic() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 23 },
+        TestContextObject::new(23),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11 } },
     );
 }
@@ -452,7 +452,7 @@ fn test_arsh32_high_shift() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x4 } },
     );
 }
@@ -467,7 +467,7 @@ fn test_arsh32_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xffff8000 } },
     );
 }
@@ -483,7 +483,7 @@ fn test_arsh32_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xffff8000 } },
     );
 }
@@ -500,7 +500,7 @@ fn test_arsh64() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 6 },
+        TestContextObject::new(6),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xfffffffffffffff8 } },
     );
 }
@@ -515,7 +515,7 @@ fn test_lsh64_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x10 } },
     );
 }
@@ -530,7 +530,7 @@ fn test_rhs32_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x00ffffff } },
     );
 }
@@ -545,7 +545,7 @@ fn test_rsh64_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -559,7 +559,7 @@ fn test_be16() {
         exit",
         [0x11, 0x22],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122 } },
     );
 }
@@ -573,7 +573,7 @@ fn test_be16_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122 } },
     );
 }
@@ -587,7 +587,7 @@ fn test_be32() {
         exit",
         [0x11, 0x22, 0x33, 0x44],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11223344 } },
     );
 }
@@ -601,7 +601,7 @@ fn test_be32_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11223344 } },
     );
 }
@@ -615,7 +615,7 @@ fn test_be64() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122334455667788 } },
     );
 }
@@ -629,7 +629,7 @@ fn test_le16() {
         exit",
         [0x22, 0x11],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122 } },
     );
 }
@@ -643,7 +643,7 @@ fn test_le16_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2211 } },
     );
 }
@@ -657,7 +657,7 @@ fn test_le32() {
         exit",
         [0x44, 0x33, 0x22, 0x11],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11223344 } },
     );
 }
@@ -671,7 +671,7 @@ fn test_le32_high() {
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x44332211 } },
     );
 }
@@ -685,7 +685,7 @@ fn test_le64() {
         exit",
         [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122334455667788 } },
     );
 }
@@ -699,7 +699,7 @@ fn test_mul32_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xc } },
     );
 }
@@ -714,7 +714,7 @@ fn test_mul32_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xc } },
     );
 }
@@ -729,7 +729,7 @@ fn test_mul32_reg_overflow() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x4 } },
     );
 }
@@ -743,7 +743,7 @@ fn test_mul64_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x100000004 } },
     );
 }
@@ -758,7 +758,7 @@ fn test_mul64_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x100000004 } },
     );
 }
@@ -773,7 +773,7 @@ fn test_div32_high_divisor() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3 } },
     );
 }
@@ -787,7 +787,7 @@ fn test_div32_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3 } },
     );
 }
@@ -802,7 +802,7 @@ fn test_div32_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3 } },
     );
 }
@@ -816,7 +816,7 @@ fn test_sdiv32_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xFFFFFFFFE0000000 } },
     );
 }
@@ -830,7 +830,7 @@ fn test_sdiv32_neg_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() as i64 == -0xc } },
     );
 }
@@ -845,7 +845,7 @@ fn test_sdiv32_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xFFFFFFFFE0000000 } },
     );
 }
@@ -860,7 +860,7 @@ fn test_sdiv32_neg_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() as i64 == -0xc } },
     );
 }
@@ -875,7 +875,7 @@ fn test_div64_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x300000000 } },
     );
 }
@@ -891,7 +891,7 @@ fn test_div64_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x300000000 } },
     );
 }
@@ -906,7 +906,7 @@ fn test_sdiv64_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x300000000 } },
     );
 }
@@ -922,7 +922,7 @@ fn test_sdiv64_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x300000000 } },
     );
 }
@@ -937,7 +937,7 @@ fn test_err_div64_by_zero_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -954,7 +954,7 @@ fn test_err_div32_by_zero_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -971,7 +971,7 @@ fn test_err_sdiv64_by_zero_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -988,7 +988,7 @@ fn test_err_sdiv32_by_zero_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -1005,7 +1005,7 @@ fn test_err_sdiv64_overflow_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 31)
         },
@@ -1023,7 +1023,7 @@ fn test_err_sdiv64_overflow_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 32)
         },
@@ -1040,7 +1040,7 @@ fn test_err_sdiv32_overflow_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 31)
         },
@@ -1058,7 +1058,7 @@ fn test_err_sdiv32_overflow_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideOverflow(pc) if pc == 32)
         },
@@ -1076,7 +1076,7 @@ fn test_mod32() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x5 } },
     );
 }
@@ -1090,7 +1090,7 @@ fn test_mod32_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
     );
 }
@@ -1110,7 +1110,7 @@ fn test_mod64() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 9 },
+        TestContextObject::new(9),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x30ba5a04 } },
     );
 }
@@ -1125,7 +1125,7 @@ fn test_err_mod64_by_zero_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -1142,7 +1142,7 @@ fn test_err_mod_by_zero_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::DivideByZero(pc) if pc == 31)
         },
@@ -1159,7 +1159,7 @@ fn test_ldxb() {
         exit",
         [0xaa, 0xbb, 0x11, 0xcc, 0xdd],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11 } },
     );
 }
@@ -1172,7 +1172,7 @@ fn test_ldxh() {
         exit",
         [0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2211 } },
     );
 }
@@ -1187,7 +1187,7 @@ fn test_ldxw() {
             0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0xcc, 0xdd, //
         ],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x44332211 } },
     );
 }
@@ -1202,7 +1202,7 @@ fn test_ldxh_same_reg() {
         exit",
         [0xff, 0xff],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1234 } },
     );
 }
@@ -1218,7 +1218,7 @@ fn test_lldxdw() {
             0x77, 0x88, 0xcc, 0xdd, //
         ],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x8877665544332211 } },
     );
 }
@@ -1234,7 +1234,7 @@ fn test_err_ldxdw_oob() {
             0x77, 0x88, 0xcc, 0xdd, //
         ],
         (),
-        TestContextObject { remaining: 1 },
+        TestContextObject::new(1),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -1254,7 +1254,7 @@ fn test_err_ldxdw_nomem() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 1 },
+        TestContextObject::new(1),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -1306,7 +1306,7 @@ fn test_ldxb_all() {
             0x08, 0x09, //
         ],
         (),
-        TestContextObject { remaining: 31 },
+        TestContextObject::new(31),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x9876543210 } },
     );
 }
@@ -1362,7 +1362,7 @@ fn test_ldxh_all() {
             0x00, 0x08, 0x00, 0x09, //
         ],
         (),
-        TestContextObject { remaining: 41 },
+        TestContextObject::new(41),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x9876543210 } },
     );
 }
@@ -1408,7 +1408,7 @@ fn test_ldxh_all2() {
             0x01, 0x00, 0x02, 0x00, //
         ],
         (),
-        TestContextObject { remaining: 31 },
+        TestContextObject::new(31),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3ff } },
     );
 }
@@ -1456,7 +1456,7 @@ fn test_ldxw_all() {
             0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, //
         ],
         (),
-        TestContextObject { remaining: 31 },
+        TestContextObject::new(31),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x030f0f } },
     );
 }
@@ -1469,7 +1469,7 @@ fn test_lddw() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1122334455667788 } },
     );
     test_interpreter_and_jit_asm!(
@@ -1478,7 +1478,7 @@ fn test_lddw() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x80000000 } },
     );
 }
@@ -1492,7 +1492,7 @@ fn test_stb() {
         exit",
         [0xaa, 0xbb, 0xff, 0xcc, 0xdd],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11 } },
     );
 }
@@ -1508,7 +1508,7 @@ fn test_sth() {
             0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2211 } },
     );
 }
@@ -1524,7 +1524,7 @@ fn test_stw() {
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x44332211 } },
     );
 }
@@ -1541,7 +1541,7 @@ fn test_stdw() {
             0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x44332211 } },
     );
 }
@@ -1558,7 +1558,7 @@ fn test_stxb() {
             0xaa, 0xbb, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x11 } },
     );
 }
@@ -1575,7 +1575,7 @@ fn test_stxh() {
             0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2211 } },
     );
 }
@@ -1592,7 +1592,7 @@ fn test_stxw() {
             0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x44332211 } },
     );
 }
@@ -1612,7 +1612,7 @@ fn test_stxdw() {
             0xff, 0xff, 0xcc, 0xdd, //
         ],
         (),
-        TestContextObject { remaining: 6 },
+        TestContextObject::new(6),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x8877665544332211 } },
     );
 }
@@ -1644,7 +1644,7 @@ fn test_stxb_all() {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
         ],
         (),
-        TestContextObject { remaining: 19 },
+        TestContextObject::new(19),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xf0f2f3f4f5f6f7f8 } },
     );
 }
@@ -1663,7 +1663,7 @@ fn test_stxb_all2() {
         exit",
         [0xff, 0xff],
         (),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xf1f9 } },
     );
 }
@@ -1698,7 +1698,7 @@ fn test_stxb_chain() {
             0x00, 0x00, //
         ],
         (),
-        TestContextObject { remaining: 21 },
+        TestContextObject::new(21),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2a } },
     );
 }
@@ -1712,7 +1712,7 @@ fn test_exit_without_value() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 1 },
+        TestContextObject::new(1),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
     );
 }
@@ -1725,7 +1725,7 @@ fn test_exit() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
     );
 }
@@ -1740,7 +1740,7 @@ fn test_early_exit() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x3 } },
     );
 }
@@ -1755,7 +1755,7 @@ fn test_ja() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1774,7 +1774,7 @@ fn test_jeq_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1794,7 +1794,7 @@ fn test_jeq_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1813,7 +1813,7 @@ fn test_jge_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1833,7 +1833,7 @@ fn test_jge_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1853,7 +1853,7 @@ fn test_jle_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1875,7 +1875,7 @@ fn test_jle_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 9 },
+        TestContextObject::new(9),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1894,7 +1894,7 @@ fn test_jgt_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1915,7 +1915,7 @@ fn test_jgt_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 9 },
+        TestContextObject::new(9),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1934,7 +1934,7 @@ fn test_jlt_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1955,7 +1955,7 @@ fn test_jlt_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 9 },
+        TestContextObject::new(9),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1974,7 +1974,7 @@ fn test_jne_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -1994,7 +1994,7 @@ fn test_jne_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2013,7 +2013,7 @@ fn test_jset_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2033,7 +2033,7 @@ fn test_jset_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2053,7 +2053,7 @@ fn test_jsge_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2075,7 +2075,7 @@ fn test_jsge_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 10 },
+        TestContextObject::new(10),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2095,7 +2095,7 @@ fn test_jsle_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2118,7 +2118,7 @@ fn test_jsle_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 10 },
+        TestContextObject::new(10),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2137,7 +2137,7 @@ fn test_jsgt_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2157,7 +2157,7 @@ fn test_jsgt_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2176,7 +2176,7 @@ fn test_jslt_imm() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2197,7 +2197,7 @@ fn test_jslt_reg() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 9 },
+        TestContextObject::new(9),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -2219,7 +2219,7 @@ fn test_stack1() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 9 },
+        TestContextObject::new(9),
         { |_vm, res: ProgramResult| { res.unwrap() == 0xcd } },
     );
 }
@@ -2249,7 +2249,7 @@ fn test_stack2() {
             b"bpf_mem_frob" => syscalls::bpf_mem_frob,
             b"bpf_gather_bytes" => syscalls::bpf_gather_bytes,
         ),
-        TestContextObject { remaining: 16 },
+        TestContextObject::new(16),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x01020304 } },
     );
 }
@@ -2290,7 +2290,7 @@ fn test_string_stack() {
         (
             b"bpf_str_cmp" => syscalls::bpf_str_cmp,
         ),
-        TestContextObject { remaining: 28 },
+        TestContextObject::new(28),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
     );
 }
@@ -2309,7 +2309,7 @@ fn test_err_fixed_stack_out_of_bound() {
         config,
         [],
         (),
-        TestContextObject { remaining: 1 },
+        TestContextObject::new(1),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2339,7 +2339,7 @@ fn test_err_dynamic_stack_out_of_bound() {
         config,
         [],
         (),
-        TestContextObject { remaining: 1 },
+        TestContextObject::new(1),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2358,7 +2358,7 @@ fn test_err_dynamic_stack_out_of_bound() {
         config,
         [],
         (),
-        TestContextObject { remaining: 1 },
+        TestContextObject::new(1),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2396,7 +2396,7 @@ fn test_err_dynamic_stack_ptr_overflow() {
         config,
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2426,7 +2426,7 @@ fn test_dynamic_stack_frames_empty() {
         config,
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         {
             |_vm, res: ProgramResult| {
                 res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64
@@ -2455,7 +2455,7 @@ fn test_dynamic_frame_ptr() {
         config,
         [],
         (),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         {
             |_vm, res: ProgramResult| {
                 res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64 - 8
@@ -2477,7 +2477,7 @@ fn test_dynamic_frame_ptr() {
         config,
         [],
         (),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         {
             |_vm, res: ProgramResult| {
                 res.unwrap() == ebpf::MM_STACK_START + config.stack_size() as u64
@@ -2514,7 +2514,7 @@ fn test_entrypoint_exit() {
             config,
             [],
             (),
-            TestContextObject { remaining: 5 },
+            TestContextObject::new(5),
             { |_vm, res: ProgramResult| { res.unwrap() == 42 } },
         );
     }
@@ -2544,7 +2544,7 @@ fn test_stack_call_depth_tracking() {
             config,
             [],
             (),
-            TestContextObject { remaining: 5 },
+            TestContextObject::new(5),
             { |_vm, res: ProgramResult| { res.is_ok() } },
         );
 
@@ -2563,7 +2563,7 @@ fn test_stack_call_depth_tracking() {
             config,
             [],
             (),
-            TestContextObject { remaining: 2 },
+            TestContextObject::new(2),
             {
                 |_vm, res: ProgramResult| {
                     matches!(res.unwrap_err(),
@@ -2595,7 +2595,7 @@ fn test_err_mem_access_out_of_bound() {
             FunctionRegistry::default(),
         )
         .unwrap();
-        test_interpreter_and_jit!(executable, mem, TestContextObject { remaining: 2 }, {
+        test_interpreter_and_jit!(executable, mem, TestContextObject::new(2), {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
                     EbpfError::AccessViolation(pc, access_type, vm_addr, len, name)
@@ -2616,7 +2616,7 @@ fn test_relative_call() {
         (
             b"log" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject { remaining: 14 },
+        TestContextObject::new(14),
         { |_vm, res: ProgramResult| { res.unwrap() == 2 } },
     );
 }
@@ -2629,7 +2629,7 @@ fn test_bpf_to_bpf_scratch_registers() {
         (
             b"log_64" => syscalls::bpf_syscall_u64,
         ),
-        TestContextObject { remaining: 41 },
+        TestContextObject::new(41),
         { |_vm, res: ProgramResult| { res.unwrap() == 112 } },
     );
 }
@@ -2640,7 +2640,7 @@ fn test_bpf_to_bpf_pass_stack_reference() {
         "tests/elfs/pass_stack_reference.so",
         [],
         (),
-        TestContextObject { remaining: 29 },
+        TestContextObject::new(29),
         { |_vm, res: ProgramResult| res.unwrap() == 42 },
     );
 }
@@ -2659,7 +2659,7 @@ fn test_syscall_parameter_on_stack() {
         (
             b"bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject { remaining: 6 },
+        TestContextObject::new(6),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
     );
 }
@@ -2679,7 +2679,7 @@ fn test_callx() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 42 } },
     );
 }
@@ -2698,7 +2698,7 @@ fn test_err_callx_unregistered() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 6 },
+        TestContextObject::new(6),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(pc) if pc == 35)
         },
@@ -2714,7 +2714,7 @@ fn test_err_callx_oob_low() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2737,7 +2737,7 @@ fn test_err_callx_oob_high() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2766,7 +2766,7 @@ fn test_err_static_jmp_lddw() {
         ",
         [],
         (),
-        TestContextObject { remaining: 9 },
+        TestContextObject::new(9),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2 } },
     );
     test_interpreter_and_jit_asm!(
@@ -2779,7 +2779,7 @@ fn test_err_static_jmp_lddw() {
         ",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2807,7 +2807,7 @@ fn test_err_dynamic_jmp_lddw() {
         config,
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2827,7 +2827,7 @@ fn test_err_dynamic_jmp_lddw() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2850,7 +2850,7 @@ fn test_err_dynamic_jmp_lddw() {
         config,
         [],
         (),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2872,7 +2872,7 @@ fn test_err_dynamic_jmp_lddw() {
         config,
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2894,7 +2894,7 @@ fn test_bpf_to_bpf_depth() {
             (
                 b"log" => syscalls::bpf_syscall_string,
             ),
-            TestContextObject { remaining: if i == 0 { 4 } else { 3 + 10 * i as u64 } },
+            TestContextObject::new(if i == 0 { 4 } else { 3 + 10 * i as u64 }),
             { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
         );
     }
@@ -2910,7 +2910,7 @@ fn test_err_bpf_to_bpf_too_deep() {
         (
             b"log" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject { remaining: 176 },
+        TestContextObject::new(176),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2933,7 +2933,7 @@ fn test_err_reg_stack_depth() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 60 },
+        TestContextObject::new(60),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -2984,7 +2984,7 @@ fn test_err_syscall_string() {
         (
             b"bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3008,7 +3008,7 @@ fn test_syscall_string() {
         (
             b"bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
     );
 }
@@ -3029,7 +3029,7 @@ fn test_syscall() {
         (
             b"bpf_syscall_u64" => syscalls::bpf_syscall_u64,
         ),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
     );
 }
@@ -3049,7 +3049,7 @@ fn test_call_gather_bytes() {
         (
             b"bpf_gather_bytes" => syscalls::bpf_gather_bytes,
         ),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0102030405 } },
     );
 }
@@ -3071,7 +3071,7 @@ fn test_call_memfrob() {
         (
             b"bpf_mem_frob" => syscalls::bpf_mem_frob,
         ),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x102292e2f2c0708 } },
     );
 }
@@ -3132,9 +3132,7 @@ fn nested_vm_syscall(
         test_interpreter_and_jit!(
             executable,
             mem,
-            TestContextObject {
-                remaining: if throw == 0 { 4 } else { 3 }
-            },
+            TestContextObject::new(if throw == 0 { 4 } else { 3 }),
             {
                 |_vm, res: ProgramResult| {
                     *result = res;
@@ -3196,7 +3194,7 @@ fn test_load_elf() {
             b"log" => syscalls::bpf_syscall_string,
             b"log_64" => syscalls::bpf_syscall_u64,
         ),
-        TestContextObject { remaining: 11 },
+        TestContextObject::new(11),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
     );
 }
@@ -3209,7 +3207,7 @@ fn test_load_elf_empty_noro() {
         (
             b"log_64" => syscalls::bpf_syscall_u64,
         ),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
     );
 }
@@ -3222,7 +3220,7 @@ fn test_load_elf_empty_rodata() {
         (
             b"log_64" => syscalls::bpf_syscall_u64,
         ),
-        TestContextObject { remaining: 8 },
+        TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
     );
 }
@@ -3241,7 +3239,7 @@ fn test_load_elf_rodata() {
             config,
             [],
             (),
-            TestContextObject { remaining: 3 },
+            TestContextObject::new(3),
             { |_vm, res: ProgramResult| { res.unwrap() == 42 } },
         );
     }
@@ -3253,7 +3251,7 @@ fn test_load_elf_rodata_high_vaddr() {
         "tests/elfs/rodata_high_vaddr.so",
         [1],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == 42 } },
     );
 }
@@ -3275,7 +3273,7 @@ fn test_custom_entrypoint() {
     #[allow(unused_mut)]
     let mut executable =
         Executable::<TestContextObject>::from_elf(&elf, config, syscall_registry).unwrap();
-    test_interpreter_and_jit!(executable, [], TestContextObject { remaining: 2 }, {
+    test_interpreter_and_jit!(executable, [], TestContextObject::new(2), {
         |_vm, res: ProgramResult| res.unwrap() == 0
     });
 }
@@ -3290,7 +3288,7 @@ fn test_tight_infinite_loop_conditional() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3310,7 +3308,7 @@ fn test_tight_infinite_loop_unconditional() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3332,7 +3330,7 @@ fn test_tight_infinite_recursion() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3357,7 +3355,7 @@ fn test_tight_infinite_recursion_callx() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3381,7 +3379,7 @@ fn test_instruction_count_syscall() {
         (
             b"bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
     );
 }
@@ -3398,7 +3396,7 @@ fn test_err_instruction_count_syscall_capped() {
         (
             b"bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3421,7 +3419,7 @@ fn test_err_instruction_count_lddw_capped() {
         ",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3449,7 +3447,7 @@ fn test_non_terminate_early() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3479,7 +3477,7 @@ fn test_err_non_terminate_capped() {
         (
             b"bpf_trace_printf" => syscalls::bpf_trace_printf,
         ),
-        TestContextObject { remaining: 6 },
+        TestContextObject::new(6),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3505,7 +3503,7 @@ fn test_err_non_terminate_capped() {
         (
             b"bpf_trace_printf" => syscalls::bpf_trace_printf,
         ),
-        TestContextObject { remaining: 1000 },
+        TestContextObject::new(1000),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3530,7 +3528,7 @@ fn test_err_capped_before_exception() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3551,7 +3549,7 @@ fn test_err_capped_before_exception() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 4 },
+        TestContextObject::new(4),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3576,7 +3574,7 @@ fn test_err_exit_capped() {
         ",
         [],
         (),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3597,7 +3595,7 @@ fn test_err_exit_capped() {
         ",
         [],
         (),
-        TestContextObject { remaining: 6 },
+        TestContextObject::new(6),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3614,7 +3612,7 @@ fn test_err_exit_capped() {
         ",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         {
             |_vm, res: ProgramResult| {
                 matches!(res.unwrap_err(),
@@ -3641,7 +3639,7 @@ fn test_symbol_relocation() {
         (
             b"bpf_syscall_string" => syscalls::bpf_syscall_string
         ),
-        TestContextObject { remaining: 6 },
+        TestContextObject::new(6),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
     );
 }
@@ -3660,7 +3658,7 @@ fn test_err_call_unresolved() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 6 },
+        TestContextObject::new(6),
         {
             |_vm, res: ProgramResult| matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(pc) if pc == 34)
         },
@@ -3691,7 +3689,7 @@ fn test_syscall_static() {
         (
             b"log" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject { remaining: 5 },
+        TestContextObject::new(5),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
     );
 }
@@ -3708,7 +3706,7 @@ fn test_syscall_unknown_static() {
         (
             b"log" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject { remaining: 1 },
+        TestContextObject::new(1),
         { |_vm, res: ProgramResult| { matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(29)) } },
     );
 }
@@ -3722,7 +3720,7 @@ fn test_reloc_64_64() {
         "tests/elfs/reloc_64_64.so",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0xe8 } },
     );
 }
@@ -3735,7 +3733,7 @@ fn test_reloc_64_64_high_vaddr() {
         "tests/elfs/reloc_64_64_high_vaddr.so",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START } },
     );
 }
@@ -3750,7 +3748,7 @@ fn test_reloc_64_relative() {
         "tests/elfs/reloc_64_relative.so",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x100 } },
     );
 }
@@ -3765,7 +3763,7 @@ fn test_reloc_64_relative_high_vaddr() {
         "tests/elfs/reloc_64_relative_high_vaddr.so",
         [],
         (),
-        TestContextObject { remaining: 2 },
+        TestContextObject::new(2),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x18 } },
     );
 }
@@ -3783,7 +3781,7 @@ fn test_reloc_64_relative_data() {
         "tests/elfs/reloc_64_relative_data.so",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x108 } },
     );
 }
@@ -3801,7 +3799,7 @@ fn test_reloc_64_relative_data_high_vaddr() {
         "tests/elfs/reloc_64_relative_data_high_vaddr.so",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x20 } },
     );
 }
@@ -3825,7 +3823,7 @@ fn test_reloc_64_relative_data_pre_sbfv2() {
         "tests/elfs/reloc_64_relative_data_pre_sbfv2.so",
         [],
         (),
-        TestContextObject { remaining: 3 },
+        TestContextObject::new(3),
         { |_vm, res: ProgramResult| { res.unwrap() == ebpf::MM_PROGRAM_START + 0x108 } },
     );
 }
@@ -3848,7 +3846,7 @@ fn test_mul_loop() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 37 },
+        TestContextObject::new(37),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x75db9c97 } },
     );
 }
@@ -3875,7 +3873,7 @@ fn test_prime() {
         exit",
         [],
         (),
-        TestContextObject { remaining: 655 },
+        TestContextObject::new(655),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -3911,7 +3909,7 @@ fn test_subnet() {
             0x03, 0x00, //
         ],
         (),
-        TestContextObject { remaining: 11 },
+        TestContextObject::new(11),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -3936,7 +3934,7 @@ fn test_tcp_port80_match() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        TestContextObject { remaining: 17 },
+        TestContextObject::new(17),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x1 } },
     );
 }
@@ -3961,7 +3959,7 @@ fn test_tcp_port80_nomatch() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        TestContextObject { remaining: 18 },
+        TestContextObject::new(18),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
     );
 }
@@ -3986,7 +3984,7 @@ fn test_tcp_port80_nomatch_ethertype() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        TestContextObject { remaining: 7 },
+        TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
     );
 }
@@ -4011,7 +4009,7 @@ fn test_tcp_port80_nomatch_proto() {
             0x44, 0x44, 0x44, 0x44, //
         ],
         (),
-        TestContextObject { remaining: 9 },
+        TestContextObject::new(9),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
     );
 }
@@ -4022,7 +4020,7 @@ fn test_tcp_sack_match() {
         TCP_SACK_ASM,
         TCP_SACK_MATCH,
         (),
-        TestContextObject { remaining: 79 },
+        TestContextObject::new(79),
         { |_vm, res: ProgramResult| res.unwrap() == 0x1 },
     );
 }
@@ -4033,7 +4031,7 @@ fn test_tcp_sack_nomatch() {
         TCP_SACK_ASM,
         TCP_SACK_NOMATCH,
         (),
-        TestContextObject { remaining: 55 },
+        TestContextObject::new(55),
         { |_vm, res: ProgramResult| res.unwrap() == 0x0 },
     );
 }
@@ -4073,9 +4071,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     }
     let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {
         let mut mem = vec![0u8; mem_size];
-        let mut context_object = TestContextObject {
-            remaining: max_instruction_count,
-        };
+        let mut context_object = TestContextObject::new(max_instruction_count);
         let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
         let mut vm = EbpfVm::new(
             &verified_executable,
@@ -4093,9 +4089,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         )
     };
     let mut mem = vec![0u8; mem_size];
-    let mut context_object = TestContextObject {
-        remaining: max_instruction_count,
-    };
+    let mut context_object = TestContextObject::new(max_instruction_count);
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut vm = EbpfVm::new(
         &verified_executable,

@@ -57,11 +57,11 @@ fuzz_target!(|data: FuzzData| {
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
     if verified_executable.jit_compile().is_ok() {
-        let mut interp_syscall_object = TestContextObject { remaining: 1 << 16 };
+        let mut interp_syscall_object = TestContextObject::new(1 << 16);
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
         let mut interp_vm =
             EbpfVm::new(&verified_executable, &mut interp_syscall_object, &mut [], vec![interp_mem_region]).unwrap();
-        let mut jit_syscall_object = TestContextObject { remaining: 1 << 16 };
+        let mut jit_syscall_object = TestContextObject::new(1 << 16);
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
         let mut jit_vm = EbpfVm::new(&verified_executable, &mut jit_syscall_object, &mut [], vec![jit_mem_region]).unwrap();
 

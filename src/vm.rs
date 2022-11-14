@@ -352,6 +352,13 @@ impl ContextObject for TestContextObject {
     }
 }
 
+impl TestContextObject {
+    /// Initialize with instruction meter
+    pub fn new(remaining: u64) -> Self {
+        Self { remaining }
+    }
+}
+
 /// Statistic of taken branches (from a recorded trace)
 pub struct DynamicAnalysis {
     /// Maximal edge counter value
@@ -467,7 +474,7 @@ impl Tracer {
 /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
 /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
 /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
-/// let mut context_object = TestContextObject { remaining: 1 };
+/// let mut context_object = TestContextObject::new(1);
 /// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
 ///
 /// // Provide a reference to the packet data.
@@ -575,7 +582,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
     /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
     /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
-    /// let mut context_object = TestContextObject { remaining: 1 };
+    /// let mut context_object = TestContextObject::new(1);
     /// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
     ///
     /// // Provide a reference to the packet data.

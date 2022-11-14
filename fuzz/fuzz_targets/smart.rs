@@ -48,7 +48,7 @@ fuzz_target!(|data: FuzzData| {
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut context_object = TestContextObject { remaining: 1 << 16 };
+    let mut context_object = TestContextObject::new(1 << 16);
     let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
 
     drop(black_box(vm.execute_program_interpreted()));
