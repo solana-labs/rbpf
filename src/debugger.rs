@@ -48,10 +48,11 @@ fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
 pub fn execute<V: Verifier, C: ContextObject>(
     interpreter: &mut Interpreter<V, C>,
     port: u16,
-) -> ProgramResult {
+) -> (u64, ProgramResult) {
     let connection: Box<dyn ConnectionExt<Error = std::io::Error>> =
         Box::new(wait_for_tcp(port).expect("Cannot connect to Debugger"));
 
+    let mut result = ProgramResult::Err(EbpfError::ExitRootCallFrame);
     let mut dbg = GdbStub::new(connection)
         .run_state_machine(interpreter)
         .expect("Cannot start debugging state machine");
@@ -80,8 +81,14 @@ pub fn execute<V: Verifier, C: ContextObject>(
                     DebugState::Step => {
                         let mut stop_reason = match interpreter.step() {
                             Ok(None) => SingleThreadStopReason::DoneStep,
-                            Ok(Some(result)) => SingleThreadStopReason::Exited(result as u8),
-                            _ => SingleThreadStopReason::Terminated(Signal::SIGSTOP),
+                            Ok(Some(step_result)) => {
+                                result = ProgramResult::Ok(step_result);
+                                SingleThreadStopReason::Exited(step_result as u8)
+                            }
+                            Err(err) => {
+                                result = ProgramResult::Err(err);
+                                SingleThreadStopReason::Terminated(Signal::SIGSTOP)
+                            }
                         };
                         if interpreter.breakpoints.contains(&interpreter.get_dbg_pc()) {
                             stop_reason = SingleThreadStopReason::SwBreak(());
@@ -104,35 +111,48 @@ pub fn execute<V: Verifier, C: ContextObject>(
                                         .unwrap();
                                 }
                             }
-                            Ok(Some(result)) => {
+                            Ok(Some(step_result)) => {
                                 break dbg_inner
                                     .report_stop(
                                         interpreter,
-                                        SingleThreadStopReason::Exited(result as u8),
+                                        SingleThreadStopReason::Exited(step_result as u8),
                                     )
                                     .unwrap();
                             }
-                            Err(e) => return ProgramResult::Err(e),
+                            Err(err) => {
+                                result = ProgramResult::Err(err);
+                                break dbg_inner
+                                    .report_stop(
+                                        interpreter,
+                                        SingleThreadStopReason::Terminated(Signal::SIGSTOP),
+                                    )
+                                    .unwrap();
+                            }
                         };
                     },
                 }
             }
         };
     }
-    if interpreter
+    let total_insn_count = if interpreter
         .vm
         .verified_executable
         .get_executable()
         .get_config()
         .enable_instruction_meter
     {
-        let context_object = &mut interpreter.vm.context_object;
-        context_object.consume(interpreter.due_insn_count);
-        interpreter.vm.total_insn_count =
-            interpreter.initial_insn_count - context_object.get_remaining();
-    }
+        interpreter
+            .vm
+            .context_object
+            .consume(interpreter.due_insn_count);
+        interpreter
+            .initial_insn_count
+            .saturating_sub(interpreter.vm.context_object.get_remaining())
+    } else {
+        0
+    };
 
-    ProgramResult::Ok(interpreter.reg[0])
+    (total_insn_count, result)
 }
 
 impl<'a, 'b, V: Verifier, C: ContextObject> Target for Interpreter<'a, 'b, V, C> {

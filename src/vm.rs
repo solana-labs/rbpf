@@ -474,8 +474,9 @@ impl DynamicAnalysis {
 /// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
 ///
 /// // Provide a reference to the packet data.
-/// let res = vm.execute_program_interpreted().unwrap();
-/// assert_eq!(res, 0);
+/// let (instruction_count, result) = vm.execute_program_interpreted();
+/// assert_eq!(instruction_count, 1);
+/// assert_eq!(result.unwrap(), 0);
 /// ```
 pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
     pub(crate) verified_executable: &'a VerifiedExecutable<V, C>,
@@ -486,7 +487,6 @@ pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
     /// Pointer to the context object of syscalls
     pub context_object: &'a mut C,
     pub(crate) stack: CallFrames<'a>,
-    pub(crate) total_insn_count: u64,
 }
 
 impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
@@ -535,15 +535,9 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             memory_mapping: MemoryMapping::new(regions, config)?,
             context_object,
             stack,
-            total_insn_count: 0,
         };
 
         Ok(vm)
-    }
-
-    /// Returns the number of instructions executed by the last program.
-    pub fn get_total_instruction_count(&self) -> u64 {
-        self.total_insn_count
     }
 
     /// Returns the program
@@ -579,34 +573,37 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     /// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
     ///
     /// // Provide a reference to the packet data.
-    /// let res = vm.execute_program_interpreted().unwrap();
-    /// assert_eq!(res, 0);
+    /// let (instruction_count, result) = vm.execute_program_interpreted();
+    /// assert_eq!(instruction_count, 1);
+    /// assert_eq!(result.unwrap(), 0);
     /// ```
-    pub fn execute_program_interpreted(&mut self) -> ProgramResult {
+    pub fn execute_program_interpreted(&mut self) -> (u64, ProgramResult) {
         let mut result = Ok(None);
         let (initial_insn_count, due_insn_count) = {
             let mut interpreter = match Interpreter::new(self) {
                 Ok(interpreter) => interpreter,
-                Err(error) => return ProgramResult::Err(error),
+                Err(error) => return (0, ProgramResult::Err(error)),
             };
             while let Ok(None) = result {
                 result = interpreter.step();
             }
             (interpreter.initial_insn_count, interpreter.due_insn_count)
         };
-        if self
+        let total_insn_count = if self
             .verified_executable
             .get_executable()
             .get_config()
             .enable_instruction_meter
         {
             self.context_object.consume(due_insn_count);
-            self.total_insn_count = initial_insn_count - self.context_object.get_remaining();
-        }
+            initial_insn_count.saturating_sub(self.context_object.get_remaining())
+        } else {
+            0
+        };
         match result {
             Ok(None) => unreachable!(),
-            Ok(Some(value)) => ProgramResult::Ok(value),
-            Err(error) => ProgramResult::Err(error),
+            Ok(Some(value)) => (total_insn_count, ProgramResult::Ok(value)),
+            Err(error) => (total_insn_count, ProgramResult::Err(error)),
         }
     }
 
@@ -619,7 +616,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     /// the program works with the interpreter before running the JIT-compiled version of it.
     ///
     #[cfg(feature = "jit")]
-    pub fn execute_program_jit(&mut self) -> ProgramResult {
+    pub fn execute_program_jit(&mut self) -> (u64, ProgramResult) {
         let executable = self.verified_executable.get_executable();
         let initial_insn_count = if executable.get_config().enable_instruction_meter {
             self.context_object.get_remaining()
@@ -632,25 +629,30 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             .ok_or(EbpfError::JitNotCompiled)
         {
             Ok(compiled_program) => compiled_program,
-            Err(error) => return ProgramResult::Err(error),
+            Err(error) => return (0, ProgramResult::Err(error)),
         };
         let instruction_meter_final = unsafe {
             (compiled_program.main)(&mut result, &mut self.memory_mapping, self.context_object)
         }
         .max(0) as u64;
-        if executable.get_config().enable_instruction_meter {
+        let total_insn_count = if executable.get_config().enable_instruction_meter {
             let remaining_insn_count = self.context_object.get_remaining();
-            let due_insn_count = remaining_insn_count - instruction_meter_final;
+            let due_insn_count = remaining_insn_count.saturating_sub(instruction_meter_final);
             self.context_object.consume(due_insn_count);
-            self.total_insn_count = initial_insn_count + due_insn_count - remaining_insn_count;
+            initial_insn_count
+                .saturating_add(due_insn_count)
+                .saturating_sub(remaining_insn_count)
             // Same as:
-            // self.total_insn_count = initial_insn_count - self.context_object.get_remaining();
-        }
+            // initial_insn_count.saturating_sub(self.context_object.get_remaining())
+        } else {
+            0
+        };
         match result {
-            ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, _)) => {
-                ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count))
-            }
-            x => x,
+            ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, _)) => (
+                total_insn_count,
+                ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count)),
+            ),
+            x => (total_insn_count, x),
         }
     }
 }

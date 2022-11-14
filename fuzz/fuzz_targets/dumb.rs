@@ -45,7 +45,7 @@ fuzz_target!(|data: DumbFuzzData| {
             .unwrap();
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut context_object = TestContextObject::new(29);
-    let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
-
-    drop(black_box(vm.execute_program_interpreted()));
+    let mut interp_vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
+    let (_interp_ins_count, interp_res) = interp_vm.execute_program_interpreted();
+    drop(black_box(interp_res));
 });

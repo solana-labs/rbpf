@@ -55,9 +55,9 @@ macro_rules! test_interpreter_and_jit {
                 vec![mem_region],
             )
             .unwrap();
-            let result = vm.execute_program_interpreted();
+            let (instruction_count_interpreter, result) = vm.execute_program_interpreted();
             assert!(check_closure(&vm, result));
-            (vm.get_total_instruction_count(), vm.context_object.clone())
+            (instruction_count_interpreter, vm.context_object.clone())
         };
         #[cfg(all(not(windows), target_arch = "x86_64"))]
         {
@@ -77,7 +77,7 @@ macro_rules! test_interpreter_and_jit {
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, ProgramResult::Err(err))),
                 Ok(()) => {
-                    let result = vm.execute_program_jit();
+                    let (instruction_count_jit, result) = vm.execute_program_jit();
                     let tracer_jit = &vm.context_object;
                     if !check_closure(&vm, result)
                         || !TestContextObject::compare_trace_log(&_tracer_interpreter, tracer_jit)
@@ -100,7 +100,6 @@ macro_rules! test_interpreter_and_jit {
                         .get_config()
                         .enable_instruction_meter
                     {
-                        let instruction_count_jit = vm.get_total_instruction_count();
                         assert_eq!(instruction_count_interpreter, instruction_count_jit);
                     }
                 }
@@ -4057,10 +4056,10 @@ fn execute_generated_program(prog: &[u8]) -> bool {
             vec![mem_region],
         )
         .unwrap();
-        let result_interpreter = vm.execute_program_interpreted();
+        let (instruction_count_interpreter, result_interpreter) = vm.execute_program_interpreted();
         let tracer_interpreter = vm.context_object.clone();
         (
-            vm.get_total_instruction_count(),
+            instruction_count_interpreter,
             tracer_interpreter,
             result_interpreter,
         )
@@ -4075,7 +4074,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         vec![mem_region],
     )
     .unwrap();
-    let result_jit = vm.execute_program_jit();
+    let (instruction_count_jit, result_jit) = vm.execute_program_jit();
     let tracer_jit = &vm.context_object;
     if format!("{:?}", result_interpreter) != format!("{:?}", result_jit)
         || !TestContextObject::compare_trace_log(&tracer_interpreter, tracer_jit)
@@ -4100,7 +4099,6 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         .get_config()
         .enable_instruction_meter
     {
-        let instruction_count_jit = vm.get_total_instruction_count();
         assert_eq!(instruction_count_interpreter, instruction_count_jit);
     }
     true

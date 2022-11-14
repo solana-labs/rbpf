@@ -190,7 +190,7 @@ fn main() {
         _ => {}
     }
 
-    let result = if matches.value_of("use").unwrap() == "debugger" {
+    let (instruction_count, result) = if matches.value_of("use").unwrap() == "debugger" {
         let mut interpreter = Interpreter::new(&mut vm).unwrap();
         let port = matches.value_of("port").unwrap().parse::<u16>().unwrap();
         debugger::execute(&mut interpreter, port)
@@ -200,7 +200,7 @@ fn main() {
         vm.execute_program_jit()
     };
     println!("Result: {:?}", result);
-    println!("Instruction Count: {}", vm.get_total_instruction_count());
+    println!("Instruction Count: {}", instruction_count);
     if matches.is_present("trace") {
         println!("Trace:\n");
         let stdout = std::io::stdout();
