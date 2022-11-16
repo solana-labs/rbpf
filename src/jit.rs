@@ -64,6 +64,8 @@ macro_rules! libc_error_guard {
                 let args = vec![$(format!("{:?}", $arg)),*];
                 #[cfg(any(target_os = "freebsd", target_os = "ios", target_os = "macos"))]
                 let errno = *libc::__error();
+                #[cfg(any(target_os = "android", target_os = "netbsd", target_os = "openbsd"))]
+                let errno = *libc::__errno();
                 #[cfg(target_os = "linux")]
                 let errno = *libc::__errno_location();
                 return Err(EbpfError::LibcInvocationFailed(stringify!($function), args, errno));
