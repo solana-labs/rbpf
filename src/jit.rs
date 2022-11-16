@@ -46,7 +46,7 @@ struct JitProgramSections {
     text_section: &'static mut [u8],
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
 macro_rules! libc_error_guard {
     (succeeded?, mmap, $addr:expr, $($arg:expr),*) => {{
         *$addr = libc::mmap(*$addr, $($arg),*);
@@ -79,7 +79,7 @@ fn round_to_page_size(value: usize, page_size: usize) -> usize {
 #[allow(unused_variables)]
 impl JitProgramSections {
     fn new(pc: usize, code_size: usize) -> Result<Self, EbpfError> {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "android"))]
         {
             Ok(Self {
                 page_size: 0,
@@ -87,7 +87,7 @@ impl JitProgramSections {
                 text_section: &mut [],
             })
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
         unsafe {
             let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
             let pc_loc_table_size = round_to_page_size(pc * 8, page_size);
@@ -108,7 +108,7 @@ impl JitProgramSections {
             let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
             let over_allocated_code_size = round_to_page_size(self.text_section.len(), self.page_size);
             let code_size = round_to_page_size(text_section_usage, self.page_size);
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
             unsafe {
                 if over_allocated_code_size > code_size {
                     libc_error_guard!(munmap, raw.add(pc_loc_table_size).add(code_size) as *mut _, over_allocated_code_size - code_size);
@@ -134,7 +134,7 @@ impl Drop for JitProgramSections {
         let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
         let code_size = round_to_page_size(self.text_section.len(), self.page_size);
         if pc_loc_table_size + code_size > 0 {
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
             unsafe {
                 libc::munmap(self.pc_section.as_ptr() as *mut _, pc_loc_table_size + code_size);
             }
