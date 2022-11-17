@@ -119,6 +119,7 @@ impl Default for CfgNode {
 }
 
 /// Result of the executable analysis
+#[derive(Debug)]
 pub struct Analysis<'a, C: ContextObject> {
     /// The program which is analyzed
     pub executable: &'a Executable<C>,
