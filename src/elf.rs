@@ -288,7 +288,7 @@ pub struct Executable<C: ContextObject> {
     #[cfg(feature = "jit")]
     compiled_program: Option<JitProgram<C>>,
     #[cfg(not(feature = "jit"))]
-    _marker: PhantomData<(I)>,
+    _marker: PhantomData<C>,
 }
 
 impl<C: ContextObject> Executable<C> {
