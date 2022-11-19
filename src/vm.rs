@@ -14,18 +14,19 @@
 
 use crate::{
     call_frames::CallFrames,
-    disassembler::disassemble_instruction,
+    disassembler::disassemble_instruction_ex,
     ebpf,
+    ebpf::Insn,
     elf::Executable,
     error::EbpfError,
     interpreter::Interpreter,
     memory_region::{MemoryMapping, MemoryRegion},
-    static_analysis::Analysis,
+    static_analysis::{Analysis, CfgNode},
     verifier::Verifier,
 };
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt::{Debug, Display, Formatter},
+    fmt::Debug,
     marker::PhantomData,
     mem,
 };
@@ -339,12 +340,6 @@ pub trait ContextObject {
     fn get_remaining(&self) -> u64;
 }
 
-/// Special trait for iteration over raw trace items
-pub trait TraceIterable<'t, I: Iterator<Item = &'t TraceItem>> {
-    /// Returns iterator over raw trace items
-    fn iter_trace(&'t self) -> I;
-}
-
 /// Simple instruction meter for testing
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TestContextObject {
@@ -384,7 +379,18 @@ impl TestContextObject {
         output: &mut W,
         analysis: &Analysis<C>,
     ) -> Result<(), std::io::Error> {
-        TraceAnalyzer::new(analysis).write(self, output)
+        let trace_analyzer = TraceAnalyzer::new(analysis);
+        for (index, entry) in self.trace_log.iter().enumerate() {
+            writeln!(
+                output,
+                "{:5?} {:016X?} {:5?}: {}",
+                index,
+                entry.registers(),
+                entry.offset(),
+                entry.instruction(&trace_analyzer),
+            )?;
+        }
+        Ok(())
     }
 
     /// Compares an interpreter trace and a JIT trace.
@@ -400,72 +406,53 @@ impl TestContextObject {
     }
 }
 
-impl<'t> TraceIterable<'t, std::slice::Iter<'t, TraceItem>> for TestContextObject {
-    fn iter_trace(&'t self) -> std::slice::Iter<'t, TraceItem> {
-        self.trace_log.iter()
-    }
-}
-
-/// Represents analyzed tracer record
-#[derive(Debug)]
-pub struct TraceRecord<'a, 't, C: ContextObject> {
-    /// Raw trace item
-    pub trace_item: &'t TraceItem,
-    trace_analyzer: &'a TraceAnalyzer<'a, C>,
-}
-
-impl<C: ContextObject> TraceRecord<'_, '_, C> {
+/// Provides additional methods for
+pub trait TraceItemDecorator {
     /// Registers [0..10]
-    pub fn registers(&self) -> &[u64] {
-        &self.trace_item[0..10]
-    }
-
-    /// PC
-    pub fn pc(&self) -> usize {
-        self.trace_item[11] as usize
-    }
-
+    fn registers(&self) -> &[u64];
+    /// Program counter
+    fn pc(&self) -> usize;
     /// Instruction offset
-    pub fn offset(&self) -> usize {
+    fn offset(&self) -> usize {
         self.pc() + ebpf::ELF_INSN_DUMP_OFFSET
     }
-
     /// Disassembled instruction
-    pub fn instruction(&self) -> String {
-        let insn = &self.trace_analyzer.analysis.instructions
-            [self.trace_analyzer.pc_to_insn_index[self.pc()]];
-        disassemble_instruction(insn, self.trace_analyzer.analysis)
-    }
+    fn instruction<'a>(&self, trace_analyzer: &TraceAnalyzer<'a>) -> String;
 }
 
-impl<C: ContextObject> Display for TraceRecord<'_, '_, C> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:016X?} {:5?}: {}",
-            self.registers(),
-            self.offset(),
-            self.instruction()
+impl TraceItemDecorator for TraceItem {
+    fn registers(&self) -> &[u64] {
+        &self[0..10]
+    }
+
+    fn pc(&self) -> usize {
+        self[11] as usize
+    }
+
+    fn instruction<'a>(&self, trace_analyzer: &TraceAnalyzer<'a>) -> String {
+        let insn = &trace_analyzer.instructions[trace_analyzer.pc_to_insn_index[self.pc()]];
+        disassemble_instruction_ex(
+            insn,
+            trace_analyzer.cfg_nodes,
+            trace_analyzer.syscall_symbols,
+            trace_analyzer.function_registry,
         )
-    }
-}
-
-impl<'a, 't, C: ContextObject> AsRef<TraceRecord<'a, 't, C>> for TraceRecord<'a, 't, C> {
-    fn as_ref(&self) -> &Self {
-        self
     }
 }
 
 /// Trace analyzer
 #[derive(Debug)]
-pub struct TraceAnalyzer<'a, C: ContextObject> {
+pub struct TraceAnalyzer<'a> {
+    cfg_nodes: &'a BTreeMap<usize, CfgNode>,
+    instructions: &'a Vec<Insn>,
+    syscall_symbols: &'a BTreeMap<u32, String>,
+    function_registry: &'a FunctionRegistry,
     pc_to_insn_index: Vec<usize>,
-    analysis: &'a Analysis<'a, C>,
 }
 
-impl<'a, C: ContextObject + 'a> TraceAnalyzer<'a, C> {
+impl<'a> TraceAnalyzer<'a> {
     /// Calculates instruction indexes and creates trace analyzer
-    pub fn new(analysis: &'a Analysis<'a, C>) -> Self {
+    pub fn new<C: ContextObject>(analysis: &'a Analysis<'a, C>) -> Self {
         let mut pc_to_insn_index = vec![
             0usize;
             analysis
@@ -480,63 +467,12 @@ impl<'a, C: ContextObject + 'a> TraceAnalyzer<'a, C> {
         }
 
         Self {
+            cfg_nodes: &analysis.cfg_nodes,
+            instructions: &analysis.instructions,
+            syscall_symbols: analysis.executable.get_syscall_symbols(),
+            function_registry: analysis.executable.get_function_registry(),
             pc_to_insn_index,
-            analysis,
         }
-    }
-
-    /// Returns an iterator over the analyzed trace records
-    pub fn iter_trace<'this: 'a, 't, I: Iterator<Item = &'t TraceItem>>(
-        &'this self,
-        trace: &'t impl TraceIterable<'t, I>,
-    ) -> TraceIterator<'t, 'a, I, C> {
-        TraceIterator {
-            raw_trace_iterator: trace.iter_trace(),
-            trace_analyzer: self,
-            _marker: PhantomData::default(),
-        }
-    }
-
-    /// Use this method to print the analyzed log of this tracer
-    pub fn print<'t>(
-        output: &mut impl std::io::Write,
-        trace_iterator: impl Iterator<Item = impl AsRef<TraceRecord<'a, 't, C>>>,
-    ) -> Result<(), std::io::Error> {
-        for (index, entry) in trace_iterator.enumerate() {
-            writeln!(output, "{:5?} {}", index, entry.as_ref())?;
-        }
-        Ok(())
-    }
-
-    /// Use this method to print the analyzed log of this tracer
-    pub fn write<'this: 'a, 't, I: Iterator<Item = &'t TraceItem> + 't>(
-        &'this self,
-        trace: &'t impl TraceIterable<'t, I>,
-        output: &mut impl std::io::Write,
-    ) -> Result<(), std::io::Error> {
-        Self::print(output, self.iter_trace(trace))
-    }
-}
-
-/// Iterator over the analyzed trace records
-pub struct TraceIterator<'t, 'a, I: Iterator<Item = &'t TraceItem>, C: ContextObject> {
-    raw_trace_iterator: I,
-    trace_analyzer: &'a TraceAnalyzer<'a, C>,
-    _marker: PhantomData<&'t I>,
-}
-
-impl<'t, 'a, I: Iterator<Item = &'t TraceItem>, C: ContextObject> Iterator
-    for TraceIterator<'t, 'a, I, C>
-{
-    type Item = TraceRecord<'a, 't, C>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.raw_trace_iterator
-            .next()
-            .map(|trace_item| TraceRecord {
-                trace_item,
-                trace_analyzer: self.trace_analyzer,
-            })
     }
 }
 
