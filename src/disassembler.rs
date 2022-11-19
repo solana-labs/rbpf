@@ -9,12 +9,12 @@
 //! for example to disassemble the code into a human-readable format.
 
 use crate::ebpf;
-use crate::static_analysis::Analysis;
-use crate::vm::ContextObject;
+use crate::static_analysis::{Analysis, CfgNode};
+use crate::vm::{ContextObject, FunctionRegistry};
+use std::collections::BTreeMap;
 
-fn resolve_label<'a, C: ContextObject>(analysis: &'a Analysis<C>, pc: usize) -> &'a str {
-    analysis
-        .cfg_nodes
+fn resolve_label(cfg_nodes: &BTreeMap<usize, CfgNode>, pc: usize) -> &str {
+    cfg_nodes
         .get(&pc)
         .map(|cfg_node| cfg_node.label.as_str())
         .unwrap_or("[invalid]")
@@ -95,32 +95,50 @@ fn ldind_str(name: &str, insn: &ebpf::Insn) -> String {
 }
 
 #[inline]
-fn jmp_imm_str<C: ContextObject>(name: &str, insn: &ebpf::Insn, analysis: &Analysis<C>) -> String {
+fn jmp_imm_str(name: &str, insn: &ebpf::Insn, cfg_nodes: &BTreeMap<usize, CfgNode>) -> String {
     let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
     format!(
         "{} r{}, {}, {}",
         name,
         insn.dst,
         insn.imm,
-        resolve_label(analysis, target_pc)
+        resolve_label(cfg_nodes, target_pc)
     )
 }
 
 #[inline]
-fn jmp_reg_str<C: ContextObject>(name: &str, insn: &ebpf::Insn, analysis: &Analysis<C>) -> String {
+fn jmp_reg_str(name: &str, insn: &ebpf::Insn, cfg_nodes: &BTreeMap<usize, CfgNode>) -> String {
     let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
     format!(
         "{} r{}, r{}, {}",
         name,
         insn.dst,
         insn.src,
-        resolve_label(analysis, target_pc)
+        resolve_label(cfg_nodes, target_pc)
+    )
+}
+
+/// Disassemble an eBPF instruction
+pub fn disassemble_instruction<C: ContextObject>(
+    insn: &ebpf::Insn,
+    analysis: &Analysis<C>,
+) -> String {
+    disassemble_instruction_ex(
+        insn,
+        &analysis.cfg_nodes,
+        analysis.executable.get_syscall_symbols(),
+        analysis.executable.get_function_registry(),
     )
 }
 
 /// Disassemble an eBPF instruction
 #[rustfmt::skip]
-pub fn disassemble_instruction<C: ContextObject>(insn: &ebpf::Insn, analysis: &Analysis<C>) -> String {
+pub fn disassemble_instruction_ex(
+    insn: &ebpf::Insn, 
+    cfg_nodes: &BTreeMap<usize, CfgNode>, 
+    syscall_symbols: &BTreeMap<u32, String>,
+    function_registry: &FunctionRegistry,
+) -> String {
     let name;
     let desc;
     match insn.opc {
@@ -220,40 +238,38 @@ pub fn disassemble_instruction<C: ContextObject>(insn: &ebpf::Insn, analysis: &A
         ebpf::JA         => {
             name = "ja";
             let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
-            desc = format!("{} {}", name, resolve_label(analysis, target_pc));
+            desc = format!("{} {}", name, resolve_label(cfg_nodes, target_pc));
         },
-        ebpf::JEQ_IMM    => { name = "jeq";  desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JEQ_REG    => { name = "jeq";  desc = jmp_reg_str(name, insn, analysis); },
-        ebpf::JGT_IMM    => { name = "jgt";  desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JGT_REG    => { name = "jgt";  desc = jmp_reg_str(name, insn, analysis); },
-        ebpf::JGE_IMM    => { name = "jge";  desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JGE_REG    => { name = "jge";  desc = jmp_reg_str(name, insn, analysis); },
-        ebpf::JLT_IMM    => { name = "jlt";  desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JLT_REG    => { name = "jlt";  desc = jmp_reg_str(name, insn, analysis); },
-        ebpf::JLE_IMM    => { name = "jle";  desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JLE_REG    => { name = "jle";  desc = jmp_reg_str(name, insn, analysis); },
-        ebpf::JSET_IMM   => { name = "jset"; desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JSET_REG   => { name = "jset"; desc = jmp_reg_str(name, insn, analysis); },
-        ebpf::JNE_IMM    => { name = "jne";  desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JNE_REG    => { name = "jne";  desc = jmp_reg_str(name, insn, analysis); },
-        ebpf::JSGT_IMM   => { name = "jsgt"; desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JSGT_REG   => { name = "jsgt"; desc = jmp_reg_str(name, insn, analysis); },
-        ebpf::JSGE_IMM   => { name = "jsge"; desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JSGE_REG   => { name = "jsge"; desc = jmp_reg_str(name, insn, analysis); },
-        ebpf::JSLT_IMM   => { name = "jslt"; desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JSLT_REG   => { name = "jslt"; desc = jmp_reg_str(name, insn, analysis); },
-        ebpf::JSLE_IMM   => { name = "jsle"; desc = jmp_imm_str(name, insn, analysis); },
-        ebpf::JSLE_REG   => { name = "jsle"; desc = jmp_reg_str(name, insn, analysis); },
+        ebpf::JEQ_IMM    => { name = "jeq";  desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JEQ_REG    => { name = "jeq";  desc = jmp_reg_str(name, insn, cfg_nodes); },
+        ebpf::JGT_IMM    => { name = "jgt";  desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JGT_REG    => { name = "jgt";  desc = jmp_reg_str(name, insn, cfg_nodes); },
+        ebpf::JGE_IMM    => { name = "jge";  desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JGE_REG    => { name = "jge";  desc = jmp_reg_str(name, insn, cfg_nodes); },
+        ebpf::JLT_IMM    => { name = "jlt";  desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JLT_REG    => { name = "jlt";  desc = jmp_reg_str(name, insn, cfg_nodes); },
+        ebpf::JLE_IMM    => { name = "jle";  desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JLE_REG    => { name = "jle";  desc = jmp_reg_str(name, insn, cfg_nodes); },
+        ebpf::JSET_IMM   => { name = "jset"; desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JSET_REG   => { name = "jset"; desc = jmp_reg_str(name, insn, cfg_nodes); },
+        ebpf::JNE_IMM    => { name = "jne";  desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JNE_REG    => { name = "jne";  desc = jmp_reg_str(name, insn, cfg_nodes); },
+        ebpf::JSGT_IMM   => { name = "jsgt"; desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JSGT_REG   => { name = "jsgt"; desc = jmp_reg_str(name, insn, cfg_nodes); },
+        ebpf::JSGE_IMM   => { name = "jsge"; desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JSGE_REG   => { name = "jsge"; desc = jmp_reg_str(name, insn, cfg_nodes); },
+        ebpf::JSLT_IMM   => { name = "jslt"; desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JSLT_REG   => { name = "jslt"; desc = jmp_reg_str(name, insn, cfg_nodes); },
+        ebpf::JSLE_IMM   => { name = "jsle"; desc = jmp_imm_str(name, insn, cfg_nodes); },
+        ebpf::JSLE_REG   => { name = "jsle"; desc = jmp_reg_str(name, insn, cfg_nodes); },
         ebpf::CALL_IMM   => {
-            desc = if let Some(syscall_name) = analysis.executable.get_syscall_symbols().get(&(insn.imm as u32)) {
+            desc = if let Some(syscall_name) = syscall_symbols.get(&(insn.imm as u32)) {
                 name = "syscall";
                 format!("{} {}", name, syscall_name)
             } else {
                 name = "call";
-                if let Some(target_pc) = analysis
-                    .executable
-                    .lookup_bpf_function(insn.imm as u32) {
-                    format!("{} {}", name, resolve_label(analysis, target_pc))
+                if let Some((target_pc, _name)) = function_registry.get(&(insn.imm as u32)) {
+                    format!("{} {}", name, resolve_label(cfg_nodes, *target_pc))
                 } else {
                     format!("{} [invalid]", name)
                 }
