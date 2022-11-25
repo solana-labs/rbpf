@@ -9,8 +9,8 @@
 //! for example to disassemble the code into a human-readable format.
 
 use crate::ebpf;
-use crate::static_analysis::{Analysis, CfgNode};
-use crate::vm::{ContextObject, FunctionRegistry};
+use crate::static_analysis::CfgNode;
+use crate::vm::FunctionRegistry;
 use std::collections::BTreeMap;
 
 fn resolve_label(cfg_nodes: &BTreeMap<usize, CfgNode>, pc: usize) -> &str {
@@ -119,21 +119,8 @@ fn jmp_reg_str(name: &str, insn: &ebpf::Insn, cfg_nodes: &BTreeMap<usize, CfgNod
 }
 
 /// Disassemble an eBPF instruction
-pub fn disassemble_instruction<C: ContextObject>(
-    insn: &ebpf::Insn,
-    analysis: &Analysis<C>,
-) -> String {
-    disassemble_instruction_ex(
-        insn,
-        &analysis.cfg_nodes,
-        analysis.executable.get_syscall_symbols(),
-        analysis.executable.get_function_registry(),
-    )
-}
-
-/// Disassemble an eBPF instruction
 #[rustfmt::skip]
-pub fn disassemble_instruction_ex(
+pub fn disassemble_instruction(
     insn: &ebpf::Insn, 
     cfg_nodes: &BTreeMap<usize, CfgNode>, 
     syscall_symbols: &BTreeMap<u32, String>,

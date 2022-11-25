@@ -14,7 +14,7 @@
 
 use crate::{
     call_frames::CallFrames,
-    disassembler::disassemble_instruction_ex,
+    disassembler::disassemble_instruction,
     ebpf,
     ebpf::Insn,
     elf::Executable,
@@ -387,9 +387,9 @@ impl TestContextObject {
                 output,
                 "{:5?} {:016X?} {:5?}: {}",
                 index,
-                entry.registers(),
-                entry.offset(),
-                entry.instruction(&trace_analyzer),
+                TraceAnalyzer::registers(entry),
+                TraceAnalyzer::offset(entry),
+                trace_analyzer.instruction(entry),
             )?;
         }
         Ok(())
@@ -405,40 +405,6 @@ impl TestContextObject {
             jit = &jit[0..interpreter.len()];
         }
         interpreter == jit
-    }
-}
-
-/// Provides additional methods for
-pub trait TraceItemDecorator {
-    /// Registers [0..10]
-    fn registers(&self) -> &[u64];
-    /// Program counter
-    fn pc(&self) -> usize;
-    /// Instruction offset
-    fn offset(&self) -> usize {
-        self.pc() + ebpf::ELF_INSN_DUMP_OFFSET
-    }
-    /// Disassembled instruction
-    fn instruction<'a>(&self, trace_analyzer: &TraceAnalyzer<'a>) -> String;
-}
-
-impl TraceItemDecorator for TraceItem {
-    fn registers(&self) -> &[u64] {
-        &self[0..10]
-    }
-
-    fn pc(&self) -> usize {
-        self[11] as usize
-    }
-
-    fn instruction<'a>(&self, trace_analyzer: &TraceAnalyzer<'a>) -> String {
-        let insn = &trace_analyzer.instructions[trace_analyzer.pc_to_insn_index[self.pc()]];
-        disassemble_instruction_ex(
-            insn,
-            &trace_analyzer.cfg_nodes,
-            &trace_analyzer.syscall_symbols,
-            &trace_analyzer.function_registry,
-        )
     }
 }
 
@@ -486,6 +452,32 @@ impl<'a> TraceAnalyzer<'a> {
             function_registry: Cow::Owned(self.function_registry.as_ref().clone()),
             pc_to_insn_index: Arc::clone(&self.pc_to_insn_index),
         }
+    }
+
+    /// Registers [0..10]
+    pub fn registers(trace_item: &TraceItem) -> &[u64] {
+        &trace_item[0..10]
+    }
+
+    /// Program counter
+    pub fn pc(trace_item: &TraceItem) -> usize {
+        trace_item[11] as usize
+    }
+
+    /// Instruction offset
+    pub fn offset(trace_item: &TraceItem) -> usize {
+        Self::pc(trace_item) + ebpf::ELF_INSN_DUMP_OFFSET
+    }
+
+    /// Disassembled instruction
+    pub fn instruction(&self, trace_item: &TraceItem) -> String {
+        let insn = &self.instructions[self.pc_to_insn_index[Self::pc(trace_item)]];
+        disassemble_instruction(
+            insn,
+            &self.cfg_nodes,
+            &self.syscall_symbols,
+            &self.function_registry,
+        )
     }
 }
 

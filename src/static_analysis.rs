@@ -448,7 +448,13 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
                 insn.ptr,
                 &mut last_basic_block,
             )?;
-            writeln!(output, "    {}", disassemble_instruction(insn, self))?;
+            let desc = disassemble_instruction(
+                insn,
+                &self.cfg_nodes,
+                self.executable.get_syscall_symbols(),
+                self.executable.get_function_registry(),
+            );
+            writeln!(output, "    {}", desc)?;
         }
         Ok(())
     }
@@ -500,7 +506,12 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
                 cfg_node_start,
                 analysis.instructions[cfg_node.instructions.clone()].iter()
                 .map(|insn| {
-                    let desc = disassemble_instruction(insn, analysis);
+                    let desc = disassemble_instruction(
+                        insn,
+                        &analysis.cfg_nodes,
+                        analysis.executable.get_syscall_symbols(),
+                        analysis.executable.get_function_registry(),
+                    );
                     if let Some(split_index) = desc.find(' ') {
                         let mut rest = desc[split_index+1..].to_string();
                         if rest.len() > MAX_CELL_CONTENT_LENGTH + 1 {
