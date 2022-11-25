@@ -441,7 +441,7 @@ impl TraceItemDecorator for TraceItem {
 }
 
 /// Trace analyzer
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TraceAnalyzer<'a> {
     cfg_nodes: &'a BTreeMap<usize, CfgNode>,
     instructions: &'a Vec<Insn>,
