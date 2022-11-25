@@ -12,7 +12,7 @@ use rustc_demangle::demangle;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// Used for topological sort
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TopologicalIndex {
     /// Strongly connected component ID
     pub scc_id: usize,
@@ -42,7 +42,7 @@ impl PartialOrd for TopologicalIndex {
 }
 
 /// A node of the control-flow graph
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CfgNode {
     /// Human readable name
     pub label: String,
@@ -119,7 +119,6 @@ impl Default for CfgNode {
 }
 
 /// Result of the executable analysis
-#[derive(Debug)]
 pub struct Analysis<'a, C: ContextObject> {
     /// The program which is analyzed
     pub executable: &'a Executable<C>,

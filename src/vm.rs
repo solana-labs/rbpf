@@ -25,10 +25,12 @@ use crate::{
     verifier::Verifier,
 };
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap},
     fmt::Debug,
     marker::PhantomData,
     mem,
+    sync::Arc,
 };
 
 /// Same as `Result` but provides a stable memory layout
@@ -433,21 +435,21 @@ impl TraceItemDecorator for TraceItem {
         let insn = &trace_analyzer.instructions[trace_analyzer.pc_to_insn_index[self.pc()]];
         disassemble_instruction_ex(
             insn,
-            trace_analyzer.cfg_nodes,
-            trace_analyzer.syscall_symbols,
-            trace_analyzer.function_registry,
+            &trace_analyzer.cfg_nodes,
+            &trace_analyzer.syscall_symbols,
+            &trace_analyzer.function_registry,
         )
     }
 }
 
 /// Trace analyzer
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TraceAnalyzer<'a> {
-    cfg_nodes: &'a BTreeMap<usize, CfgNode>,
-    instructions: &'a Vec<Insn>,
-    syscall_symbols: &'a BTreeMap<u32, String>,
-    function_registry: &'a FunctionRegistry,
-    pc_to_insn_index: Vec<usize>,
+    cfg_nodes: Cow<'a, BTreeMap<usize, CfgNode>>,
+    instructions: Cow<'a, Vec<Insn>>,
+    syscall_symbols: Cow<'a, BTreeMap<u32, String>>,
+    function_registry: Cow<'a, FunctionRegistry>,
+    pc_to_insn_index: Arc<Vec<usize>>,
 }
 
 impl<'a> TraceAnalyzer<'a> {
@@ -467,11 +469,22 @@ impl<'a> TraceAnalyzer<'a> {
         }
 
         Self {
-            cfg_nodes: &analysis.cfg_nodes,
-            instructions: &analysis.instructions,
-            syscall_symbols: analysis.executable.get_syscall_symbols(),
-            function_registry: analysis.executable.get_function_registry(),
-            pc_to_insn_index,
+            cfg_nodes: Cow::Borrowed(&analysis.cfg_nodes),
+            instructions: Cow::Borrowed(&analysis.instructions),
+            syscall_symbols: Cow::Borrowed(analysis.executable.get_syscall_symbols()),
+            function_registry: Cow::Borrowed(analysis.executable.get_function_registry()),
+            pc_to_insn_index: Arc::new(pc_to_insn_index),
+        }
+    }
+
+    /// Converts `TraceAnalyzer` to its representation which owns `Analysis` structures
+    pub fn to_owned(&self) -> TraceAnalyzer<'static> {
+        TraceAnalyzer {
+            cfg_nodes: Cow::Owned(self.cfg_nodes.as_ref().clone()),
+            instructions: Cow::Owned(self.instructions.as_ref().clone()),
+            syscall_symbols: Cow::Owned(self.syscall_symbols.as_ref().clone()),
+            function_registry: Cow::Owned(self.function_registry.as_ref().clone()),
+            pc_to_insn_index: Arc::clone(&self.pc_to_insn_index),
         }
     }
 }
