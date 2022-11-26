@@ -389,7 +389,12 @@ impl TestContextObject {
                 index,
                 TraceAnalyzer::registers(entry),
                 TraceAnalyzer::offset(entry),
-                trace_analyzer.instruction(entry),
+                disassemble_instruction(
+                    trace_analyzer.instruction(entry),
+                    trace_analyzer.cfg_nodes(),
+                    trace_analyzer.syscall_symbols(),
+                    trace_analyzer.function_registry(),
+                )
             )?;
         }
         Ok(())
@@ -454,6 +459,31 @@ impl<'a> TraceAnalyzer<'a> {
         }
     }
 
+    /// Nodes of the control-flow graph
+    pub fn cfg_nodes(&self) -> &BTreeMap<usize, CfgNode> {
+        &self.cfg_nodes
+    }
+
+    /// Plain list of instructions as they occur in the executable
+    pub fn instructions(&self) -> &Vec<Insn> {
+        &self.instructions
+    }
+
+    /// Syscall symbol map (hash, name)
+    pub fn syscall_symbols(&self) -> &BTreeMap<u32, String> {
+        &self.syscall_symbols
+    }
+
+    /// Call resolution map (hash, pc, name)
+    pub fn function_registry(&self) -> &FunctionRegistry {
+        &self.function_registry
+    }
+
+    /// Instruction index by program counter
+    pub fn pc_to_insn_index(&self) -> &Vec<usize> {
+        &self.pc_to_insn_index
+    }
+
     /// Registers [0..10]
     pub fn registers(trace_item: &TraceItem) -> &[u64] {
         &trace_item[0..10]
@@ -469,15 +499,9 @@ impl<'a> TraceAnalyzer<'a> {
         Self::pc(trace_item) + ebpf::ELF_INSN_DUMP_OFFSET
     }
 
-    /// Disassembled instruction
-    pub fn instruction(&self, trace_item: &TraceItem) -> String {
-        let insn = &self.instructions[self.pc_to_insn_index[Self::pc(trace_item)]];
-        disassemble_instruction(
-            insn,
-            &self.cfg_nodes,
-            &self.syscall_symbols,
-            &self.function_registry,
-        )
+    /// eBPF instruction
+    pub fn instruction(&self, trace_item: &TraceItem) -> &Insn {
+        &self.instructions[self.pc_to_insn_index[Self::pc(trace_item)]]
     }
 }
 
