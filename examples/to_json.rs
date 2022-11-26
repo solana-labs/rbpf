@@ -51,7 +51,12 @@ fn to_json(program: &[u8]) -> String {
             // number is negative. When values takes more than 32 bits with `lddw`, the cast
             // has no effect and the complete value is printed anyway.
             "imm"  => format!("{:#x}", insn.imm as i32), // => insn.imm,
-            "desc" => disassemble_instruction(insn, &analysis),
+            "desc" => disassemble_instruction(
+                insn,
+                &analysis.cfg_nodes,
+                analysis.executable.get_syscall_symbols(),
+                analysis.executable.get_function_registry(),
+            ),
         ));
     }
     json::stringify_pretty(
