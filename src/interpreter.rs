@@ -25,11 +25,11 @@ use crate::{
 #[cfg_attr(feature = "debugger", macro_export)]
 macro_rules! translate_memory_access {
     ($self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty) => {
-        match $self
-            .vm
-            .memory_mapping
-            .map($access_type, $vm_addr, std::mem::size_of::<$T>() as u64)
-        {
+        match $self.vm.env.memory_mapping.map(
+            $access_type,
+            $vm_addr,
+            std::mem::size_of::<$T>() as u64,
+        ) {
             ProgramResult::Ok(host_addr) => host_addr as *mut $T,
             ProgramResult::Err(EbpfError::AccessViolation(
                 _pc,
@@ -80,9 +80,6 @@ pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
     pub(crate) vm: &'a mut EbpfVm<'b, V, C>,
     pub(crate) program: &'a [u8],
     pub(crate) program_vm_addr: u64,
-
-    pub(crate) initial_insn_count: u64,
-    remaining_insn_count: u64,
     pub(crate) due_insn_count: u64,
 
     /// General purpose self.registers
@@ -101,11 +98,6 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     pub fn new(vm: &'a mut EbpfVm<'b, V, C>) -> Result<Self, EbpfError> {
         let executable = vm.verified_executable.get_executable();
         let (program_vm_addr, program) = executable.get_text_bytes();
-        let initial_insn_count = if executable.get_config().enable_instruction_meter {
-            vm.context_object.get_remaining()
-        } else {
-            0
-        };
         // R1 points to beginning of input memory, R10 to the stack of the first frame
         let reg: [u64; 11] = [
             0,
@@ -125,8 +117,6 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             vm,
             program,
             program_vm_addr,
-            initial_insn_count,
-            remaining_insn_count: initial_insn_count,
             due_insn_count: 0,
             reg,
             pc,
@@ -188,7 +178,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             let mut state = [0u64; 12];
             state[0..11].copy_from_slice(&self.reg);
             state[11] = pc as u64;
-            self.vm.context_object.trace(state);
+            self.vm.env.context_object_pointer.trace(state);
         }
 
         match insn.opc {
@@ -455,18 +445,18 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                         resolved = true;
 
                         if config.enable_instruction_meter {
-                            self.vm.context_object.consume(self.due_insn_count);
+                            self.vm.env.context_object_pointer.consume(self.due_insn_count);
                         }
                         self.due_insn_count = 0;
                         let mut result = ProgramResult::Ok(0);
                         syscall(
-                            self.vm.context_object,
+                            self.vm.env.context_object_pointer,
                             self.reg[1],
                             self.reg[2],
                             self.reg[3],
                             self.reg[4],
                             self.reg[5],
-                            &mut self.vm.memory_mapping,
+                            &mut self.vm.env.memory_mapping,
                             &mut result,
                         );
                         self.reg[0] = match result {
@@ -474,7 +464,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                             ProgramResult::Err(err) => return Err(err),
                         };
                         if config.enable_instruction_meter {
-                            self.remaining_insn_count = self.vm.context_object.get_remaining();
+                            self.vm.env.previous_instruction_meter = self.vm.env.context_object_pointer.get_remaining();
                         }
                     }
                 }
@@ -513,9 +503,9 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
         }
 
-        if config.enable_instruction_meter && self.due_insn_count >= self.remaining_insn_count {
+        if config.enable_instruction_meter && self.due_insn_count >= self.vm.env.previous_instruction_meter {
             // Use `pc + instruction_width` instead of `self.pc` here because jumps and calls don't continue at the end of this instruction
-            return Err(EbpfError::ExceededMaxInstructions(pc + instruction_width + ebpf::ELF_INSN_DUMP_OFFSET, self.initial_insn_count));
+            return Err(EbpfError::ExceededMaxInstructions(pc + instruction_width + ebpf::ELF_INSN_DUMP_OFFSET, 0));
         }
 
         Ok(None)

@@ -51,7 +51,16 @@ pub fn execute<V: Verifier, C: ContextObject>(
 ) -> (u64, ProgramResult) {
     let connection: Box<dyn ConnectionExt<Error = std::io::Error>> =
         Box::new(wait_for_tcp(port).expect("Cannot connect to Debugger"));
-
+    let config = interpreter
+        .vm
+        .verified_executable
+        .get_executable()
+        .get_config();
+    let initial_insn_count = if config.enable_instruction_meter {
+        interpreter.vm.env.context_object_pointer.get_remaining()
+    } else {
+        0
+    };
     let mut result = ProgramResult::Err(EbpfError::ExitRootCallFrame);
     let mut dbg = GdbStub::new(connection)
         .run_state_machine(interpreter)
@@ -134,24 +143,16 @@ pub fn execute<V: Verifier, C: ContextObject>(
             }
         };
     }
-    let total_insn_count = if interpreter
-        .vm
-        .verified_executable
-        .get_executable()
-        .get_config()
-        .enable_instruction_meter
-    {
+    let total_insn_count = if config.enable_instruction_meter {
         interpreter
             .vm
-            .context_object
+            .env
+            .context_object_pointer
             .consume(interpreter.due_insn_count);
-        interpreter
-            .initial_insn_count
-            .saturating_sub(interpreter.vm.context_object.get_remaining())
+        initial_insn_count.saturating_sub(interpreter.vm.env.context_object_pointer.get_remaining())
     } else {
         0
     };
-
     (total_insn_count, result)
 }
 
@@ -275,9 +276,14 @@ impl<'a, 'b, V: Verifier, C: ContextObject>
             }
             BpfRegId::Sp => buf.copy_from_slice(&self.reg[ebpf::FRAME_PTR_REG].to_le_bytes()),
             BpfRegId::Pc => buf.copy_from_slice(&self.get_dbg_pc().to_le_bytes()),
-            BpfRegId::InstructionCountRemaining => {
-                buf.copy_from_slice(&self.vm.context_object.get_remaining().to_le_bytes())
-            }
+            BpfRegId::InstructionCountRemaining => buf.copy_from_slice(
+                &self
+                    .vm
+                    .env
+                    .context_object_pointer
+                    .get_remaining()
+                    .to_le_bytes(),
+            ),
         }
         Ok(buf.len())
     }

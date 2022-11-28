@@ -202,13 +202,16 @@ fn main() {
     if matches.is_present("trace") {
         println!("Trace:\n");
         let stdout = std::io::stdout();
-        vm.context_object
+        vm.env
+            .context_object_pointer
             .write_trace_log(&mut stdout.lock(), analysis.as_ref().unwrap())
             .unwrap();
     }
     if matches.is_present("profile") {
-        let dynamic_analysis =
-            DynamicAnalysis::new(&vm.context_object.trace_log, analysis.as_ref().unwrap());
+        let dynamic_analysis = DynamicAnalysis::new(
+            &vm.env.context_object_pointer.trace_log,
+            analysis.as_ref().unwrap(),
+        );
         let mut file = File::create("profile.dot").unwrap();
         analysis
             .as_ref()
