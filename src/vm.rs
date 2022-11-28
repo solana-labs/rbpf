@@ -23,6 +23,7 @@ use crate::{
     static_analysis::Analysis,
     verifier::Verifier,
 };
+use rand::Rng;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
@@ -185,6 +186,11 @@ impl<C: ContextObject> PartialEq for SyscallRegistry<C> {
     }
 }
 
+/// Shift the Config::runtime_environment_key by this many bits to the LSB
+///
+/// 3 bits for 8 Byte alignment, and 1 bit to have encoding space for the RuntimeEnvironment.
+pub const PROGRAM_ENVIRONMENT_KEY_SHIFT: u32 = 4;
+
 /// VM configuration settings
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
@@ -208,8 +214,10 @@ pub struct Config {
     pub noop_instruction_rate: u32,
     /// Enable disinfection of immediate values and offsets provided by the user in JIT
     pub sanitize_user_provided_values: bool,
-    /// Encrypt the environment registers in JIT
-    pub encrypt_environment_registers: bool,
+    /// Encrypt the runtime environment in JIT
+    ///
+    /// Use 0 to disable encryption. Otherwise only leave PROGRAM_ENVIRONMENT_KEY_SHIFT MSBs 0.
+    pub runtime_environment_key: i32,
     /// Throw ElfError::SymbolHashCollision when a BPF function collides with a registered syscall
     pub syscall_bpf_function_hash_collision: bool,
     /// Have the verifier reject "callx r10"
@@ -254,7 +262,8 @@ impl Default for Config {
             reject_broken_elfs: false,
             noop_instruction_rate: 256,
             sanitize_user_provided_values: true,
-            encrypt_environment_registers: true,
+            runtime_environment_key: rand::thread_rng().gen::<i32>()
+                >> PROGRAM_ENVIRONMENT_KEY_SHIFT,
             syscall_bpf_function_hash_collision: true,
             reject_callx_r10: true,
             dynamic_stack_frames: true,

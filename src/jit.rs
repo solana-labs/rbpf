@@ -370,7 +370,7 @@ enum EnvironmentStackSlot {
 }
 
 fn slot_on_environment_stack(jit: &JitCompiler, slot: EnvironmentStackSlot) -> i32 {
-    -8 * (slot as i32 + jit.environment_stack_key)
+    -8 * (slot as i32 + jit.config.runtime_environment_key)
 }
 
 #[allow(dead_code)]
@@ -871,7 +871,6 @@ pub struct JitCompiler {
     pub(crate) config: Config,
     diversification_rng: SmallRng,
     stopwatch_is_active: bool,
-    environment_stack_key: i32,
 }
 
 impl Index<usize> for JitCompiler {
@@ -943,11 +942,6 @@ impl JitCompiler {
         let result = JitProgramSections::new(pc, code_length_estimate)?;
 
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
-        let environment_stack_key =
-            if config.encrypt_environment_registers {
-                diversification_rng.gen::<i32>() / 16 // -3 bits for 8 Byte alignment, and -1 bit to have encoding space for EnvironmentStackSlot::SlotCount
-            } else { 0 };
-
         Ok(Self {
             result,
             text_section_jumps: vec![],
@@ -960,7 +954,6 @@ impl JitCompiler {
             config: *config,
             diversification_rng,
             stopwatch_is_active: false,
-            environment_stack_key,
         })
     }
 
@@ -1284,9 +1277,6 @@ impl JitCompiler {
         self.resolve_jumps(executable);
         self.result.seal(self.offset_in_text_section)?;
 
-        // Delete secrets
-        self.environment_stack_key = 0;
-
         Ok(())
     }
 
@@ -1300,7 +1290,7 @@ impl JitCompiler {
 
         // Initialize frame pointer
         emit_ins(self, X86Instruction::mov(OperandSize::S64, RSP, RBP));
-        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, 8 * (CALLEE_SAVED_REGISTERS.len() as i64 - 1 + self.environment_stack_key as i64), None));
+        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, 8 * (CALLEE_SAVED_REGISTERS.len() as i64 - 1 + self.config.runtime_environment_key as i64), None));
 
         // Initialize CallDepth to 0
         emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], 0));
