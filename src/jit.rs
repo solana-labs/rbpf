@@ -20,6 +20,7 @@ use std::{
     fmt::{Debug, Error as FormatterError, Formatter}, mem,
     ops::{Index, IndexMut},
     ptr,
+    marker::PhantomData,
 };
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
@@ -371,7 +372,7 @@ enum RuntimeEnvironmentSlot {
     and undo again can be anything, so we just set it to zero.
 */
 
-pub struct JitCompiler {
+pub struct JitCompiler<C: ContextObject> {
     pub result: JitProgram,
     text_section_jumps: Vec<Jump>,
     offset_in_text_section: usize,
@@ -383,9 +384,10 @@ pub struct JitCompiler {
     pub(crate) config: Config,
     diversification_rng: SmallRng,
     stopwatch_is_active: bool,
+    _marker: PhantomData<C>,
 }
 
-impl Index<usize> for JitCompiler {
+impl<C: ContextObject> Index<usize> for JitCompiler<C> {
     type Output = u8;
 
     fn index(&self, _index: usize) -> &u8 {
@@ -393,13 +395,13 @@ impl Index<usize> for JitCompiler {
     }
 }
 
-impl IndexMut<usize> for JitCompiler {
+impl<C: ContextObject> IndexMut<usize> for JitCompiler<C> {
     fn index_mut(&mut self, _index: usize) -> &mut u8 {
         &mut self.result.text_section[_index]
     }
 }
 
-impl std::fmt::Debug for JitCompiler {
+impl<C: ContextObject> std::fmt::Debug for JitCompiler<C> {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), FormatterError> {
         fmt.write_str("JIT text_section: [")?;
         for i in self.result.text_section as &[u8] {
@@ -417,7 +419,7 @@ impl std::fmt::Debug for JitCompiler {
     }
 }
 
-impl JitCompiler {
+impl<C: ContextObject> JitCompiler<C> {
     /// Constructs a new compiler and allocates memory for the compilation output
     pub fn new(program: &[u8], config: &Config) -> Result<Self, EbpfError> {
         #[cfg(target_os = "windows")]
@@ -465,17 +467,18 @@ impl JitCompiler {
             config: *config,
             diversification_rng,
             stopwatch_is_active: false,
+            _marker: PhantomData::default(),
         })
     }
 
     /// Compiles the given executable
-    pub fn compile<C: ContextObject>(&mut self,
+    pub fn compile(&mut self,
             executable: &Executable<C>) -> Result<(), EbpfError> {
         let text_section_base = self.result.text_section.as_ptr();
         let (program_vm_addr, program) = executable.get_text_bytes();
         self.program_vm_addr = program_vm_addr;
 
-        self.emit_subroutines::<C>();
+        self.emit_subroutines();
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
             if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
@@ -1313,7 +1316,7 @@ impl JitCompiler {
         self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, destination, err_kind as i64, Some(X86IndirectAccess::Offset(0))));
     }
 
-    fn emit_subroutines<C: ContextObject>(&mut self) {
+    fn emit_subroutines(&mut self) {
         // Epilogue
         self.set_anchor(ANCHOR_EPILOGUE);
         // Print stop watch value
@@ -1589,7 +1592,7 @@ impl JitCompiler {
         (unsafe { destination.offset_from(instruction_end) } as i32) // Relative jump
     }
 
-    fn resolve_jumps<C: ContextObject>(&mut self, executable: &Executable<C>) {
+    fn resolve_jumps(&mut self, executable: &Executable<C>) {
         // Relocate forward jumps
         for jump in &self.text_section_jumps {
             let destination = self.result.pc_section[jump.target_pc] as *const u8;

@@ -1,5 +1,8 @@
 #![allow(clippy::integer_arithmetic)]
-use crate::jit::{JitCompiler, OperandSize};
+use crate::{
+    jit::{JitCompiler, OperandSize},
+    vm::ContextObject,
+};
 
 pub const RAX: u8 = 0;
 pub const RCX: u8 = 1;
@@ -99,7 +102,7 @@ impl X86Instruction {
     };
 
     #[inline]
-    pub fn emit(&self, jit: &mut JitCompiler) {
+    pub fn emit<C: ContextObject>(&self, jit: &mut JitCompiler<C>) {
         debug_assert!(!matches!(self.size, OperandSize::S0));
         let mut rex = X86Rex {
             w: matches!(self.size, OperandSize::S64),
