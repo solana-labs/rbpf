@@ -455,7 +455,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             code_length_estimate += pc / config.instruction_meter_checkpoint_distance * MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT;
         }
         
-        let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
+        let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).map_err(|_| EbpfError::JitNotCompiled)?;
         Ok(Self {
             result: JitProgram::new(pc, code_length_estimate)?,
             text_section_jumps: vec![],
