@@ -28,8 +28,6 @@ use crate::{
 #[cfg(feature = "jit")]
 use crate::jit::{JitCompiler, JitProgram};
 use byteorder::{ByteOrder, LittleEndian};
-#[cfg(not(feature = "jit"))]
-use std::marker::PhantomData;
 use std::{
     collections::{btree_map::Entry, BTreeMap},
     fmt::Debug,
@@ -286,9 +284,7 @@ pub struct Executable<C: ContextObject> {
     syscall_registry: SyscallRegistry<C>,
     /// Compiled program and argument
     #[cfg(feature = "jit")]
-    compiled_program: Option<JitProgram>,
-    #[cfg(not(feature = "jit"))]
-    _marker: PhantomData<(I)>,
+    compiled_program: Option<JitProgram<C>>,
 }
 
 impl<C: ContextObject> Executable<C> {
@@ -355,7 +351,7 @@ impl<C: ContextObject> Executable<C> {
 
     /// Get the JIT compiled program
     #[cfg(feature = "jit")]
-    pub fn get_compiled_program(&self) -> Option<&JitProgram> {
+    pub fn get_compiled_program(&self) -> Option<&JitProgram<C>> {
         self.compiled_program.as_ref()
     }
 
