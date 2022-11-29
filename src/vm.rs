@@ -324,7 +324,7 @@ impl<V: Verifier, C: ContextObject> VerifiedExecutable<V, C> {
     }
 
     /// JIT compile the executable
-    #[cfg(feature = "jit")]
+    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     pub fn jit_compile(&mut self) -> Result<(), EbpfError> {
         Executable::<C>::jit_compile(&mut self.executable)
     }
@@ -602,7 +602,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                 },
             )
         } else {
-            #[cfg(feature = "jit")]
+            #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             {
                 let mut result = ProgramResult::Ok(0);
                 self.env.program_result_pointer = &mut result;
@@ -626,7 +626,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                     result,
                 )
             }
-            #[cfg(not(feature = "jit"))]
+            #[cfg(not(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64")))]
             (0, ProgramResult::Err(EbpfError::JitNotCompiled))
         };
         let instruction_count = if config.enable_instruction_meter {

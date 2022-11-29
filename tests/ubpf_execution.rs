@@ -1,5 +1,5 @@
 #![allow(clippy::integer_arithmetic)]
-#![cfg(feature = "jit")]
+#![cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 // Copyright 2020 Solana Maintainers <maintainers@solana.com>
 //
 // Licensed under the Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0> or

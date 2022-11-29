@@ -20,12 +20,11 @@ use crate::{
         ElfParser, ElfProgramHeader, ElfRelocation, ElfSectionHeader, ElfSymbol, GoblinParser,
         NewParser,
     },
-    error::EbpfError,
     memory_region::MemoryRegion,
     vm::{Config, ContextObject, FunctionRegistry, SyscallRegistry},
 };
 
-#[cfg(feature = "jit")]
+#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 use crate::jit::{JitCompiler, JitProgram};
 use byteorder::{ByteOrder, LittleEndian};
 use std::{
@@ -283,7 +282,7 @@ pub struct Executable<C: ContextObject> {
     /// Syscall resolution map
     syscall_registry: SyscallRegistry<C>,
     /// Compiled program and argument
-    #[cfg(feature = "jit")]
+    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     compiled_program: Option<JitProgram<C>>,
 }
 
@@ -350,14 +349,14 @@ impl<C: ContextObject> Executable<C> {
     }
 
     /// Get the JIT compiled program
-    #[cfg(feature = "jit")]
+    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     pub fn get_compiled_program(&self) -> Option<&JitProgram<C>> {
         self.compiled_program.as_ref()
     }
 
     /// JIT compile the executable
-    #[cfg(feature = "jit")]
-    pub fn jit_compile(executable: &mut Self) -> Result<(), EbpfError> {
+    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
+    pub fn jit_compile(executable: &mut Self) -> Result<(), crate::error::EbpfError> {
         let jit = JitCompiler::<C>::new(executable)?;
         executable.compiled_program = Some(jit.compile()?);
         Ok(())
@@ -414,10 +413,8 @@ impl<C: ContextObject> Executable<C> {
             function_registry,
             syscall_symbols: BTreeMap::default(),
             syscall_registry,
-            #[cfg(feature = "jit")]
+            #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             compiled_program: None,
-            #[cfg(not(feature = "jit"))]
-            _marker: PhantomData,
         })
     }
 
@@ -542,10 +539,8 @@ impl<C: ContextObject> Executable<C> {
             function_registry,
             syscall_symbols,
             syscall_registry,
-            #[cfg(feature = "jit")]
+            #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             compiled_program: None,
-            #[cfg(not(feature = "jit"))]
-            _marker: PhantomData,
         })
     }
 
@@ -582,7 +577,7 @@ impl<C: ContextObject> Executable<C> {
             // syscall registry
             .saturating_add(self.syscall_registry.mem_size());
 
-        #[cfg(feature = "jit")]
+        #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
         {
             // compiled programs
             total = total.saturating_add(self.compiled_program.as_ref().map_or(0, |program| program.mem_size()));
@@ -1240,6 +1235,7 @@ mod test {
             consts::{ELFCLASS32, ELFDATA2MSB, ET_REL},
             types::{Elf64Ehdr, Elf64Shdr},
         },
+        error::EbpfError,
         fuzz::fuzz,
         syscalls,
         vm::{ProgramResult, TestContextObject},
@@ -2234,8 +2230,7 @@ mod test {
             .expect("validation failed");
     }
 
-    #[cfg(all(not(windows), target_arch = "x86_64"))]
-    #[cfg(feature = "jit")]
+    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     #[test]
     fn test_size() {
         let mut file = File::open("tests/elfs/noop.so").expect("file open failed");

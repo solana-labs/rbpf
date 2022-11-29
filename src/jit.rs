@@ -10,8 +10,6 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#![allow(unreachable_code)]
-
 extern crate libc;
 
 use rand::{rngs::SmallRng, Rng, SeedableRng};
@@ -73,19 +71,8 @@ fn round_to_page_size(value: usize, page_size: usize) -> usize {
     (value + page_size - 1) / page_size * page_size
 }
 
-#[allow(unused_variables)]
 impl<C: ContextObject> JitProgram<C> {
     fn new(pc: usize, code_size: usize) -> Result<Self, EbpfError> {
-        #[cfg(target_os = "windows")]
-        {
-            Ok(Self {
-                page_size: 0,
-                pc_section: &mut [],
-                text_section: &mut [],
-                _marker: PhantomData::default(),
-            })
-        }
-        #[cfg(not(target_os = "windows"))]
         unsafe {
             let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
             let pc_loc_table_size = round_to_page_size(pc * 8, page_size);
@@ -113,41 +100,41 @@ impl<C: ContextObject> JitProgram<C> {
     }
 
     fn seal(&mut self, text_section_usage: usize) -> Result<(), EbpfError> {
-        if self.page_size > 0 {
+        if self.page_size == 0 {
+            return Ok(());
+        }
+        unsafe {
             let raw = self.pc_section.as_ptr() as *mut u8;
             let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
             let over_allocated_code_size =
                 round_to_page_size(self.text_section.len(), self.page_size);
             let code_size = round_to_page_size(text_section_usage, self.page_size);
-            #[cfg(not(target_os = "windows"))]
-            unsafe {
-                if over_allocated_code_size > code_size {
-                    libc_error_guard!(
-                        munmap,
-                        raw.add(pc_loc_table_size).add(code_size) as *mut _,
-                        over_allocated_code_size - code_size
-                    );
-                }
-                std::ptr::write_bytes(
-                    raw.add(pc_loc_table_size).add(text_section_usage),
-                    0xcc,
-                    code_size - text_section_usage,
-                ); // Fill with debugger traps
-                self.text_section =
-                    std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size), text_section_usage);
+            if over_allocated_code_size > code_size {
                 libc_error_guard!(
-                    mprotect,
-                    self.pc_section.as_mut_ptr() as *mut _,
-                    pc_loc_table_size,
-                    libc::PROT_READ
-                );
-                libc_error_guard!(
-                    mprotect,
-                    self.text_section.as_mut_ptr() as *mut _,
-                    code_size,
-                    libc::PROT_EXEC | libc::PROT_READ
+                    munmap,
+                    raw.add(pc_loc_table_size).add(code_size) as *mut _,
+                    over_allocated_code_size - code_size
                 );
             }
+            std::ptr::write_bytes(
+                raw.add(pc_loc_table_size).add(text_section_usage),
+                0xcc,
+                code_size - text_section_usage,
+            ); // Fill with debugger traps
+            self.text_section =
+                std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size), text_section_usage);
+            libc_error_guard!(
+                mprotect,
+                self.pc_section.as_mut_ptr() as *mut _,
+                pc_loc_table_size,
+                libc::PROT_READ
+            );
+            libc_error_guard!(
+                mprotect,
+                self.text_section.as_mut_ptr() as *mut _,
+                code_size,
+                libc::PROT_EXEC | libc::PROT_READ
+            );
         }
         Ok(())
     }
@@ -159,9 +146,6 @@ impl<C: ContextObject> JitProgram<C> {
         registers: [u64; 10],
         target_pc: usize,
     ) -> i64 {
-        #[cfg(target_os = "windows")]
-        unimplemented!();
-        #[cfg(not(target_os = "windows"))]
         unsafe {
             let mut instruction_meter = env.previous_instruction_meter as i64 + target_pc as i64;
             std::arch::asm!(
@@ -390,18 +374,6 @@ pub struct JitCompiler<'a, C: ContextObject> {
 impl<'a, C: ContextObject> JitCompiler<'a, C> {
     /// Constructs a new compiler and allocates memory for the compilation output
     pub fn new(executable: &'a Executable<C>) -> Result<Self, EbpfError> {
-        #[cfg(target_os = "windows")]
-        {
-            let _ = executable;
-            panic!("JIT not supported on windows");
-        }
-
-        #[cfg(not(target_arch = "x86_64"))]
-        {
-            let _ = executable;
-            panic!("JIT is only supported on x86_64");
-        }
-
         let config = executable.get_config();
         let (program_vm_addr, program) = executable.get_text_bytes();
 

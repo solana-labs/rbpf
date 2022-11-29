@@ -1,4 +1,4 @@
-#![cfg(feature = "jit")]
+#![cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 // Copyright 2016 6WIND S.A. <quentin.monnet@6wind.com>
 //
 // Licensed under the Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0> or

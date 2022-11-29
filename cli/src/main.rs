@@ -119,6 +119,7 @@ fn main() {
     }
     .unwrap();
 
+    #[allow(unused_mut)]
     let mut verified_executable =
         VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
@@ -140,6 +141,7 @@ fn main() {
             .parse::<usize>()
             .unwrap()
     ];
+    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     if matches.value_of("use") == Some("jit") {
         verified_executable.jit_compile().unwrap();
     }
