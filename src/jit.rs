@@ -373,13 +373,13 @@ enum RuntimeEnvironmentSlot {
 */
 
 pub struct JitCompiler<'a, C: ContextObject> {
-    pub result: JitProgram,
+    result: JitProgram,
     text_section_jumps: Vec<Jump>,
+    anchors: [*const u8; ANCHOR_COUNT],
     offset_in_text_section: usize,
     pc: usize,
     last_instruction_meter_validation_pc: usize,
     next_noop_insertion: u32,
-    anchors: [*const u8; ANCHOR_COUNT],
     executable: &'a Executable<C>,
     program: &'a [u8],
     program_vm_addr: u64,
@@ -460,11 +460,11 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         Ok(Self {
             result: JitProgram::new(pc, code_length_estimate)?,
             text_section_jumps: vec![],
+            anchors: [std::ptr::null(); ANCHOR_COUNT],
             offset_in_text_section: 0,
             pc: 0,
             last_instruction_meter_validation_pc: 0,
             next_noop_insertion: if config.noop_instruction_rate == 0 { u32::MAX } else { diversification_rng.gen_range(0..config.noop_instruction_rate * 2) },
-            anchors: [std::ptr::null(); ANCHOR_COUNT],
             executable,
             program_vm_addr,
             program,
@@ -474,8 +474,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         })
     }
 
-    /// Compiles the given executable
-    pub fn compile(&mut self) -> Result<(), EbpfError> {
+    /// Compiles the given executable, consuming the compiler
+    pub fn compile(mut self) -> Result<JitProgram, EbpfError> {
         let text_section_base = self.result.text_section.as_ptr();
 
         self.emit_subroutines();
@@ -790,8 +790,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         self.resolve_jumps();
         self.result.seal(self.offset_in_text_section)?;
-
-        Ok(())
+        Ok(self.result)
     }
 
     #[inline]
