@@ -379,10 +379,11 @@ pub struct JitCompiler<'a, C: ContextObject> {
     pc: usize,
     last_instruction_meter_validation_pc: usize,
     next_noop_insertion: u32,
-    program_vm_addr: u64,
     anchors: [*const u8; ANCHOR_COUNT],
     executable: &'a Executable<C>,
-    pub(crate) config: Config,
+    program: &'a [u8],
+    program_vm_addr: u64,
+    config: &'a Config,
     diversification_rng: SmallRng,
     stopwatch_is_active: bool,
 }
@@ -421,22 +422,21 @@ impl<'a, C: ContextObject> std::fmt::Debug for JitCompiler<'a, C> {
 
 impl<'a, C: ContextObject> JitCompiler<'a, C> {
     /// Constructs a new compiler and allocates memory for the compilation output
-    pub fn new(executable: &'a Executable<C>, program: &[u8], config: &Config) -> Result<Self, EbpfError> {
+    pub fn new(executable: &'a Executable<C>) -> Result<Self, EbpfError> {
         #[cfg(target_os = "windows")]
         {
             let _ = executable;
-            let _ = program;
-            let _ = config;
             panic!("JIT not supported on windows");
         }
 
         #[cfg(not(target_arch = "x86_64"))]
         {
             let _ = executable;
-            let _ = program;
-            let _ = config;
             panic!("JIT is only supported on x86_64");
         }
+
+        let config = executable.get_config();
+        let (program_vm_addr, program) = executable.get_text_bytes();
 
         // Scan through program to find actual number of instructions
         let mut pc = 0;
@@ -464,10 +464,11 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             pc: 0,
             last_instruction_meter_validation_pc: 0,
             next_noop_insertion: if config.noop_instruction_rate == 0 { u32::MAX } else { diversification_rng.gen_range(0..config.noop_instruction_rate * 2) },
-            program_vm_addr: 0,
             anchors: [std::ptr::null(); ANCHOR_COUNT],
             executable,
-            config: *config,
+            program_vm_addr,
+            program,
+            config,
             diversification_rng,
             stopwatch_is_active: false,
         })
@@ -476,16 +477,14 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     /// Compiles the given executable
     pub fn compile(&mut self) -> Result<(), EbpfError> {
         let text_section_base = self.result.text_section.as_ptr();
-        let (program_vm_addr, program) = self.executable.get_text_bytes();
-        self.program_vm_addr = program_vm_addr;
 
         self.emit_subroutines();
 
-        while self.pc * ebpf::INSN_SIZE < program.len() {
+        while self.pc * ebpf::INSN_SIZE < self.program.len() {
             if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
                 return Err(EbpfError::ExhaustedTextSegment(self.pc));
             }
-            let mut insn = ebpf::get_insn_unchecked(program, self.pc);
+            let mut insn = ebpf::get_insn_unchecked(self.program, self.pc);
             self.result.pc_section[self.pc] = unsafe { text_section_base.add(self.offset_in_text_section) } as usize;
 
             // Regular instruction meter checkpoints to prevent long linear runs from exceeding their budget
@@ -520,7 +519,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_validate_and_profile_instruction_count(true, Some(self.pc + 2));
                     self.pc += 1;
                     self.result.pc_section[self.pc] = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
-                    ebpf::augment_lddw_unchecked(program, &mut insn);
+                    ebpf::augment_lddw_unchecked(self.program, &mut insn);
                     if self.should_sanitize_constant(insn.imm) {
                         self.emit_sanitized_load_immediate(OperandSize::S64, dst, insn.imm);
                     } else {

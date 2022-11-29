@@ -362,8 +362,7 @@ impl<C: ContextObject> Executable<C> {
     /// JIT compile the executable
     #[cfg(feature = "jit")]
     pub fn jit_compile(executable: &mut Self) -> Result<(), EbpfError> {
-        let program = executable.get_text_bytes().1;
-        let mut jit = JitCompiler::<C>::new(executable, program, executable.get_config())?;
+        let mut jit = JitCompiler::<C>::new(executable)?;
         jit.compile()?;
         executable.compiled_program = Some(jit.result);
         Ok(())
