@@ -372,7 +372,7 @@ enum RuntimeEnvironmentSlot {
     and undo again can be anything, so we just set it to zero.
 */
 
-pub struct JitCompiler<C: ContextObject> {
+pub struct JitCompiler<'a, C: ContextObject> {
     pub result: JitProgram,
     text_section_jumps: Vec<Jump>,
     offset_in_text_section: usize,
@@ -381,13 +381,13 @@ pub struct JitCompiler<C: ContextObject> {
     next_noop_insertion: u32,
     program_vm_addr: u64,
     anchors: [*const u8; ANCHOR_COUNT],
+    executable: &'a Executable<C>,
     pub(crate) config: Config,
     diversification_rng: SmallRng,
     stopwatch_is_active: bool,
-    _marker: PhantomData<C>,
 }
 
-impl<C: ContextObject> Index<usize> for JitCompiler<C> {
+impl<'a, C: ContextObject> Index<usize> for JitCompiler<'a, C> {
     type Output = u8;
 
     fn index(&self, _index: usize) -> &u8 {
@@ -395,13 +395,13 @@ impl<C: ContextObject> Index<usize> for JitCompiler<C> {
     }
 }
 
-impl<C: ContextObject> IndexMut<usize> for JitCompiler<C> {
+impl<'a, C: ContextObject> IndexMut<usize> for JitCompiler<'a, C> {
     fn index_mut(&mut self, _index: usize) -> &mut u8 {
         &mut self.result.text_section[_index]
     }
 }
 
-impl<C: ContextObject> std::fmt::Debug for JitCompiler<C> {
+impl<'a, C: ContextObject> std::fmt::Debug for JitCompiler<'a, C> {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), FormatterError> {
         fmt.write_str("JIT text_section: [")?;
         for i in self.result.text_section as &[u8] {
@@ -419,11 +419,12 @@ impl<C: ContextObject> std::fmt::Debug for JitCompiler<C> {
     }
 }
 
-impl<C: ContextObject> JitCompiler<C> {
+impl<'a, C: ContextObject> JitCompiler<'a, C> {
     /// Constructs a new compiler and allocates memory for the compilation output
-    pub fn new(program: &[u8], config: &Config) -> Result<Self, EbpfError> {
+    pub fn new(executable: &'a Executable<C>, program: &[u8], config: &Config) -> Result<Self, EbpfError> {
         #[cfg(target_os = "windows")]
         {
+            let _ = executable;
             let _ = program;
             let _ = config;
             panic!("JIT not supported on windows");
@@ -431,6 +432,7 @@ impl<C: ContextObject> JitCompiler<C> {
 
         #[cfg(not(target_arch = "x86_64"))]
         {
+            let _ = executable;
             let _ = program;
             let _ = config;
             panic!("JIT is only supported on x86_64");
@@ -464,18 +466,17 @@ impl<C: ContextObject> JitCompiler<C> {
             next_noop_insertion: if config.noop_instruction_rate == 0 { u32::MAX } else { diversification_rng.gen_range(0..config.noop_instruction_rate * 2) },
             program_vm_addr: 0,
             anchors: [std::ptr::null(); ANCHOR_COUNT],
+            executable,
             config: *config,
             diversification_rng,
             stopwatch_is_active: false,
-            _marker: PhantomData::default(),
         })
     }
 
     /// Compiles the given executable
-    pub fn compile(&mut self,
-            executable: &Executable<C>) -> Result<(), EbpfError> {
+    pub fn compile(&mut self) -> Result<(), EbpfError> {
         let text_section_base = self.result.text_section.as_ptr();
-        let (program_vm_addr, program) = executable.get_text_bytes();
+        let (program_vm_addr, program) = self.executable.get_text_bytes();
         self.program_vm_addr = program_vm_addr;
 
         self.emit_subroutines();
@@ -724,7 +725,7 @@ impl<C: ContextObject> JitCompiler<C> {
                     };
 
                     if syscalls {
-                        if let Some(syscall) = executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
+                        if let Some(syscall) = self.executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
                             if self.config.enable_instruction_meter {
                                 self.emit_validate_and_profile_instruction_count(true, Some(0));
                             }
@@ -738,7 +739,7 @@ impl<C: ContextObject> JitCompiler<C> {
                     }
 
                     if calls {
-                        if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
+                        if let Some(target_pc) = self.executable.lookup_bpf_function(insn.imm as u32) {
                             self.emit_bpf_call(Value::Constant64(target_pc as i64, false));
                             resolved = true;
                         }
@@ -788,7 +789,7 @@ impl<C: ContextObject> JitCompiler<C> {
         self.emit_set_exception_kind(EbpfError::ExecutionOverrun(0));
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
-        self.resolve_jumps(executable);
+        self.resolve_jumps();
         self.result.seal(self.offset_in_text_section)?;
 
         Ok(())
@@ -1592,7 +1593,7 @@ impl<C: ContextObject> JitCompiler<C> {
         (unsafe { destination.offset_from(instruction_end) } as i32) // Relative jump
     }
 
-    fn resolve_jumps(&mut self, executable: &Executable<C>) {
+    fn resolve_jumps(&mut self) {
         // Relocate forward jumps
         for jump in &self.text_section_jumps {
             let destination = self.result.pc_section[jump.target_pc] as *const u8;
@@ -1606,7 +1607,7 @@ impl<C: ContextObject> JitCompiler<C> {
         let callx_unsupported_instruction = self.anchors[ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION] as usize;
         if self.config.static_syscalls {
             let mut prev_pc = 0;
-            for current_pc in executable.get_function_registry().keys() {
+            for current_pc in self.executable.get_function_registry().keys() {
                 if *current_pc as usize >= self.result.pc_section.len() {
                     break;
                 }
