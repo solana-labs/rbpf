@@ -17,8 +17,7 @@
 extern crate libc;
 
 use std::{
-    fmt::{Debug, Error as FormatterError, Formatter}, mem,
-    ops::{Index, IndexMut},
+    fmt::Debug, mem,
     ptr,
     marker::PhantomData,
 };
@@ -389,38 +388,6 @@ pub struct JitCompiler<'a, C: ContextObject> {
     config: &'a Config,
     diversification_rng: SmallRng,
     stopwatch_is_active: bool,
-}
-
-impl<'a, C: ContextObject> Index<usize> for JitCompiler<'a, C> {
-    type Output = u8;
-
-    fn index(&self, _index: usize) -> &u8 {
-        &self.result.text_section[_index]
-    }
-}
-
-impl<'a, C: ContextObject> IndexMut<usize> for JitCompiler<'a, C> {
-    fn index_mut(&mut self, _index: usize) -> &mut u8 {
-        &mut self.result.text_section[_index]
-    }
-}
-
-impl<'a, C: ContextObject> std::fmt::Debug for JitCompiler<'a, C> {
-    fn fmt(&self, fmt: &mut Formatter) -> Result<(), FormatterError> {
-        fmt.write_str("JIT text_section: [")?;
-        for i in self.result.text_section as &[u8] {
-            fmt.write_fmt(format_args!(" {:#04x},", i))?;
-        };
-        fmt.write_str(" ] | ")?;
-        fmt.debug_struct("JIT state")
-            .field("memory", &self.result.pc_section.as_ptr())
-            .field("pc", &self.pc)
-            .field("offset_in_text_section", &self.offset_in_text_section)
-            .field("pc_section", &self.result.pc_section)
-            .field("anchors", &self.anchors)
-            .field("text_section_jumps", &self.text_section_jumps)
-            .finish()
-    }
 }
 
 impl<'a, C: ContextObject> JitCompiler<'a, C> {
