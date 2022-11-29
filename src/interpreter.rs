@@ -95,30 +95,16 @@ pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
 
 impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Creates a new interpreter state
-    pub fn new(vm: &'a mut EbpfVm<'b, V, C>) -> Result<Self, EbpfError> {
+    pub fn new(vm: &'a mut EbpfVm<'b, V, C>, registers: [u64; 11]) -> Result<Self, EbpfError> {
         let executable = vm.verified_executable.get_executable();
         let (program_vm_addr, program) = executable.get_text_bytes();
-        // R1 points to beginning of input memory, R10 to the stack of the first frame
-        let reg: [u64; 11] = [
-            0,
-            ebpf::MM_INPUT_START,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            vm.env.frame_pointer,
-        ];
         let pc = executable.get_entrypoint_instruction_offset();
         Ok(Self {
             vm,
             program,
             program_vm_addr,
             due_insn_count: 0,
-            reg,
+            reg: registers,
             pc,
             #[cfg(feature = "debugger")]
             debug_state: DebugState::Continue,

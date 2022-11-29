@@ -143,7 +143,7 @@ impl<C: ContextObject> JitProgram<C> {
         &self,
         config: &Config,
         env: &mut RuntimeEnvironment<C>,
-        registers: [u64; 10],
+        registers: [u64; 11],
         target_pc: usize,
     ) -> i64 {
         unsafe {
@@ -172,7 +172,7 @@ impl<C: ContextObject> JitProgram<C> {
                 "pop rbx",
                 host_stack_pointer = in(reg) &mut env.host_stack_pointer,
                 rbp = in(reg) (env as *mut _ as *mut u64).offset(config.runtime_environment_key as isize),
-                rbx = in(reg) env.frame_pointer,
+                rbx = in(reg) registers[ebpf::FRAME_PTR_REG],
                 inlateout("rdi") instruction_meter,
                 inlateout("r10") &registers => _,
                 inlateout("r11") self.pc_section[target_pc] => _,

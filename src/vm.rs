@@ -597,6 +597,10 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     ///
     /// If interpreted = `false` then the JIT compiled executable is used.
     pub fn execute_program(&mut self, interpreted: bool) -> (u64, ProgramResult) {
+        let mut registers = [0u64; 11];
+        // R1 points to beginning of input memory, R10 to the stack of the first frame
+        registers[1] = ebpf::MM_INPUT_START;
+        registers[ebpf::FRAME_PTR_REG] = self.env.frame_pointer;
         let executable = self.verified_executable.get_executable();
         let config = executable.get_config();
         let initial_insn_count = if config.enable_instruction_meter {
@@ -607,7 +611,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         self.env.previous_instruction_meter = initial_insn_count;
         let (due_insn_count, result) = if interpreted {
             let mut result = Ok(None);
-            let mut interpreter = match Interpreter::new(self) {
+            let mut interpreter = match Interpreter::new(self, registers) {
                 Ok(interpreter) => interpreter,
                 Err(error) => return (0, ProgramResult::Err(error)),
             };
@@ -634,7 +638,6 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                     Ok(compiled_program) => compiled_program,
                     Err(error) => return (0, ProgramResult::Err(error)),
                 };
-                let registers = [0, ebpf::MM_INPUT_START, 0, 0, 0, 0, 0, 0, 0, 0];
                 let target_pc = executable.get_entrypoint_instruction_offset();
                 let instruction_meter_final = compiled_program
                     .invoke(config, &mut self.env, registers, target_pc)
