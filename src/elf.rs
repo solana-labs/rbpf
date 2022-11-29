@@ -26,7 +26,7 @@ use crate::{
 };
 
 #[cfg(feature = "jit")]
-use crate::jit::JitProgram;
+use crate::jit::{JitCompiler, JitProgram};
 use byteorder::{ByteOrder, LittleEndian};
 #[cfg(not(feature = "jit"))]
 use std::marker::PhantomData;
@@ -286,7 +286,7 @@ pub struct Executable<C: ContextObject> {
     syscall_registry: SyscallRegistry<C>,
     /// Compiled program and argument
     #[cfg(feature = "jit")]
-    compiled_program: Option<JitProgram<C>>,
+    compiled_program: Option<JitProgram>,
     #[cfg(not(feature = "jit"))]
     _marker: PhantomData<(I)>,
 }
@@ -355,14 +355,17 @@ impl<C: ContextObject> Executable<C> {
 
     /// Get the JIT compiled program
     #[cfg(feature = "jit")]
-    pub fn get_compiled_program(&self) -> Option<&JitProgram<C>> {
+    pub fn get_compiled_program(&self) -> Option<&JitProgram> {
         self.compiled_program.as_ref()
     }
 
     /// JIT compile the executable
     #[cfg(feature = "jit")]
     pub fn jit_compile(executable: &mut Self) -> Result<(), EbpfError> {
-        executable.compiled_program = Some(JitProgram::<C>::new(executable)?);
+        let program = executable.get_text_bytes().1;
+        let mut jit = JitCompiler::new(program, executable.get_config())?;
+        jit.compile::<C>(executable)?;
+        executable.compiled_program = Some(jit.result);
         Ok(())
     }
 
@@ -2252,6 +2255,6 @@ mod test {
             Executable::jit_compile(&mut executable).unwrap();
         }
 
-        assert_eq!(18482, executable.mem_size());
+        assert_eq!(18426, executable.mem_size());
     }
 }

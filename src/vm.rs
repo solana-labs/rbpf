@@ -544,8 +544,9 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     /// If interpreted = `false` then the JIT compiled executable is used.
     pub fn execute_program(&mut self, interpreted: bool) -> (u64, ProgramResult) {
         let executable = self.verified_executable.get_executable();
-        let initial_insn_count = if executable.get_config().enable_instruction_meter {
-            self.context_object.get_remaining()
+        let config = executable.get_config();
+        let initial_insn_count = if config.enable_instruction_meter {
+            self.env.context_object_pointer.get_remaining()
         } else {
             0
         };
@@ -579,14 +580,11 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                     Ok(compiled_program) => compiled_program,
                     Err(error) => return (0, ProgramResult::Err(error)),
                 };
-                let instruction_meter_final = unsafe {
-                    (compiled_program.main)(
-                        &mut result,
-                        &mut self.env.memory_mapping,
-                        self.env.context_object_pointer,
-                    )
-                }
-                .max(0) as u64;
+                let registers = [0, ebpf::MM_INPUT_START, 0, 0, 0, 0, 0, 0, 0, 0];
+                let target_pc = executable.get_entrypoint_instruction_offset();
+                let instruction_meter_final = compiled_program
+                    .invoke(config, &mut self.env, registers, target_pc)
+                    .max(0) as u64;
                 (
                     self.env
                         .context_object_pointer
@@ -598,7 +596,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             #[cfg(not(feature = "jit"))]
             (0, ProgramResult::Err(EbpfError::JitNotCompiled))
         };
-        let instruction_count = if executable.get_config().enable_instruction_meter {
+        let instruction_count = if config.enable_instruction_meter {
             self.env.context_object_pointer.consume(due_insn_count);
             initial_insn_count.saturating_sub(self.env.context_object_pointer.get_remaining())
         } else {

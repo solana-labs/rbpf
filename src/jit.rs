@@ -26,7 +26,7 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 use crate::{
     elf::Executable,
     vm::{Config, ProgramResult, ContextObject, SyscallFunction},
-    ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, FRAME_PTR_REG, MM_STACK_START, STACK_PTR_REG},
+    ebpf::{self, INSN_SIZE, FIRST_SCRATCH_REG, SCRATCH_REGS, FRAME_PTR_REG, STACK_PTR_REG},
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
     x86::*,
@@ -37,7 +37,7 @@ const MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION: usize = 110;
 const MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT: usize = 13;
 const ERR_KIND_OFFSET: usize = 1;
 
-struct JitProgramSections {
+pub struct JitProgram {
     /// OS page size in bytes and the alignment of the sections
     page_size: usize,
     /// A `*const u8` pointer into the text_section for each BPF instruction
@@ -79,7 +79,7 @@ fn round_to_page_size(value: usize, page_size: usize) -> usize {
 }
 
 #[allow(unused_variables)]
-impl JitProgramSections {
+impl JitProgram {
     fn new(pc: usize, code_size: usize) -> Result<Self, EbpfError> {
         #[cfg(target_os = "windows")]
         {
@@ -124,6 +124,58 @@ impl JitProgramSections {
         Ok(())
     }
 
+    pub fn invoke<C: ContextObject>(
+        &self,
+        config: &Config,
+        env: &mut RuntimeEnvironment<C>,
+        registers: [u64; 10],
+        target_pc: usize,
+    ) -> i64 {
+        #[cfg(target_os = "windows")]
+        unimplemented!();
+        #[cfg(not(target_os = "windows"))]
+        unsafe {
+            let mut instruction_meter = env.previous_instruction_meter as i64 + target_pc as i64;
+            std::arch::asm!(
+                // RBP and RBX must be saved and restored manually in the current version of rustc and llvm.
+                "push rbx",
+                "push rbp",
+                "mov [{host_stack_pointer}], rsp",
+                "add QWORD PTR [{host_stack_pointer}], -8", // We will push RIP in "call r11" later
+                "mov rbp, {rbp}",
+                "mov rbx, {rbx}",
+                "mov rax, [r10 + 0x00]",
+                "mov rsi, [r10 + 0x08]",
+                "mov rdx, [r10 + 0x10]",
+                "mov rcx, [r10 + 0x18]",
+                "mov r8,  [r10 + 0x20]",
+                "mov r9,  [r10 + 0x28]",
+                "mov r12, [r10 + 0x30]",
+                "mov r13, [r10 + 0x38]",
+                "mov r14, [r10 + 0x40]",
+                "mov r15, [r10 + 0x48]",
+                "xor r10, r10",
+                "call r11",
+                "pop rbp",
+                "pop rbx",
+                host_stack_pointer = in(reg) &mut env.host_stack_pointer,
+                rbp = in(reg) (env as *mut _ as *mut u64).offset(config.runtime_environment_key as isize),
+                rbx = in(reg) env.frame_pointer,
+                inlateout("rdi") instruction_meter,
+                inlateout("r10") &registers => _,
+                inlateout("r11") self.pc_section[target_pc] => _,
+                lateout("rax") _, lateout("rsi") _, lateout("rdx") _, lateout("rcx") _, lateout("r8") _,
+                lateout("r9") _, lateout("r12") _, lateout("r13") _, lateout("r14") _, lateout("r15") _,
+                // lateout("rbp") _, lateout("rbx") _,
+            );
+            instruction_meter
+        }
+    }
+
+    pub fn machine_code_length(&self) -> usize {
+        self.text_section.len()
+    }
+
     pub fn mem_size(&self) -> usize {
         let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
         let code_size = round_to_page_size(self.text_section.len(), self.page_size);
@@ -131,7 +183,7 @@ impl JitProgramSections {
     }
 }
 
-impl Drop for JitProgramSections {
+impl Drop for JitProgram {
     fn drop(&mut self) {
         let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
         let code_size = round_to_page_size(self.text_section.len(), self.page_size);
@@ -144,45 +196,15 @@ impl Drop for JitProgramSections {
     }
 }
 
-/// eBPF JIT-compiled program
-pub struct JitProgram<C: ContextObject> {
-    /// Holds and manages the protected memory
-    sections: JitProgramSections,
-    /// Call this to execute the compiled code
-    pub main: unsafe fn(&mut ProgramResult, &mut MemoryMapping, &mut C) -> i64,
-}
-
-impl<C: ContextObject> Debug for JitProgram<C> {
+impl Debug for JitProgram {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.write_fmt(format_args!("JitProgram {:?}", &self.main as *const _))
+        fmt.write_fmt(format_args!("JitProgram {:?}", self as *const _))
     }
 }
 
-impl<C: ContextObject> PartialEq for JitProgram<C> {
+impl PartialEq for JitProgram {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.main as *const u8, other.main as *const u8)
-    }
-}
-
-impl<C: ContextObject> JitProgram<C> {
-    pub fn new(executable: &Executable<C>) -> Result<Self, EbpfError> {
-        let program = executable.get_text_bytes().1;
-        let mut jit = JitCompiler::new(program, executable.get_config())?;
-        jit.compile::<C>(executable)?;
-        let main = unsafe { mem::transmute(jit.result.text_section.as_ptr()) };
-        Ok(Self {
-            sections: jit.result,
-            main,
-        })
-    }
-
-    pub fn mem_size(&self) -> usize {
-        mem::size_of::<Self>() +
-        self.sections.mem_size()
-    }
-
-    pub fn machine_code_length(&self) -> usize {
-        self.sections.text_section.len()
+        std::ptr::eq(self as *const _, other as *const _)
     }
 }
 
@@ -368,21 +390,20 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 
 /// Indices of slots inside RuntimeEnvironment
 enum RuntimeEnvironmentSlot {
-    LastSavedRegister = 5,
-    CallDepth = 6,
-    FramePointer = 7,
-    StackPointer = 8,
-    ProgramResultPointer = 9,
-    ContextObjectPointer = 10,
-    PreviousInstructionMeter = 11,
-    StopwatchNumerator = 12,
-    StopwatchDenominator = 13,
-    MemoryMapping = 14,
-    _Padding = 15,
+    HostStackPointer = 0,
+    CallDepth = 1,
+    FramePointer = 2,
+    StackPointer = 3,
+    ProgramResultPointer = 4,
+    ContextObjectPointer = 5,
+    PreviousInstructionMeter = 6,
+    StopwatchNumerator = 7,
+    StopwatchDenominator = 8,
+    MemoryMapping = 9,
 }
 
 fn slot_on_environment_stack(jit: &JitCompiler, slot: RuntimeEnvironmentSlot) -> i32 {
-    -8 * (slot as i32 + jit.config.runtime_environment_key)
+    8 * (slot as i32 - jit.config.runtime_environment_key)
 }
 
 #[allow(dead_code)]
@@ -549,7 +570,7 @@ fn emit_conditional_branch_imm(jit: &mut JitCompiler, op: u8, bitwise: bool, imm
 enum Value {
     Register(u8),
     RegisterIndirect(u8, i32, bool),
-    // RegisterPlusConstant32(u8, i32, bool),
+    RegisterPlusConstant32(u8, i32, bool),
     RegisterPlusConstant64(u8, i64, bool),
     Constant64(i64, bool),
 }
@@ -646,7 +667,7 @@ fn emit_rust_call(jit: &mut JitCompiler, dst: Value, arguments: &[Argument], res
                     emit_ins(jit, X86Instruction::load(OperandSize::S64, reg, dst, X86IndirectAccess::Offset(offset)));
                 }
             },
-            /*Value::RegisterPlusConstant32(reg, offset, user_provided) => {
+            Value::RegisterPlusConstant32(reg, offset, user_provided) => {
                 debug_assert!(!user_provided);
                 if is_stack_argument {
                     emit_ins(jit, X86Instruction::push(reg, None));
@@ -654,7 +675,7 @@ fn emit_rust_call(jit: &mut JitCompiler, dst: Value, arguments: &[Argument], res
                 } else {
                     emit_ins(jit, X86Instruction::lea(OperandSize::S64, reg, dst, Some(X86IndirectAccess::Offset(offset))));
                 }
-            },*/
+            },
             Value::RegisterPlusConstant64(reg, offset, user_provided) => {
                 debug_assert!(!user_provided);
                 if is_stack_argument {
@@ -872,7 +893,7 @@ struct Jump {
 }
 
 pub struct JitCompiler {
-    result: JitProgramSections,
+    pub result: JitProgram,
     text_section_jumps: Vec<Jump>,
     offset_in_text_section: usize,
     pc: usize,
@@ -918,8 +939,8 @@ impl std::fmt::Debug for JitCompiler {
 }
 
 impl JitCompiler {
-    // Arguments are unused on windows
-    fn new(program: &[u8], config: &Config) -> Result<Self, EbpfError> {
+    /// Constructs a new compiler and allocates memory for the compilation output
+    pub fn new(program: &[u8], config: &Config) -> Result<Self, EbpfError> {
         #[cfg(target_os = "windows")]
         {
             let _ = program;
@@ -951,11 +972,10 @@ impl JitCompiler {
         if config.instruction_meter_checkpoint_distance != 0 {
             code_length_estimate += pc / config.instruction_meter_checkpoint_distance * MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT;
         }
-        let result = JitProgramSections::new(pc, code_length_estimate)?;
-
+        
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).unwrap();
         Ok(Self {
-            result,
+            result: JitProgram::new(pc, code_length_estimate)?,
             text_section_jumps: vec![],
             offset_in_text_section: 0,
             pc: 0,
@@ -969,13 +989,13 @@ impl JitCompiler {
         })
     }
 
-    fn compile<C: ContextObject>(&mut self,
+    /// Compiles the given executable
+    pub fn compile<C: ContextObject>(&mut self,
             executable: &Executable<C>) -> Result<(), EbpfError> {
         let text_section_base = self.result.text_section.as_ptr();
         let (program_vm_addr, program) = executable.get_text_bytes();
         self.program_vm_addr = program_vm_addr;
 
-        self.generate_prologue::<C>(executable)?;
         self.generate_subroutines::<C>()?;
 
         while self.pc * ebpf::INSN_SIZE < program.len() {
@@ -1292,83 +1312,6 @@ impl JitCompiler {
         Ok(())
     }
 
-    fn generate_prologue<C: ContextObject>(&mut self, executable: &Executable<C>) -> Result<(), EbpfError> {
-        // Place the environment on the stack according to RuntimeEnvironmentSlot
-
-        // Save CALLEE_SAVED_REGISTERS
-        for reg in CALLEE_SAVED_REGISTERS.iter() {
-            emit_ins(self, X86Instruction::push(*reg, None));
-        }
-
-        // Initialize frame pointer
-        emit_ins(self, X86Instruction::mov(OperandSize::S64, RSP, RBP));
-        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, 8 * (CALLEE_SAVED_REGISTERS.len() as i64 - 1 + self.config.runtime_environment_key as i64), None));
-
-        // Initialize CallDepth to 0
-        emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], 0));
-        emit_ins(self, X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None));
-
-        // Initialize the BPF frame and stack pointers (FramePointer and StackPointer)
-        if self.config.dynamic_stack_frames {
-            // The stack is fully descending from MM_STACK_START + stack_size to MM_STACK_START
-            emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], MM_STACK_START as i64 + self.config.stack_size() as i64));
-            // Push FramePointer
-            emit_ins(self, X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None));
-            // Push StackPointer
-            emit_ins(self, X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None));
-        } else {
-            // The frames are ascending from MM_STACK_START to MM_STACK_START + stack_size. The stack within the frames is descending.
-            emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], MM_STACK_START as i64 + self.config.stack_frame_size as i64));
-            // Push FramePointer
-            emit_ins(self, X86Instruction::push(REGISTER_MAP[FRAME_PTR_REG], None));
-            // When using static frames StackPointer is not used
-            emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, 0));
-            emit_ins(self, X86Instruction::push(R11, None));
-        }
-
-        // Save pointer to optional typed return value
-        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
-
-        // Save ContextObject
-        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[2], None));
-
-        // Save initial value of context_object.get_remaining()
-        emit_rust_call(self, Value::Constant64(C::get_remaining as *const u8 as i64, false), &[
-            Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, RuntimeEnvironmentSlot::ContextObjectPointer), false) },
-        ], Some(ARGUMENT_REGISTERS[0]));
-        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[0], None));
-
-        // Initialize stop watch
-        emit_ins(self, X86Instruction::alu(OperandSize::S64, 0x31, R11, R11, 0, None)); // R11 ^= R11;
-        emit_ins(self, X86Instruction::push(R11, None));
-        emit_ins(self, X86Instruction::push(R11, None));
-
-        // Save MemoryMapping
-        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[1], None));
-
-        // Padding / unused
-        emit_ins(self, X86Instruction::push(ARGUMENT_REGISTERS[3], None));
-
-        // Zero BPF registers
-        for reg in REGISTER_MAP.iter() {
-            if *reg != REGISTER_MAP[1] && *reg != REGISTER_MAP[FRAME_PTR_REG] {
-                emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, *reg, 0));
-            }
-        }
-        emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[1], ebpf::MM_INPUT_START as i64));
-
-        // Jump to entry point
-        let entry = executable.get_entrypoint_instruction_offset();
-        if self.config.enable_instruction_meter {
-            emit_profile_instruction_count(self, Some(entry + 1));
-        }
-        emit_ins(self, X86Instruction::load_immediate(OperandSize::S64, R11, entry as i64));
-        let jump_offset = self.relative_to_target_pc(entry, 5);
-        emit_ins(self, X86Instruction::jump_immediate(jump_offset));
-
-        Ok(())
-    }
-
     fn generate_subroutines<C: ContextObject>(&mut self) -> Result<(), EbpfError> {
         // Epilogue
         self.set_anchor(ANCHOR_EPILOGUE);
@@ -1382,14 +1325,8 @@ impl JitCompiler {
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, RuntimeEnvironmentSlot::StopwatchNumerator), false) },
             ], None);
         }
-        // Store instruction_meter in RAX
-        emit_ins(self, X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], RAX));
-        // Restore stack pointer in case the BPF stack was used
-        emit_ins(self, X86Instruction::lea(OperandSize::S64, RBP, RSP, Some(X86IndirectAccess::Offset(slot_on_environment_stack(self, RuntimeEnvironmentSlot::LastSavedRegister)))));
-        // Restore registers
-        for reg in CALLEE_SAVED_REGISTERS.iter().rev() {
-            emit_ins(self, X86Instruction::pop(*reg));
-        }
+        // Restore stack pointer in case we did not exit gracefully
+        emit_ins(self, X86Instruction::load(OperandSize::S64, RBP, RSP, X86IndirectAccess::Offset(slot_on_environment_stack(self, RuntimeEnvironmentSlot::HostStackPointer))));
         emit_ins(self, X86Instruction::return_near());
 
         // Routine for instruction tracing
@@ -1494,7 +1431,7 @@ impl JitCompiler {
         }
         emit_rust_call(self, Value::Register(R11), &[
             Argument { index: 7, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, RuntimeEnvironmentSlot::ProgramResultPointer), false) },
-            Argument { index: 6, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, RuntimeEnvironmentSlot::MemoryMapping), false) },
+            Argument { index: 6, value: Value::RegisterPlusConstant32(RBP, slot_on_environment_stack(self, RuntimeEnvironmentSlot::MemoryMapping), false) },
             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
             Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
             Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
@@ -1604,7 +1541,7 @@ impl JitCompiler {
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
-                Argument { index: 1, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, RuntimeEnvironmentSlot::MemoryMapping), false) },
+                Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, slot_on_environment_stack(self, RuntimeEnvironmentSlot::MemoryMapping), false) },
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, slot_on_environment_stack(self, RuntimeEnvironmentSlot::ProgramResultPointer), false) }, // Pointer to optional typed return value
             ], None);
 
