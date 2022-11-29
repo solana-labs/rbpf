@@ -1,5 +1,5 @@
 #![allow(clippy::integer_arithmetic)]
-use crate::jit::{emit, emit_variable_length, JitCompiler, OperandSize};
+use crate::jit::{JitCompiler, OperandSize};
 
 pub const RAX: u8 = 0;
 pub const RCX: u8 = 1;
@@ -150,29 +150,29 @@ impl X86Instruction {
             }
         }
         if matches!(self.size, OperandSize::S16) {
-            emit::<u8>(jit, 0x66);
+            jit.emit::<u8>(0x66);
         }
         let rex =
             ((rex.w as u8) << 3) | ((rex.r as u8) << 2) | ((rex.x as u8) << 1) | (rex.b as u8);
         if rex != 0 {
-            emit::<u8>(jit, 0x40 | rex);
+            jit.emit::<u8>(0x40 | rex);
         }
         match self.opcode_escape_sequence {
-            1 => emit::<u8>(jit, 0x0f),
-            2 => emit::<u16>(jit, 0x0f38),
-            3 => emit::<u16>(jit, 0x0f3a),
+            1 => jit.emit::<u8>(0x0f),
+            2 => jit.emit::<u16>(0x0f38),
+            3 => jit.emit::<u16>(0x0f3a),
             _ => {}
         }
-        emit::<u8>(jit, self.opcode);
+        jit.emit::<u8>(self.opcode);
         if self.modrm {
-            emit::<u8>(jit, (modrm.mode << 6) | (modrm.r << 3) | modrm.m);
+            jit.emit::<u8>((modrm.mode << 6) | (modrm.r << 3) | modrm.m);
             let sib = (sib.scale << 6) | (sib.index << 3) | sib.base;
             if sib != 0 {
-                emit::<u8>(jit, sib);
+                jit.emit::<u8>(sib);
             }
-            emit_variable_length(jit, displacement_size, displacement as u64);
+            jit.emit_variable_length(displacement_size, displacement as u64);
         }
-        emit_variable_length(jit, self.immediate_size, self.immediate as u64);
+        jit.emit_variable_length(self.immediate_size, self.immediate as u64);
     }
 
     /// Arithmetic or logic
