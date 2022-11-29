@@ -13,7 +13,7 @@
 //! Virtual machine for eBPF programs.
 
 use crate::{
-    call_frames::CallFrames,
+    aligned_memory::AlignedMemory,
     disassembler::disassemble_instruction,
     ebpf,
     elf::Executable,
@@ -458,6 +458,17 @@ impl DynamicAnalysis {
     }
 }
 
+/// A call frame used for function calls inside the Interpreter
+#[derive(Clone, Default)]
+pub struct CallFrame {
+    /// The caller saved registers
+    pub caller_saved_registers: [u64; ebpf::SCRATCH_REGS],
+    /// The callers frame pointer
+    pub frame_pointer: u64,
+    /// The target_pc of the exit instruction which returns back to the caller
+    pub target_pc: usize,
+}
+
 /// Runtime state
 // Keep changes here in sync with RuntimeEnvironmentSlot
 #[repr(C)]
@@ -490,6 +501,8 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
     pub stopwatch_denominator: u64,
     /// MemoryMapping inlined
     pub memory_mapping: MemoryMapping<'a>,
+    /// Stack of CallFrames used by the Interpreter
+    pub call_frames: Vec<CallFrame>,
 }
 
 /// A virtual machine to run eBPF programs.
@@ -521,7 +534,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// ```
 pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
     pub(crate) verified_executable: &'a VerifiedExecutable<V, C>,
-    pub(crate) stack: CallFrames<'a>,
+    _stack: AlignedMemory<{ ebpf::HOST_ALIGN }>,
     /// Runtime state
     pub env: RuntimeEnvironment<'a, C>,
 }
@@ -536,18 +549,25 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     ) -> Result<EbpfVm<'a, V, C>, EbpfError> {
         let executable = verified_executable.get_executable();
         let config = executable.get_config();
-        let mut stack = CallFrames::new(config);
-        // Initialize the BPF frame and stack pointers (FramePointer and StackPointer)
-        let stack_pointer = if config.dynamic_stack_frames {
-            // The stack is fully descending from MM_STACK_START + stack_size to MM_STACK_START
-            ebpf::MM_STACK_START + config.stack_size() as u64
+        let mut stack = AlignedMemory::zero_filled(config.stack_size());
+        let stack_pointer = ebpf::MM_STACK_START.saturating_add(if config.dynamic_stack_frames {
+            // the stack is fully descending, frames start as empty and change size anytime r11 is modified
+            stack.len()
         } else {
-            // The frames are ascending from MM_STACK_START to MM_STACK_START + stack_size. The stack within the frames is descending.
-            ebpf::MM_STACK_START + config.stack_frame_size as u64
-        };
+            // within a frame the stack grows down, but frames are ascending
+            config.stack_frame_size
+        } as u64);
         let regions: Vec<MemoryRegion> = vec![
             verified_executable.get_executable().get_ro_region(),
-            stack.get_memory_region(),
+            MemoryRegion::new_writable_gapped(
+                stack.as_slice_mut(),
+                ebpf::MM_STACK_START,
+                if !config.dynamic_stack_frames && config.enable_stack_frame_gaps {
+                    config.stack_frame_size as u64
+                } else {
+                    0
+                },
+            ),
             MemoryRegion::new_writable(heap_region, ebpf::MM_HEAP_START),
         ]
         .into_iter()
@@ -555,7 +575,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         .collect();
         let vm = EbpfVm {
             verified_executable,
-            stack,
+            _stack: stack,
             env: RuntimeEnvironment {
                 host_stack_pointer: std::ptr::null_mut(),
                 call_depth: 0,
@@ -567,6 +587,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                 stopwatch_numerator: 0,
                 stopwatch_denominator: 0,
                 memory_mapping: MemoryMapping::new(regions, config)?,
+                call_frames: vec![CallFrame::default(); config.max_call_depth],
             },
         };
         Ok(vm)

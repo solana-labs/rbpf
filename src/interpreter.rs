@@ -18,7 +18,7 @@ use crate::{
     error::EbpfError,
     memory_region::AccessType,
     verifier::Verifier,
-    vm::{ContextObject, EbpfVm, ProgramResult},
+    vm::{Config, ContextObject, EbpfVm, ProgramResult},
 };
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
@@ -110,7 +110,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             0,
             0,
             0,
-            vm.stack.get_frame_ptr(),
+            vm.env.frame_pointer,
         ];
         let pc = executable.get_entrypoint_instruction_offset();
         Ok(Self {
@@ -155,6 +155,41 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 .get_text_section_offset()
     }
 
+    fn push_frame(&mut self, config: &Config) -> Result<(), EbpfError> {
+        let frame = &mut self.vm.env.call_frames[self.vm.env.call_depth as usize];
+        frame.caller_saved_registers.copy_from_slice(
+            &self.reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
+        );
+        frame.frame_pointer = self.reg[ebpf::FRAME_PTR_REG];
+        frame.target_pc = self.pc;
+
+        self.vm.env.call_depth += 1;
+        if self.vm.env.call_depth as usize == config.max_call_depth {
+            return Err(EbpfError::CallDepthExceeded(
+                self.pc + ebpf::ELF_INSN_DUMP_OFFSET - 1,
+                config.max_call_depth,
+            ));
+        }
+
+        if config.dynamic_stack_frames {
+            // When dynamic frames are on, the next frame starts at the end of the current frame
+            self.vm.env.frame_pointer = self.vm.env.stack_pointer;
+        } else {
+            // With fixed frames we start the new frame at the next fixed offset
+            let stack_frame_size =
+                config.stack_frame_size * if config.enable_stack_frame_gaps { 2 } else { 1 };
+            self.vm.env.frame_pointer = self
+                .vm
+                .env
+                .frame_pointer
+                .overflowing_add(stack_frame_size as u64)
+                .0;
+        }
+        self.reg[ebpf::FRAME_PTR_REG] = self.vm.env.frame_pointer;
+
+        Ok(())
+    }
+
     /// Advances the interpreter state by one instruction
     #[rustfmt::skip]
     pub fn step(&mut self) -> Result<Option<u64>, EbpfError> {
@@ -183,9 +218,15 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
 
         match insn.opc {
             _ if dst == STACK_PTR_REG && config.dynamic_stack_frames => {
+                // Let the stack overflow. For legitimate programs, this is a nearly
+                // impossible condition to hit since programs are metered and we already
+                // enforce a maximum call depth. For programs that intentionally mess
+                // around with the stack pointer, MemoryRegion::map will return
+                // InvalidVirtualAddress(stack_ptr) once an invalid stack address is
+                // accessed.
                 match insn.opc {
-                    ebpf::SUB64_IMM => self.vm.stack.resize_stack(-insn.imm),
-                    ebpf::ADD64_IMM => self.vm.stack.resize_stack(insn.imm),
+                    ebpf::SUB64_IMM => { self.vm.env.stack_pointer = self.vm.env.stack_pointer.overflowing_add(-insn.imm as u64).0; }
+                    ebpf::ADD64_IMM => { self.vm.env.stack_pointer = self.vm.env.stack_pointer.overflowing_add(insn.imm as u64).0; }
                     _ => {
                         #[cfg(debug_assertions)]
                         unreachable!("unexpected insn on r11")
@@ -417,8 +458,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
 
             ebpf::CALL_REG   => {
                 let target_address = self.reg[insn.imm as usize];
-                self.reg[ebpf::FRAME_PTR_REG] =
-                    self.vm.stack.push(&self.reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], self.pc)?;
+                self.push_frame(config)?;
                 if target_address < self.program_vm_addr {
                     return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
                 }
@@ -474,8 +514,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                         resolved = true;
 
                         // make BPF to BPF call
-                        self.reg[ebpf::FRAME_PTR_REG] =
-                            self.vm.stack.push(&self.reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS], self.pc)?;
+                        self.push_frame(config)?;
                         self.pc = self.check_pc(pc, target_pc)?;
                     }
                 }
@@ -486,19 +525,18 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             }
 
             ebpf::EXIT       => {
-                match self.vm.stack.pop() {
-                    Ok((saved_reg, frame_ptr, ptr)) => {
-                        // Return from BPF to BPF call
-                        self.reg[ebpf::FIRST_SCRATCH_REG
-                            ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
-                            .copy_from_slice(&saved_reg);
-                        self.reg[ebpf::FRAME_PTR_REG] = frame_ptr;
-                        self.pc = self.check_pc(pc, ptr)?;
-                    }
-                    _ => {
-                        return Ok(Some(self.reg[0]));
-                    }
+                if self.vm.env.call_depth == 0 {
+                    return Ok(Some(self.reg[0]));
                 }
+                // Return from BPF to BPF call
+                self.vm.env.call_depth -= 1;
+                let frame = &self.vm.env.call_frames[self.vm.env.call_depth as usize];
+                self.pc = self.check_pc(pc, frame.target_pc)?;
+                self.reg[ebpf::FRAME_PTR_REG] = frame.frame_pointer;
+                self.vm.env.frame_pointer = self.reg[ebpf::FRAME_PTR_REG];
+                self.reg[ebpf::FIRST_SCRATCH_REG
+                    ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
+                    .copy_from_slice(&frame.caller_saved_registers);
             }
             _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
         }
