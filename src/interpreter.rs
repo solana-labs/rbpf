@@ -142,21 +142,13 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             );
         }
 
-        if config.dynamic_stack_frames {
-            // When dynamic frames are on, the next frame starts at the end of the current frame
-            self.vm.env.frame_pointer = self.vm.env.stack_pointer;
-        } else {
+        if !config.dynamic_stack_frames {
             // With fixed frames we start the new frame at the next fixed offset
             let stack_frame_size =
                 config.stack_frame_size * if config.enable_stack_frame_gaps { 2 } else { 1 };
-            self.vm.env.frame_pointer = self
-                .vm
-                .env
-                .frame_pointer
-                .overflowing_add(stack_frame_size as u64)
-                .0;
+            self.vm.env.stack_pointer += stack_frame_size as u64;
         }
-        self.reg[ebpf::FRAME_PTR_REG] = self.vm.env.frame_pointer;
+        self.reg[ebpf::FRAME_PTR_REG] = self.vm.env.stack_pointer;
 
         true
     }
@@ -513,10 +505,14 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 let frame = &self.vm.env.call_frames[self.vm.env.call_depth as usize];
                 self.pc = frame.target_pc;
                 self.reg[ebpf::FRAME_PTR_REG] = frame.frame_pointer;
-                self.vm.env.frame_pointer = self.reg[ebpf::FRAME_PTR_REG];
                 self.reg[ebpf::FIRST_SCRATCH_REG
                     ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                     .copy_from_slice(&frame.caller_saved_registers);
+                if !config.dynamic_stack_frames {
+                    let stack_frame_size =
+                        config.stack_frame_size * if config.enable_stack_frame_gaps { 2 } else { 1 };
+                    self.vm.env.stack_pointer -= stack_frame_size as u64;
+                }
                 if !self.check_pc(pc) {
                     return false;
                 }
