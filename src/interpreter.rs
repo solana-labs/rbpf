@@ -31,11 +31,18 @@ macro_rules! translate_memory_access {
             $pc + ebpf::ELF_INSN_DUMP_OFFSET,
         ) {
             ProgramResult::Ok(host_addr) => host_addr as *mut $T,
-            ProgramResult::Err(err) => {
-                return Err(err);
-            }
+            ProgramResult::Err(err) => throw_error!($self, err),
         }
     };
+}
+
+macro_rules! throw_error {
+    ($self:expr, $err:expr) => {{
+        unsafe {
+            *$self.vm.env.program_result_pointer = ProgramResult::Err($err);
+        }
+        return false;
+    }};
 }
 
 /// State of the interpreter during a debugging session
@@ -88,21 +95,22 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
         })
     }
 
-    fn check_pc(&self, current_pc: usize, target_pc: usize) -> Result<usize, EbpfError> {
-        let offset =
-            target_pc
-                .checked_mul(ebpf::INSN_SIZE)
-                .ok_or(EbpfError::CallOutsideTextSegment(
+    fn check_pc(&self, current_pc: usize, target_pc: usize) -> bool {
+        if target_pc
+            .checked_mul(ebpf::INSN_SIZE)
+            .and_then(|offset| self.program.get(offset..offset + ebpf::INSN_SIZE))
+            .is_some()
+        {
+            true
+        } else {
+            throw_error!(
+                self,
+                EbpfError::CallOutsideTextSegment(
                     current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
                     self.program_vm_addr + (target_pc * ebpf::INSN_SIZE) as u64,
-                ))?;
-        let _ = self.program.get(offset..offset + ebpf::INSN_SIZE).ok_or(
-            EbpfError::CallOutsideTextSegment(
-                current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                self.program_vm_addr + (target_pc * ebpf::INSN_SIZE) as u64,
-            ),
-        )?;
-        Ok(target_pc)
+                )
+            );
+        }
     }
 
     /// Translate between the virtual machines' pc value and the pc value used by the debugger
@@ -116,7 +124,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 .get_text_section_offset()
     }
 
-    fn push_frame(&mut self, config: &Config) -> Result<(), EbpfError> {
+    fn push_frame(&mut self, config: &Config) -> bool {
         let frame = &mut self.vm.env.call_frames[self.vm.env.call_depth as usize];
         frame.caller_saved_registers.copy_from_slice(
             &self.reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
@@ -126,10 +134,13 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
 
         self.vm.env.call_depth += 1;
         if self.vm.env.call_depth as usize == config.max_call_depth {
-            return Err(EbpfError::CallDepthExceeded(
-                self.pc + ebpf::ELF_INSN_DUMP_OFFSET - 1,
-                config.max_call_depth,
-            ));
+            throw_error!(
+                self,
+                EbpfError::CallDepthExceeded(
+                    self.pc + ebpf::ELF_INSN_DUMP_OFFSET - 1,
+                    config.max_call_depth,
+                )
+            );
         }
 
         if config.dynamic_stack_frames {
@@ -148,12 +159,14 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
         }
         self.reg[ebpf::FRAME_PTR_REG] = self.vm.env.frame_pointer;
 
-        Ok(())
+        true
     }
 
     /// Advances the interpreter state by one instruction
+    ///
+    /// Returns false if the program terminated or threw an error.
     #[rustfmt::skip]
-    pub fn step(&mut self) -> Result<Option<u64>, EbpfError> {
+    pub fn step(&mut self) -> bool {
         let executable = self.vm.verified_executable.get_executable();
         let config = &executable.get_config();
 
@@ -162,9 +175,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
         let pc = self.pc;
         self.pc += instruction_width;
         if self.pc * ebpf::INSN_SIZE > self.program.len() {
-            return Err(EbpfError::ExecutionOverrun(
-                pc + ebpf::ELF_INSN_DUMP_OFFSET,
-            ));
+            throw_error!(self, EbpfError::ExecutionOverrun(pc + ebpf::ELF_INSN_DUMP_OFFSET));
         }
         let mut insn = ebpf::get_insn_unchecked(self.program, pc);
         let dst = insn.dst as usize;
@@ -278,22 +289,22 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             ebpf::DIV32_IMM  => self.reg[dst] = (self.reg[dst] as u32             / insn.imm as u32)      as u64,
             ebpf::DIV32_REG  => {
                 if self.reg[src] as u32 == 0 {
-                    return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
                                 self.reg[dst] = (self.reg[dst] as u32             / self.reg[src] as u32) as u64;
             },
             ebpf::SDIV32_IMM  => {
                 if self.reg[dst] as i32 == i32::MIN && insn.imm == -1 {
-                    return Err(EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
                                 self.reg[dst] = (self.reg[dst] as i32             / insn.imm as i32)      as u64;
             }
             ebpf::SDIV32_REG  => {
                 if self.reg[src] as i32 == 0 {
-                    return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
                 if self.reg[dst] as i32 == i32::MIN && self.reg[src] as i32 == -1 {
-                    return Err(EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
                                 self.reg[dst] = (self.reg[dst] as i32             / self.reg[src] as i32) as u64;
             },
@@ -309,7 +320,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             ebpf::MOD32_IMM  => self.reg[dst] = (self.reg[dst] as u32             % insn.imm as u32)      as u64,
             ebpf::MOD32_REG  => {
                 if self.reg[src] as u32 == 0 {
-                    return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
                                 self.reg[dst] = (self.reg[dst] as u32             % self.reg[src] as u32) as u64;
             },
@@ -325,7 +336,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                     32 => (self.reg[dst] as u32).to_le() as u64,
                     64 =>  self.reg[dst].to_le(),
                     _  => {
-                        return Err(EbpfError::InvalidInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                        throw_error!(self, EbpfError::InvalidInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                 };
             },
@@ -335,7 +346,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                     32 => (self.reg[dst] as u32).to_be() as u64,
                     64 =>  self.reg[dst].to_be(),
                     _  => {
-                        return Err(EbpfError::InvalidInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                        throw_error!(self, EbpfError::InvalidInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
                 };
             },
@@ -350,22 +361,22 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             ebpf::DIV64_IMM  => self.reg[dst] /= insn.imm as u64,
             ebpf::DIV64_REG  => {
                 if self.reg[src] == 0 {
-                    return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
                                 self.reg[dst] /= self.reg[src];
             },
             ebpf::SDIV64_IMM => {
                 if self.reg[dst] as i64 == i64::MIN && insn.imm == -1 {
-                    return Err(EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
                                 self.reg[dst] = (self.reg[dst] as i64 / insn.imm)                          as u64
             }
             ebpf::SDIV64_REG => {
                 if self.reg[src] == 0 {
-                    return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
                 if self.reg[dst] as i64 == i64::MIN && self.reg[src] as i64 == -1 {
-                    return Err(EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::DivideOverflow(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
                                 self.reg[dst] = (self.reg[dst] as i64 / self.reg[src] as i64)             as u64;
             },
@@ -381,7 +392,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             ebpf::MOD64_IMM  => self.reg[dst] %= insn.imm as u64,
             ebpf::MOD64_REG  => {
                 if self.reg[src] == 0 {
-                    return Err(EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::DivideByZero(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
                                 self.reg[dst] %= self.reg[src];
             },
@@ -419,15 +430,20 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
 
             ebpf::CALL_REG   => {
                 let target_address = self.reg[insn.imm as usize];
-                self.push_frame(config)?;
+                if !self.push_frame(config) {
+                    return false;
+                }
                 if target_address < self.program_vm_addr {
-                    return Err(EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
+                    throw_error!(self, EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
                 }
                 let target_pc = (target_address - self.program_vm_addr) as usize / ebpf::INSN_SIZE;
-                self.pc = self.check_pc(pc, target_pc)?;
+                if !self.check_pc(pc, target_pc) {
+                    return false;
+                }
+                self.pc = target_pc;
                 if config.static_syscalls && executable.lookup_bpf_function(target_pc as u32).is_none() {
                     self.due_insn_count += 1;
-                    return Err(EbpfError::UnsupportedInstruction(target_pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::UnsupportedInstruction(target_pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
             },
 
@@ -449,7 +465,6 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                             self.vm.env.context_object_pointer.consume(self.due_insn_count);
                         }
                         self.due_insn_count = 0;
-                        let mut result = ProgramResult::Ok(0);
                         syscall(
                             self.vm.env.context_object_pointer,
                             self.reg[1],
@@ -458,11 +473,11 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                             self.reg[4],
                             self.reg[5],
                             &mut self.vm.env.memory_mapping,
-                            &mut result,
+                            unsafe { &mut *self.vm.env.program_result_pointer },
                         );
-                        self.reg[0] = match result {
-                            ProgramResult::Ok(value) => value,
-                            ProgramResult::Err(err) => return Err(err),
+                        self.reg[0] = match unsafe { &*self.vm.env.program_result_pointer } {
+                            ProgramResult::Ok(value) => *value,
+                            ProgramResult::Err(_err) => return false,
                         };
                         if config.enable_instruction_meter {
                             self.vm.env.previous_instruction_meter = self.vm.env.context_object_pointer.get_remaining();
@@ -475,38 +490,47 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                         resolved = true;
 
                         // make BPF to BPF call
-                        self.push_frame(config)?;
-                        self.pc = self.check_pc(pc, target_pc)?;
+                        if !self.push_frame(config) {
+                            return false;
+                        }
+                        if !self.check_pc(pc, target_pc) {
+                            return false;
+                        }
+                        self.pc = target_pc;
                     }
                 }
 
                 if !resolved {
-                    return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
             }
 
             ebpf::EXIT       => {
                 if self.vm.env.call_depth == 0 {
-                    return Ok(Some(self.reg[0]));
+                    unsafe { *self.vm.env.program_result_pointer = ProgramResult::Ok(self.reg[0]) };
+                    return false;
                 }
                 // Return from BPF to BPF call
                 self.vm.env.call_depth -= 1;
                 let frame = &self.vm.env.call_frames[self.vm.env.call_depth as usize];
-                self.pc = self.check_pc(pc, frame.target_pc)?;
+                if !self.check_pc(pc, frame.target_pc) {
+                    return false;
+                }
+                self.pc = frame.target_pc;
                 self.reg[ebpf::FRAME_PTR_REG] = frame.frame_pointer;
                 self.vm.env.frame_pointer = self.reg[ebpf::FRAME_PTR_REG];
                 self.reg[ebpf::FIRST_SCRATCH_REG
                     ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                     .copy_from_slice(&frame.caller_saved_registers);
             }
-            _ => return Err(EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
+            _ => throw_error!(self, EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
         }
 
         if config.enable_instruction_meter && self.due_insn_count >= self.vm.env.previous_instruction_meter {
             // Use `pc + instruction_width` instead of `self.pc` here because jumps and calls don't continue at the end of this instruction
-            return Err(EbpfError::ExceededMaxInstructions(pc + instruction_width + ebpf::ELF_INSN_DUMP_OFFSET, 0));
+            throw_error!(self, EbpfError::ExceededMaxInstructions(pc + instruction_width + ebpf::ELF_INSN_DUMP_OFFSET, 0));
         }
 
-        Ok(None)
+        true
     }
 }

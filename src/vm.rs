@@ -609,29 +609,19 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         } else {
             0
         };
+        let mut result = ProgramResult::Ok(0);
+        self.env.program_result_pointer = &mut result;
         self.env.previous_instruction_meter = initial_insn_count;
-        let (due_insn_count, result) = if interpreted {
-            let mut result = Ok(None);
+        let due_insn_count = if interpreted {
             let mut interpreter = match Interpreter::new(self, registers, target_pc) {
                 Ok(interpreter) => interpreter,
                 Err(error) => return (0, ProgramResult::Err(error)),
             };
-            while let Ok(None) = result {
-                result = interpreter.step();
-            }
-            (
-                interpreter.due_insn_count,
-                match result {
-                    Ok(None) => unreachable!(),
-                    Ok(Some(value)) => ProgramResult::Ok(value),
-                    Err(error) => ProgramResult::Err(error),
-                },
-            )
+            while interpreter.step() {}
+            interpreter.due_insn_count
         } else {
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             {
-                let mut result = ProgramResult::Ok(0);
-                self.env.program_result_pointer = &mut result;
                 let compiled_program = match executable
                     .get_compiled_program()
                     .ok_or(EbpfError::JitNotCompiled)
@@ -642,16 +632,15 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                 let instruction_meter_final = compiled_program
                     .invoke(config, &mut self.env, registers, target_pc)
                     .max(0) as u64;
-                (
-                    self.env
-                        .context_object_pointer
-                        .get_remaining()
-                        .saturating_sub(instruction_meter_final),
-                    result,
-                )
+                self.env
+                    .context_object_pointer
+                    .get_remaining()
+                    .saturating_sub(instruction_meter_final)
             }
             #[cfg(not(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64")))]
-            (0, ProgramResult::Err(EbpfError::JitNotCompiled))
+            {
+                return (0, ProgramResult::Err(EbpfError::JitNotCompiled));
+            }
         };
         let instruction_count = if config.enable_instruction_meter {
             self.env.context_object_pointer.consume(due_insn_count);
@@ -659,12 +648,9 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         } else {
             0
         };
-        let result = match result {
-            ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, _)) => {
-                ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count))
-            }
-            x => x,
-        };
+        if let ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, _)) = result {
+            result = ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count));
+        }
         (instruction_count, result)
     }
 }
