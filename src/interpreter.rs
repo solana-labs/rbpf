@@ -95,8 +95,9 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
         })
     }
 
-    fn check_pc(&self, current_pc: usize, target_pc: usize) -> bool {
-        if target_pc
+    fn check_pc(&self, current_pc: usize) -> bool {
+        if self
+            .pc
             .checked_mul(ebpf::INSN_SIZE)
             .and_then(|offset| self.program.get(offset..offset + ebpf::INSN_SIZE))
             .is_some()
@@ -107,7 +108,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 self,
                 EbpfError::CallOutsideTextSegment(
                     current_pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    self.program_vm_addr + (target_pc * ebpf::INSN_SIZE) as u64,
+                    self.program_vm_addr + (self.pc * ebpf::INSN_SIZE) as u64,
                 )
             );
         }
@@ -436,14 +437,13 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 if target_address < self.program_vm_addr {
                     throw_error!(self, EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
                 }
-                let target_pc = (target_address - self.program_vm_addr) as usize / ebpf::INSN_SIZE;
-                if !self.check_pc(pc, target_pc) {
+                self.pc = (target_address - self.program_vm_addr) as usize / ebpf::INSN_SIZE;
+                if !self.check_pc(pc) {
                     return false;
                 }
-                self.pc = target_pc;
-                if config.static_syscalls && executable.lookup_bpf_function(target_pc as u32).is_none() {
+                if config.static_syscalls && executable.lookup_bpf_function(self.pc as u32).is_none() {
                     self.due_insn_count += 1;
-                    throw_error!(self, EbpfError::UnsupportedInstruction(target_pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                    throw_error!(self, EbpfError::UnsupportedInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
             },
 
@@ -493,10 +493,10 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                         if !self.push_frame(config) {
                             return false;
                         }
-                        if !self.check_pc(pc, target_pc) {
+                        self.pc = target_pc;
+                        if !self.check_pc(pc) {
                             return false;
                         }
-                        self.pc = target_pc;
                     }
                 }
 
@@ -513,15 +513,15 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 // Return from BPF to BPF call
                 self.vm.env.call_depth -= 1;
                 let frame = &self.vm.env.call_frames[self.vm.env.call_depth as usize];
-                if !self.check_pc(pc, frame.target_pc) {
-                    return false;
-                }
                 self.pc = frame.target_pc;
                 self.reg[ebpf::FRAME_PTR_REG] = frame.frame_pointer;
                 self.vm.env.frame_pointer = self.reg[ebpf::FRAME_PTR_REG];
                 self.reg[ebpf::FIRST_SCRATCH_REG
                     ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                     .copy_from_slice(&frame.caller_saved_registers);
+                if !self.check_pc(pc) {
+                    return false;
+                }
             }
             _ => throw_error!(self, EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
         }
