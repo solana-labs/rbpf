@@ -29,6 +29,7 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
     mem,
+    sync::Arc,
 };
 
 /// Same as `Result` but provides a stable memory layout
@@ -284,7 +285,7 @@ impl<C: ContextObject> Executable<C> {
     pub fn from_elf(
         elf_bytes: &[u8],
         config: Config,
-        syscall_registry: SyscallRegistry<C>,
+        syscall_registry: Arc<SyscallRegistry<C>>,
     ) -> Result<Self, EbpfError> {
         let executable = Executable::load(config, elf_bytes, syscall_registry)?;
         Ok(executable)
@@ -293,7 +294,7 @@ impl<C: ContextObject> Executable<C> {
     pub fn from_text_bytes(
         text_bytes: &[u8],
         config: Config,
-        syscall_registry: SyscallRegistry<C>,
+        syscall_registry: Arc<SyscallRegistry<C>>,
         function_registry: FunctionRegistry,
     ) -> Result<Self, EbpfError> {
         Executable::new_from_text_bytes(config, text_bytes, syscall_registry, function_registry)
@@ -518,7 +519,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// ];
 ///
 /// let config = Config::default();
-/// let syscall_registry = SyscallRegistry::default();
+/// let syscall_registry = std::sync::Arc::new(SyscallRegistry::default());
 /// let function_registry = FunctionRegistry::default();
 /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
 /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);

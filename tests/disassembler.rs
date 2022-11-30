@@ -12,6 +12,7 @@ use solana_rbpf::{
     static_analysis::Analysis,
     vm::{Config, SyscallRegistry, TestContextObject},
 };
+use std::sync::Arc;
 
 // Using a macro to keep actual line numbers in failure output
 macro_rules! disasm {
@@ -22,7 +23,8 @@ macro_rules! disasm {
             ..Config::default()
         };
         let executable =
-            assemble::<TestContextObject>(src, config, SyscallRegistry::default()).unwrap();
+            assemble::<TestContextObject>(src, config, Arc::new(SyscallRegistry::default()))
+                .unwrap();
         let analysis = Analysis::from_executable(&executable).unwrap();
         let mut reasm = Vec::new();
         analysis.disassemble(&mut reasm).unwrap();

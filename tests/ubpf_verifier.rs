@@ -31,6 +31,7 @@ use solana_rbpf::{
         Config, EbpfVm, FunctionRegistry, SyscallRegistry, TestContextObject, VerifiedExecutable,
     },
 };
+use std::sync::Arc;
 use test_utils::TautologyVerifier;
 use thiserror::Error;
 
@@ -59,7 +60,7 @@ fn test_verifier_success() {
         mov32 r0, 0xBEE
         exit",
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
     )
     .unwrap();
     let verified_executable =
@@ -82,7 +83,7 @@ fn test_verifier_fail() {
         mov32 r0, 0xBEE
         exit",
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
     )
     .unwrap();
     let _verified_executable =
@@ -99,7 +100,7 @@ fn test_verifier_err_div_by_zero_imm() {
         div32 r0, 0
         exit",
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
     )
     .unwrap();
     let _verified_executable =
@@ -118,7 +119,7 @@ fn test_verifier_err_endian_size() {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -138,7 +139,7 @@ fn test_verifier_err_incomplete_lddw() {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -160,7 +161,7 @@ fn test_verifier_err_invalid_reg_dst() {
                 dynamic_stack_frames,
                 ..Config::default()
             },
-            SyscallRegistry::default(),
+            Arc::new(SyscallRegistry::default()),
         )
         .unwrap();
         let result =
@@ -187,7 +188,7 @@ fn test_verifier_err_invalid_reg_src() {
                 dynamic_stack_frames,
                 ..Config::default()
             },
-            SyscallRegistry::default(),
+            Arc::new(SyscallRegistry::default()),
         )
         .unwrap();
         let result =
@@ -213,7 +214,7 @@ fn test_verifier_resize_stack_ptr_success() {
             enable_stack_frame_gaps: false,
             ..Config::default()
         },
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
     )
     .unwrap();
     let _verified_executable =
@@ -230,7 +231,7 @@ fn test_verifier_err_jmp_lddw() {
         lddw r0, 0x1122334455667788
         exit",
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
     )
     .unwrap();
     let _verified_executable =
@@ -246,7 +247,7 @@ fn test_verifier_err_jmp_out() {
         ja +2
         exit",
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
     )
     .unwrap();
     let _verified_executable =
@@ -262,7 +263,7 @@ fn test_verifier_err_jmp_out_start() {
         ja -2
         exit",
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
     )
     .unwrap();
     let _verified_executable =
@@ -280,7 +281,7 @@ fn test_verifier_err_unknown_opcode() {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -297,7 +298,7 @@ fn test_verifier_err_write_r10() {
         mov r10, 1
         exit",
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
     )
     .unwrap();
     let _verified_executable =
@@ -333,9 +334,12 @@ fn test_verifier_err_all_shift_overflows() {
 
     for (overflowing_instruction, expected) in testcases {
         let assembly = format!("\n{}\nexit", overflowing_instruction);
-        let executable =
-            assemble::<TestContextObject>(&assembly, Config::default(), SyscallRegistry::default())
-                .unwrap();
+        let executable = assemble::<TestContextObject>(
+            &assembly,
+            Config::default(),
+            Arc::new(SyscallRegistry::default()),
+        )
+        .unwrap();
         let result =
             VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
                 .map_err(|err| format!("Executable constructor {:?}", err));
@@ -370,7 +374,7 @@ fn test_sdiv_disabled() {
                     enable_sdiv,
                     ..Config::default()
                 },
-                SyscallRegistry::default(),
+                Arc::new(SyscallRegistry::default()),
             )
             .unwrap();
             let result =

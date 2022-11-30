@@ -16,6 +16,7 @@ use solana_rbpf::{
         VerifiedExecutable,
     },
 };
+use std::sync::Arc;
 use test_utils::TautologyVerifier;
 
 use crate::common::ConfigTemplate;
@@ -49,7 +50,7 @@ fuzz_target!(|data: FuzzData| {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog.into_bytes(),
         config,
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
         function_registry,
     )
     .unwrap();

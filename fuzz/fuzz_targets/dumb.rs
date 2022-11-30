@@ -36,7 +36,7 @@ fuzz_target!(|data: DumbFuzzData| {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         &prog,
         config,
-        SyscallRegistry::default(),
+        std::sync::Arc::new(SyscallRegistry::default()),
         function_registry,
     )
     .unwrap();

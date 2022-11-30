@@ -1573,6 +1573,7 @@ mod tests {
         vm::{FunctionRegistry, SyscallRegistry, TestContextObject},
     };
     use byteorder::{ByteOrder, LittleEndian};
+    use std::sync::Arc;
 
     #[test]
     fn test_runtime_environment_slots() {
@@ -1628,7 +1629,7 @@ mod tests {
         Executable::<TestContextObject>::from_text_bytes(
             program,
             config,
-            syscall_registry,
+            Arc::new(syscall_registry),
             function_registry,
         )
         .unwrap()

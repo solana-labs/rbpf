@@ -9,7 +9,7 @@ use solana_rbpf::{
     verifier::RequisiteVerifier,
     vm::{Config, DynamicAnalysis, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable},
 };
-use std::{fs::File, io::Read, path::Path};
+use std::{fs::File, io::Read, path::Path, sync::Arc};
 
 fn main() {
     let matches = App::new("Solana RBPF CLI")
@@ -97,7 +97,7 @@ fn main() {
         enable_symbol_and_section_labels: true,
         ..Config::default()
     };
-    let syscall_registry = SyscallRegistry::default();
+    let syscall_registry = Arc::new(SyscallRegistry::default());
     let executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(Path::new(asm_file_name)).unwrap();

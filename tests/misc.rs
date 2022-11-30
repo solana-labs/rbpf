@@ -29,7 +29,7 @@ use solana_rbpf::{
     verifier::RequisiteVerifier,
     vm::{Config, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable},
 };
-use std::{fs::File, io::Read};
+use std::{fs::File, io::Read, sync::Arc};
 
 // The following two examples have been compiled from C with the following command:
 //
@@ -104,6 +104,15 @@ fn test_fuzz_execute() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
 
+    let mut syscall_registry = SyscallRegistry::default();
+    syscall_registry
+        .register_syscall_by_name(b"log", syscalls::bpf_syscall_string)
+        .unwrap();
+    syscall_registry
+        .register_syscall_by_name(b"log_64", syscalls::bpf_syscall_u64)
+        .unwrap();
+    let syscall_registry = Arc::new(syscall_registry);
+
     println!("mangle the whole file");
     fuzz(
         &elf,
@@ -112,17 +121,10 @@ fn test_fuzz_execute() {
         0..elf.len(),
         0..255,
         |bytes: &mut [u8]| {
-            let mut syscall_registry = SyscallRegistry::default();
-            syscall_registry
-                .register_syscall_by_name(b"log", syscalls::bpf_syscall_string)
-                .unwrap();
-            syscall_registry
-                .register_syscall_by_name(b"log_64", syscalls::bpf_syscall_u64)
-                .unwrap();
             if let Ok(executable) = Executable::<TestContextObject>::from_elf(
                 bytes,
                 Config::default(),
-                syscall_registry,
+                syscall_registry.clone(),
             ) {
                 if let Ok(verified_executable) = VerifiedExecutable::<
                     RequisiteVerifier,

@@ -28,7 +28,7 @@ use solana_rbpf::{
         TestContextObject, VerifiedExecutable,
     },
 };
-use std::{fs::File, io::Read};
+use std::{fs::File, io::Read, sync::Arc};
 use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 
 macro_rules! test_interpreter_and_jit {
@@ -124,6 +124,7 @@ macro_rules! test_interpreter_and_jit_asm {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function);)*
+            let syscall_registry = Arc::new(syscall_registry);
             let mut executable = assemble($source, $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $check);
         }
@@ -149,6 +150,7 @@ macro_rules! test_interpreter_and_jit_elf {
         {
             let mut syscall_registry = SyscallRegistry::default();
             $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function);)*
+            let syscall_registry = Arc::new(syscall_registry);
             let mut executable = Executable::<TestContextObject>::from_elf(&elf, $config, syscall_registry).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $check);
         }
@@ -2587,6 +2589,7 @@ fn test_err_mem_access_out_of_bound() {
     prog[0] = ebpf::LD_DW_IMM;
     prog[16] = ebpf::ST_B_IMM;
     prog[24] = ebpf::EXIT;
+    let syscall_registry = Arc::new(SyscallRegistry::default());
     for address in [0x2u64, 0x8002u64, 0x80000002u64, 0x8000000000000002u64] {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
@@ -2595,7 +2598,7 @@ fn test_err_mem_access_out_of_bound() {
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             &prog,
             config,
-            SyscallRegistry::default(),
+            syscall_registry.clone(),
             FunctionRegistry::default(),
         )
         .unwrap();
@@ -3105,7 +3108,7 @@ fn nested_vm_syscall(
             syscall nested_vm_syscall
             exit",
             Config::default(),
-            syscall_registry,
+            Arc::new(syscall_registry),
         )
         .unwrap();
         test_interpreter_and_jit!(
@@ -3246,12 +3249,11 @@ fn test_custom_entrypoint() {
         ..Config::default()
     };
     let mut syscall_registry = SyscallRegistry::default();
-    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::bpf_syscall_string);
-    let mut syscall_registry = SyscallRegistry::default();
     test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::bpf_syscall_u64);
     #[allow(unused_mut)]
     let mut executable =
-        Executable::<TestContextObject>::from_elf(&elf, config, syscall_registry).unwrap();
+        Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(syscall_registry))
+            .unwrap();
     test_interpreter_and_jit!(executable, [], TestContextObject::new(2), {
         |_vm, res: ProgramResult| res.unwrap() == 0
     });
@@ -3656,7 +3658,7 @@ fn test_err_unresolved_elf() {
         ..Config::default()
     };
     assert!(
-        matches!(Executable::<TestContextObject>::from_elf(&elf, config, syscall_registry), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
+        matches!(Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(syscall_registry)), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
     );
 }
 
@@ -4028,7 +4030,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         config,
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
         FunctionRegistry::default(),
     );
     let executable = if let Ok(executable) = executable {

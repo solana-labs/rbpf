@@ -21,7 +21,7 @@ use crate::{
     elf::{register_bpf_function, Executable},
     vm::{Config, ContextObject, FunctionRegistry, SyscallRegistry},
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum InstructionType {
@@ -191,7 +191,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///     neg64 r2
 ///     exit",
 ///     Config::default(),
-///     SyscallRegistry::default(),
+///     std::sync::Arc::new(SyscallRegistry::default()),
 /// ).unwrap();
 /// let program = executable.get_text_bytes().1;
 /// println!("{:?}", program);
@@ -217,7 +217,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 pub fn assemble<C: ContextObject>(
     src: &str,
     config: Config,
-    syscall_registry: SyscallRegistry<C>,
+    syscall_registry: Arc<SyscallRegistry<C>>,
 ) -> Result<Executable<C>, String> {
     fn resolve_label(
         insn_ptr: usize,

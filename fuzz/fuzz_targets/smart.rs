@@ -40,7 +40,7 @@ fuzz_target!(|data: FuzzData| {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog.into_bytes(),
         config,
-        SyscallRegistry::default(),
+        std::sync::Arc::new(SyscallRegistry::default()),
         function_registry,
     )
     .unwrap();

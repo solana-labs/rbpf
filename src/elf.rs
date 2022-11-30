@@ -33,6 +33,7 @@ use std::{
     mem,
     ops::Range,
     str,
+    sync::Arc,
 };
 
 /// Error definitions
@@ -280,7 +281,7 @@ pub struct Executable<C: ContextObject> {
     /// Syscall symbol map (hash, name)
     syscall_symbols: BTreeMap<u32, String>,
     /// Syscall resolution map
-    syscall_registry: SyscallRegistry<C>,
+    syscall_registry: Arc<SyscallRegistry<C>>,
     /// Compiled program and argument
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     compiled_program: Option<JitProgram<C>>,
@@ -376,7 +377,7 @@ impl<C: ContextObject> Executable<C> {
     pub fn new_from_text_bytes(
         config: Config,
         text_bytes: &[u8],
-        syscall_registry: SyscallRegistry<C>,
+        syscall_registry: Arc<SyscallRegistry<C>>,
         mut function_registry: FunctionRegistry,
     ) -> Result<Self, ElfError> {
         let elf_bytes = AlignedMemory::from_slice(text_bytes);
@@ -422,7 +423,7 @@ impl<C: ContextObject> Executable<C> {
     pub fn load(
         config: Config,
         bytes: &[u8],
-        syscall_registry: SyscallRegistry<C>,
+        syscall_registry: Arc<SyscallRegistry<C>>,
     ) -> Result<Self, ElfError> {
         if config.new_elf_parser {
             // The new parser creates references from the input byte slice, so
@@ -450,7 +451,7 @@ impl<C: ContextObject> Executable<C> {
         elf: &'a P,
         mut config: Config,
         bytes: &[u8],
-        syscall_registry: SyscallRegistry<C>,
+        syscall_registry: Arc<SyscallRegistry<C>>,
     ) -> Result<Self, ElfError> {
         let mut elf_bytes = AlignedMemory::from_slice(bytes);
 
@@ -1244,7 +1245,7 @@ mod test {
     use std::{fs::File, io::Read};
     type ElfExecutable = Executable<TestContextObject>;
 
-    fn syscall_registry() -> SyscallRegistry<TestContextObject> {
+    fn syscall_registry() -> Arc<SyscallRegistry<TestContextObject>> {
         let mut syscall_registry = SyscallRegistry::default();
         syscall_registry
             .register_syscall_by_name(b"log", syscalls::bpf_syscall_string)
@@ -1252,7 +1253,7 @@ mod test {
         syscall_registry
             .register_syscall_by_name(b"log_64", syscalls::bpf_syscall_u64)
             .unwrap();
-        syscall_registry
+        Arc::new(syscall_registry)
     }
 
     #[test]
@@ -1388,11 +1389,13 @@ mod test {
 
     #[test]
     fn test_entrypoint() {
+        let syscall_registry = syscall_registry();
+
         let mut file = File::open("tests/elfs/noop.so").expect("file open failed");
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone())
             .expect("validation failed");
         let parsed_elf = NewParser::parse(&elf_bytes).unwrap();
         let executable: &Executable<TestContextObject> = &elf;
@@ -1409,7 +1412,7 @@ mod test {
 
         header.e_entry += 8;
         let elf_bytes = write_header(header.clone());
-        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone())
             .expect("validation failed");
         let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(1, executable.get_entrypoint_instruction_offset());
@@ -1418,26 +1421,26 @@ mod test {
         let elf_bytes = write_header(header.clone());
         assert_eq!(
             Err(ElfError::EntrypointOutOfBounds),
-            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone())
         );
 
         header.e_entry = u64::MAX;
         let elf_bytes = write_header(header.clone());
         assert_eq!(
             Err(ElfError::EntrypointOutOfBounds),
-            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone())
         );
 
         header.e_entry = initial_e_entry + ebpf::INSN_SIZE as u64 + 1;
         let elf_bytes = write_header(header.clone());
         assert_eq!(
             Err(ElfError::InvalidEntrypoint),
-            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone())
         );
 
         header.e_entry = initial_e_entry;
         let elf_bytes = write_header(header);
-        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
+        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry)
             .expect("validation failed");
         let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(0, executable.get_entrypoint_instruction_offset());
@@ -1648,13 +1651,15 @@ mod test {
     #[test]
     #[ignore]
     fn test_fuzz_load() {
+        let syscall_registry = Arc::new(SyscallRegistry::default());
+
         // Random bytes, will mostly fail due to lack of ELF header so just do a few
         let mut rng = rand::thread_rng();
         let range = Uniform::new(0, 255);
         println!("random bytes");
         for _ in 0..1_000 {
             let elf_bytes: Vec<u8> = (0..100).map(|_| rng.sample(range)).collect();
-            let _ = ElfExecutable::load(Config::default(), &elf_bytes, SyscallRegistry::default());
+            let _ = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone());
         }
 
         // Take a real elf and mangle it
@@ -1674,7 +1679,7 @@ mod test {
             0..parsed_elf.header().e_ehsize as usize,
             0..255,
             |bytes: &mut [u8]| {
-                let _ = ElfExecutable::load(Config::default(), bytes, SyscallRegistry::default());
+                let _ = ElfExecutable::load(Config::default(), bytes, syscall_registry.clone());
             },
         );
 
@@ -1687,7 +1692,7 @@ mod test {
             parsed_elf.header().e_shoff as usize..elf_bytes.len(),
             0..255,
             |bytes: &mut [u8]| {
-                let _ = ElfExecutable::load(Config::default(), bytes, SyscallRegistry::default());
+                let _ = ElfExecutable::load(Config::default(), bytes, syscall_registry.clone());
             },
         );
 
@@ -1700,7 +1705,7 @@ mod test {
             0..elf_bytes.len(),
             0..255,
             |bytes: &mut [u8]| {
-                let _ = ElfExecutable::load(Config::default(), bytes, SyscallRegistry::default());
+                let _ = ElfExecutable::load(Config::default(), bytes, syscall_registry.clone());
             },
         );
     }
@@ -2244,6 +2249,6 @@ mod test {
             Executable::jit_compile(&mut executable).unwrap();
         }
 
-        assert_eq!(18426, executable.mem_size());
+        assert_eq!(18386, executable.mem_size());
     }
 }
