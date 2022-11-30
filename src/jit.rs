@@ -1576,6 +1576,48 @@ mod tests {
     };
     use byteorder::{ByteOrder, LittleEndian};
 
+    #[test]
+    fn test_runtime_environment_slots() {
+        let mut context_object = TestContextObject::new(0);
+        let config = Config::default();
+        let env = RuntimeEnvironment {
+            host_stack_pointer: std::ptr::null_mut(),
+            call_depth: 0,
+            frame_pointer: 0,
+            stack_pointer: 0,
+            context_object_pointer: &mut context_object,
+            previous_instruction_meter: 0,
+            stopwatch_numerator: 0,
+            stopwatch_denominator: 0,
+            program_result: ProgramResult::Ok(0),
+            memory_mapping: MemoryMapping::new(Vec::new(), &config).unwrap(),
+            call_frames: Vec::new(),
+        };
+
+        macro_rules! check_slot {
+            ($env:expr, $entry:ident, $slot:ident) => {
+                assert_eq!(
+                    unsafe {
+                        (&$env.$entry as *const _ as *const u64)
+                            .offset_from(&$env as *const _ as *const u64) as usize
+                    },
+                    RuntimeEnvironmentSlot::$slot as usize,
+                );
+            };
+        }
+
+        check_slot!(env, host_stack_pointer, HostStackPointer);
+        check_slot!(env, call_depth, CallDepth);
+        check_slot!(env, frame_pointer, FramePointer);
+        check_slot!(env, stack_pointer, StackPointer);
+        check_slot!(env, context_object_pointer, ContextObjectPointer);
+        check_slot!(env, previous_instruction_meter, PreviousInstructionMeter);
+        check_slot!(env, stopwatch_numerator, StopwatchNumerator);
+        check_slot!(env, stopwatch_denominator, StopwatchDenominator);
+        check_slot!(env, program_result, ProgramResult);
+        check_slot!(env, memory_mapping, MemoryMapping);
+    }
+
     fn create_mockup_executable(program: &[u8]) -> Executable<TestContextObject> {
         let config = Config {
             noop_instruction_rate: 0,
