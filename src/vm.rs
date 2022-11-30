@@ -602,6 +602,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         registers[1] = ebpf::MM_INPUT_START;
         registers[ebpf::FRAME_PTR_REG] = self.env.frame_pointer;
         let executable = self.verified_executable.get_executable();
+        let target_pc = executable.get_entrypoint_instruction_offset();
         let config = executable.get_config();
         let initial_insn_count = if config.enable_instruction_meter {
             self.env.context_object_pointer.get_remaining()
@@ -611,7 +612,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         self.env.previous_instruction_meter = initial_insn_count;
         let (due_insn_count, result) = if interpreted {
             let mut result = Ok(None);
-            let mut interpreter = match Interpreter::new(self, registers) {
+            let mut interpreter = match Interpreter::new(self, registers, target_pc) {
                 Ok(interpreter) => interpreter,
                 Err(error) => return (0, ProgramResult::Err(error)),
             };
@@ -638,7 +639,6 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                     Ok(compiled_program) => compiled_program,
                     Err(error) => return (0, ProgramResult::Err(error)),
                 };
-                let target_pc = executable.get_entrypoint_instruction_offset();
                 let instruction_meter_final = compiled_program
                     .invoke(config, &mut self.env, registers, target_pc)
                     .max(0) as u64;
