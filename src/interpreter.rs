@@ -22,46 +22,18 @@ use crate::{
 };
 
 /// Translates a vm_addr into a host_addr and sets the pc in the error if one occurs
-#[cfg_attr(feature = "debugger", macro_export)]
 macro_rules! translate_memory_access {
     ($self:ident, $vm_addr:ident, $access_type:expr, $pc:ident, $T:ty) => {
         match $self.vm.env.memory_mapping.map(
             $access_type,
             $vm_addr,
             std::mem::size_of::<$T>() as u64,
+            $pc + ebpf::ELF_INSN_DUMP_OFFSET,
         ) {
             ProgramResult::Ok(host_addr) => host_addr as *mut $T,
-            ProgramResult::Err(EbpfError::AccessViolation(
-                _pc,
-                access_type,
-                vm_addr,
-                len,
-                regions,
-            )) => {
-                return Err(EbpfError::AccessViolation(
-                    $pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    access_type,
-                    vm_addr,
-                    len,
-                    regions,
-                ));
+            ProgramResult::Err(err) => {
+                return Err(err);
             }
-            ProgramResult::Err(EbpfError::StackAccessViolation(
-                _pc,
-                access_type,
-                vm_addr,
-                len,
-                stack_frame,
-            )) => {
-                return Err(EbpfError::StackAccessViolation(
-                    $pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                    access_type,
-                    vm_addr,
-                    len,
-                    stack_frame,
-                ));
-            }
-            _ => unreachable!(),
         }
     };
 }

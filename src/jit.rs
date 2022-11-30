@@ -1481,6 +1481,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             // call MemoryMapping::map() storing the result in RuntimeEnvironmentSlot::ProgramResultPointer
             self.emit_rust_call(Value::Constant64(MemoryMapping::map as *const u8 as i64, false), &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
+                Argument { index: 5, value: Value::Constant64(0, false) }, // self.pc is set later
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
                 Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },

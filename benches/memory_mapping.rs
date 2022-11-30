@@ -76,7 +76,8 @@ macro_rules! bench_gapped_randomized_access_with_1024_entries {
                             .map(
                                 AccessType::Load,
                                 0x100000000 + (prng.gen::<u64>() % frame_count * (frame_size * 2)),
-                                1
+                                1,
+                                0,
                             )
                             .is_ok());
                     });
@@ -114,6 +115,7 @@ macro_rules! bench_randomized_access_with_0001_entry {
                     AccessType::Load,
                     0x100000000 + (prng.gen::<u64>() % content.len() as u64),
                     1,
+                    0,
                 );
             });
         }
@@ -146,6 +148,7 @@ macro_rules! bench_randomized_access_with_n_entries {
                     AccessType::Load,
                     0x100000000 + (prng.gen::<u64>() % end_address),
                     1,
+                    0,
                 );
             });
         }
@@ -191,7 +194,7 @@ macro_rules! bench_randomized_mapping_with_n_entries {
             let config = Config::default();
             let memory_mapping = $mem::new(memory_regions, &config).unwrap();
             bencher.iter(|| {
-                let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1);
+                let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1, 0);
             });
         }
     };
@@ -239,7 +242,7 @@ macro_rules! bench_mapping_with_n_entries {
             let config = Config::default();
             let memory_mapping = $mem::new(memory_regions, &config).unwrap();
             bencher.iter(|| {
-                let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1);
+                let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1, 0);
             });
         }
     };

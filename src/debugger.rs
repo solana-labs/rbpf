@@ -26,7 +26,6 @@ use crate::{
     error::EbpfError,
     interpreter::{DebugState, Interpreter},
     memory_region::AccessType,
-    translate_memory_access,
     verifier::Verifier,
     vm::{ContextObject, ProgramResult},
 };
@@ -196,13 +195,15 @@ fn get_host_ptr<V: Verifier, C: ContextObject>(
     if vm_addr < ebpf::MM_PROGRAM_START {
         vm_addr += ebpf::MM_PROGRAM_START;
     }
-    Ok(translate_memory_access!(
-        interpreter,
-        vm_addr,
+    match interpreter.vm.env.memory_mapping.map(
         AccessType::Load,
-        pc,
-        u8
-    ))
+        vm_addr,
+        std::mem::size_of::<u8>() as u64,
+        pc + ebpf::ELF_INSN_DUMP_OFFSET,
+    ) {
+        ProgramResult::Ok(host_addr) => Ok(host_addr as *mut u8),
+        ProgramResult::Err(err) => Err(err),
+    }
 }
 
 impl<'a, 'b, V: Verifier, C: ContextObject> SingleThreadBase for Interpreter<'a, 'b, V, C> {
