@@ -38,9 +38,7 @@ macro_rules! translate_memory_access {
 
 macro_rules! throw_error {
     ($self:expr, $err:expr) => {{
-        unsafe {
-            *$self.vm.env.program_result_pointer = ProgramResult::Err($err);
-        }
+        $self.vm.env.program_result = ProgramResult::Err($err);
         return false;
     }};
 }
@@ -95,7 +93,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
         })
     }
 
-    fn check_pc(&self, current_pc: usize) -> bool {
+    fn check_pc(&mut self, current_pc: usize) -> bool {
         if self
             .pc
             .checked_mul(ebpf::INSN_SIZE)
@@ -473,9 +471,9 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                             self.reg[4],
                             self.reg[5],
                             &mut self.vm.env.memory_mapping,
-                            unsafe { &mut *self.vm.env.program_result_pointer },
+                            &mut self.vm.env.program_result,
                         );
-                        self.reg[0] = match unsafe { &*self.vm.env.program_result_pointer } {
+                        self.reg[0] = match &self.vm.env.program_result {
                             ProgramResult::Ok(value) => *value,
                             ProgramResult::Err(_err) => return false,
                         };
@@ -507,7 +505,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
 
             ebpf::EXIT       => {
                 if self.vm.env.call_depth == 0 {
-                    unsafe { *self.vm.env.program_result_pointer = ProgramResult::Ok(self.reg[0]) };
+                    self.vm.env.program_result = ProgramResult::Ok(self.reg[0]);
                     return false;
                 }
                 // Return from BPF to BPF call

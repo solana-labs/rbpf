@@ -297,12 +297,12 @@ enum RuntimeEnvironmentSlot {
     CallDepth = 1,
     FramePointer = 2,
     StackPointer = 3,
-    ProgramResultPointer = 4,
-    ContextObjectPointer = 5,
-    PreviousInstructionMeter = 6,
-    StopwatchNumerator = 7,
-    StopwatchDenominator = 8,
-    MemoryMapping = 9,
+    ContextObjectPointer = 4,
+    PreviousInstructionMeter = 5,
+    StopwatchNumerator = 6,
+    StopwatchDenominator = 7,
+    ProgramResult = 8,
+    MemoryMapping = 16,
 }
 
 /* Explaination of the Instruction Meter
@@ -906,7 +906,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, R11, ARGUMENT_REGISTERS[0], 0, None)); // instruction_meter -= pc + 1;
         }
         if store_pc_in_exception {
-            self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer))));
+            self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
             self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(0), 1)); // result.is_err = true;
             self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, R11, ebpf::ELF_INSN_DUMP_OFFSET as i64 - 1, None));
             self.emit_ins(X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 1)) as i32))); // result.pc = self.pc + ebpf::ELF_INSN_DUMP_OFFSET;
@@ -1243,14 +1243,14 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     fn emit_set_exception_kind(&mut self, err: EbpfError) {
         let err = ProgramResult::Err(err);
         let err_kind = unsafe { *(&err as *const _ as *const u64).add(ERR_KIND_OFFSET) };
-        self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer))));
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
         self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * ERR_KIND_OFFSET) as i32), err_kind as i64));
     }
     
     fn emit_result_is_err(&mut self, destination: u8) {
         let ok = ProgramResult::Ok(0);
         let err_kind = unsafe { *(&ok as *const _ as *const u64).add(ERR_KIND_OFFSET) };
-        self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, destination, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer))));
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, destination, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
         self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, destination, err_kind as i64, Some(X86IndirectAccess::Offset(0))));
     }
 
@@ -1354,7 +1354,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.set_anchor(ANCHOR_EXIT);
         self.emit_validate_instruction_count(false, None);
         self.emit_profile_instruction_count_finalize(false);
-        self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer))));
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
         self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(8))); // result.return_value = R0;
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], 0));
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
@@ -1372,7 +1372,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             ], None);
         }
         self.emit_rust_call(Value::Register(R11), &[
-            Argument { index: 7, value: Value::RegisterIndirect(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer), false) },
+            Argument { index: 7, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
             Argument { index: 6, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
             Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
@@ -1393,7 +1393,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 6)));
         // Store Ok value in result register
         self.emit_ins(X86Instruction::pop(R11));
-        self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer))));
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R11, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
         self.emit_ins(X86Instruction::load(OperandSize::S64, R11, REGISTER_MAP[0], X86IndirectAccess::Offset(8)));
         self.emit_ins(X86Instruction::return_near());
 
@@ -1478,14 +1478,14 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         ] {
             let target_offset = len.trailing_zeros() as usize + 4 * (*access_type as usize);
             self.set_anchor(ANCHOR_TRANSLATE_MEMORY_ADDRESS + target_offset);
-            // call MemoryMapping::map() storing the result in RuntimeEnvironmentSlot::ProgramResultPointer
+            // call MemoryMapping::map() storing the result in RuntimeEnvironmentSlot::ProgramResult
             self.emit_rust_call(Value::Constant64(MemoryMapping::map as *const u8 as i64, false), &[
                 Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                 Argument { index: 5, value: Value::Constant64(0, false) }, // self.pc is set later
                 Argument { index: 4, value: Value::Constant64(*len as i64, false) },
                 Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
                 Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
-                Argument { index: 0, value: Value::RegisterIndirect(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer), false) }, // Pointer to optional typed return value
+                Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
             ], None);
 
             // Throw error if the result indicates one
@@ -1495,7 +1495,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 6)));
 
             // unwrap() the host addr into R11
-            self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, R11, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer))));
+            self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R11, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
             self.emit_ins(X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)));
 
             self.emit_ins(X86Instruction::return_near());
