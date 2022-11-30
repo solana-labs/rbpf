@@ -1247,10 +1247,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * ERR_KIND_OFFSET) as i32), err_kind as i64));
     }
     
-    fn emit_result_is_err(&mut self, source: u8, destination: u8, indirect: X86IndirectAccess) {
+    fn emit_result_is_err(&mut self, destination: u8) {
         let ok = ProgramResult::Ok(0);
         let err_kind = unsafe { *(&ok as *const _ as *const u64).add(ERR_KIND_OFFSET) };
-        self.emit_ins(X86Instruction::load(OperandSize::S64, source, destination, indirect));
+        self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, destination, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer))));
         self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, destination, err_kind as i64, Some(X86IndirectAccess::Offset(0))));
     }
 
@@ -1389,7 +1389,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         }
 
         // Test if result indicates that an error occured
-        self.emit_result_is_err(RBP, R11, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer)));
+        self.emit_result_is_err(R11);
         self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 6)));
         // Store Ok value in result register
         self.emit_ins(X86Instruction::pop(R11));
@@ -1489,7 +1489,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             ], None);
 
             // Throw error if the result indicates one
-            self.emit_result_is_err(RBP, R11, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResultPointer)));
+            self.emit_result_is_err(R11);
             self.emit_ins(X86Instruction::pop(R11)); // R11 = self.pc
             self.emit_ins(X86Instruction::xchg(OperandSize::S64, R11, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Swap return address and self.pc
             self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 6)));
