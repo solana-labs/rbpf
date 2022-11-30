@@ -193,7 +193,13 @@ fn main() {
     }
 
     let (instruction_count, result) = if matches.value_of("use").unwrap() == "debugger" {
-        let mut interpreter = Interpreter::new(&mut vm).unwrap();
+        let target_pc = verified_executable
+            .get_executable()
+            .get_entrypoint_instruction_offset();
+        let mut registers = [0u64; 11];
+        registers[1] = ebpf::MM_INPUT_START;
+        registers[ebpf::FRAME_PTR_REG] = vm.env.frame_pointer;
+        let mut interpreter = Interpreter::new(&mut vm, registers, target_pc).unwrap();
         let port = matches.value_of("port").unwrap().parse::<u16>().unwrap();
         debugger::execute(&mut interpreter, port)
     } else {
