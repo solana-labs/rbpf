@@ -60,7 +60,8 @@ pub fn execute<V: Verifier, C: ContextObject>(
     } else {
         0
     };
-    let mut result = ProgramResult::Err(EbpfError::ExitRootCallFrame);
+    interpreter.vm.env.previous_instruction_meter = initial_insn_count;
+    interpreter.vm.env.program_result = ProgramResult::Ok(0);
     let mut dbg = GdbStub::new(connection)
         .run_state_machine(interpreter)
         .expect("Cannot start debugging state machine");
@@ -87,16 +88,13 @@ pub fn execute<V: Verifier, C: ContextObject>(
                 let conn = dbg_inner.borrow_conn();
                 match interpreter.debug_state {
                     DebugState::Step => {
-                        let mut stop_reason = match interpreter.step() {
-                            Ok(None) => SingleThreadStopReason::DoneStep,
-                            Ok(Some(step_result)) => {
-                                result = ProgramResult::Ok(step_result);
-                                SingleThreadStopReason::Exited(step_result as u8)
-                            }
-                            Err(err) => {
-                                result = ProgramResult::Err(err);
-                                SingleThreadStopReason::Terminated(Signal::SIGSTOP)
-                            }
+                        let mut stop_reason = if interpreter.step() {
+                            SingleThreadStopReason::DoneStep
+                        } else if let ProgramResult::Ok(result) = &interpreter.vm.env.program_result
+                        {
+                            SingleThreadStopReason::Exited(*result as u8)
+                        } else {
+                            SingleThreadStopReason::Terminated(Signal::SIGSTOP)
                         };
                         if interpreter.breakpoints.contains(&interpreter.get_dbg_pc()) {
                             stop_reason = SingleThreadStopReason::SwBreak(());
@@ -108,35 +106,28 @@ pub fn execute<V: Verifier, C: ContextObject>(
                             let byte = dbg_inner.borrow_conn().read().unwrap();
                             break dbg_inner.incoming_data(interpreter, byte).unwrap();
                         }
-                        match interpreter.step() {
-                            Ok(None) => {
-                                if interpreter.breakpoints.contains(&interpreter.get_dbg_pc()) {
-                                    break dbg_inner
-                                        .report_stop(
-                                            interpreter,
-                                            SingleThreadStopReason::SwBreak(()),
-                                        )
-                                        .unwrap();
-                                }
-                            }
-                            Ok(Some(step_result)) => {
+                        if interpreter.step() {
+                            if interpreter.breakpoints.contains(&interpreter.get_dbg_pc()) {
                                 break dbg_inner
-                                    .report_stop(
-                                        interpreter,
-                                        SingleThreadStopReason::Exited(step_result as u8),
-                                    )
+                                    .report_stop(interpreter, SingleThreadStopReason::SwBreak(()))
                                     .unwrap();
                             }
-                            Err(err) => {
-                                result = ProgramResult::Err(err);
-                                break dbg_inner
-                                    .report_stop(
-                                        interpreter,
-                                        SingleThreadStopReason::Terminated(Signal::SIGSTOP),
-                                    )
-                                    .unwrap();
-                            }
-                        };
+                        } else if let ProgramResult::Ok(result) = &interpreter.vm.env.program_result
+                        {
+                            break dbg_inner
+                                .report_stop(
+                                    interpreter,
+                                    SingleThreadStopReason::Exited(*result as u8),
+                                )
+                                .unwrap();
+                        } else {
+                            break dbg_inner
+                                .report_stop(
+                                    interpreter,
+                                    SingleThreadStopReason::Terminated(Signal::SIGSTOP),
+                                )
+                                .unwrap();
+                        }
                     },
                 }
             }
@@ -152,6 +143,14 @@ pub fn execute<V: Verifier, C: ContextObject>(
     } else {
         0
     };
+    if let ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, _)) =
+        interpreter.vm.env.program_result
+    {
+        interpreter.vm.env.program_result =
+            ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count));
+    }
+    let mut result = ProgramResult::Ok(0);
+    std::mem::swap(&mut result, &mut interpreter.vm.env.program_result);
     (total_insn_count, result)
 }
 
