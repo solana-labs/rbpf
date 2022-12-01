@@ -10,7 +10,18 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+#[cfg(not(target_os = "windows"))]
 extern crate libc;
+
+#[cfg(target_os = "windows")]
+use winapi::{
+    um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO},
+    um::memoryapi::{VirtualAlloc, VirtualFree, VirtualProtect},
+    um::winnt,
+    um::errhandlingapi::{GetLastError},
+    ctypes::c_void,
+    shared::minwindef,
+};
 
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use std::{fmt::Debug, marker::PhantomData, mem, ptr};
@@ -48,7 +59,7 @@ macro_rules! libc_error_guard {
     (succeeded?, $function:ident, $($arg:expr),*) => {
         libc::$function($($arg),*) == 0
     };
-    ($function:ident, $($arg:expr),*) => {{
+    ($function:ident, $($arg:expr),* $(,)?) => {{
         const RETRY_COUNT: usize = 3;
         for i in 0..RETRY_COUNT {
             if libc_error_guard!(succeeded?, $function, $($arg),*) {
@@ -67,12 +78,31 @@ macro_rules! libc_error_guard {
     }};
 }
 
+#[cfg(target_os = "windows")]
+macro_rules! winapi_error_guard {
+    (succeeded?, VirtualAlloc, $addr:expr, $($arg:expr),*) => {{
+        *$addr = VirtualAlloc(*$addr, $($arg),*);
+        !(*$addr).is_null()
+    }};
+    (succeeded?, $function:ident, $($arg:expr),*) => {
+        $function($($arg),*) != 0
+    };
+    ($function:ident, $($arg:expr),* $(,)?) => {{
+        if !winapi_error_guard!(succeeded?, $function, $($arg),*) {
+            let args = vec![$(format!("{:?}", $arg)),*];
+            let errno = GetLastError();
+            return Err(EbpfError::WinapiInvocationFailed(stringify!($function), args, errno));
+        }
+    }};
+}
+
 fn round_to_page_size(value: usize, page_size: usize) -> usize {
     (value + page_size - 1) / page_size * page_size
 }
 
 impl<C: ContextObject> JitProgram<C> {
     fn new(pc: usize, code_size: usize) -> Result<Self, EbpfError> {
+        #[cfg(not(target_os = "windows"))]
         unsafe {
             let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
             let pc_loc_table_size = round_to_page_size(pc * 8, page_size);
@@ -85,7 +115,7 @@ impl<C: ContextObject> JitProgram<C> {
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
                 0,
-                0
+                0,
             );
             Ok(Self {
                 page_size,
@@ -97,18 +127,53 @@ impl<C: ContextObject> JitProgram<C> {
                 _marker: PhantomData::default(),
             })
         }
+        #[cfg(target_os = "windows")]
+        unsafe {
+            let mut system_info: SYSTEM_INFO = mem::zeroed();
+            GetSystemInfo(&mut system_info);
+            let page_size = system_info.dwPageSize as usize;
+            let pc_loc_table_size = round_to_page_size(pc * 8, page_size);
+            let over_allocated_code_size = round_to_page_size(code_size, page_size);
+            let mut raw: *mut c_void = std::ptr::null_mut();
+            winapi_error_guard!(
+                VirtualAlloc,
+                &mut raw,
+                pc_loc_table_size + over_allocated_code_size,
+                winnt::MEM_RESERVE | winnt::MEM_COMMIT,
+                winnt::PAGE_READWRITE,
+            );
+            Ok(Self {
+                page_size: 0,
+                pc_section: &mut [],
+                text_section: &mut [],
+                page_size,
+                pc_section: std::slice::from_raw_parts_mut(raw as *mut usize, pc),
+                text_section: std::slice::from_raw_parts_mut(
+                    (raw as *mut u8).add(pc_loc_table_size),
+                    over_allocated_code_size,
+                ),
+            })
+        }
     }
 
     fn seal(&mut self, text_section_usage: usize) -> Result<(), EbpfError> {
         if self.page_size == 0 {
             return Ok(());
         }
+        let raw = self.pc_section.as_ptr() as *mut u8;
+        let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
+        let over_allocated_code_size = round_to_page_size(self.text_section.len(), self.page_size);
+        let code_size = round_to_page_size(text_section_usage, self.page_size);
         unsafe {
-            let raw = self.pc_section.as_ptr() as *mut u8;
-            let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
-            let over_allocated_code_size =
-                round_to_page_size(self.text_section.len(), self.page_size);
-            let code_size = round_to_page_size(text_section_usage, self.page_size);
+            // Fill with debugger traps
+            std::ptr::write_bytes(
+                raw.add(pc_loc_table_size).add(text_section_usage),
+                0xcc,
+                code_size - text_section_usage,
+            );
+        }
+        #[cfg(not(target_os = "windows"))]
+        unsafe {
             if over_allocated_code_size > code_size {
                 libc_error_guard!(
                     munmap,
@@ -116,11 +181,6 @@ impl<C: ContextObject> JitProgram<C> {
                     over_allocated_code_size - code_size
                 );
             }
-            std::ptr::write_bytes(
-                raw.add(pc_loc_table_size).add(text_section_usage),
-                0xcc,
-                code_size - text_section_usage,
-            ); // Fill with debugger traps
             self.text_section =
                 std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size), text_section_usage);
             libc_error_guard!(
@@ -134,6 +194,35 @@ impl<C: ContextObject> JitProgram<C> {
                 self.text_section.as_mut_ptr() as *mut _,
                 code_size,
                 libc::PROT_EXEC | libc::PROT_READ
+            );
+        }
+        #[cfg(target_os = "windows")]
+        unsafe {
+            if over_allocated_code_size > code_size {
+                winapi_error_guard!(
+                    VirtualFree,
+                    raw.add(pc_loc_table_size).add(code_size) as *mut _,
+                    over_allocated_code_size - code_size,
+                    winnt::MEM_DECOMMIT,
+                );
+            }
+            self.text_section =
+                std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size), text_section_usage);
+            let mut old: minwindef::DWORD = 0;
+            let p2old: *mut minwindef::DWORD = &mut old;
+            winapi_error_guard!(
+                VirtualProtect,
+                self.pc_section.as_mut_ptr() as *mut _,
+                pc_loc_table_size,
+                winnt::PAGE_READONLY,
+                p2old,
+            );
+            winapi_error_guard!(
+                VirtualProtect,
+                self.text_section.as_mut_ptr() as *mut _,
+                code_size,
+                winnt::PAGE_EXECUTE_READ,
+                p2old,
             );
         }
         Ok(())
@@ -205,6 +294,14 @@ impl<C: ContextObject> Drop for JitProgram<C> {
                 libc::munmap(
                     self.pc_section.as_ptr() as *mut _,
                     pc_loc_table_size + code_size,
+                );
+            }
+            #[cfg(target_os = "windows")]
+            unsafe {
+                VirtualFree(
+                    self.pc_section.as_ptr() as *mut _,
+                    pc_loc_table_size + code_size,
+                    winnt::MEM_RELEASE,
                 );
             }
         }

@@ -22,20 +22,21 @@ include = [
 arbitrary = { version = "1.0", optional = true, features = ["derive"] }
 byteorder = "1.2"
 combine = "3.8.1"
+gdbstub = { version = "0.6.2", optional = true }
 goblin = "0.5.1"
 hash32 = "0.2.0"
 libc = { version = "0.2", optional = true }
 log = "0.4.2"
 rand = { version = "0.8.5", features = ["small_rng"]}
+rustc-demangle = "0.1"
 scroll = "0.11"
 thiserror = "1.0.26"
-rustc-demangle = "0.1"
-gdbstub = { version = "0.6.2", optional = true }
+winapi = { version = "0.3", features = ["memoryapi", "sysinfoapi", "winnt", "errhandlingapi"], optional = true }
 
 [features]
 default = ["jit"]
 fuzzer-not-safe-for-production = ["arbitrary"]
-jit = ["libc"]
+jit = ["libc", "winapi"]
 debugger = ["gdbstub"]
 
 [dev-dependencies]
