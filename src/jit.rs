@@ -10,21 +10,6 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#[cfg(not(target_os = "windows"))]
-extern crate libc;
-#[cfg(not(target_os = "windows"))]
-use libc::c_void;
-
-#[cfg(target_os = "windows")]
-use winapi::{
-    ctypes::c_void,
-    shared::minwindef,
-    um::errhandlingapi::GetLastError,
-    um::memoryapi::{VirtualAlloc, VirtualFree, VirtualProtect},
-    um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO},
-    um::winnt,
-};
-
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use std::{fmt::Debug, marker::PhantomData, mem, ptr};
 
@@ -32,6 +17,9 @@ use crate::{
     ebpf::{self, FIRST_SCRATCH_REG, FRAME_PTR_REG, INSN_SIZE, SCRATCH_REGS, STACK_PTR_REG},
     elf::Executable,
     error::EbpfError,
+    memory_management::{
+        allocate_pages, free_pages, get_system_page_size, protect_pages, round_to_page_size,
+    },
     memory_region::{AccessType, MemoryMapping},
     vm::{Config, ContextObject, ProgramResult, RuntimeEnvironment, SyscallFunction},
     x86::*,
@@ -50,142 +38,6 @@ pub struct JitProgram<C: ContextObject> {
     /// The x86 machinecode
     text_section: &'static mut [u8],
     _marker: PhantomData<C>,
-}
-
-#[cfg(not(target_os = "windows"))]
-macro_rules! libc_error_guard {
-    (succeeded?, mmap, $addr:expr, $($arg:expr),*) => {{
-        *$addr = libc::mmap(*$addr, $($arg),*);
-        *$addr != libc::MAP_FAILED
-    }};
-    (succeeded?, $function:ident, $($arg:expr),*) => {
-        libc::$function($($arg),*) == 0
-    };
-    ($function:ident, $($arg:expr),* $(,)?) => {{
-        const RETRY_COUNT: usize = 3;
-        for i in 0..RETRY_COUNT {
-            if libc_error_guard!(succeeded?, $function, $($arg),*) {
-                break;
-            } else if i + 1 == RETRY_COUNT {
-                let args = vec![$(format!("{:?}", $arg)),*];
-                #[cfg(any(target_os = "freebsd", target_os = "ios", target_os = "macos"))]
-                let errno = *libc::__error();
-                #[cfg(any(target_os = "android", target_os = "netbsd", target_os = "openbsd"))]
-                let errno = *libc::__errno();
-                #[cfg(target_os = "linux")]
-                let errno = *libc::__errno_location();
-                return Err(EbpfError::LibcInvocationFailed(stringify!($function), args, errno));
-            }
-        }
-    }};
-}
-
-#[cfg(target_os = "windows")]
-macro_rules! winapi_error_guard {
-    (succeeded?, VirtualAlloc, $addr:expr, $($arg:expr),*) => {{
-        *$addr = VirtualAlloc(*$addr, $($arg),*);
-        !(*$addr).is_null()
-    }};
-    (succeeded?, $function:ident, $($arg:expr),*) => {
-        $function($($arg),*) != 0
-    };
-    ($function:ident, $($arg:expr),* $(,)?) => {{
-        if !winapi_error_guard!(succeeded?, $function, $($arg),*) {
-            let args = vec![$(format!("{:?}", $arg)),*];
-            let errno = GetLastError();
-            return Err(EbpfError::WinapiInvocationFailed(stringify!($function), args, errno));
-        }
-    }};
-}
-
-pub fn get_system_page_size() -> usize {
-    #[cfg(not(target_os = "windows"))]
-    unsafe {
-        libc::sysconf(libc::_SC_PAGESIZE) as usize
-    }
-    #[cfg(target_os = "windows")]
-    unsafe {
-        let mut system_info: SYSTEM_INFO = mem::zeroed();
-        GetSystemInfo(&mut system_info);
-        system_info.dwPageSize as usize
-    }
-}
-
-pub fn round_to_page_size(value: usize, page_size: usize) -> usize {
-    (value + page_size - 1) / page_size * page_size
-}
-
-pub unsafe fn allocate_pages(size_in_bytes: usize) -> Result<*mut u8, EbpfError> {
-    let mut raw: *mut c_void = std::ptr::null_mut();
-    #[cfg(not(target_os = "windows"))]
-    libc_error_guard!(
-        mmap,
-        &mut raw,
-        size_in_bytes,
-        libc::PROT_READ | libc::PROT_WRITE,
-        libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-        0,
-        0,
-    );
-    #[cfg(target_os = "windows")]
-    winapi_error_guard!(
-        VirtualAlloc,
-        &mut raw,
-        size_in_bytes,
-        winnt::MEM_RESERVE | winnt::MEM_COMMIT,
-        winnt::PAGE_READWRITE,
-    );
-    Ok(raw as *mut u8)
-}
-
-pub unsafe fn free_pages(raw: *mut u8, size_in_bytes: usize) -> Result<(), EbpfError> {
-    #[cfg(not(target_os = "windows"))]
-    libc_error_guard!(munmap, raw as *mut _, size_in_bytes);
-    #[cfg(target_os = "windows")]
-    winapi_error_guard!(
-        VirtualFree,
-        raw as *mut _,
-        size_in_bytes,
-        winnt::MEM_RELEASE, // winnt::MEM_DECOMMIT
-    );
-    Ok(())
-}
-
-pub unsafe fn protect_pages(
-    raw: *mut u8,
-    size_in_bytes: usize,
-    executable_flag: bool,
-) -> Result<(), EbpfError> {
-    #[cfg(not(target_os = "windows"))]
-    {
-        libc_error_guard!(
-            mprotect,
-            raw as *mut _,
-            size_in_bytes,
-            if executable_flag {
-                libc::PROT_EXEC | libc::PROT_READ
-            } else {
-                libc::PROT_READ
-            },
-        );
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let mut old: minwindef::DWORD = 0;
-        let ptr_old: *mut minwindef::DWORD = &mut old;
-        winapi_error_guard!(
-            VirtualProtect,
-            raw as *mut _,
-            size_in_bytes,
-            if executable_flag {
-                winnt::PAGE_EXECUTE_READ
-            } else {
-                winnt::PAGE_READONLY
-            },
-            ptr_old,
-        );
-    }
-    Ok(())
 }
 
 impl<C: ContextObject> JitProgram<C> {
