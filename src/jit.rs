@@ -12,15 +12,17 @@
 
 #[cfg(not(target_os = "windows"))]
 extern crate libc;
+#[cfg(not(target_os = "windows"))]
+use libc::c_void;
 
 #[cfg(target_os = "windows")]
 use winapi::{
-    um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO},
-    um::memoryapi::{VirtualAlloc, VirtualFree, VirtualProtect},
-    um::winnt,
-    um::errhandlingapi::{GetLastError},
     ctypes::c_void,
     shared::minwindef,
+    um::errhandlingapi::GetLastError,
+    um::memoryapi::{VirtualAlloc, VirtualFree, VirtualProtect},
+    um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO},
+    um::winnt,
 };
 
 use rand::{rngs::SmallRng, Rng, SeedableRng};
@@ -96,62 +98,111 @@ macro_rules! winapi_error_guard {
     }};
 }
 
-fn round_to_page_size(value: usize, page_size: usize) -> usize {
+pub fn get_system_page_size() -> usize {
+    #[cfg(not(target_os = "windows"))]
+    unsafe {
+        libc::sysconf(libc::_SC_PAGESIZE) as usize
+    }
+    #[cfg(target_os = "windows")]
+    unsafe {
+        let mut system_info: SYSTEM_INFO = mem::zeroed();
+        GetSystemInfo(&mut system_info);
+        system_info.dwPageSize as usize
+    }
+}
+
+pub fn round_to_page_size(value: usize, page_size: usize) -> usize {
     (value + page_size - 1) / page_size * page_size
+}
+
+pub unsafe fn allocate_pages(size_in_bytes: usize) -> Result<*mut u8, EbpfError> {
+    let mut raw: *mut c_void = std::ptr::null_mut();
+    #[cfg(not(target_os = "windows"))]
+    libc_error_guard!(
+        mmap,
+        &mut raw,
+        size_in_bytes,
+        libc::PROT_READ | libc::PROT_WRITE,
+        libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+        0,
+        0,
+    );
+    #[cfg(target_os = "windows")]
+    winapi_error_guard!(
+        VirtualAlloc,
+        &mut raw,
+        size_in_bytes,
+        winnt::MEM_RESERVE | winnt::MEM_COMMIT,
+        winnt::PAGE_READWRITE,
+    );
+    Ok(raw as *mut u8)
+}
+
+pub unsafe fn free_pages(raw: *mut u8, size_in_bytes: usize) -> Result<(), EbpfError> {
+    #[cfg(not(target_os = "windows"))]
+    libc_error_guard!(munmap, raw as *mut _, size_in_bytes);
+    #[cfg(target_os = "windows")]
+    winapi_error_guard!(
+        VirtualFree,
+        raw as *mut _,
+        size_in_bytes,
+        winnt::MEM_RELEASE, // winnt::MEM_DECOMMIT
+    );
+    Ok(())
+}
+
+pub unsafe fn protect_pages(
+    raw: *mut u8,
+    size_in_bytes: usize,
+    executable_flag: bool,
+) -> Result<(), EbpfError> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        libc_error_guard!(
+            mprotect,
+            raw as *mut _,
+            size_in_bytes,
+            if executable_flag {
+                libc::PROT_EXEC | libc::PROT_READ
+            } else {
+                libc::PROT_READ
+            },
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut old: minwindef::DWORD = 0;
+        let ptr_old: *mut minwindef::DWORD = &mut old;
+        winapi_error_guard!(
+            VirtualProtect,
+            raw as *mut _,
+            size_in_bytes,
+            if executable_flag {
+                winnt::PAGE_EXECUTE_READ
+            } else {
+                winnt::PAGE_READONLY
+            },
+            ptr_old,
+        );
+    }
+    Ok(())
 }
 
 impl<C: ContextObject> JitProgram<C> {
     fn new(pc: usize, code_size: usize) -> Result<Self, EbpfError> {
-        #[cfg(not(target_os = "windows"))]
+        let page_size = get_system_page_size();
+        let pc_loc_table_size = round_to_page_size(pc * 8, page_size);
+        let over_allocated_code_size = round_to_page_size(code_size, page_size);
         unsafe {
-            let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
-            let pc_loc_table_size = round_to_page_size(pc * 8, page_size);
-            let over_allocated_code_size = round_to_page_size(code_size, page_size);
-            let mut raw: *mut libc::c_void = std::ptr::null_mut();
-            libc_error_guard!(
-                mmap,
-                &mut raw,
-                pc_loc_table_size + over_allocated_code_size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-                0,
-                0,
-            );
+            let raw = allocate_pages(pc_loc_table_size + over_allocated_code_size)?;
             Ok(Self {
-                page_size,
-                pc_section: std::slice::from_raw_parts_mut(raw as *mut usize, pc),
-                text_section: std::slice::from_raw_parts_mut(
-                    raw.add(pc_loc_table_size) as *mut u8,
-                    over_allocated_code_size,
-                ),
-                _marker: PhantomData::default(),
-            })
-        }
-        #[cfg(target_os = "windows")]
-        unsafe {
-            let mut system_info: SYSTEM_INFO = mem::zeroed();
-            GetSystemInfo(&mut system_info);
-            let page_size = system_info.dwPageSize as usize;
-            let pc_loc_table_size = round_to_page_size(pc * 8, page_size);
-            let over_allocated_code_size = round_to_page_size(code_size, page_size);
-            let mut raw: *mut c_void = std::ptr::null_mut();
-            winapi_error_guard!(
-                VirtualAlloc,
-                &mut raw,
-                pc_loc_table_size + over_allocated_code_size,
-                winnt::MEM_RESERVE | winnt::MEM_COMMIT,
-                winnt::PAGE_READWRITE,
-            );
-            Ok(Self {
-                page_size: 0,
-                pc_section: &mut [],
-                text_section: &mut [],
                 page_size,
                 pc_section: std::slice::from_raw_parts_mut(raw as *mut usize, pc),
                 text_section: std::slice::from_raw_parts_mut(
                     (raw as *mut u8).add(pc_loc_table_size),
                     over_allocated_code_size,
                 ),
+                _marker: PhantomData::default(),
             })
         }
     }
@@ -171,59 +222,20 @@ impl<C: ContextObject> JitProgram<C> {
                 0xcc,
                 code_size - text_section_usage,
             );
-        }
-        #[cfg(not(target_os = "windows"))]
-        unsafe {
             if over_allocated_code_size > code_size {
-                libc_error_guard!(
-                    munmap,
-                    raw.add(pc_loc_table_size).add(code_size) as *mut _,
-                    over_allocated_code_size - code_size
-                );
-            }
-            self.text_section =
-                std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size), text_section_usage);
-            libc_error_guard!(
-                mprotect,
-                self.pc_section.as_mut_ptr() as *mut _,
-                pc_loc_table_size,
-                libc::PROT_READ
-            );
-            libc_error_guard!(
-                mprotect,
-                self.text_section.as_mut_ptr() as *mut _,
-                code_size,
-                libc::PROT_EXEC | libc::PROT_READ
-            );
-        }
-        #[cfg(target_os = "windows")]
-        unsafe {
-            if over_allocated_code_size > code_size {
-                winapi_error_guard!(
-                    VirtualFree,
-                    raw.add(pc_loc_table_size).add(code_size) as *mut _,
+                free_pages(
+                    raw.add(pc_loc_table_size).add(code_size),
                     over_allocated_code_size - code_size,
-                    winnt::MEM_DECOMMIT,
-                );
+                )?;
             }
             self.text_section =
                 std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size), text_section_usage);
-            let mut old: minwindef::DWORD = 0;
-            let p2old: *mut minwindef::DWORD = &mut old;
-            winapi_error_guard!(
-                VirtualProtect,
-                self.pc_section.as_mut_ptr() as *mut _,
+            protect_pages(
+                self.pc_section.as_mut_ptr() as *mut u8,
                 pc_loc_table_size,
-                winnt::PAGE_READONLY,
-                p2old,
-            );
-            winapi_error_guard!(
-                VirtualProtect,
-                self.text_section.as_mut_ptr() as *mut _,
-                code_size,
-                winnt::PAGE_EXECUTE_READ,
-                p2old,
-            );
+                false,
+            )?;
+            protect_pages(self.text_section.as_mut_ptr(), code_size, true)?;
         }
         Ok(())
     }
@@ -289,19 +301,10 @@ impl<C: ContextObject> Drop for JitProgram<C> {
         let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
         let code_size = round_to_page_size(self.text_section.len(), self.page_size);
         if pc_loc_table_size + code_size > 0 {
-            #[cfg(not(target_os = "windows"))]
             unsafe {
-                libc::munmap(
-                    self.pc_section.as_ptr() as *mut _,
+                let _ = free_pages(
+                    self.pc_section.as_ptr() as *mut u8,
                     pc_loc_table_size + code_size,
-                );
-            }
-            #[cfg(target_os = "windows")]
-            unsafe {
-                VirtualFree(
-                    self.pc_section.as_ptr() as *mut _,
-                    pc_loc_table_size + code_size,
-                    winnt::MEM_RELEASE,
                 );
             }
         }
