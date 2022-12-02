@@ -26,7 +26,6 @@ use crate::{
     error::EbpfError,
     interpreter::{DebugState, Interpreter},
     memory_region::AccessType,
-    translate_memory_access,
     verifier::Verifier,
     vm::{ContextObject, ProgramResult},
 };
@@ -51,8 +50,18 @@ pub fn execute<V: Verifier, C: ContextObject>(
 ) -> (u64, ProgramResult) {
     let connection: Box<dyn ConnectionExt<Error = std::io::Error>> =
         Box::new(wait_for_tcp(port).expect("Cannot connect to Debugger"));
-
-    let mut result = ProgramResult::Err(EbpfError::ExitRootCallFrame);
+    let config = interpreter
+        .vm
+        .verified_executable
+        .get_executable()
+        .get_config();
+    let initial_insn_count = if config.enable_instruction_meter {
+        interpreter.vm.env.context_object_pointer.get_remaining()
+    } else {
+        0
+    };
+    interpreter.vm.env.previous_instruction_meter = initial_insn_count;
+    interpreter.vm.env.program_result = ProgramResult::Ok(0);
     let mut dbg = GdbStub::new(connection)
         .run_state_machine(interpreter)
         .expect("Cannot start debugging state machine");
@@ -79,16 +88,13 @@ pub fn execute<V: Verifier, C: ContextObject>(
                 let conn = dbg_inner.borrow_conn();
                 match interpreter.debug_state {
                     DebugState::Step => {
-                        let mut stop_reason = match interpreter.step() {
-                            Ok(None) => SingleThreadStopReason::DoneStep,
-                            Ok(Some(step_result)) => {
-                                result = ProgramResult::Ok(step_result);
-                                SingleThreadStopReason::Exited(step_result as u8)
-                            }
-                            Err(err) => {
-                                result = ProgramResult::Err(err);
-                                SingleThreadStopReason::Terminated(Signal::SIGSTOP)
-                            }
+                        let mut stop_reason = if interpreter.step() {
+                            SingleThreadStopReason::DoneStep
+                        } else if let ProgramResult::Ok(result) = &interpreter.vm.env.program_result
+                        {
+                            SingleThreadStopReason::Exited(*result as u8)
+                        } else {
+                            SingleThreadStopReason::Terminated(Signal::SIGSTOP)
                         };
                         if interpreter.breakpoints.contains(&interpreter.get_dbg_pc()) {
                             stop_reason = SingleThreadStopReason::SwBreak(());
@@ -100,58 +106,51 @@ pub fn execute<V: Verifier, C: ContextObject>(
                             let byte = dbg_inner.borrow_conn().read().unwrap();
                             break dbg_inner.incoming_data(interpreter, byte).unwrap();
                         }
-                        match interpreter.step() {
-                            Ok(None) => {
-                                if interpreter.breakpoints.contains(&interpreter.get_dbg_pc()) {
-                                    break dbg_inner
-                                        .report_stop(
-                                            interpreter,
-                                            SingleThreadStopReason::SwBreak(()),
-                                        )
-                                        .unwrap();
-                                }
-                            }
-                            Ok(Some(step_result)) => {
+                        if interpreter.step() {
+                            if interpreter.breakpoints.contains(&interpreter.get_dbg_pc()) {
                                 break dbg_inner
-                                    .report_stop(
-                                        interpreter,
-                                        SingleThreadStopReason::Exited(step_result as u8),
-                                    )
+                                    .report_stop(interpreter, SingleThreadStopReason::SwBreak(()))
                                     .unwrap();
                             }
-                            Err(err) => {
-                                result = ProgramResult::Err(err);
-                                break dbg_inner
-                                    .report_stop(
-                                        interpreter,
-                                        SingleThreadStopReason::Terminated(Signal::SIGSTOP),
-                                    )
-                                    .unwrap();
-                            }
-                        };
+                        } else if let ProgramResult::Ok(result) = &interpreter.vm.env.program_result
+                        {
+                            break dbg_inner
+                                .report_stop(
+                                    interpreter,
+                                    SingleThreadStopReason::Exited(*result as u8),
+                                )
+                                .unwrap();
+                        } else {
+                            break dbg_inner
+                                .report_stop(
+                                    interpreter,
+                                    SingleThreadStopReason::Terminated(Signal::SIGSTOP),
+                                )
+                                .unwrap();
+                        }
                     },
                 }
             }
         };
     }
-    let total_insn_count = if interpreter
-        .vm
-        .verified_executable
-        .get_executable()
-        .get_config()
-        .enable_instruction_meter
-    {
+    let total_insn_count = if config.enable_instruction_meter {
         interpreter
             .vm
-            .context_object
+            .env
+            .context_object_pointer
             .consume(interpreter.due_insn_count);
-        interpreter
-            .initial_insn_count
-            .saturating_sub(interpreter.vm.context_object.get_remaining())
+        initial_insn_count.saturating_sub(interpreter.vm.env.context_object_pointer.get_remaining())
     } else {
         0
     };
-
+    if let ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, _)) =
+        interpreter.vm.env.program_result
+    {
+        interpreter.vm.env.program_result =
+            ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count));
+    }
+    let mut result = ProgramResult::Ok(0);
+    std::mem::swap(&mut result, &mut interpreter.vm.env.program_result);
     (total_insn_count, result)
 }
 
@@ -195,13 +194,15 @@ fn get_host_ptr<V: Verifier, C: ContextObject>(
     if vm_addr < ebpf::MM_PROGRAM_START {
         vm_addr += ebpf::MM_PROGRAM_START;
     }
-    Ok(translate_memory_access!(
-        interpreter,
-        vm_addr,
+    match interpreter.vm.env.memory_mapping.map(
         AccessType::Load,
-        pc,
-        u8
-    ))
+        vm_addr,
+        std::mem::size_of::<u8>() as u64,
+        pc + ebpf::ELF_INSN_DUMP_OFFSET,
+    ) {
+        ProgramResult::Ok(host_addr) => Ok(host_addr as *mut u8),
+        ProgramResult::Err(err) => Err(err),
+    }
 }
 
 impl<'a, 'b, V: Verifier, C: ContextObject> SingleThreadBase for Interpreter<'a, 'b, V, C> {
@@ -275,9 +276,14 @@ impl<'a, 'b, V: Verifier, C: ContextObject>
             }
             BpfRegId::Sp => buf.copy_from_slice(&self.reg[ebpf::FRAME_PTR_REG].to_le_bytes()),
             BpfRegId::Pc => buf.copy_from_slice(&self.get_dbg_pc().to_le_bytes()),
-            BpfRegId::InstructionCountRemaining => {
-                buf.copy_from_slice(&self.vm.context_object.get_remaining().to_le_bytes())
-            }
+            BpfRegId::InstructionCountRemaining => buf.copy_from_slice(
+                &self
+                    .vm
+                    .env
+                    .context_object_pointer
+                    .get_remaining()
+                    .to_le_bytes(),
+            ),
         }
         Ok(buf.len())
     }

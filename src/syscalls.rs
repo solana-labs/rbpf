@@ -182,7 +182,10 @@ pub fn bpf_mem_frob(
     memory_mapping: &mut MemoryMapping,
     result: &mut ProgramResult,
 ) {
-    let host_addr = question_mark!(memory_mapping.map(AccessType::Store, vm_addr, len), result);
+    let host_addr = question_mark!(
+        memory_mapping.map(AccessType::Store, vm_addr, len, 0),
+        result
+    );
     for i in 0..len {
         unsafe {
             let p = (host_addr + i) as *mut u8;
@@ -231,8 +234,8 @@ pub fn bpf_str_cmp(
         *result = ProgramResult::Ok(u64::MAX);
         return;
     }
-    let mut a = question_mark!(memory_mapping.map(AccessType::Load, arg1, 1), result);
-    let mut b = question_mark!(memory_mapping.map(AccessType::Load, arg2, 1), result);
+    let mut a = question_mark!(memory_mapping.map(AccessType::Load, arg1, 1, 0), result);
+    let mut b = question_mark!(memory_mapping.map(AccessType::Load, arg2, 1, 0), result);
     unsafe {
         let mut a_val = *(a as *const u8);
         let mut b_val = *(b as *const u8);
@@ -263,7 +266,10 @@ pub fn bpf_syscall_string(
     memory_mapping: &mut MemoryMapping,
     result: &mut ProgramResult,
 ) {
-    let host_addr = question_mark!(memory_mapping.map(AccessType::Load, vm_addr, len), result);
+    let host_addr = question_mark!(
+        memory_mapping.map(AccessType::Load, vm_addr, len, 0),
+        result
+    );
     let c_buf: *const i8 = host_addr as *const i8;
     unsafe {
         for i in 0..len {

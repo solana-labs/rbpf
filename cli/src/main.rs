@@ -9,7 +9,7 @@ use solana_rbpf::{
     verifier::RequisiteVerifier,
     vm::{Config, DynamicAnalysis, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable},
 };
-use std::{fs::File, io::Read, path::Path};
+use std::{fs::File, io::Read, path::Path, sync::Arc};
 
 fn main() {
     let matches = App::new("Solana RBPF CLI")
@@ -97,7 +97,7 @@ fn main() {
         enable_symbol_and_section_labels: true,
         ..Config::default()
     };
-    let syscall_registry = SyscallRegistry::default();
+    let syscall_registry = Arc::new(SyscallRegistry::default());
     let executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(Path::new(asm_file_name)).unwrap();
@@ -119,6 +119,7 @@ fn main() {
     }
     .unwrap();
 
+    #[allow(unused_mut)]
     let mut verified_executable =
         VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
@@ -140,6 +141,7 @@ fn main() {
             .parse::<usize>()
             .unwrap()
     ];
+    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     if matches.value_of("use") == Some("jit") {
         verified_executable.jit_compile().unwrap();
     }
@@ -191,7 +193,13 @@ fn main() {
     }
 
     let (instruction_count, result) = if matches.value_of("use").unwrap() == "debugger" {
-        let mut interpreter = Interpreter::new(&mut vm).unwrap();
+        let target_pc = verified_executable
+            .get_executable()
+            .get_entrypoint_instruction_offset();
+        let mut registers = [0u64; 11];
+        registers[1] = ebpf::MM_INPUT_START;
+        registers[ebpf::FRAME_PTR_REG] = vm.env.stack_pointer;
+        let mut interpreter = Interpreter::new(&mut vm, registers, target_pc).unwrap();
         let port = matches.value_of("port").unwrap().parse::<u16>().unwrap();
         debugger::execute(&mut interpreter, port)
     } else {
@@ -202,13 +210,16 @@ fn main() {
     if matches.is_present("trace") {
         println!("Trace:\n");
         let stdout = std::io::stdout();
-        vm.context_object
+        vm.env
+            .context_object_pointer
             .write_trace_log(&mut stdout.lock(), analysis.as_ref().unwrap())
             .unwrap();
     }
     if matches.is_present("profile") {
-        let dynamic_analysis =
-            DynamicAnalysis::new(&vm.context_object.trace_log, analysis.as_ref().unwrap());
+        let dynamic_analysis = DynamicAnalysis::new(
+            &vm.env.context_object_pointer.trace_log,
+            analysis.as_ref().unwrap(),
+        );
         let mut file = File::create("profile.dot").unwrap();
         analysis
             .as_ref()

@@ -2,7 +2,7 @@ use std::mem::size_of;
 
 use arbitrary::{Arbitrary, Unstructured};
 
-use solana_rbpf::vm::Config;
+use solana_rbpf::vm::{Config, PROGRAM_ENVIRONMENT_KEY_SHIFT};
 
 #[derive(Debug)]
 pub struct ConfigTemplate {
@@ -67,7 +67,12 @@ impl From<ConfigTemplate> for Config {
                 enable_symbol_and_section_labels,
                 noop_instruction_rate,
                 sanitize_user_provided_values,
-                encrypt_environment_registers,
+                runtime_environment_key: if encrypt_environment_registers {
+                    // Use a constant encryption key for reproducibility
+                    -946060820 >> PROGRAM_ENVIRONMENT_KEY_SHIFT
+                } else {
+                    0
+                },
                 reject_callx_r10,
                 dynamic_stack_frames,
                 enable_sdiv,

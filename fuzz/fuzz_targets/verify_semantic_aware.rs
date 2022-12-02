@@ -3,7 +3,11 @@
 use libfuzzer_sys::fuzz_target;
 
 use semantic_aware::*;
-use solana_rbpf::{insn_builder::IntoBytes, verifier::{RequisiteVerifier, Verifier}, vm::FunctionRegistry};
+use solana_rbpf::{
+    insn_builder::IntoBytes,
+    verifier::{RequisiteVerifier, Verifier},
+    vm::FunctionRegistry,
+};
 
 use crate::common::ConfigTemplate;
 

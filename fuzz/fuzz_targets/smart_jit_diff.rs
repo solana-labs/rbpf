@@ -9,8 +9,9 @@ use solana_rbpf::{
     insn_builder::{Arch, Instruction, IntoBytes},
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{EbpfVm, SyscallRegistry, FunctionRegistry, TestContextObject, VerifiedExecutable},
+    vm::{EbpfVm, FunctionRegistry, SyscallRegistry, TestContextObject, VerifiedExecutable},
 };
+use std::sync::Arc;
 use test_utils::TautologyVerifier;
 
 use crate::common::ConfigTemplate;
@@ -48,7 +49,7 @@ fuzz_target!(|data: FuzzData| {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog.into_bytes(),
         config,
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
         function_registry,
     )
     .unwrap();
@@ -58,12 +59,23 @@ fuzz_target!(|data: FuzzData| {
     if verified_executable.jit_compile().is_ok() {
         let mut interp_syscall_object = TestContextObject::new(1 << 16);
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
-        let mut interp_vm =
-            EbpfVm::new(&verified_executable, &mut interp_syscall_object, &mut [], vec![interp_mem_region]).unwrap();
+        let mut interp_vm = EbpfVm::new(
+            &verified_executable,
+            &mut interp_syscall_object,
+            &mut [],
+            vec![interp_mem_region],
+        )
+        .unwrap();
         let mut jit_syscall_object = TestContextObject::new(1 << 16);
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
-        let mut jit_vm = EbpfVm::new(&verified_executable, &mut jit_syscall_object, &mut [], vec![jit_mem_region]).unwrap();
-        
+        let mut jit_vm = EbpfVm::new(
+            &verified_executable,
+            &mut jit_syscall_object,
+            &mut [],
+            vec![jit_mem_region],
+        )
+        .unwrap();
+
         let (_interp_ins_count, interp_res) = interp_vm.execute_program(true);
         let (_jit_ins_count, jit_res) = jit_vm.execute_program(false);
         if format!("{:?}", interp_res) != format!("{:?}", jit_res) {

@@ -13,7 +13,7 @@ use solana_rbpf::{
     elf::Executable,
     vm::{Config, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable},
 };
-use std::{fs::File, io::Read};
+use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;
 use test_utils::TautologyVerifier;
 
@@ -25,7 +25,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
     let executable = Executable::<TestContextObject>::from_elf(
         &elf,
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
     )
     .unwrap();
     let verified_executable =
@@ -52,7 +52,7 @@ fn bench_jit_compile(bencher: &mut Bencher) {
     let executable = Executable::<TestContextObject>::from_elf(
         &elf,
         Config::default(),
-        SyscallRegistry::default(),
+        Arc::new(SyscallRegistry::default()),
     )
     .unwrap();
     let mut verified_executable =
