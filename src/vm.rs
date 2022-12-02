@@ -534,6 +534,9 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
     pub(crate) verified_executable: &'a VerifiedExecutable<V, C>,
     _stack: AlignedMemory<{ ebpf::HOST_ALIGN }>,
+    /// TCP port for the debugger interface
+    #[cfg(feature = "debugger")]
+    pub debug_port: Option<u16>,
     /// Runtime state
     pub env: RuntimeEnvironment<'a, C>,
 }
@@ -575,6 +578,8 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         let vm = EbpfVm {
             verified_executable,
             _stack: stack,
+            #[cfg(feature = "debugger")]
+            debug_port: None,
             env: RuntimeEnvironment {
                 host_stack_pointer: std::ptr::null_mut(),
                 call_depth: 0,
@@ -610,10 +615,19 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         self.env.previous_instruction_meter = initial_insn_count;
         self.env.program_result = ProgramResult::Ok(0);
         let due_insn_count = if interpreted {
+            #[cfg(feature = "debugger")]
+            let debug_port = self.debug_port.clone();
             let mut interpreter = match Interpreter::new(self, registers, target_pc) {
                 Ok(interpreter) => interpreter,
                 Err(error) => return (0, ProgramResult::Err(error)),
             };
+            #[cfg(feature = "debugger")]
+            if let Some(debug_port) = debug_port {
+                crate::debugger::execute(&mut interpreter, debug_port);
+            } else {
+                while interpreter.step() {}
+            }
+            #[cfg(not(feature = "debugger"))]
             while interpreter.step() {}
             interpreter.due_insn_count
         } else {
