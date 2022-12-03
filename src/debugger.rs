@@ -44,24 +44,9 @@ fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
 }
 
 /// Connect to the debugger and hand over the control of the interpreter
-pub fn execute<V: Verifier, C: ContextObject>(
-    interpreter: &mut Interpreter<V, C>,
-    port: u16,
-) -> (u64, ProgramResult) {
+pub fn execute<V: Verifier, C: ContextObject>(interpreter: &mut Interpreter<V, C>, port: u16) {
     let connection: Box<dyn ConnectionExt<Error = std::io::Error>> =
         Box::new(wait_for_tcp(port).expect("Cannot connect to Debugger"));
-    let config = interpreter
-        .vm
-        .verified_executable
-        .get_executable()
-        .get_config();
-    let initial_insn_count = if config.enable_instruction_meter {
-        interpreter.vm.env.context_object_pointer.get_remaining()
-    } else {
-        0
-    };
-    interpreter.vm.env.previous_instruction_meter = initial_insn_count;
-    interpreter.vm.env.program_result = ProgramResult::Ok(0);
     let mut dbg = GdbStub::new(connection)
         .run_state_machine(interpreter)
         .expect("Cannot start debugging state machine");
@@ -133,25 +118,6 @@ pub fn execute<V: Verifier, C: ContextObject>(
             }
         };
     }
-    let total_insn_count = if config.enable_instruction_meter {
-        interpreter
-            .vm
-            .env
-            .context_object_pointer
-            .consume(interpreter.due_insn_count);
-        initial_insn_count.saturating_sub(interpreter.vm.env.context_object_pointer.get_remaining())
-    } else {
-        0
-    };
-    if let ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, _)) =
-        interpreter.vm.env.program_result
-    {
-        interpreter.vm.env.program_result =
-            ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count));
-    }
-    let mut result = ProgramResult::Ok(0);
-    std::mem::swap(&mut result, &mut interpreter.vm.env.program_result);
-    (total_insn_count, result)
 }
 
 impl<'a, 'b, V: Verifier, C: ContextObject> Target for Interpreter<'a, 'b, V, C> {
