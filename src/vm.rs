@@ -16,15 +16,17 @@ use crate::{
     aligned_memory::AlignedMemory,
     disassembler::disassemble_instruction,
     ebpf,
+    ebpf::Insn,
     elf::Executable,
     error::EbpfError,
     interpreter::Interpreter,
     memory_region::{MemoryMapping, MemoryRegion},
-    static_analysis::Analysis,
+    static_analysis::{Analysis, CfgNode},
     verifier::Verifier,
 };
 use rand::Rng;
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap},
     fmt::Debug,
     marker::PhantomData,
@@ -336,10 +338,13 @@ impl<V: Verifier, C: ContextObject> VerifiedExecutable<V, C> {
     }
 }
 
+/// Trace state item
+pub type TraceItem = [u64; 12];
+
 /// Runtime context
 pub trait ContextObject {
     /// Called for every instruction executed when tracing is enabled
-    fn trace(&mut self, state: [u64; 12]);
+    fn trace(&mut self, state: TraceItem);
     /// Consume instructions from meter
     fn consume(&mut self, amount: u64);
     /// Get the number of remaining instructions allowed
@@ -350,13 +355,13 @@ pub trait ContextObject {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TestContextObject {
     /// Contains the register state at every instruction in order of execution
-    pub trace_log: Vec<[u64; 12]>,
+    pub trace_log: Vec<TraceItem>,
     /// Maximal amount of instructions which still can be executed
     pub remaining: u64,
 }
 
 impl ContextObject for TestContextObject {
-    fn trace(&mut self, state: [u64; 12]) {
+    fn trace(&mut self, state: TraceItem) {
         self.trace_log.push(state);
     }
 
@@ -385,33 +390,20 @@ impl TestContextObject {
         output: &mut W,
         analysis: &Analysis<C>,
     ) -> Result<(), std::io::Error> {
-        let mut pc_to_insn_index = vec![
-            0usize;
-            analysis
-                .instructions
-                .last()
-                .map(|insn| insn.ptr + 2)
-                .unwrap_or(0)
-        ];
-        for (index, insn) in analysis.instructions.iter().enumerate() {
-            pc_to_insn_index[insn.ptr] = index;
-            pc_to_insn_index[insn.ptr + 1] = index;
-        }
+        let trace_analyzer = TraceAnalyzer::new(analysis);
         for (index, entry) in self.trace_log.iter().enumerate() {
-            let pc = entry[11] as usize;
-            let insn = &analysis.instructions[pc_to_insn_index[pc]];
             writeln!(
                 output,
                 "{:5?} {:016X?} {:5?}: {}",
                 index,
-                &entry[0..11],
-                pc + ebpf::ELF_INSN_DUMP_OFFSET,
+                TraceAnalyzer::registers(entry),
+                TraceAnalyzer::offset(entry),
                 disassemble_instruction(
-                    insn,
-                    &analysis.cfg_nodes,
-                    analysis.executable.get_syscall_symbols(),
-                    analysis.executable.get_function_registry()
-                ),
+                    trace_analyzer.instruction(entry),
+                    trace_analyzer.cfg_nodes(),
+                    trace_analyzer.syscall_symbols(),
+                    trace_analyzer.function_registry(),
+                )
             )?;
         }
         Ok(())
@@ -430,6 +422,98 @@ impl TestContextObject {
     }
 }
 
+/// Trace analyzer
+#[derive(Debug)]
+pub struct TraceAnalyzer<'a> {
+    cfg_nodes: Cow<'a, BTreeMap<usize, CfgNode>>,
+    instructions: Cow<'a, Vec<Insn>>,
+    syscall_symbols: Cow<'a, BTreeMap<u32, String>>,
+    function_registry: Cow<'a, FunctionRegistry>,
+    pc_to_insn_index: Arc<Vec<usize>>,
+}
+
+impl<'a> TraceAnalyzer<'a> {
+    /// Calculates instruction indexes and creates trace analyzer
+    pub fn new<C: ContextObject>(analysis: &'a Analysis<'a, C>) -> Self {
+        let mut pc_to_insn_index = vec![
+            0usize;
+            analysis
+                .instructions
+                .last()
+                .map(|insn| insn.ptr + 2)
+                .unwrap_or(0)
+        ];
+        for (index, insn) in analysis.instructions.iter().enumerate() {
+            pc_to_insn_index[insn.ptr] = index;
+            pc_to_insn_index[insn.ptr + 1] = index;
+        }
+
+        Self {
+            cfg_nodes: Cow::Borrowed(&analysis.cfg_nodes),
+            instructions: Cow::Borrowed(&analysis.instructions),
+            syscall_symbols: Cow::Borrowed(analysis.executable.get_syscall_symbols()),
+            function_registry: Cow::Borrowed(analysis.executable.get_function_registry()),
+            pc_to_insn_index: Arc::new(pc_to_insn_index),
+        }
+    }
+
+    /// Converts `TraceAnalyzer` to its representation which owns `Analysis` structures
+    pub fn to_owned(&self) -> TraceAnalyzer<'static> {
+        TraceAnalyzer {
+            cfg_nodes: Cow::Owned(self.cfg_nodes.as_ref().clone()),
+            instructions: Cow::Owned(self.instructions.as_ref().clone()),
+            syscall_symbols: Cow::Owned(self.syscall_symbols.as_ref().clone()),
+            function_registry: Cow::Owned(self.function_registry.as_ref().clone()),
+            pc_to_insn_index: Arc::clone(&self.pc_to_insn_index),
+        }
+    }
+
+    /// Nodes of the control-flow graph
+    pub fn cfg_nodes(&self) -> &BTreeMap<usize, CfgNode> {
+        &self.cfg_nodes
+    }
+
+    /// Plain list of instructions as they occur in the executable
+    pub fn instructions(&self) -> &Vec<Insn> {
+        &self.instructions
+    }
+
+    /// Syscall symbol map (hash, name)
+    pub fn syscall_symbols(&self) -> &BTreeMap<u32, String> {
+        &self.syscall_symbols
+    }
+
+    /// Call resolution map (hash, pc, name)
+    pub fn function_registry(&self) -> &FunctionRegistry {
+        &self.function_registry
+    }
+
+    /// Instruction index by program counter
+    pub fn pc_to_insn_index(&self) -> &Vec<usize> {
+        &self.pc_to_insn_index
+    }
+
+    /// Registers [0..10]
+    pub fn registers(trace_item: &TraceItem) -> &[u64] {
+        &trace_item[0..10]
+    }
+
+    /// Program counter
+    pub fn pc(trace_item: &TraceItem) -> usize {
+        trace_item[11] as usize
+    }
+
+    /// Instruction offset
+    pub fn offset(trace_item: &TraceItem) -> usize {
+        Self::pc(trace_item) + ebpf::ELF_INSN_DUMP_OFFSET
+    }
+
+    /// eBPF instruction
+    pub fn instruction(&self, trace_item: &TraceItem) -> &Insn {
+        &self.instructions[self.pc_to_insn_index[Self::pc(trace_item)]]
+    }
+}
+
 /// Statistic of taken branches (from a recorded trace)
 pub struct DynamicAnalysis {
     /// Maximal edge counter value
@@ -440,7 +524,7 @@ pub struct DynamicAnalysis {
 
 impl DynamicAnalysis {
     /// Accumulates a trace
-    pub fn new<C: ContextObject>(trace_log: &[[u64; 12]], analysis: &Analysis<C>) -> Self {
+    pub fn new<C: ContextObject>(trace_log: &[TraceItem], analysis: &Analysis<C>) -> Self {
         let mut result = Self {
             edge_counter_max: 0,
             edges: BTreeMap::new(),
