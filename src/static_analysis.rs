@@ -438,6 +438,16 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
         Ok(())
     }
 
+    /// Generates assembler code for a single instruction
+    pub fn disassemble_instruction(&self, insn: &ebpf::Insn) -> String {
+        disassemble_instruction(
+            insn,
+            &self.cfg_nodes,
+            self.executable.get_loader(),
+            self.executable.get_function_registry(),
+        )
+    }
+
     /// Generates assembler code for the analyzed executable
     pub fn disassemble<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         let mut last_basic_block = usize::MAX;
@@ -448,13 +458,7 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
                 insn.ptr,
                 &mut last_basic_block,
             )?;
-            let desc = disassemble_instruction(
-                insn,
-                &self.cfg_nodes,
-                self.executable.get_loader(),
-                self.executable.get_function_registry(),
-            );
-            writeln!(output, "    {}", desc)?;
+            writeln!(output, "    {}", self.disassemble_instruction(insn))?;
         }
         Ok(())
     }
@@ -506,11 +510,8 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
                 cfg_node_start,
                 analysis.instructions[cfg_node.instructions.clone()].iter()
                 .map(|insn| {
-                    let desc = disassemble_instruction(
-                        insn,
-                        &analysis.cfg_nodes,
-                        analysis.executable.get_loader(),
-                        analysis.executable.get_function_registry(),
+                    let desc = analysis.disassemble_instruction(
+                        insn
                     );
                     if let Some(split_index) = desc.find(' ') {
                         let mut rest = desc[split_index+1..].to_string();

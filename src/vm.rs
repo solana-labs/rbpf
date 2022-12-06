@@ -14,7 +14,6 @@
 
 use crate::{
     aligned_memory::AlignedMemory,
-    disassembler::disassemble_instruction,
     ebpf,
     elf::Executable,
     error::EbpfError,
@@ -401,12 +400,7 @@ impl TestContextObject {
                 index,
                 &entry[0..11],
                 pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                disassemble_instruction(
-                    insn,
-                    &analysis.cfg_nodes,
-                    analysis.executable.get_loader(),
-                    analysis.executable.get_function_registry()
-                ),
+                analysis.disassemble_instruction(insn),
             )?;
         }
         Ok(())

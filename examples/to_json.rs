@@ -12,7 +12,6 @@ use std::path::PathBuf;
 
 extern crate solana_rbpf;
 use solana_rbpf::{
-    disassembler::disassemble_instruction,
     elf::Executable,
     static_analysis::Analysis,
     vm::{BuiltInProgram, Config, FunctionRegistry, TestContextObject},
@@ -52,11 +51,8 @@ fn to_json(program: &[u8]) -> String {
             // number is negative. When values takes more than 32 bits with `lddw`, the cast
             // has no effect and the complete value is printed anyway.
             "imm"  => format!("{:#x}", insn.imm as i32), // => insn.imm,
-            "desc" => disassemble_instruction(
-                insn,
-                &analysis.cfg_nodes,
-                analysis.executable.get_loader(),
-                analysis.executable.get_function_registry(),
+            "desc" => analysis.disassemble_instruction(
+                insn
             ),
         ));
     }
