@@ -125,7 +125,7 @@ impl<C: ContextObject> BuiltInProgram<C> {
     ) -> Result<(), EbpfError> {
         let key = ebpf::hash_symbol_name(name.as_bytes());
         if self.functions.insert(key, (name, function)).is_some() {
-            Err(EbpfError::SyscallAlreadyRegistered(key as usize))
+            Err(EbpfError::FunctionAlreadyRegistered(key as usize))
         } else {
             Ok(())
         }
