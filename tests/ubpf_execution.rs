@@ -90,11 +90,14 @@ macro_rules! test_interpreter_and_jit {
                         )
                         .unwrap();
                         let stdout = std::io::stdout();
-                        _tracer_interpreter
-                            .write_trace_log(&mut stdout.lock(), &analysis)
+                        analysis
+                            .disassemble_trace_log(
+                                &mut stdout.lock(),
+                                &_tracer_interpreter.trace_log,
+                            )
                             .unwrap();
-                        tracer_jit
-                            .write_trace_log(&mut stdout.lock(), &analysis)
+                        analysis
+                            .disassemble_trace_log(&mut stdout.lock(), &tracer_jit.trace_log)
                             .unwrap();
                         panic!();
                     }
@@ -4090,11 +4093,11 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         println!("result_interpreter={:?}", result_interpreter);
         println!("result_jit={:?}", result_jit);
         let stdout = std::io::stdout();
-        tracer_interpreter
-            .write_trace_log(&mut stdout.lock(), &analysis)
+        analysis
+            .disassemble_trace_log(&mut stdout.lock(), &tracer_interpreter.trace_log)
             .unwrap();
-        tracer_jit
-            .write_trace_log(&mut stdout.lock(), &analysis)
+        analysis
+            .disassemble_trace_log(&mut stdout.lock(), &tracer_jit.trace_log)
             .unwrap();
         panic!();
     }

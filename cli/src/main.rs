@@ -200,9 +200,10 @@ fn main() {
     if matches.is_present("trace") {
         println!("Trace:\n");
         let stdout = std::io::stdout();
-        vm.env
-            .context_object_pointer
-            .write_trace_log(&mut stdout.lock(), analysis.as_ref().unwrap())
+        analysis
+            .as_ref()
+            .unwrap()
+            .disassemble_trace_log(&mut stdout.lock(), &vm.env.context_object_pointer.trace_log)
             .unwrap();
     }
     if matches.is_present("profile") {

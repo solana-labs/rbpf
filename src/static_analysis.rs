@@ -11,8 +11,13 @@ use crate::{
 use rustc_demangle::demangle;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+/// Register state recorded after executing one instruction
+///
+/// The last register is the program counter (aka pc).
+pub type TraceLogEntry = [u64; 12];
+
 /// Used for topological sort
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct TopologicalIndex {
     /// Strongly connected component ID
     pub scc_id: usize,
@@ -42,7 +47,7 @@ impl PartialOrd for TopologicalIndex {
 }
 
 /// A node of the control-flow graph
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CfgNode {
     /// Human readable name
     pub label: String,
@@ -462,6 +467,38 @@ impl<'a> Analysis<'a> {
                 &mut last_basic_block,
             )?;
             writeln!(output, "    {}", self.disassemble_instruction(insn))?;
+        }
+        Ok(())
+    }
+
+    /// Use this method to print the trace log
+    pub fn disassemble_trace_log<W: std::io::Write>(
+        &self,
+        output: &mut W,
+        trace_log: &[TraceLogEntry],
+    ) -> Result<(), std::io::Error> {
+        let mut pc_to_insn_index = vec![
+            0usize;
+            self.instructions
+                .last()
+                .map(|insn| insn.ptr + 2)
+                .unwrap_or(0)
+        ];
+        for (index, insn) in self.instructions.iter().enumerate() {
+            pc_to_insn_index[insn.ptr] = index;
+            pc_to_insn_index[insn.ptr + 1] = index;
+        }
+        for (index, entry) in trace_log.iter().enumerate() {
+            let pc = entry[11] as usize;
+            let insn = &self.instructions[pc_to_insn_index[pc]];
+            writeln!(
+                output,
+                "{:5?} {:016X?} {:5?}: {}",
+                index,
+                &entry[0..11],
+                pc + ebpf::ELF_INSN_DUMP_OFFSET,
+                self.disassemble_instruction(insn),
+            )?;
         }
         Ok(())
     }

@@ -19,7 +19,7 @@ use crate::{
     error::EbpfError,
     interpreter::Interpreter,
     memory_region::{MemoryMapping, MemoryRegion},
-    static_analysis::Analysis,
+    static_analysis::{Analysis, TraceLogEntry},
     verifier::Verifier,
 };
 use rand::Rng;
@@ -344,7 +344,7 @@ pub trait ContextObject {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TestContextObject {
     /// Contains the register state at every instruction in order of execution
-    pub trace_log: Vec<[u64; 12]>,
+    pub trace_log: Vec<TraceLogEntry>,
     /// Maximal amount of instructions which still can be executed
     pub remaining: u64,
 }
@@ -371,39 +371,6 @@ impl TestContextObject {
             trace_log: Vec::new(),
             remaining,
         }
-    }
-
-    /// Use this method to print the trace log
-    pub fn write_trace_log<W: std::io::Write>(
-        &self,
-        output: &mut W,
-        analysis: &Analysis,
-    ) -> Result<(), std::io::Error> {
-        let mut pc_to_insn_index = vec![
-            0usize;
-            analysis
-                .instructions
-                .last()
-                .map(|insn| insn.ptr + 2)
-                .unwrap_or(0)
-        ];
-        for (index, insn) in analysis.instructions.iter().enumerate() {
-            pc_to_insn_index[insn.ptr] = index;
-            pc_to_insn_index[insn.ptr + 1] = index;
-        }
-        for (index, entry) in self.trace_log.iter().enumerate() {
-            let pc = entry[11] as usize;
-            let insn = &analysis.instructions[pc_to_insn_index[pc]];
-            writeln!(
-                output,
-                "{:5?} {:016X?} {:5?}: {}",
-                index,
-                &entry[0..11],
-                pc + ebpf::ELF_INSN_DUMP_OFFSET,
-                analysis.disassemble_instruction(insn),
-            )?;
-        }
-        Ok(())
     }
 
     /// Compares an interpreter trace and a JIT trace.
