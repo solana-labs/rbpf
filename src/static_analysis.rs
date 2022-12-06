@@ -6,7 +6,7 @@ use crate::{
     ebpf,
     elf::{self, Executable},
     error::EbpfError,
-    vm::{ContextObject, DynamicAnalysis},
+    vm::{ContextObject, DynamicAnalysis, TestContextObject},
 };
 use rustc_demangle::demangle;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -119,9 +119,9 @@ impl Default for CfgNode {
 }
 
 /// Result of the executable analysis
-pub struct Analysis<'a, C: ContextObject> {
+pub struct Analysis<'a> {
     /// The program which is analyzed
-    pub executable: &'a Executable<C>,
+    executable: &'a Executable<TestContextObject>,
     /// Plain list of instructions as they occur in the executable
     pub instructions: Vec<ebpf::Insn>,
     /// Functions in the executable
@@ -140,9 +140,11 @@ pub struct Analysis<'a, C: ContextObject> {
     pub dfg_reverse_edges: BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
 }
 
-impl<'a, C: ContextObject> Analysis<'a, C> {
+impl<'a> Analysis<'a> {
     /// Analyze an executable statically
-    pub fn from_executable(executable: &'a Executable<C>) -> Result<Self, EbpfError> {
+    pub fn from_executable<C: ContextObject>(
+        executable: &'a Executable<C>,
+    ) -> Result<Self, EbpfError> {
         let (_program_vm_addr, program) = executable.get_text_bytes();
         let mut functions = BTreeMap::new();
         for (key, (pc, name)) in executable.get_function_registry().iter() {
@@ -169,7 +171,8 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
             insn_ptr += 1;
         }
         let mut result = Self {
-            executable,
+            // Removes the generic ContextObject which is safe because we are not going to execute the program
+            executable: unsafe { std::mem::transmute(executable) },
             instructions,
             functions,
             cfg_nodes: BTreeMap::new(),
@@ -497,10 +500,10 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
                 .replace('>', "&gt;")
                 .replace('\"', "&quot;")
         }
-        fn emit_cfg_node<W: std::io::Write, C: ContextObject>(
+        fn emit_cfg_node<W: std::io::Write>(
             output: &mut W,
             dynamic_analysis: Option<&DynamicAnalysis>,
-            analysis: &Analysis<C>,
+            analysis: &Analysis,
             function_range: std::ops::Range<usize>,
             alias_nodes: &mut HashSet<usize>,
             cfg_node_start: usize,

@@ -374,10 +374,10 @@ impl TestContextObject {
     }
 
     /// Use this method to print the trace log
-    pub fn write_trace_log<W: std::io::Write, C: ContextObject>(
+    pub fn write_trace_log<W: std::io::Write>(
         &self,
         output: &mut W,
-        analysis: &Analysis<C>,
+        analysis: &Analysis,
     ) -> Result<(), std::io::Error> {
         let mut pc_to_insn_index = vec![
             0usize;
@@ -429,7 +429,7 @@ pub struct DynamicAnalysis {
 
 impl DynamicAnalysis {
     /// Accumulates a trace
-    pub fn new<C: ContextObject>(trace_log: &[[u64; 12]], analysis: &Analysis<C>) -> Self {
+    pub fn new(trace_log: &[[u64; 12]], analysis: &Analysis) -> Self {
         let mut result = Self {
             edge_counter_max: 0,
             edges: BTreeMap::new(),
