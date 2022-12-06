@@ -2639,7 +2639,7 @@ fn test_bpf_to_bpf_scratch_registers() {
         (
             "log_64" => syscalls::bpf_syscall_u64,
         ),
-        TestContextObject::new(41),
+        TestContextObject::new(40),
         { |_vm, res: ProgramResult| { res.unwrap() == 112 } },
     );
 }
@@ -2650,7 +2650,7 @@ fn test_bpf_to_bpf_pass_stack_reference() {
         "tests/elfs/pass_stack_reference.so",
         [],
         (),
-        TestContextObject::new(29),
+        TestContextObject::new(37),
         { |_vm, res: ProgramResult| res.unwrap() == 42 },
     );
 }
@@ -3241,26 +3241,6 @@ fn test_load_elf_rodata_high_vaddr() {
     );
 }
 
-#[test]
-fn test_custom_entrypoint() {
-    let mut file = File::open("tests/elfs/unresolved_syscall.so").expect("file open failed");
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-    elf[24] = 80; // Move entrypoint to later in the text section
-    let config = Config {
-        enable_instruction_tracing: true,
-        ..Config::default()
-    };
-    let mut loader = BuiltInProgram::default();
-    test_interpreter_and_jit!(register, loader, "log_64" => syscalls::bpf_syscall_u64);
-    #[allow(unused_mut)]
-    let mut executable =
-        Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(loader)).unwrap();
-    test_interpreter_and_jit!(executable, [], TestContextObject::new(2), {
-        |_vm, res: ProgramResult| res.unwrap() == 0
-    });
-}
-
 // Instruction Meter Limit
 
 #[test]
@@ -3659,8 +3639,9 @@ fn test_err_unresolved_elf() {
         reject_broken_elfs: true,
         ..Config::default()
     };
+    let result = Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(loader));
     assert!(
-        matches!(Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(loader)), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
+        matches!(result, Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 67 && offset == 304)
     );
 }
 

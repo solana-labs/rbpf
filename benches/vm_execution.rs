@@ -42,7 +42,7 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     )
     .unwrap();
     bencher.iter(|| {
-        vm.env.context_object_pointer.remaining = 29;
+        vm.env.context_object_pointer.remaining = 37;
         vm.execute_program(true).1.unwrap()
     });
 }
@@ -72,7 +72,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     )
     .unwrap();
     bencher.iter(|| {
-        vm.env.context_object_pointer.remaining = 29;
+        vm.env.context_object_pointer.remaining = 37;
         vm.execute_program(false).1.unwrap()
     });
 }
