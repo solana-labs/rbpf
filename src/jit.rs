@@ -1575,7 +1575,7 @@ mod tests {
             .register_function_by_name("gather_bytes", syscalls::bpf_gather_bytes)
             .unwrap();
         let mut function_registry = FunctionRegistry::default();
-        function_registry.insert(0xFFFFFFFF, (8, "foo".to_string()));
+        function_registry.insert(8, (8, "function_foo".to_string()));
         Executable::<TestContextObject>::from_text_bytes(
             program,
             config,
@@ -1601,20 +1601,23 @@ mod tests {
         };
         assert!(empty_program_machine_code_length <= MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH);
 
-        for opcode in 0..255 {
+        for mut opcode in 0x00..=0xFF {
+            let immediate = match opcode {
+                0x85 | 0x8D => 8,
+                0x86 => {
+                    // Put external function calls on a separate loop iteration
+                    opcode = 0x85;
+                    0x91020CDD
+                }
+                0xD4 | 0xDC => 16,
+                _ => 0xFFFFFFFF,
+            };
             for pc in 0..INSTRUCTION_COUNT {
                 prog[pc * ebpf::INSN_SIZE] = opcode;
                 prog[pc * ebpf::INSN_SIZE + 1] = 0x88;
                 prog[pc * ebpf::INSN_SIZE + 2] = 0xFF;
                 prog[pc * ebpf::INSN_SIZE + 3] = 0xFF;
-                LittleEndian::write_u32(
-                    &mut prog[pc * ebpf::INSN_SIZE + 4..],
-                    match opcode {
-                        0x8D => 8,
-                        0xD4 | 0xDC => 16,
-                        _ => 0xFFFFFFFF,
-                    },
-                );
+                LittleEndian::write_u32(&mut prog[pc * ebpf::INSN_SIZE + 4..], immediate);
             }
             let mut executable = create_mockup_executable(&prog);
             let result = Executable::<TestContextObject>::jit_compile(&mut executable);
@@ -1631,6 +1634,7 @@ mod tests {
                 .machine_code_length()
                 - empty_program_machine_code_length;
             let instruction_count = if opcode == 0x18 {
+                // LDDW takes two slots
                 INSTRUCTION_COUNT / 2
             } else {
                 INSTRUCTION_COUNT
@@ -1638,6 +1642,12 @@ mod tests {
             let machine_code_length_per_instruction =
                 (machine_code_length as f64 / instruction_count as f64 + 0.5) as usize;
             assert!(machine_code_length_per_instruction <= MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION);
+            /*println!("opcode={:02X} machine_code_length_per_instruction={}", opcode, machine_code_length_per_instruction);
+            let analysis = crate::static_analysis::Analysis::from_executable(&executable).unwrap();
+            {
+                let stdout = std::io::stdout();
+                analysis.disassemble(&mut stdout.lock()).unwrap();
+            }*/
         }
     }
 }
