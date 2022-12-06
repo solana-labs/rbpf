@@ -15,7 +15,7 @@ use solana_rbpf::{
     disassembler::disassemble_instruction,
     elf::Executable,
     static_analysis::Analysis,
-    vm::{Config, FunctionRegistry, SyscallRegistry, TestContextObject},
+    vm::{BuiltInProgram, Config, FunctionRegistry, TestContextObject},
 };
 use std::sync::Arc;
 // Turn a program into a JSON string.
@@ -31,7 +31,7 @@ fn to_json(program: &[u8]) -> String {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         program,
         Config::default(),
-        Arc::new(SyscallRegistry::default()),
+        Arc::new(BuiltInProgram::default()),
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -55,7 +55,7 @@ fn to_json(program: &[u8]) -> String {
             "desc" => disassemble_instruction(
                 insn,
                 &analysis.cfg_nodes,
-                analysis.executable.get_syscall_symbols(),
+                analysis.executable.get_external_functions(),
                 analysis.executable.get_function_registry(),
             ),
         ));

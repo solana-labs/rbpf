@@ -21,7 +21,7 @@ use crate::{
         allocate_pages, free_pages, get_system_page_size, protect_pages, round_to_page_size,
     },
     memory_region::{AccessType, MemoryMapping},
-    vm::{Config, ContextObject, ProgramResult, RuntimeEnvironment, SyscallFunction},
+    vm::{Config, ContextObject, ProgramResult, RuntimeEnvironment},
     x86::*,
 };
 
@@ -179,7 +179,7 @@ impl<C: ContextObject> PartialEq for JitProgram<C> {
 // See JitCompiler::set_anchor() and JitCompiler::relative_to_anchor()
 const ANCHOR_EPILOGUE: usize = 0;
 const ANCHOR_TRACE: usize = 1;
-const ANCHOR_RUST_EXCEPTION: usize = 2;
+const ANCHOR_EXTERNAL_FUNCTION_EXCEPTION: usize = 2;
 const ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = 3;
 const ANCHOR_EXCEPTION_AT: usize = 4;
 const ANCHOR_CALL_DEPTH_EXCEEDED: usize = 5;
@@ -189,9 +189,9 @@ const ANCHOR_DIV_OVERFLOW: usize = 8;
 const ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION: usize = 9;
 const ANCHOR_CALL_UNSUPPORTED_INSTRUCTION: usize = 10;
 const ANCHOR_EXIT: usize = 11;
-const ANCHOR_SYSCALL: usize = 12;
-const ANCHOR_BPF_CALL_PROLOGUE: usize = 13;
-const ANCHOR_BPF_CALL_REG: usize = 14;
+const ANCHOR_EXTERNAL_FUNCTION_CALL: usize = 12;
+const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE: usize = 13;
+const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG: usize = 14;
 const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 22;
 const ANCHOR_COUNT: usize = 31; // Update me when adding or removing anchors
 
@@ -602,24 +602,22 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::JSLE_IMM   => self.emit_conditional_branch_imm(0x8e, false, insn.imm, dst, target_pc),
                 ebpf::JSLE_REG   => self.emit_conditional_branch_reg(0x8e, false, src, dst, target_pc),
                 ebpf::CALL_IMM   => {
-                    // For JIT, syscalls MUST be registered at compile time. They can be
-                    // updated later, but not created after compiling (we need the address of the
-                    // syscall function in the JIT-compiled program).
+                    // For JIT, external functions MUST be registered at compile time.
 
                     let mut resolved = false;
-                    let (syscalls, calls) = if self.config.static_syscalls {
+                    let (external, internal) = if self.config.static_syscalls {
                         (insn.src == 0, insn.src != 0)
                     } else {
                         (true, true)
                     };
 
-                    if syscalls {
-                        if let Some(syscall) = self.executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
+                    if external {
+                        if let Some(function) = self.executable.get_loader().lookup_function(insn.imm as u32) {
                             if self.config.enable_instruction_meter {
                                 self.emit_validate_and_profile_instruction_count(true, Some(0));
                             }
-                            self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, syscall as *const SyscallFunction<*mut ()> as i64));
-                            self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_SYSCALL, 5)));
+                            self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, function as usize as i64));
+                            self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL, 5)));
                             if self.config.enable_instruction_meter {
                                 self.emit_undo_profile_instruction_count(0);
                             }
@@ -627,9 +625,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                         }
                     }
 
-                    if calls {
-                        if let Some(target_pc) = self.executable.lookup_bpf_function(insn.imm as u32) {
-                            self.emit_bpf_call(Value::Constant64(target_pc as i64, false));
+                    if internal {
+                        if let Some(target_pc) = self.executable.lookup_internal_function(insn.imm as u32) {
+                            self.emit_internal_call(Value::Constant64(target_pc as i64, false));
                             resolved = true;
                         }
                     }
@@ -640,7 +638,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     }
                 },
                 ebpf::CALL_REG  => {
-                    self.emit_bpf_call(Value::Register(REGISTER_MAP[insn.imm as usize]));
+                    self.emit_internal_call(Value::Register(REGISTER_MAP[insn.imm as usize]));
                 },
                 ebpf::EXIT      => {
                     let call_depth_access = X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::CallDepth));
@@ -965,11 +963,11 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     }
 
     #[inline]
-    fn emit_bpf_call(&mut self, dst: Value) {
+    fn emit_internal_call(&mut self, dst: Value) {
         // Store PC in case the bounds check fails
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
 
-        self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_BPF_CALL_PROLOGUE, 5)));
+        self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE, 5)));
 
         match dst {
             Value::Register(reg) => {
@@ -979,7 +977,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[0]));
                 }
 
-                self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_BPF_CALL_REG, 5)));
+                self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG, 5)));
 
                 self.emit_validate_and_profile_instruction_count(false, None);
                 self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11)); // Save target_pc
@@ -1248,8 +1246,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             self.emit_ins(X86Instruction::return_near());
         }
 
-        // Handler for syscall exceptions
-        self.set_anchor(ANCHOR_RUST_EXCEPTION);
+        // Handler for exceptions coming from external functions
+        self.set_anchor(ANCHOR_EXTERNAL_FUNCTION_EXCEPTION);
         self.emit_profile_instruction_count_finalize(false);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
 
@@ -1293,7 +1291,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Handler for EbpfError::UnsupportedInstruction
         self.set_anchor(ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION);
-        // Load BPF target pc from stack (which was saved in ANCHOR_BPF_CALL_REG)
+        // Load BPF target pc from stack (which was saved in ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG)
         self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0))); // R11 = RSP[-16];
         // self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5))); // Fall-through
 
@@ -1314,8 +1312,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], 0));
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
 
-        // Routine for syscall
-        self.set_anchor(ANCHOR_SYSCALL);
+        // Routine for external functions
+        self.set_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL);
         self.emit_ins(X86Instruction::push(R11, None)); // Padding for stack alignment
         if self.config.enable_instruction_meter {
             // RDI = *PreviousInstructionMeter - RDI;
@@ -1345,22 +1343,22 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Test if result indicates that an error occured
         self.emit_result_is_err(R11);
-        self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_RUST_EXCEPTION, 6)));
+        self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_EXCEPTION, 6)));
         // Store Ok value in result register
         self.emit_ins(X86Instruction::pop(R11));
         self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R11, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
         self.emit_ins(X86Instruction::load(OperandSize::S64, R11, REGISTER_MAP[0], X86IndirectAccess::Offset(8)));
         self.emit_ins(X86Instruction::return_near());
 
-        // Routine for prologue of emit_bpf_call()
-        self.set_anchor(ANCHOR_BPF_CALL_PROLOGUE);
+        // Routine for prologue of emit_internal_call()
+        self.set_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE);
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, RSP, 8 * (SCRATCH_REGS + 1) as i64, None)); // alloca
         self.emit_ins(X86Instruction::store(OperandSize::S64, R11, RSP, X86IndirectAccess::OffsetIndexShift(0, RSP, 0))); // Save original R11
         self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(8 * (SCRATCH_REGS + 1) as i32, RSP, 0))); // Load return address
         for (i, reg) in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS).enumerate() {
             self.emit_ins(X86Instruction::store(OperandSize::S64, *reg, RSP, X86IndirectAccess::OffsetIndexShift(8 * (SCRATCH_REGS - i + 1) as i32, RSP, 0))); // Push SCRATCH_REG
         }
-        // Push the caller's frame pointer. The code to restore it is emitted at the end of emit_bpf_call().
+        // Push the caller's frame pointer. The code to restore it is emitted at the end of emit_internal_call().
         self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], RSP, X86IndirectAccess::OffsetIndexShift(8, RSP, 0)));
         self.emit_ins(X86Instruction::xchg(OperandSize::S64, R11, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Push return address and restore original R11
 
@@ -1382,8 +1380,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, REGISTER_MAP[FRAME_PTR_REG], stack_pointer_access)); // reg[ebpf::FRAME_PTR_REG] = env.stack_pointer;
         self.emit_ins(X86Instruction::return_near());
 
-        // Routine for emit_bpf_call(Value::Register())
-        self.set_anchor(ANCHOR_BPF_CALL_REG);
+        // Routine for emit_internal_call(Value::Register())
+        self.set_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG);
         // Force alignment of RAX
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i64 - 1), None)); // RAX &= !(INSN_SIZE - 1);
         // Upper bound check
@@ -1522,7 +1520,7 @@ mod tests {
     use super::*;
     use crate::{
         syscalls,
-        vm::{FunctionRegistry, SyscallRegistry, TestContextObject},
+        vm::{BuiltInProgram, FunctionRegistry, TestContextObject},
     };
     use byteorder::{ByteOrder, LittleEndian};
     use std::sync::Arc;
@@ -1572,16 +1570,16 @@ mod tests {
             noop_instruction_rate: 0,
             ..Config::default()
         };
-        let mut syscall_registry = SyscallRegistry::default();
-        syscall_registry
-            .register_syscall_by_hash(0xFFFFFFFF, syscalls::bpf_gather_bytes)
+        let mut loader = BuiltInProgram::default();
+        loader
+            .register_function_by_hash(0xFFFFFFFF, syscalls::bpf_gather_bytes)
             .unwrap();
         let mut function_registry = FunctionRegistry::default();
         function_registry.insert(0xFFFFFFFF, (8, "foo".to_string()));
         Executable::<TestContextObject>::from_text_bytes(
             program,
             config,
-            Arc::new(syscall_registry),
+            Arc::new(loader),
             function_registry,
         )
         .unwrap()

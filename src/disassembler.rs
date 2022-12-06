@@ -123,7 +123,7 @@ fn jmp_reg_str(name: &str, insn: &ebpf::Insn, cfg_nodes: &BTreeMap<usize, CfgNod
 pub fn disassemble_instruction(
     insn: &ebpf::Insn, 
     cfg_nodes: &BTreeMap<usize, CfgNode>, 
-    syscall_symbols: &BTreeMap<u32, String>,
+    external_functions: &BTreeMap<u32, String>,
     function_registry: &FunctionRegistry,
 ) -> String {
     let name;
@@ -250,9 +250,9 @@ pub fn disassemble_instruction(
         ebpf::JSLE_IMM   => { name = "jsle"; desc = jmp_imm_str(name, insn, cfg_nodes); },
         ebpf::JSLE_REG   => { name = "jsle"; desc = jmp_reg_str(name, insn, cfg_nodes); },
         ebpf::CALL_IMM   => {
-            desc = if let Some(syscall_name) = syscall_symbols.get(&(insn.imm as u32)) {
+            desc = if let Some(function_name) = external_functions.get(&(insn.imm as u32)) {
                 name = "syscall";
-                format!("{} {}", name, syscall_name)
+                format!("{} {}", name, function_name)
             } else {
                 name = "call";
                 if let Some((target_pc, _name)) = function_registry.get(&(insn.imm as u32)) {

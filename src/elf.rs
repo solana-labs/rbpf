@@ -21,7 +21,7 @@ use crate::{
         NewParser,
     },
     memory_region::MemoryRegion,
-    vm::{Config, ContextObject, FunctionRegistry, SyscallRegistry},
+    vm::{BuiltInProgram, Config, ContextObject, FunctionRegistry},
 };
 
 #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
@@ -114,7 +114,7 @@ pub enum ElfError {
 }
 
 /// Generates the hash by which a symbol can be called
-pub fn hash_bpf_function(pc: usize, name: &str) -> u32 {
+pub fn hash_internal_function(pc: usize, name: &str) -> u32 {
     if name == "entrypoint" {
         ebpf::hash_symbol_name(b"entrypoint")
     } else {
@@ -125,13 +125,13 @@ pub fn hash_bpf_function(pc: usize, name: &str) -> u32 {
 }
 
 /// Register a symbol or throw ElfError::SymbolHashCollision
-pub fn register_bpf_function<
+pub fn register_internal_function<
     C: ContextObject,
     T: AsRef<str> + ToString + std::cmp::PartialEq<&'static str>,
 >(
     config: &Config,
     function_registry: &mut FunctionRegistry,
-    syscall_registry: &SyscallRegistry<C>,
+    loader: &BuiltInProgram<C>,
     pc: usize,
     name: T,
 ) -> Result<u32, ElfError> {
@@ -140,9 +140,8 @@ pub fn register_bpf_function<
         // Thus, we don't need to hash them here anymore and collisions are gone as well.
         pc as u32
     } else {
-        let hash = hash_bpf_function(pc, name.as_ref());
-        if config.syscall_bpf_function_hash_collision
-            && syscall_registry.lookup_syscall(hash).is_some()
+        let hash = hash_internal_function(pc, name.as_ref());
+        if config.syscall_internal_function_hash_collision && loader.lookup_function(hash).is_some()
         {
             return Err(ElfError::SymbolHashCollision(hash));
         }
@@ -278,10 +277,10 @@ pub struct Executable<C: ContextObject> {
     entry_pc: usize,
     /// Call resolution map (hash, pc, name)
     function_registry: FunctionRegistry,
-    /// Syscall symbol map (hash, name)
-    syscall_symbols: BTreeMap<u32, String>,
-    /// Syscall resolution map
-    syscall_registry: Arc<SyscallRegistry<C>>,
+    /// External symbol map (hash, name)
+    external_functions: BTreeMap<u32, String>,
+    /// Loader built-in program
+    loader: Arc<BuiltInProgram<C>>,
     /// Compiled program and argument
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     compiled_program: Option<JitProgram<C>>,
@@ -340,13 +339,13 @@ impl<C: ContextObject> Executable<C> {
     }
 
     /// Get a symbol's instruction offset
-    pub fn lookup_bpf_function(&self, hash: u32) -> Option<usize> {
+    pub fn lookup_internal_function(&self, hash: u32) -> Option<usize> {
         self.function_registry.get(&hash).map(|(pc, _name)| *pc)
     }
 
-    /// Get the syscall registry
-    pub fn get_syscall_registry(&self) -> &SyscallRegistry<C> {
-        &self.syscall_registry
+    /// Get the loader built-in program
+    pub fn get_loader(&self) -> &BuiltInProgram<C> {
+        &self.loader
     }
 
     /// Get the JIT compiled program
@@ -368,16 +367,16 @@ impl<C: ContextObject> Executable<C> {
         &self.function_registry
     }
 
-    /// Get syscalls symbols
-    pub fn get_syscall_symbols(&self) -> &BTreeMap<u32, String> {
-        &self.syscall_symbols
+    /// Get the external functions
+    pub fn get_external_functions(&self) -> &BTreeMap<u32, String> {
+        &self.external_functions
     }
 
     /// Create from raw text section bytes (list of instructions)
     pub fn new_from_text_bytes(
         config: Config,
         text_bytes: &[u8],
-        syscall_registry: Arc<SyscallRegistry<C>>,
+        loader: Arc<BuiltInProgram<C>>,
         mut function_registry: FunctionRegistry,
     ) -> Result<Self, ElfError> {
         let elf_bytes = AlignedMemory::from_slice(text_bytes);
@@ -388,13 +387,7 @@ impl<C: ContextObject> Executable<C> {
         {
             *pc
         } else {
-            register_bpf_function(
-                &config,
-                &mut function_registry,
-                &syscall_registry,
-                0,
-                "entrypoint",
-            )?;
+            register_internal_function(&config, &mut function_registry, &loader, 0, "entrypoint")?;
             0
         };
         Ok(Self {
@@ -412,8 +405,8 @@ impl<C: ContextObject> Executable<C> {
             },
             entry_pc,
             function_registry,
-            syscall_symbols: BTreeMap::default(),
-            syscall_registry,
+            external_functions: BTreeMap::default(),
+            loader,
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             compiled_program: None,
         })
@@ -423,7 +416,7 @@ impl<C: ContextObject> Executable<C> {
     pub fn load(
         config: Config,
         bytes: &[u8],
-        syscall_registry: Arc<SyscallRegistry<C>>,
+        loader: Arc<BuiltInProgram<C>>,
     ) -> Result<Self, ElfError> {
         if config.new_elf_parser {
             // The new parser creates references from the input byte slice, so
@@ -436,14 +429,9 @@ impl<C: ContextObject> Executable<C> {
                 aligned = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
                 aligned.as_slice()
             };
-            Self::load_with_parser(&NewParser::parse(bytes)?, config, bytes, syscall_registry)
+            Self::load_with_parser(&NewParser::parse(bytes)?, config, bytes, loader)
         } else {
-            Self::load_with_parser(
-                &GoblinParser::parse(bytes)?,
-                config,
-                bytes,
-                syscall_registry,
-            )
+            Self::load_with_parser(&GoblinParser::parse(bytes)?, config, bytes, loader)
         }
     }
 
@@ -451,7 +439,7 @@ impl<C: ContextObject> Executable<C> {
         elf: &'a P,
         mut config: Config,
         bytes: &[u8],
-        syscall_registry: Arc<SyscallRegistry<C>>,
+        loader: Arc<BuiltInProgram<C>>,
     ) -> Result<Self, ElfError> {
         let mut elf_bytes = AlignedMemory::from_slice(bytes);
 
@@ -493,12 +481,12 @@ impl<C: ContextObject> Executable<C> {
 
         // relocate symbols
         let mut function_registry = FunctionRegistry::default();
-        let mut syscall_symbols = BTreeMap::default();
+        let mut external_functions = BTreeMap::default();
         Self::relocate(
             &config,
             &mut function_registry,
-            &mut syscall_symbols,
-            &syscall_registry,
+            &mut external_functions,
+            &loader,
             elf,
             elf_bytes.as_slice_mut(),
         )?;
@@ -512,10 +500,10 @@ impl<C: ContextObject> Executable<C> {
             if !config.static_syscalls {
                 function_registry.remove(&ebpf::hash_symbol_name(b"entrypoint"));
             }
-            register_bpf_function(
+            register_internal_function(
                 &config,
                 &mut function_registry,
-                &syscall_registry,
+                &loader,
                 entry_pc,
                 "entrypoint",
             )?;
@@ -538,8 +526,8 @@ impl<C: ContextObject> Executable<C> {
             text_section_info,
             entry_pc,
             function_registry,
-            syscall_symbols,
-            syscall_registry,
+            external_functions,
+            loader,
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             compiled_program: None,
         })
@@ -567,16 +555,16 @@ impl<C: ContextObject> Executable<C> {
                 .saturating_add(mem::size_of_val(&val)
                 .saturating_add(mem::size_of_val(&name)
                 .saturating_add(name.capacity())))))
-            // syscall symbols
-            .saturating_add(mem::size_of_val(&self.syscall_symbols))
-            .saturating_add(self.syscall_symbols
+            // external functions
+            .saturating_add(mem::size_of_val(&self.external_functions))
+            .saturating_add(self.external_functions
             .iter()
             .fold(0, |state: usize, (val, name)| state
                 .saturating_add(mem::size_of_val(&val)
                 .saturating_add(mem::size_of_val(&name)
                 .saturating_add(name.capacity())))))
-            // syscall registry
-            .saturating_add(self.syscall_registry.mem_size());
+            // loader built-in program
+            .saturating_add(self.loader.mem_size());
 
         #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
         {
@@ -593,7 +581,7 @@ impl<C: ContextObject> Executable<C> {
     pub fn fixup_relative_calls(
         config: &Config,
         function_registry: &mut FunctionRegistry,
-        syscall_registry: &SyscallRegistry<C>,
+        loader: &BuiltInProgram<C>,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
         let instruction_count = elf_bytes
@@ -620,10 +608,10 @@ impl<C: ContextObject> Executable<C> {
                     String::default()
                 };
 
-                let key = register_bpf_function(
+                let key = register_internal_function(
                     config,
                     function_registry,
-                    syscall_registry,
+                    loader,
                     target_pc as usize,
                     name,
                 )?;
@@ -908,8 +896,8 @@ impl<C: ContextObject> Executable<C> {
     fn relocate<'a, P: ElfParser<'a>>(
         config: &Config,
         function_registry: &mut FunctionRegistry,
-        syscall_symbols: &mut BTreeMap<u32, String>,
-        syscall_registry: &SyscallRegistry<C>,
+        external_functions: &mut BTreeMap<u32, String>,
+        loader: &BuiltInProgram<C>,
         elf: &'a P,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
@@ -920,7 +908,7 @@ impl<C: ContextObject> Executable<C> {
         Self::fixup_relative_calls(
             config,
             function_registry,
-            syscall_registry,
+            loader,
             elf_bytes
                 .get_mut(text_section.file_range().unwrap_or_default())
                 .ok_or(ElfError::ValueOutOfBounds)?,
@@ -1123,10 +1111,10 @@ impl<C: ContextObject> Executable<C> {
                             as usize)
                             .checked_div(ebpf::INSN_SIZE)
                             .unwrap_or_default();
-                        register_bpf_function(
+                        register_internal_function(
                             config,
                             function_registry,
-                            syscall_registry,
+                            loader,
                             target_pc,
                             name,
                         )?
@@ -1136,9 +1124,7 @@ impl<C: ContextObject> Executable<C> {
                             .entry(symbol.st_name())
                             .or_insert_with(|| (ebpf::hash_symbol_name(name.as_bytes()), name))
                             .0;
-                        if config.reject_broken_elfs
-                            && syscall_registry.lookup_syscall(hash).is_none()
-                        {
+                        if config.reject_broken_elfs && loader.lookup_function(hash).is_none() {
                             return Err(ElfError::UnresolvedSymbol(
                                 name.to_string(),
                                 r_offset
@@ -1163,8 +1149,8 @@ impl<C: ContextObject> Executable<C> {
         }
 
         if config.enable_symbol_and_section_labels {
-            // Save syscall names
-            *syscall_symbols = syscall_cache
+            // Save external function names
+            *external_functions = syscall_cache
                 .values()
                 .map(|(hash, name)| (*hash, name.to_string()))
                 .collect();
@@ -1183,13 +1169,7 @@ impl<C: ContextObject> Executable<C> {
                 let name = elf
                     .symbol_name(symbol.st_name() as Elf64Word)
                     .ok_or_else(|| ElfError::UnknownSymbol(symbol.st_name() as usize))?;
-                register_bpf_function(
-                    config,
-                    function_registry,
-                    syscall_registry,
-                    target_pc,
-                    name,
-                )?;
+                register_internal_function(config, function_registry, loader, target_pc, name)?;
             }
         }
 
@@ -1245,15 +1225,15 @@ mod test {
     use std::{fs::File, io::Read};
     type ElfExecutable = Executable<TestContextObject>;
 
-    fn syscall_registry() -> Arc<SyscallRegistry<TestContextObject>> {
-        let mut syscall_registry = SyscallRegistry::default();
-        syscall_registry
-            .register_syscall_by_name(b"log", syscalls::bpf_syscall_string)
+    fn loader() -> Arc<BuiltInProgram<TestContextObject>> {
+        let mut loader = BuiltInProgram::default();
+        loader
+            .register_function_by_name(b"log", syscalls::bpf_syscall_string)
             .unwrap();
-        syscall_registry
-            .register_syscall_by_name(b"log_64", syscalls::bpf_syscall_u64)
+        loader
+            .register_function_by_name(b"log_64", syscalls::bpf_syscall_u64)
             .unwrap();
-        Arc::new(syscall_registry)
+        Arc::new(loader)
     }
 
     #[test]
@@ -1372,8 +1352,7 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
-            .expect("validation failed");
+        ElfExecutable::load(Config::default(), &elf_bytes, loader()).expect("validation failed");
     }
 
     #[test]
@@ -1383,19 +1362,19 @@ mod test {
         // elf_bytes.as_ptr() + 1 to make it unaligned and test unaligned
         // parsing.
         elf_bytes.insert(0, 0);
-        ElfExecutable::load(Config::default(), &elf_bytes[1..], syscall_registry())
+        ElfExecutable::load(Config::default(), &elf_bytes[1..], loader())
             .expect("validation failed");
     }
 
     #[test]
     fn test_entrypoint() {
-        let syscall_registry = syscall_registry();
+        let loader = loader();
 
         let mut file = File::open("tests/elfs/noop.so").expect("file open failed");
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone())
+        let elf = ElfExecutable::load(Config::default(), &elf_bytes, loader.clone())
             .expect("validation failed");
         let parsed_elf = NewParser::parse(&elf_bytes).unwrap();
         let executable: &Executable<TestContextObject> = &elf;
@@ -1412,7 +1391,7 @@ mod test {
 
         header.e_entry += 8;
         let elf_bytes = write_header(header.clone());
-        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone())
+        let elf = ElfExecutable::load(Config::default(), &elf_bytes, loader.clone())
             .expect("validation failed");
         let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(1, executable.get_entrypoint_instruction_offset());
@@ -1421,27 +1400,27 @@ mod test {
         let elf_bytes = write_header(header.clone());
         assert_eq!(
             Err(ElfError::EntrypointOutOfBounds),
-            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone())
+            ElfExecutable::load(Config::default(), &elf_bytes, loader.clone())
         );
 
         header.e_entry = u64::MAX;
         let elf_bytes = write_header(header.clone());
         assert_eq!(
             Err(ElfError::EntrypointOutOfBounds),
-            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone())
+            ElfExecutable::load(Config::default(), &elf_bytes, loader.clone())
         );
 
         header.e_entry = initial_e_entry + ebpf::INSN_SIZE as u64 + 1;
         let elf_bytes = write_header(header.clone());
         assert_eq!(
             Err(ElfError::InvalidEntrypoint),
-            ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone())
+            ElfExecutable::load(Config::default(), &elf_bytes, loader.clone())
         );
 
         header.e_entry = initial_e_entry;
         let elf_bytes = write_header(header);
-        let elf = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry)
-            .expect("validation failed");
+        let elf =
+            ElfExecutable::load(Config::default(), &elf_bytes, loader).expect("validation failed");
         let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(0, executable.get_entrypoint_instruction_offset());
     }
@@ -1454,7 +1433,7 @@ mod test {
             ..Config::default()
         };
         let mut function_registry = FunctionRegistry::default();
-        let syscall_registry = SyscallRegistry::default();
+        let loader = BuiltInProgram::default();
 
         // call -2
         #[rustfmt::skip]
@@ -1466,15 +1445,10 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x10, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff];
 
-        ElfExecutable::fixup_relative_calls(
-            &config,
-            &mut function_registry,
-            &syscall_registry,
-            &mut prog,
-        )
-        .unwrap();
+        ElfExecutable::fixup_relative_calls(&config, &mut function_registry, &loader, &mut prog)
+            .unwrap();
         let name = "function_4".to_string();
-        let hash = hash_bpf_function(4, &name);
+        let hash = hash_internal_function(4, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1488,15 +1462,10 @@ mod test {
         // call +6
         let mut function_registry = FunctionRegistry::default();
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
-        ElfExecutable::fixup_relative_calls(
-            &config,
-            &mut function_registry,
-            &syscall_registry,
-            &mut prog,
-        )
-        .unwrap();
+        ElfExecutable::fixup_relative_calls(&config, &mut function_registry, &loader, &mut prog)
+            .unwrap();
         let name = "function_0".to_string();
-        let hash = hash_bpf_function(0, &name);
+        let hash = hash_internal_function(0, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1516,7 +1485,7 @@ mod test {
             ..Config::default()
         };
         let mut function_registry = FunctionRegistry::default();
-        let syscall_registry = SyscallRegistry::default();
+        let loader = BuiltInProgram::default();
 
         // call +0
         #[rustfmt::skip]
@@ -1528,15 +1497,10 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        ElfExecutable::fixup_relative_calls(
-            &config,
-            &mut function_registry,
-            &syscall_registry,
-            &mut prog,
-        )
-        .unwrap();
+        ElfExecutable::fixup_relative_calls(&config, &mut function_registry, &loader, &mut prog)
+            .unwrap();
         let name = "function_1".to_string();
-        let hash = hash_bpf_function(1, &name);
+        let hash = hash_internal_function(1, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1550,15 +1514,10 @@ mod test {
         // call +4
         let mut function_registry = FunctionRegistry::default();
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
-        ElfExecutable::fixup_relative_calls(
-            &config,
-            &mut function_registry,
-            &syscall_registry,
-            &mut prog,
-        )
-        .unwrap();
+        ElfExecutable::fixup_relative_calls(&config, &mut function_registry, &loader, &mut prog)
+            .unwrap();
         let name = "function_5".to_string();
-        let hash = hash_bpf_function(5, &name);
+        let hash = hash_internal_function(5, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1577,7 +1536,7 @@ mod test {
     fn test_fixup_relative_calls_out_of_bounds_forward() {
         let config = Config::default();
         let mut function_registry = FunctionRegistry::default();
-        let syscall_registry = SyscallRegistry::default();
+        let loader = BuiltInProgram::default();
 
         // call +5
         #[rustfmt::skip]
@@ -1589,15 +1548,10 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        ElfExecutable::fixup_relative_calls(
-            &config,
-            &mut function_registry,
-            &syscall_registry,
-            &mut prog,
-        )
-        .unwrap();
+        ElfExecutable::fixup_relative_calls(&config, &mut function_registry, &loader, &mut prog)
+            .unwrap();
         let name = "function_1".to_string();
-        let hash = hash_bpf_function(1, &name);
+        let hash = hash_internal_function(1, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1616,7 +1570,7 @@ mod test {
     fn test_fixup_relative_calls_out_of_bounds_back() {
         let config = Config::default();
         let mut function_registry = FunctionRegistry::default();
-        let syscall_registry = SyscallRegistry::default();
+        let loader = BuiltInProgram::default();
 
         // call -7
         #[rustfmt::skip]
@@ -1628,15 +1582,10 @@ mod test {
             0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x10, 0x00, 0x00, 0xf9, 0xff, 0xff, 0xff];
 
-        ElfExecutable::fixup_relative_calls(
-            &config,
-            &mut function_registry,
-            &syscall_registry,
-            &mut prog,
-        )
-        .unwrap();
+        ElfExecutable::fixup_relative_calls(&config, &mut function_registry, &loader, &mut prog)
+            .unwrap();
         let name = "function_4".to_string();
-        let hash = hash_bpf_function(4, &name);
+        let hash = hash_internal_function(4, &name);
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1651,7 +1600,7 @@ mod test {
     #[test]
     #[ignore]
     fn test_fuzz_load() {
-        let syscall_registry = Arc::new(SyscallRegistry::default());
+        let loader = Arc::new(BuiltInProgram::default());
 
         // Random bytes, will mostly fail due to lack of ELF header so just do a few
         let mut rng = rand::thread_rng();
@@ -1659,7 +1608,7 @@ mod test {
         println!("random bytes");
         for _ in 0..1_000 {
             let elf_bytes: Vec<u8> = (0..100).map(|_| rng.sample(range)).collect();
-            let _ = ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry.clone());
+            let _ = ElfExecutable::load(Config::default(), &elf_bytes, loader.clone());
         }
 
         // Take a real elf and mangle it
@@ -1679,7 +1628,7 @@ mod test {
             0..parsed_elf.header().e_ehsize as usize,
             0..255,
             |bytes: &mut [u8]| {
-                let _ = ElfExecutable::load(Config::default(), bytes, syscall_registry.clone());
+                let _ = ElfExecutable::load(Config::default(), bytes, loader.clone());
             },
         );
 
@@ -1692,7 +1641,7 @@ mod test {
             parsed_elf.header().e_shoff as usize..elf_bytes.len(),
             0..255,
             |bytes: &mut [u8]| {
-                let _ = ElfExecutable::load(Config::default(), bytes, syscall_registry.clone());
+                let _ = ElfExecutable::load(Config::default(), bytes, loader.clone());
             },
         );
 
@@ -1705,7 +1654,7 @@ mod test {
             0..elf_bytes.len(),
             0..255,
             |bytes: &mut [u8]| {
-                let _ = ElfExecutable::load(Config::default(), bytes, syscall_registry.clone());
+                let _ = ElfExecutable::load(Config::default(), bytes, loader.clone());
             },
         );
     }
@@ -2194,8 +2143,7 @@ mod test {
     fn test_writable_data_section() {
         let elf_bytes =
             std::fs::read("tests/elfs/writable_data_section.so").expect("failed to read elf file");
-        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
-            .expect("validation failed");
+        ElfExecutable::load(Config::default(), &elf_bytes, loader()).expect("validation failed");
     }
 
     #[test]
@@ -2203,8 +2151,7 @@ mod test {
     fn test_bss_section() {
         let elf_bytes =
             std::fs::read("tests/elfs/bss_section.so").expect("failed to read elf file");
-        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
-            .expect("validation failed");
+        ElfExecutable::load(Config::default(), &elf_bytes, loader()).expect("validation failed");
     }
 
     #[test]
@@ -2221,7 +2168,7 @@ mod test {
                 ..Config::default()
             },
             &elf_bytes,
-            syscall_registry(),
+            loader(),
         )
         .expect("validation failed");
     }
@@ -2231,8 +2178,7 @@ mod test {
     fn test_program_headers_overflow() {
         let elf_bytes = std::fs::read("tests/elfs/program_headers_overflow.so")
             .expect("failed to read elf file");
-        ElfExecutable::load(Config::default(), &elf_bytes, syscall_registry())
-            .expect("validation failed");
+        ElfExecutable::load(Config::default(), &elf_bytes, loader()).expect("validation failed");
     }
 
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
@@ -2242,13 +2188,12 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        let mut executable =
-            ElfExecutable::from_elf(&elf_bytes, Config::default(), syscall_registry())
-                .expect("validation failed");
+        let mut executable = ElfExecutable::from_elf(&elf_bytes, Config::default(), loader())
+            .expect("validation failed");
         {
             Executable::jit_compile(&mut executable).unwrap();
         }
 
-        assert_eq!(18386, executable.mem_size());
+        assert_eq!(18394, executable.mem_size());
     }
 }

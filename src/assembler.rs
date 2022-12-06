@@ -18,8 +18,8 @@ use crate::{
         Statement,
     },
     ebpf::{self, Insn},
-    elf::{register_bpf_function, Executable},
-    vm::{Config, ContextObject, FunctionRegistry, SyscallRegistry},
+    elf::{register_internal_function, Executable},
+    vm::{BuiltInProgram, Config, ContextObject, FunctionRegistry},
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -182,7 +182,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{assembler::assemble, vm::{Config, TestContextObject, SyscallRegistry}};
+/// use solana_rbpf::{assembler::assemble, vm::{Config, TestContextObject, BuiltInProgram}};
 /// let executable = assemble::<TestContextObject>(
 ///    "add64 r1, 0x605
 ///     mov64 r2, 0x32
@@ -191,7 +191,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///     neg64 r2
 ///     exit",
 ///     Config::default(),
-///     std::sync::Arc::new(SyscallRegistry::default()),
+///     std::sync::Arc::new(BuiltInProgram::default()),
 /// ).unwrap();
 /// let program = executable.get_text_bytes().1;
 /// println!("{:?}", program);
@@ -217,7 +217,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 pub fn assemble<C: ContextObject>(
     src: &str,
     config: Config,
-    syscall_registry: Arc<SyscallRegistry<C>>,
+    loader: Arc<BuiltInProgram<C>>,
 ) -> Result<Executable<C>, String> {
     fn resolve_label(
         insn_ptr: usize,
@@ -240,10 +240,10 @@ pub fn assemble<C: ContextObject>(
         match statement {
             Statement::Label { name } => {
                 if name.starts_with("function_") || name == "entrypoint" {
-                    register_bpf_function(
+                    register_internal_function(
                         &config,
                         &mut function_registry,
-                        &syscall_registry,
+                        &loader,
                         insn_ptr,
                         name,
                     )
@@ -294,10 +294,10 @@ pub fn assemble<C: ContextObject>(
                         (CallImm, [Integer(imm)]) => {
                             let target_pc = *imm + insn_ptr as i64 + 1;
                             let label = format!("function_{}", target_pc as usize);
-                            register_bpf_function(
+                            register_internal_function(
                                 &config,
                                 &mut function_registry,
-                                &syscall_registry,
+                                &loader,
                                 target_pc as usize,
                                 label,
                             )
@@ -361,6 +361,6 @@ pub fn assemble<C: ContextObject>(
         .iter()
         .flat_map(|insn| insn.to_vec())
         .collect::<Vec<_>>();
-    Executable::<C>::from_text_bytes(&program, config, syscall_registry, function_registry)
+    Executable::<C>::from_text_bytes(&program, config, loader, function_registry)
         .map_err(|err| format!("Executable constructor {:?}", err))
 }

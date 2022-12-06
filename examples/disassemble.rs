@@ -8,7 +8,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     elf::Executable,
     static_analysis::Analysis,
-    vm::{Config, FunctionRegistry, SyscallRegistry, TestContextObject},
+    vm::{BuiltInProgram, Config, FunctionRegistry, TestContextObject},
 };
 use std::sync::Arc;
 
@@ -30,12 +30,12 @@ fn main() {
         0x00, 0x00, 0x00, 0x00, 0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x95, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00,
     ];
-    let syscall_registry = Arc::new(SyscallRegistry::default());
+    let loader = Arc::new(BuiltInProgram::default());
     let config = Config::default();
     let executable = Executable::<TestContextObject>::from_text_bytes(
         program,
         config,
-        syscall_registry,
+        loader,
         FunctionRegistry::default(),
     )
     .unwrap();

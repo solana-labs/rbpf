@@ -11,17 +11,14 @@ extern crate test_utils;
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
-    vm::{Config, SyscallRegistry, TestContextObject},
+    vm::{BuiltInProgram, Config, TestContextObject},
 };
 use std::sync::Arc;
 use test_utils::{TCP_SACK_ASM, TCP_SACK_BIN};
 
 fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
-    let executable = assemble::<TestContextObject>(
-        src,
-        Config::default(),
-        Arc::new(SyscallRegistry::default()),
-    )?;
+    let executable =
+        assemble::<TestContextObject>(src, Config::default(), Arc::new(BuiltInProgram::default()))?;
     let (_program_vm_addr, program) = executable.get_text_bytes();
     Ok((0..program.len() / ebpf::INSN_SIZE)
         .map(|insn_ptr| ebpf::get_insn(program, insn_ptr))
@@ -543,7 +540,7 @@ fn test_tcp_sack() {
     let executable = assemble::<TestContextObject>(
         TCP_SACK_ASM,
         Config::default(),
-        Arc::new(SyscallRegistry::default()),
+        Arc::new(BuiltInProgram::default()),
     )
     .unwrap();
     let (_program_vm_addr, program) = executable.get_text_bytes();

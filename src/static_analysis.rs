@@ -216,19 +216,19 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
             let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
             match insn.opc {
                 ebpf::CALL_IMM => {
-                    if let Some(syscall_name) = self
+                    if let Some(function_name) = self
                         .executable
-                        .get_syscall_symbols()
+                        .get_external_functions()
                         .get(&(insn.imm as u32))
                     {
-                        if syscall_name == "abort" {
+                        if function_name == "abort" {
                             self.cfg_nodes
                                 .entry(insn.ptr + 1)
                                 .or_insert_with(CfgNode::default);
                             cfg_edges.insert(insn.ptr, (insn.opc, Vec::new()));
                         }
                     } else if let Some(target_pc) =
-                        self.executable.lookup_bpf_function(insn.imm as u32)
+                        self.executable.lookup_internal_function(insn.imm as u32)
                     {
                         self.cfg_nodes
                             .entry(insn.ptr + 1)
@@ -451,7 +451,7 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
             let desc = disassemble_instruction(
                 insn,
                 &self.cfg_nodes,
-                self.executable.get_syscall_symbols(),
+                self.executable.get_external_functions(),
                 self.executable.get_function_registry(),
             );
             writeln!(output, "    {}", desc)?;
@@ -509,7 +509,7 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
                     let desc = disassemble_instruction(
                         insn,
                         &analysis.cfg_nodes,
-                        analysis.executable.get_syscall_symbols(),
+                        analysis.executable.get_external_functions(),
                         analysis.executable.get_function_registry(),
                     );
                     if let Some(split_index) = desc.find(' ') {
@@ -802,7 +802,7 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
             cfg_node.sources.push(self.super_root);
             self.functions.entry(*v).or_insert_with(|| {
                 let name = format!("function_{}", *v);
-                let hash = elf::hash_bpf_function(*v, &name);
+                let hash = elf::hash_internal_function(*v, &name);
                 (hash, name)
             });
         }

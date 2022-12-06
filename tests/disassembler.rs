@@ -10,7 +10,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     assembler::assemble,
     static_analysis::Analysis,
-    vm::{Config, SyscallRegistry, TestContextObject},
+    vm::{BuiltInProgram, Config, TestContextObject},
 };
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ macro_rules! disasm {
             ..Config::default()
         };
         let executable =
-            assemble::<TestContextObject>(src, config, Arc::new(SyscallRegistry::default()))
+            assemble::<TestContextObject>(src, config, Arc::new(BuiltInProgram::default()))
                 .unwrap();
         let analysis = Analysis::from_executable(&executable).unwrap();
         let mut reasm = Vec::new();

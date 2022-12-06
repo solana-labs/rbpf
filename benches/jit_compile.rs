@@ -11,7 +11,7 @@ extern crate test;
 
 use solana_rbpf::{
     elf::Executable,
-    vm::{Config, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, Config, EbpfVm, TestContextObject, VerifiedExecutable},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;
@@ -25,7 +25,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
     let executable = Executable::<TestContextObject>::from_elf(
         &elf,
         Config::default(),
-        Arc::new(SyscallRegistry::default()),
+        Arc::new(BuiltInProgram::default()),
     )
     .unwrap();
     let verified_executable =
@@ -52,7 +52,7 @@ fn bench_jit_compile(bencher: &mut Bencher) {
     let executable = Executable::<TestContextObject>::from_elf(
         &elf,
         Config::default(),
-        Arc::new(SyscallRegistry::default()),
+        Arc::new(BuiltInProgram::default()),
     )
     .unwrap();
     let mut verified_executable =

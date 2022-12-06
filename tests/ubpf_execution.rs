@@ -24,7 +24,7 @@ use solana_rbpf::{
     syscalls,
     verifier::RequisiteVerifier,
     vm::{
-        Config, ContextObject, EbpfVm, FunctionRegistry, ProgramResult, SyscallRegistry,
+        BuiltInProgram, Config, ContextObject, EbpfVm, FunctionRegistry, ProgramResult,
         TestContextObject, VerifiedExecutable,
     },
 };
@@ -32,9 +32,9 @@ use std::{fs::File, io::Read, sync::Arc};
 use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 
 macro_rules! test_interpreter_and_jit {
-    (register, $syscall_registry:expr, $location:expr => $syscall_function:expr) => {
-        $syscall_registry
-            .register_syscall_by_name($location, $syscall_function)
+    (register, $loader:expr, $location:expr => $syscall_function:expr) => {
+        $loader
+            .register_function_by_name($location, $syscall_function)
             .unwrap();
     };
     ($executable:expr, $mem:tt, $context_object:expr, $check:block $(,)?) => {
@@ -122,10 +122,10 @@ macro_rules! test_interpreter_and_jit_asm {
     ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $check:block $(,)?) => {
         #[allow(unused_mut)]
         {
-            let mut syscall_registry = SyscallRegistry::default();
-            $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function);)*
-            let syscall_registry = Arc::new(syscall_registry);
-            let mut executable = assemble($source, $config, syscall_registry).unwrap();
+            let mut loader = BuiltInProgram::default();
+            $(test_interpreter_and_jit!(register, loader, $location => $syscall_function);)*
+            let loader = Arc::new(loader);
+            let mut executable = assemble($source, $config, loader).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $check);
         }
     };
@@ -148,10 +148,10 @@ macro_rules! test_interpreter_and_jit_elf {
         file.read_to_end(&mut elf).unwrap();
         #[allow(unused_mut)]
         {
-            let mut syscall_registry = SyscallRegistry::default();
-            $(test_interpreter_and_jit!(register, syscall_registry, $location => $syscall_function);)*
-            let syscall_registry = Arc::new(syscall_registry);
-            let mut executable = Executable::<TestContextObject>::from_elf(&elf, $config, syscall_registry).unwrap();
+            let mut loader = BuiltInProgram::default();
+            $(test_interpreter_and_jit!(register, loader, $location => $syscall_function);)*
+            let loader = Arc::new(loader);
+            let mut executable = Executable::<TestContextObject>::from_elf(&elf, $config, loader).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $check);
         }
     };
@@ -2589,7 +2589,7 @@ fn test_err_mem_access_out_of_bound() {
     prog[0] = ebpf::LD_DW_IMM;
     prog[16] = ebpf::ST_B_IMM;
     prog[24] = ebpf::EXIT;
-    let syscall_registry = Arc::new(SyscallRegistry::default());
+    let loader = Arc::new(BuiltInProgram::default());
     for address in [0x2u64, 0x8002u64, 0x80000002u64, 0x8000000000000002u64] {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
@@ -2598,7 +2598,7 @@ fn test_err_mem_access_out_of_bound() {
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             &prog,
             config,
-            syscall_registry.clone(),
+            loader.clone(),
             FunctionRegistry::default(),
         )
         .unwrap();
@@ -3096,9 +3096,9 @@ fn nested_vm_syscall(
 ) {
     #[allow(unused_mut)]
     if depth > 0 {
-        let mut syscall_registry = SyscallRegistry::default();
-        syscall_registry
-            .register_syscall_by_name(b"nested_vm_syscall", nested_vm_syscall)
+        let mut loader = BuiltInProgram::default();
+        loader
+            .register_function_by_name(b"nested_vm_syscall", nested_vm_syscall)
             .unwrap();
         let mem = [depth as u8 - 1, throw as u8];
         let mut executable = assemble::<TestContextObject>(
@@ -3108,7 +3108,7 @@ fn nested_vm_syscall(
             syscall nested_vm_syscall
             exit",
             Config::default(),
-            Arc::new(syscall_registry),
+            Arc::new(loader),
         )
         .unwrap();
         test_interpreter_and_jit!(
@@ -3248,12 +3248,11 @@ fn test_custom_entrypoint() {
         enable_instruction_tracing: true,
         ..Config::default()
     };
-    let mut syscall_registry = SyscallRegistry::default();
-    test_interpreter_and_jit!(register, syscall_registry, b"log_64" => syscalls::bpf_syscall_u64);
+    let mut loader = BuiltInProgram::default();
+    test_interpreter_and_jit!(register, loader, b"log_64" => syscalls::bpf_syscall_u64);
     #[allow(unused_mut)]
     let mut executable =
-        Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(syscall_registry))
-            .unwrap();
+        Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(loader)).unwrap();
     test_interpreter_and_jit!(executable, [], TestContextObject::new(2), {
         |_vm, res: ProgramResult| res.unwrap() == 0
     });
@@ -3648,8 +3647,8 @@ fn test_err_call_unresolved() {
 
 #[test]
 fn test_err_unresolved_elf() {
-    let mut syscall_registry = SyscallRegistry::default();
-    test_interpreter_and_jit!(register, syscall_registry, b"log" => syscalls::bpf_syscall_string);
+    let mut loader = BuiltInProgram::default();
+    test_interpreter_and_jit!(register, loader, b"log" => syscalls::bpf_syscall_string);
     let mut file = File::open("tests/elfs/unresolved_syscall.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
@@ -3658,7 +3657,7 @@ fn test_err_unresolved_elf() {
         ..Config::default()
     };
     assert!(
-        matches!(Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(syscall_registry)), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
+        matches!(Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(loader)), Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 550 && offset == 4168)
     );
 }
 
@@ -4030,7 +4029,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         config,
-        Arc::new(SyscallRegistry::default()),
+        Arc::new(BuiltInProgram::default()),
         FunctionRegistry::default(),
     );
     let executable = if let Ok(executable) = executable {

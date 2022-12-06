@@ -13,7 +13,7 @@ use solana_rbpf::{
     ebpf,
     elf::Executable,
     memory_region::MemoryRegion,
-    vm::{Config, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, Config, EbpfVm, TestContextObject, VerifiedExecutable},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;
@@ -27,7 +27,7 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     let executable = Executable::<TestContextObject>::from_elf(
         &elf,
         Config::default(),
-        Arc::new(SyscallRegistry::default()),
+        Arc::new(BuiltInProgram::default()),
     )
     .unwrap();
     let verified_executable =
@@ -56,7 +56,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     let executable = Executable::<TestContextObject>::from_elf(
         &elf,
         Config::default(),
-        Arc::new(SyscallRegistry::default()),
+        Arc::new(BuiltInProgram::default()),
     )
     .unwrap();
     let mut verified_executable =
@@ -88,7 +88,7 @@ fn bench_jit_vs_interpreter(
     let executable = solana_rbpf::assembler::assemble::<TestContextObject>(
         assembly,
         config,
-        Arc::new(SyscallRegistry::default()),
+        Arc::new(BuiltInProgram::default()),
     )
     .unwrap();
     let mut verified_executable =

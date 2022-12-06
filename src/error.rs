@@ -41,7 +41,7 @@ pub enum EbpfError {
     /// Syscall already has a bound context object
     #[error("syscall #{0} already has a bound context object")]
     SyscallAlreadyBound(usize),
-    /// Too many syscalls, increase SyscallRegistry::MAX_SYSCALLS.
+    /// Too many syscalls, increase BuiltInProgram::MAX_SYSCALLS.
     #[error("too many syscalls")]
     TooManySyscalls,
     /// Exceeded max BPF to BPF call depth

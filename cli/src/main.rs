@@ -6,7 +6,7 @@ use solana_rbpf::{
     memory_region::MemoryRegion,
     static_analysis::Analysis,
     verifier::RequisiteVerifier,
-    vm::{Config, DynamicAnalysis, EbpfVm, SyscallRegistry, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, Config, DynamicAnalysis, EbpfVm, TestContextObject, VerifiedExecutable},
 };
 use std::{fs::File, io::Read, path::Path, sync::Arc};
 
@@ -96,7 +96,7 @@ fn main() {
         enable_symbol_and_section_labels: true,
         ..Config::default()
     };
-    let syscall_registry = Arc::new(SyscallRegistry::default());
+    let loader = Arc::new(BuiltInProgram::default());
     let executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(Path::new(asm_file_name)).unwrap();
@@ -105,14 +105,14 @@ fn main() {
             assemble::<TestContextObject>(
                 std::str::from_utf8(source.as_slice()).unwrap(),
                 config,
-                syscall_registry,
+                loader,
             )
         }
         None => {
             let mut file = File::open(Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            Executable::<TestContextObject>::from_elf(&elf, config, syscall_registry)
+            Executable::<TestContextObject>::from_elf(&elf, config, loader)
                 .map_err(|err| format!("Executable constructor failed: {:?}", err))
         }
     }

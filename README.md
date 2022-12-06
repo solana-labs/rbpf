@@ -69,16 +69,13 @@ should also prove helpful.
 
 Here are the steps to follow to run an eBPF program with rbpf:
 
-1. Create an executable, either from the bytecode or an ELF.
-2. Create a syscall-registry, add some syscalls and put it in the executable.
+1. Create the config and a loader built-in program, add some functions.
+2. Create an executable, either from the bytecode or an ELF.
 3. If you want a JIT-compiled program, compile it.
 4. Create a memory mapping, consisting of multiple memory regions.
-5. Create the config and a virtual machine using all of the previous steps.
-   You can also pass a readonly memory here which will be mapped as packet data
-   in the eBPF programs register at index one.
-6. If you registered syscall functions then bind their context objects.
-7. Create an instruction meter.
-8. Execute your program: Either run the interpreter or call the JIT-compiled
+5. Create a context object which will also acts as instruction meter.
+6. Create a virtual machine using all of the previous steps.
+7. Execute your program: Either run the interpreter or call the JIT-compiled
    function.
 
 ## License

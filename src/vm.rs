@@ -101,82 +101,85 @@ pub type ProgramResult = StableResult<u64, EbpfError>;
 pub type FunctionRegistry = BTreeMap<u32, (usize, String)>;
 
 /// Syscall function without context
-pub type SyscallFunction<C> =
+pub type BuiltInFunction<C> =
     fn(&mut C, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
 
-/// Holds the syscall function pointers of an Executable
-pub struct SyscallRegistry<C: ContextObject> {
+/// Represents the interface to a fixed functionality program
+pub struct BuiltInProgram<C: ContextObject> {
+    /// Holds the Config if this is a loader program
+    config: Option<Box<Config>>,
     /// Function pointers by symbol
-    entries: HashMap<u32, SyscallFunction<C>>,
+    functions: HashMap<u32, BuiltInFunction<C>>,
 }
 
-impl<C: ContextObject> SyscallRegistry<C> {
-    const MAX_SYSCALLS: usize = 128;
+impl<C: ContextObject> BuiltInProgram<C> {
+    const MAX_FUNCTIONS: usize = 128;
 
-    /// Register a syscall function by its symbol hash
-    pub fn register_syscall_by_hash(
+    /// Get the configuration settings assuming this is a loader program
+    pub fn get_config(&self) -> &Config {
+        self.config.as_ref().unwrap()
+    }
+
+    /// Register a function by its symbol hash
+    pub fn register_function_by_hash(
         &mut self,
         hash: u32,
-        function: SyscallFunction<C>,
+        function: BuiltInFunction<C>,
     ) -> Result<(), EbpfError> {
-        let context_object_slot = self.entries.len();
-        if context_object_slot == Self::MAX_SYSCALLS {
+        let context_object_slot = self.functions.len();
+        if context_object_slot == Self::MAX_FUNCTIONS {
             return Err(EbpfError::TooManySyscalls);
         }
-        if self.entries.insert(hash, function).is_some() {
+        if self.functions.insert(hash, function).is_some() {
             Err(EbpfError::SyscallAlreadyRegistered(hash as usize))
         } else {
             Ok(())
         }
     }
 
-    /// Register a syscall function by its symbol name
-    pub fn register_syscall_by_name(
+    /// Register a function by its symbol name
+    pub fn register_function_by_name(
         &mut self,
         name: &[u8],
-        function: SyscallFunction<C>,
+        function: BuiltInFunction<C>,
     ) -> Result<(), EbpfError> {
-        self.register_syscall_by_hash(ebpf::hash_symbol_name(name), function)
+        self.register_function_by_hash(ebpf::hash_symbol_name(name), function)
     }
 
     /// Get a symbol's function pointer
-    pub fn lookup_syscall(&self, hash: u32) -> Option<SyscallFunction<C>> {
-        self.entries.get(&hash).cloned()
-    }
-
-    /// Get the number of registered syscalls
-    pub fn get_number_of_syscalls(&self) -> usize {
-        self.entries.len()
+    pub fn lookup_function(&self, hash: u32) -> Option<BuiltInFunction<C>> {
+        self.functions.get(&hash).cloned()
     }
 
     /// Calculate memory size
     pub fn mem_size(&self) -> usize {
         mem::size_of::<Self>()
-            + self.entries.capacity() * mem::size_of::<(u32, SyscallFunction<C>)>()
+            + self.functions.capacity() * mem::size_of::<(u32, BuiltInFunction<C>)>()
     }
 }
 
-impl<C: ContextObject> Default for SyscallRegistry<C> {
+impl<C: ContextObject> Default for BuiltInProgram<C> {
     fn default() -> Self {
         Self {
-            entries: HashMap::new(),
+            config: None,
+            functions: HashMap::new(),
         }
     }
 }
 
-impl<C: ContextObject> Debug for SyscallRegistry<C> {
+impl<C: ContextObject> Debug for BuiltInProgram<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         writeln!(f, "{:?}", unsafe {
-            std::mem::transmute::<_, &HashMap<u32, *const u8>>(&self.entries)
+            std::mem::transmute::<_, &HashMap<u32, *const u8>>(&self.functions)
         })?;
         Ok(())
     }
 }
 
-impl<C: ContextObject> PartialEq for SyscallRegistry<C> {
+impl<C: ContextObject> PartialEq for BuiltInProgram<C> {
     fn eq(&self, other: &Self) -> bool {
         for ((a_key, a_function), (b_key, b_function)) in
-            self.entries.iter().zip(other.entries.iter())
+            self.functions.iter().zip(other.functions.iter())
         {
             if a_key != b_key || a_function as *const _ as usize != b_function as *const _ as usize
             {
@@ -220,7 +223,7 @@ pub struct Config {
     /// Use 0 to disable encryption. Otherwise only leave PROGRAM_ENVIRONMENT_KEY_SHIFT MSBs 0.
     pub runtime_environment_key: i32,
     /// Throw ElfError::SymbolHashCollision when a BPF function collides with a registered syscall
-    pub syscall_bpf_function_hash_collision: bool,
+    pub syscall_internal_function_hash_collision: bool,
     /// Have the verifier reject "callx r10"
     pub reject_callx_r10: bool,
     /// Use dynamic stack frame sizes
@@ -265,7 +268,7 @@ impl Default for Config {
             sanitize_user_provided_values: true,
             runtime_environment_key: rand::thread_rng().gen::<i32>()
                 >> PROGRAM_ENVIRONMENT_KEY_SHIFT,
-            syscall_bpf_function_hash_collision: true,
+            syscall_internal_function_hash_collision: true,
             reject_callx_r10: true,
             dynamic_stack_frames: true,
             enable_sdiv: true,
@@ -285,19 +288,19 @@ impl<C: ContextObject> Executable<C> {
     pub fn from_elf(
         elf_bytes: &[u8],
         config: Config,
-        syscall_registry: Arc<SyscallRegistry<C>>,
+        loader: Arc<BuiltInProgram<C>>,
     ) -> Result<Self, EbpfError> {
-        let executable = Executable::load(config, elf_bytes, syscall_registry)?;
+        let executable = Executable::load(config, elf_bytes, loader)?;
         Ok(executable)
     }
     /// Creates an executable from machine code
     pub fn from_text_bytes(
         text_bytes: &[u8],
         config: Config,
-        syscall_registry: Arc<SyscallRegistry<C>>,
+        loader: Arc<BuiltInProgram<C>>,
         function_registry: FunctionRegistry,
     ) -> Result<Self, EbpfError> {
-        Executable::new_from_text_bytes(config, text_bytes, syscall_registry, function_registry)
+        Executable::new_from_text_bytes(config, text_bytes, loader, function_registry)
             .map_err(EbpfError::ElfError)
     }
 }
@@ -409,7 +412,7 @@ impl TestContextObject {
                 disassemble_instruction(
                     insn,
                     &analysis.cfg_nodes,
-                    analysis.executable.get_syscall_symbols(),
+                    analysis.executable.get_external_functions(),
                     analysis.executable.get_function_registry()
                 ),
             )?;
@@ -514,7 +517,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{ebpf, elf::Executable, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, SyscallRegistry, VerifiedExecutable}, verifier::RequisiteVerifier};
+/// use solana_rbpf::{ebpf, elf::Executable, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, BuiltInProgram, VerifiedExecutable}, verifier::RequisiteVerifier};
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -524,9 +527,9 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// ];
 ///
 /// let config = Config::default();
-/// let syscall_registry = std::sync::Arc::new(SyscallRegistry::default());
+/// let loader = std::sync::Arc::new(BuiltInProgram::default());
 /// let function_registry = FunctionRegistry::default();
-/// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, config, syscall_registry, function_registry).unwrap();
+/// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, config, loader, function_registry).unwrap();
 /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
 /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
 /// let mut context_object = TestContextObject::new(1);

@@ -431,7 +431,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 if !self.check_pc(pc) {
                     return false;
                 }
-                if config.static_syscalls && executable.lookup_bpf_function(self.pc as u32).is_none() {
+                if config.static_syscalls && executable.lookup_internal_function(self.pc as u32).is_none() {
                     self.due_insn_count += 1;
                     throw_error!(self, EbpfError::UnsupportedInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
@@ -441,21 +441,21 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             // changed after the program has been verified.
             ebpf::CALL_IMM   => {
                 let mut resolved = false;
-                let (syscalls, calls) = if config.static_syscalls {
+                let (external, internal) = if config.static_syscalls {
                     (insn.src == 0, insn.src != 0)
                 } else {
                     (true, true)
                 };
 
-                if syscalls {
-                    if let Some(syscall) = executable.get_syscall_registry().lookup_syscall(insn.imm as u32) {
+                if external {
+                    if let Some(function) = executable.get_loader().lookup_function(insn.imm as u32) {
                         resolved = true;
 
                         if config.enable_instruction_meter {
                             self.vm.env.context_object_pointer.consume(self.due_insn_count);
                         }
                         self.due_insn_count = 0;
-                        syscall(
+                        function(
                             self.vm.env.context_object_pointer,
                             self.reg[1],
                             self.reg[2],
@@ -475,8 +475,8 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                     }
                 }
 
-                if calls && !resolved {
-                    if let Some(target_pc) = executable.lookup_bpf_function(insn.imm as u32) {
+                if internal && !resolved {
+                    if let Some(target_pc) = executable.lookup_internal_function(insn.imm as u32) {
                         resolved = true;
 
                         // make BPF to BPF call

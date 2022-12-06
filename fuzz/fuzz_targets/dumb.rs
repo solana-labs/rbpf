@@ -9,7 +9,7 @@ use solana_rbpf::{
     elf::Executable,
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{EbpfVm, FunctionRegistry, SyscallRegistry, TestContextObject, VerifiedExecutable},
+    vm::{EbpfVm, FunctionRegistry, BuiltInProgram, TestContextObject, VerifiedExecutable},
 };
 use test_utils::TautologyVerifier;
 
@@ -36,7 +36,7 @@ fuzz_target!(|data: DumbFuzzData| {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         &prog,
         config,
-        std::sync::Arc::new(SyscallRegistry::default()),
+        std::sync::Arc::new(BuiltInProgram::default()),
         function_registry,
     )
     .unwrap();

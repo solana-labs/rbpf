@@ -9,7 +9,7 @@ use solana_rbpf::{
     insn_builder::{Arch, Instruction, IntoBytes},
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{EbpfVm, FunctionRegistry, SyscallRegistry, TestContextObject, VerifiedExecutable},
+    vm::{EbpfVm, FunctionRegistry, BuiltInProgram, TestContextObject, VerifiedExecutable},
 };
 use std::sync::Arc;
 use test_utils::TautologyVerifier;
@@ -49,7 +49,7 @@ fuzz_target!(|data: FuzzData| {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog.into_bytes(),
         config,
-        Arc::new(SyscallRegistry::default()),
+        Arc::new(BuiltInProgram::default()),
         function_registry,
     )
     .unwrap();
@@ -57,20 +57,20 @@ fuzz_target!(|data: FuzzData| {
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
     if verified_executable.jit_compile().is_ok() {
-        let mut interp_syscall_object = TestContextObject::new(1 << 16);
+        let mut interp_context_object = TestContextObject::new(1 << 16);
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
         let mut interp_vm = EbpfVm::new(
             &verified_executable,
-            &mut interp_syscall_object,
+            &mut interp_context_object,
             &mut [],
             vec![interp_mem_region],
         )
         .unwrap();
-        let mut jit_syscall_object = TestContextObject::new(1 << 16);
+        let mut jit_context_object = TestContextObject::new(1 << 16);
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
         let mut jit_vm = EbpfVm::new(
             &verified_executable,
-            &mut jit_syscall_object,
+            &mut jit_context_object,
             &mut [],
             vec![jit_mem_region],
         )
@@ -83,10 +83,10 @@ fuzz_target!(|data: FuzzData| {
         }
         if interp_res.is_ok() {
             // we know jit res must be ok if interp res is by this point
-            if interp_syscall_object.remaining != jit_syscall_object.remaining {
+            if interp_context_object.remaining != jit_context_object.remaining {
                 panic!(
                     "Expected {} insts remaining, but got {}",
-                    interp_syscall_object.remaining, jit_syscall_object.remaining
+                    interp_context_object.remaining, jit_context_object.remaining
                 );
             }
             if interp_mem != jit_mem {
