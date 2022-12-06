@@ -10,7 +10,7 @@
 
 use crate::ebpf;
 use crate::static_analysis::CfgNode;
-use crate::vm::{BuiltInProgram, ContextObject, FunctionRegistry};
+use crate::vm::{BuiltInProgram, ContextObject};
 use std::collections::BTreeMap;
 
 fn resolve_label(cfg_nodes: &BTreeMap<usize, CfgNode>, pc: usize) -> &str {
@@ -124,7 +124,6 @@ pub fn disassemble_instruction<C: ContextObject>(
     insn: &ebpf::Insn, 
     cfg_nodes: &BTreeMap<usize, CfgNode>, 
     loader: &BuiltInProgram<C>,
-    function_registry: &FunctionRegistry,
 ) -> String {
     let name;
     let desc;
@@ -255,11 +254,7 @@ pub fn disassemble_instruction<C: ContextObject>(
                 format!("{} {}", name, function_name)
             } else {
                 name = "call";
-                if let Some((target_pc, _name)) = function_registry.get(&(insn.imm as u32)) {
-                    format!("{} {}", name, resolve_label(cfg_nodes, *target_pc))
-                } else {
-                    format!("{} [invalid]", name)
-                }
+                format!("{} {}", name, resolve_label(cfg_nodes, insn.imm as usize))
             };
         },
         ebpf::CALL_REG   => { name = "callx"; desc = format!("{} r{}", name, insn.imm); },
