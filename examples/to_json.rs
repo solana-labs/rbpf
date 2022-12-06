@@ -55,7 +55,7 @@ fn to_json(program: &[u8]) -> String {
             "desc" => disassemble_instruction(
                 insn,
                 &analysis.cfg_nodes,
-                analysis.executable.get_external_functions(),
+                analysis.executable.get_loader(),
                 analysis.executable.get_function_registry(),
             ),
         ));

@@ -612,7 +612,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     };
 
                     if external {
-                        if let Some(function) = self.executable.get_loader().lookup_function(insn.imm as u32) {
+                        if let Some((_function_name, function)) = self.executable.get_loader().lookup_function(insn.imm as u32) {
                             if self.config.enable_instruction_meter {
                                 self.emit_validate_and_profile_instruction_count(true, Some(0));
                             }
@@ -1572,7 +1572,7 @@ mod tests {
         };
         let mut loader = BuiltInProgram::default();
         loader
-            .register_function_by_hash(0xFFFFFFFF, syscalls::bpf_gather_bytes)
+            .register_function_by_name("gather_bytes", syscalls::bpf_gather_bytes)
             .unwrap();
         let mut function_registry = FunctionRegistry::default();
         function_registry.insert(0xFFFFFFFF, (8, "foo".to_string()));

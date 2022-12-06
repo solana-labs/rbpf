@@ -2252,8 +2252,8 @@ fn test_stack2() {
         exit",
         [],
         (
-            b"bpf_mem_frob" => syscalls::bpf_mem_frob,
-            b"bpf_gather_bytes" => syscalls::bpf_gather_bytes,
+            "bpf_mem_frob" => syscalls::bpf_mem_frob,
+            "bpf_gather_bytes" => syscalls::bpf_gather_bytes,
         ),
         TestContextObject::new(16),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x01020304 } },
@@ -2294,7 +2294,7 @@ fn test_string_stack() {
         exit",
         [],
         (
-            b"bpf_str_cmp" => syscalls::bpf_str_cmp,
+            "bpf_str_cmp" => syscalls::bpf_str_cmp,
         ),
         TestContextObject::new(28),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0 } },
@@ -2621,7 +2621,7 @@ fn test_relative_call() {
         "tests/elfs/relative_call.so",
         [1],
         (
-            b"log" => syscalls::bpf_syscall_string,
+            "log" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(14),
         { |_vm, res: ProgramResult| { res.unwrap() == 2 } },
@@ -2634,7 +2634,7 @@ fn test_bpf_to_bpf_scratch_registers() {
         "tests/elfs/scratch_registers.so",
         [1],
         (
-            b"log_64" => syscalls::bpf_syscall_u64,
+            "log_64" => syscalls::bpf_syscall_u64,
         ),
         TestContextObject::new(41),
         { |_vm, res: ProgramResult| { res.unwrap() == 112 } },
@@ -2664,7 +2664,7 @@ fn test_syscall_parameter_on_stack() {
         exit",
         [],
         (
-            b"bpf_syscall_string" => syscalls::bpf_syscall_string,
+            "bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(6),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
@@ -2899,7 +2899,7 @@ fn test_bpf_to_bpf_depth() {
             config,
             [i as u8],
             (
-                b"log" => syscalls::bpf_syscall_string,
+                "log" => syscalls::bpf_syscall_string,
             ),
             TestContextObject::new(if i == 0 { 4 } else { 3 + 10 * i as u64 }),
             { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
@@ -2915,7 +2915,7 @@ fn test_err_bpf_to_bpf_too_deep() {
         config,
         [config.max_call_depth as u8],
         (
-            b"log" => syscalls::bpf_syscall_string,
+            "log" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(176),
         {
@@ -2989,7 +2989,7 @@ fn test_err_syscall_string() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"bpf_syscall_string" => syscalls::bpf_syscall_string,
+            "bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(2),
         {
@@ -3013,7 +3013,7 @@ fn test_syscall_string() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"bpf_syscall_string" => syscalls::bpf_syscall_string,
+            "bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
@@ -3034,7 +3034,7 @@ fn test_syscall() {
         exit",
         [],
         (
-            b"bpf_syscall_u64" => syscalls::bpf_syscall_u64,
+            "bpf_syscall_u64" => syscalls::bpf_syscall_u64,
         ),
         TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
@@ -3054,7 +3054,7 @@ fn test_call_gather_bytes() {
         exit",
         [],
         (
-            b"bpf_gather_bytes" => syscalls::bpf_gather_bytes,
+            "bpf_gather_bytes" => syscalls::bpf_gather_bytes,
         ),
         TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x0102030405 } },
@@ -3076,7 +3076,7 @@ fn test_call_memfrob() {
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, //
         ],
         (
-            b"bpf_mem_frob" => syscalls::bpf_mem_frob,
+            "bpf_mem_frob" => syscalls::bpf_mem_frob,
         ),
         TestContextObject::new(7),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x102292e2f2c0708 } },
@@ -3098,7 +3098,7 @@ fn nested_vm_syscall(
     if depth > 0 {
         let mut loader = BuiltInProgram::default();
         loader
-            .register_function_by_name(b"nested_vm_syscall", nested_vm_syscall)
+            .register_function_by_name("nested_vm_syscall", nested_vm_syscall)
             .unwrap();
         let mem = [depth as u8 - 1, throw as u8];
         let mut executable = assemble::<TestContextObject>(
@@ -3173,8 +3173,8 @@ fn test_load_elf() {
         "tests/elfs/noop.so",
         [],
         (
-            b"log" => syscalls::bpf_syscall_string,
-            b"log_64" => syscalls::bpf_syscall_u64,
+            "log" => syscalls::bpf_syscall_string,
+            "log_64" => syscalls::bpf_syscall_u64,
         ),
         TestContextObject::new(11),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
@@ -3187,7 +3187,7 @@ fn test_load_elf_empty_noro() {
         "tests/elfs/noro.so",
         [],
         (
-            b"log_64" => syscalls::bpf_syscall_u64,
+            "log_64" => syscalls::bpf_syscall_u64,
         ),
         TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
@@ -3200,7 +3200,7 @@ fn test_load_elf_empty_rodata() {
         "tests/elfs/empty_rodata.so",
         [],
         (
-            b"log_64" => syscalls::bpf_syscall_u64,
+            "log_64" => syscalls::bpf_syscall_u64,
         ),
         TestContextObject::new(8),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
@@ -3249,7 +3249,7 @@ fn test_custom_entrypoint() {
         ..Config::default()
     };
     let mut loader = BuiltInProgram::default();
-    test_interpreter_and_jit!(register, loader, b"log_64" => syscalls::bpf_syscall_u64);
+    test_interpreter_and_jit!(register, loader, "log_64" => syscalls::bpf_syscall_u64);
     #[allow(unused_mut)]
     let mut executable =
         Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(loader)).unwrap();
@@ -3357,7 +3357,7 @@ fn test_instruction_count_syscall() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"bpf_syscall_string" => syscalls::bpf_syscall_string,
+            "bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(4),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
@@ -3374,7 +3374,7 @@ fn test_err_instruction_count_syscall_capped() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"bpf_syscall_string" => syscalls::bpf_syscall_string,
+            "bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(3),
         {
@@ -3455,7 +3455,7 @@ fn test_err_non_terminate_capped() {
         exit",
         [],
         (
-            b"bpf_trace_printf" => syscalls::bpf_trace_printf,
+            "bpf_trace_printf" => syscalls::bpf_trace_printf,
         ),
         TestContextObject::new(6),
         {
@@ -3481,7 +3481,7 @@ fn test_err_non_terminate_capped() {
         exit",
         [],
         (
-            b"bpf_trace_printf" => syscalls::bpf_trace_printf,
+            "bpf_trace_printf" => syscalls::bpf_trace_printf,
         ),
         TestContextObject::new(1000),
         {
@@ -3617,7 +3617,7 @@ fn test_symbol_relocation() {
         exit",
         [72, 101, 108, 108, 111],
         (
-            b"bpf_syscall_string" => syscalls::bpf_syscall_string
+            "bpf_syscall_string" => syscalls::bpf_syscall_string
         ),
         TestContextObject::new(6),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
@@ -3648,7 +3648,7 @@ fn test_err_call_unresolved() {
 #[test]
 fn test_err_unresolved_elf() {
     let mut loader = BuiltInProgram::default();
-    test_interpreter_and_jit!(register, loader, b"log" => syscalls::bpf_syscall_string);
+    test_interpreter_and_jit!(register, loader, "log" => syscalls::bpf_syscall_string);
     let mut file = File::open("tests/elfs/unresolved_syscall.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
@@ -3667,7 +3667,7 @@ fn test_syscall_static() {
         "tests/elfs/syscall_static.so",
         [],
         (
-            b"log" => syscalls::bpf_syscall_string,
+            "log" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(5),
         { |_vm, res: ProgramResult| { res.unwrap() == 0 } },
@@ -3684,7 +3684,7 @@ fn test_syscall_unknown_static() {
         "tests/elfs/syscall_static_unknown.so",
         [],
         (
-            b"log" => syscalls::bpf_syscall_string,
+            "log" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(1),
         { |_vm, res: ProgramResult| { matches!(res.unwrap_err(), EbpfError::UnsupportedInstruction(29)) } },

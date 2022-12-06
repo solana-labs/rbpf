@@ -21,7 +21,7 @@ use test::Bencher;
 fn loader() -> Arc<BuiltInProgram<TestContextObject>> {
     let mut loader = BuiltInProgram::default();
     loader
-        .register_function_by_name(b"log_64", bpf_syscall_u64)
+        .register_function_by_name("log_64", bpf_syscall_u64)
         .unwrap();
     Arc::new(loader)
 }

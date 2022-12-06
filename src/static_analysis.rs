@@ -216,10 +216,10 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
             let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
             match insn.opc {
                 ebpf::CALL_IMM => {
-                    if let Some(function_name) = self
+                    if let Some((function_name, _function)) = self
                         .executable
-                        .get_external_functions()
-                        .get(&(insn.imm as u32))
+                        .get_loader()
+                        .lookup_function(insn.imm as u32)
                     {
                         if function_name == "abort" {
                             self.cfg_nodes
@@ -451,7 +451,7 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
             let desc = disassemble_instruction(
                 insn,
                 &self.cfg_nodes,
-                self.executable.get_external_functions(),
+                self.executable.get_loader(),
                 self.executable.get_function_registry(),
             );
             writeln!(output, "    {}", desc)?;
@@ -509,7 +509,7 @@ impl<'a, C: ContextObject> Analysis<'a, C> {
                     let desc = disassemble_instruction(
                         insn,
                         &analysis.cfg_nodes,
-                        analysis.executable.get_external_functions(),
+                        analysis.executable.get_loader(),
                         analysis.executable.get_function_registry(),
                     );
                     if let Some(split_index) = desc.find(' ') {

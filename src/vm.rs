@@ -109,7 +109,7 @@ pub struct BuiltInProgram<C: ContextObject> {
     /// Holds the Config if this is a loader program
     config: Option<Box<Config>>,
     /// Function pointers by symbol
-    functions: HashMap<u32, BuiltInFunction<C>>,
+    functions: HashMap<u32, (&'static str, BuiltInFunction<C>)>,
 }
 
 impl<C: ContextObject> BuiltInProgram<C> {
@@ -118,37 +118,35 @@ impl<C: ContextObject> BuiltInProgram<C> {
         self.config.as_ref().unwrap()
     }
 
-    /// Register a function by its symbol hash
-    pub fn register_function_by_hash(
+    /// Register a built-in function
+    pub fn register_function_by_name(
         &mut self,
-        hash: u32,
+        name: &'static str,
         function: BuiltInFunction<C>,
     ) -> Result<(), EbpfError> {
-        if self.functions.insert(hash, function).is_some() {
-            Err(EbpfError::SyscallAlreadyRegistered(hash as usize))
+        let key = ebpf::hash_symbol_name(name.as_bytes());
+        if self.functions.insert(key, (name, function)).is_some() {
+            Err(EbpfError::SyscallAlreadyRegistered(key as usize))
         } else {
             Ok(())
         }
     }
 
-    /// Register a function by its symbol name
-    pub fn register_function_by_name(
-        &mut self,
-        name: &[u8],
-        function: BuiltInFunction<C>,
-    ) -> Result<(), EbpfError> {
-        self.register_function_by_hash(ebpf::hash_symbol_name(name), function)
-    }
-
     /// Get a symbol's function pointer
-    pub fn lookup_function(&self, hash: u32) -> Option<BuiltInFunction<C>> {
-        self.functions.get(&hash).cloned()
+    pub fn lookup_function(&self, key: u32) -> Option<(&'static str, BuiltInFunction<C>)> {
+        self.functions.get(&key).cloned()
     }
 
     /// Calculate memory size
     pub fn mem_size(&self) -> usize {
         mem::size_of::<Self>()
-            + self.functions.capacity() * mem::size_of::<(u32, BuiltInFunction<C>)>()
+            + if self.config.is_some() {
+                mem::size_of::<Config>()
+            } else {
+                0
+            }
+            + self.functions.capacity()
+                * mem::size_of::<(u32, (&'static str, BuiltInFunction<C>))>()
     }
 }
 
@@ -406,7 +404,7 @@ impl TestContextObject {
                 disassemble_instruction(
                     insn,
                     &analysis.cfg_nodes,
-                    analysis.executable.get_external_functions(),
+                    analysis.executable.get_loader(),
                     analysis.executable.get_function_registry()
                 ),
             )?;

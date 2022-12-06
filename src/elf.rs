@@ -277,8 +277,6 @@ pub struct Executable<C: ContextObject> {
     entry_pc: usize,
     /// Call resolution map (hash, pc, name)
     function_registry: FunctionRegistry,
-    /// External symbol map (hash, name)
-    external_functions: BTreeMap<u32, String>,
     /// Loader built-in program
     loader: Arc<BuiltInProgram<C>>,
     /// Compiled program and argument
@@ -367,11 +365,6 @@ impl<C: ContextObject> Executable<C> {
         &self.function_registry
     }
 
-    /// Get the external functions
-    pub fn get_external_functions(&self) -> &BTreeMap<u32, String> {
-        &self.external_functions
-    }
-
     /// Create from raw text section bytes (list of instructions)
     pub fn new_from_text_bytes(
         config: Config,
@@ -405,7 +398,6 @@ impl<C: ContextObject> Executable<C> {
             },
             entry_pc,
             function_registry,
-            external_functions: BTreeMap::default(),
             loader,
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             compiled_program: None,
@@ -481,11 +473,9 @@ impl<C: ContextObject> Executable<C> {
 
         // relocate symbols
         let mut function_registry = FunctionRegistry::default();
-        let mut external_functions = BTreeMap::default();
         Self::relocate(
             &config,
             &mut function_registry,
-            &mut external_functions,
             &loader,
             elf,
             elf_bytes.as_slice_mut(),
@@ -526,7 +516,6 @@ impl<C: ContextObject> Executable<C> {
             text_section_info,
             entry_pc,
             function_registry,
-            external_functions,
             loader,
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             compiled_program: None,
@@ -552,14 +541,6 @@ impl<C: ContextObject> Executable<C> {
             .saturating_add(self.function_registry
             .iter()
             .fold(0, |state: usize, (_, (val, name))| state
-                .saturating_add(mem::size_of_val(&val)
-                .saturating_add(mem::size_of_val(&name)
-                .saturating_add(name.capacity())))))
-            // external functions
-            .saturating_add(mem::size_of_val(&self.external_functions))
-            .saturating_add(self.external_functions
-            .iter()
-            .fold(0, |state: usize, (val, name)| state
                 .saturating_add(mem::size_of_val(&val)
                 .saturating_add(mem::size_of_val(&name)
                 .saturating_add(name.capacity())))))
@@ -896,7 +877,6 @@ impl<C: ContextObject> Executable<C> {
     fn relocate<'a, P: ElfParser<'a>>(
         config: &Config,
         function_registry: &mut FunctionRegistry,
-        external_functions: &mut BTreeMap<u32, String>,
         loader: &BuiltInProgram<C>,
         elf: &'a P,
         elf_bytes: &mut [u8],
@@ -1120,10 +1100,9 @@ impl<C: ContextObject> Executable<C> {
                         )?
                     } else {
                         // Else it's a syscall
-                        let hash = syscall_cache
+                        let hash = *syscall_cache
                             .entry(symbol.st_name())
-                            .or_insert_with(|| (ebpf::hash_symbol_name(name.as_bytes()), name))
-                            .0;
+                            .or_insert_with(|| ebpf::hash_symbol_name(name.as_bytes()));
                         if config.reject_broken_elfs && loader.lookup_function(hash).is_none() {
                             return Err(ElfError::UnresolvedSymbol(
                                 name.to_string(),
@@ -1149,12 +1128,6 @@ impl<C: ContextObject> Executable<C> {
         }
 
         if config.enable_symbol_and_section_labels {
-            // Save external function names
-            *external_functions = syscall_cache
-                .values()
-                .map(|(hash, name)| (*hash, name.to_string()))
-                .collect();
-
             // Register all known function names from the symbol table
             for symbol in elf.symbols() {
                 if symbol.st_info() & 0xEF != 0x02 {
@@ -1228,10 +1201,10 @@ mod test {
     fn loader() -> Arc<BuiltInProgram<TestContextObject>> {
         let mut loader = BuiltInProgram::default();
         loader
-            .register_function_by_name(b"log", syscalls::bpf_syscall_string)
+            .register_function_by_name("log", syscalls::bpf_syscall_string)
             .unwrap();
         loader
-            .register_function_by_name(b"log_64", syscalls::bpf_syscall_u64)
+            .register_function_by_name("log_64", syscalls::bpf_syscall_u64)
             .unwrap();
         Arc::new(loader)
     }

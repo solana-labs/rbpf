@@ -448,7 +448,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 };
 
                 if external {
-                    if let Some(function) = executable.get_loader().lookup_function(insn.imm as u32) {
+                    if let Some((_function_name, function)) = executable.get_loader().lookup_function(insn.imm as u32) {
                         resolved = true;
 
                         if config.enable_instruction_meter {
