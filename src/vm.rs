@@ -113,8 +113,6 @@ pub struct BuiltInProgram<C: ContextObject> {
 }
 
 impl<C: ContextObject> BuiltInProgram<C> {
-    const MAX_FUNCTIONS: usize = 128;
-
     /// Get the configuration settings assuming this is a loader program
     pub fn get_config(&self) -> &Config {
         self.config.as_ref().unwrap()
@@ -126,10 +124,6 @@ impl<C: ContextObject> BuiltInProgram<C> {
         hash: u32,
         function: BuiltInFunction<C>,
     ) -> Result<(), EbpfError> {
-        let context_object_slot = self.functions.len();
-        if context_object_slot == Self::MAX_FUNCTIONS {
-            return Err(EbpfError::TooManySyscalls);
-        }
         if self.functions.insert(hash, function).is_some() {
             Err(EbpfError::SyscallAlreadyRegistered(hash as usize))
         } else {
