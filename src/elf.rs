@@ -2125,6 +2125,6 @@ mod test {
             Executable::jit_compile(&mut executable).unwrap();
         }
 
-        assert_eq!(10538, executable.mem_size());
+        assert_eq!(10554, executable.mem_size());
     }
 }

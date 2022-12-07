@@ -115,8 +115,10 @@ fn main() {
 
     #[allow(unused_mut)]
     let mut verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(Arc::new(
+            executable,
+        ))
+        .unwrap();
 
     let mut mem = match matches.value_of("input").unwrap().parse::<usize>() {
         Ok(allocate) => vec![0u8; allocate],

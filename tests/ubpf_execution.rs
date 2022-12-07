@@ -43,7 +43,8 @@ macro_rules! test_interpreter_and_jit {
         let mut check_closure = $check;
         #[allow(unused_mut)]
         let mut verified_executable =
-            VerifiedExecutable::<RequisiteVerifier, _>::from_executable($executable).unwrap();
+            VerifiedExecutable::<RequisiteVerifier, _>::from_executable(Arc::new($executable))
+                .unwrap();
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
@@ -86,7 +87,7 @@ macro_rules! test_interpreter_and_jit {
                         || !TestContextObject::compare_trace_log(&_tracer_interpreter, tracer_jit)
                     {
                         let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
-                            verified_executable.get_executable(),
+                            Arc::clone(verified_executable.get_executable()),
                         )
                         .unwrap();
                         let stdout = std::io::stdout();
@@ -4018,8 +4019,8 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let verified_executable = VerifiedExecutable::<
         solana_rbpf::verifier::RequisiteVerifier,
         TestContextObject,
-    >::from_executable(executable);
-    let mut verified_executable = if let Ok(verified_executable) = verified_executable {
+    >::from_executable(Arc::new(executable));
+    let verified_executable = if let Ok(verified_executable) = verified_executable {
         verified_executable
     } else {
         return false;
@@ -4061,9 +4062,9 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     if format!("{result_interpreter:?}") != format!("{result_jit:?}")
         || !TestContextObject::compare_trace_log(&tracer_interpreter, tracer_jit)
     {
-        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
+        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(Arc::clone(
             verified_executable.get_executable(),
-        )
+        ))
         .unwrap();
         println!("result_interpreter={result_interpreter:?}");
         println!("result_jit={result_jit:?}");

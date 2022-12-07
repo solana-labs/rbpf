@@ -28,8 +28,10 @@ fn bench_init_vm(bencher: &mut Bencher) {
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(Arc::new(
+            executable,
+        ))
+        .unwrap();
     bencher.iter(|| {
         let mut context_object = TestContextObject::default();
         EbpfVm::new(
@@ -54,7 +56,9 @@ fn bench_jit_compile(bencher: &mut Bencher) {
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(Arc::new(
+            executable,
+        ))
+        .unwrap();
     bencher.iter(|| verified_executable.jit_compile().unwrap());
 }

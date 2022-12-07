@@ -1590,10 +1590,14 @@ mod tests {
             prog[0] = ebpf::EXIT;
             let mut executable = create_mockup_executable(&prog[0..ebpf::INSN_SIZE]);
             Executable::<TestContextObject>::jit_compile(&mut executable).unwrap();
-            executable
+            let empty_program_machine_code_length = executable
                 .get_compiled_program()
+                .read()
                 .unwrap()
-                .machine_code_length()
+                .as_ref()
+                .unwrap()
+                .machine_code_length();
+            empty_program_machine_code_length
         };
         assert!(empty_program_machine_code_length <= MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH);
 
@@ -1626,6 +1630,9 @@ mod tests {
             }
             let machine_code_length = executable
                 .get_compiled_program()
+                .read()
+                .unwrap()
+                .as_ref()
                 .unwrap()
                 .machine_code_length()
                 - empty_program_machine_code_length;
@@ -1639,7 +1646,7 @@ mod tests {
                 (machine_code_length as f64 / instruction_count as f64 + 0.5) as usize;
             assert!(machine_code_length_per_instruction <= MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION);
             /*println!("opcode={:02X} machine_code_length_per_instruction={}", opcode, machine_code_length_per_instruction);
-            let analysis = crate::static_analysis::Analysis::from_executable(&executable).unwrap();
+            let analysis = crate::static_analysis::Analysis::from_executable(Arc::new(executable)).unwrap();
             {
                 let stdout = std::io::stdout();
                 analysis.disassemble(&mut stdout.lock()).unwrap();

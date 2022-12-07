@@ -473,7 +473,12 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{ebpf, elf::Executable, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, BuiltInProgram, VerifiedExecutable}, verifier::RequisiteVerifier};
+/// use std::sync::Arc;
+/// use solana_rbpf::{
+///     ebpf, elf::Executable, memory_region::MemoryRegion,
+///     vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, BuiltInProgram, VerifiedExecutable},
+///     verifier::RequisiteVerifier,
+/// };
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -486,7 +491,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// let function_registry = FunctionRegistry::default();
 /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, loader, function_registry).unwrap();
 /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
-/// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
+/// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(Arc::new(executable)).unwrap();
 /// let mut context_object = TestContextObject::new(1);
 /// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
 ///

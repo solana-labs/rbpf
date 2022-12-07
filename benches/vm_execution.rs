@@ -30,8 +30,10 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(Arc::new(
+            executable,
+        ))
+        .unwrap();
     let mut context_object = TestContextObject::default();
     let mut vm = EbpfVm::new(
         &verified_executable,
@@ -58,8 +60,10 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(Arc::new(
+            executable,
+        ))
+        .unwrap();
     verified_executable.jit_compile().unwrap();
     let mut context_object = TestContextObject::default();
     let mut vm = EbpfVm::new(
@@ -89,8 +93,10 @@ fn bench_jit_vs_interpreter(
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(Arc::new(
+            executable,
+        ))
+        .unwrap();
     verified_executable.jit_compile().unwrap();
     let mut context_object = TestContextObject::default();
     let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);

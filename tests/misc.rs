@@ -123,10 +123,10 @@ fn test_fuzz_execute() {
         |bytes: &mut [u8]| {
             if let Ok(executable) = Executable::<TestContextObject>::from_elf(bytes, loader.clone())
             {
-                if let Ok(verified_executable) = VerifiedExecutable::<
-                    RequisiteVerifier,
-                    TestContextObject,
-                >::from_executable(executable)
+                if let Ok(verified_executable) =
+                    VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(
+                        Arc::new(executable),
+                    )
                 {
                     let mut context_object = TestContextObject::new(1_000_000);
                     let mut vm = EbpfVm::<RequisiteVerifier, TestContextObject>::new(

@@ -12,7 +12,7 @@ use solana_rbpf::{
     static_analysis::Analysis,
     verifier::{RequisiteVerifier, Verifier},
     vm::{
-        ContextObject, EbpfVm, FunctionRegistry, ProgramResult, BuiltInProgram, TestContextObject,
+        BuiltInProgram, ContextObject, EbpfVm, FunctionRegistry, ProgramResult, TestContextObject,
         VerifiedExecutable,
     },
 };
@@ -53,8 +53,10 @@ fuzz_target!(|data: FuzzData| {
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(Arc::new(
+            executable,
+        ))
+        .unwrap();
     if verified_executable.jit_compile().is_ok() {
         let mut interp_context_object = TestContextObject::new(1 << 16);
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
