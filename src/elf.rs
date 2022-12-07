@@ -1151,7 +1151,6 @@ impl<C: ContextObject> Executable<C> {
 impl<C: ContextObject> PartialEq for Executable<C> {
     fn eq(&self, other: &Self) -> bool {
         let Self {
-            config,
             elf_bytes,
             ro_section,
             text_section_info,
@@ -1160,8 +1159,7 @@ impl<C: ContextObject> PartialEq for Executable<C> {
             loader,
             compiled_program,
         } = self;
-        config.eq(&&other.config)
-            && elf_bytes.eq(&&other.elf_bytes)
+        elf_bytes.eq(&&other.elf_bytes)
             && ro_section.eq(&&other.ro_section)
             && text_section_info.eq(&&other.text_section_info)
             && entry_pc.eq(&&other.entry_pc)

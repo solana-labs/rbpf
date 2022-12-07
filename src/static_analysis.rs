@@ -202,6 +202,7 @@ impl Analysis {
         Ok(result)
     }
 
+    /// The program which is analyzed
     pub fn executable(&self) -> &Arc<Executable<TestContextObject>> {
         &self.executable
     }
