@@ -129,12 +129,12 @@ pub fn register_internal_function<
     C: ContextObject,
     T: AsRef<str> + ToString + std::cmp::PartialEq<&'static str>,
 >(
-    config: &Config,
     function_registry: &mut FunctionRegistry,
     loader: &BuiltInProgram<C>,
     pc: usize,
     name: T,
 ) -> Result<u32, ElfError> {
+    let config = loader.get_config();
     let key = if config.static_syscalls {
         // With static_syscalls normal function calls and syscalls are differentiated in the ISA.
         // Thus, we don't need to hash them here anymore and collisions are gone as well.
@@ -380,7 +380,7 @@ impl<C: ContextObject> Executable<C> {
         {
             *pc
         } else {
-            register_internal_function(&config, &mut function_registry, &loader, 0, "entrypoint")?;
+            register_internal_function(&mut function_registry, &loader, 0, "entrypoint")?;
             0
         };
         Ok(Self {
@@ -490,13 +490,7 @@ impl<C: ContextObject> Executable<C> {
             if !config.static_syscalls {
                 function_registry.remove(&ebpf::hash_symbol_name(b"entrypoint"));
             }
-            register_internal_function(
-                &config,
-                &mut function_registry,
-                &loader,
-                entry_pc,
-                "entrypoint",
-            )?;
+            register_internal_function(&mut function_registry, &loader, entry_pc, "entrypoint")?;
             entry_pc
         } else {
             return Err(ElfError::InvalidEntrypoint);
@@ -590,7 +584,6 @@ impl<C: ContextObject> Executable<C> {
                 };
 
                 let key = register_internal_function(
-                    config,
                     function_registry,
                     loader,
                     target_pc as usize,
@@ -1092,13 +1085,7 @@ impl<C: ContextObject> Executable<C> {
                             as usize)
                             .checked_div(ebpf::INSN_SIZE)
                             .unwrap_or_default();
-                        register_internal_function(
-                            config,
-                            function_registry,
-                            loader,
-                            target_pc,
-                            name,
-                        )?
+                        register_internal_function(function_registry, loader, target_pc, name)?
                     } else {
                         // Else it's a syscall
                         let hash = *syscall_cache
@@ -1143,7 +1130,7 @@ impl<C: ContextObject> Executable<C> {
                 let name = elf
                     .symbol_name(symbol.st_name() as Elf64Word)
                     .ok_or_else(|| ElfError::UnknownSymbol(symbol.st_name() as usize))?;
-                register_internal_function(config, function_registry, loader, target_pc, name)?;
+                register_internal_function(function_registry, loader, target_pc, name)?;
             }
         }
 
