@@ -27,7 +27,7 @@ use solana_rbpf::{
     fuzz::fuzz,
     syscalls,
     verifier::RequisiteVerifier,
-    vm::{BuiltInProgram, Config, EbpfVm, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, EbpfVm, TestContextObject, VerifiedExecutable},
 };
 use std::{fs::File, io::Read, sync::Arc};
 
@@ -121,8 +121,7 @@ fn test_fuzz_execute() {
         0..elf.len(),
         0..255,
         |bytes: &mut [u8]| {
-            if let Ok(executable) =
-                Executable::<TestContextObject>::from_elf(bytes, Config::default(), loader.clone())
+            if let Ok(executable) = Executable::<TestContextObject>::from_elf(bytes, loader.clone())
             {
                 if let Ok(verified_executable) = VerifiedExecutable::<
                     RequisiteVerifier,

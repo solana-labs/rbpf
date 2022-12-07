@@ -35,8 +35,7 @@ fuzz_target!(|data: DumbFuzzData| {
     let mut mem = data.mem;
     let executable = Executable::<TestContextObject>::from_text_bytes(
         &prog,
-        config,
-        std::sync::Arc::new(BuiltInProgram::default()),
+        std::sync::Arc::new(BuiltInProgram::new_loader(config)),
         function_registry,
     )
     .unwrap();

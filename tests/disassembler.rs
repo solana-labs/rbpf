@@ -18,13 +18,11 @@ use std::sync::Arc;
 macro_rules! disasm {
     ($src:expr) => {{
         let src = $src;
-        let config = Config {
+        let loader = BuiltInProgram::new_loader(Config {
             enable_symbol_and_section_labels: true,
             ..Config::default()
-        };
-        let executable =
-            assemble::<TestContextObject>(src, config, Arc::new(BuiltInProgram::default()))
-                .unwrap();
+        });
+        let executable = assemble::<TestContextObject>(src, Arc::new(loader)).unwrap();
         let analysis = Analysis::from_executable(&executable).unwrap();
         let mut reasm = Vec::new();
         analysis.disassemble(&mut reasm).unwrap();

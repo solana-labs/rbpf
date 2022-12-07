@@ -1566,11 +1566,10 @@ mod tests {
     }
 
     fn create_mockup_executable(program: &[u8]) -> Executable<TestContextObject> {
-        let config = Config {
+        let mut loader = BuiltInProgram::new_loader(Config {
             noop_instruction_rate: 0,
             ..Config::default()
-        };
-        let mut loader = BuiltInProgram::default();
+        });
         loader
             .register_function_by_name("gather_bytes", syscalls::bpf_gather_bytes)
             .unwrap();
@@ -1578,7 +1577,6 @@ mod tests {
         function_registry.insert(8, (8, "function_foo".to_string()));
         Executable::<TestContextObject>::from_text_bytes(
             program,
-            config,
             Arc::new(loader),
             function_registry,
         )

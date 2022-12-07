@@ -91,28 +91,23 @@ fn main() {
         )
         .get_matches();
 
-    let config = Config {
+    let loader = Arc::new(BuiltInProgram::new_loader(Config {
         enable_instruction_tracing: matches.is_present("trace") || matches.is_present("profile"),
         enable_symbol_and_section_labels: true,
         ..Config::default()
-    };
-    let loader = Arc::new(BuiltInProgram::default());
+    }));
     let executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(Path::new(asm_file_name)).unwrap();
             let mut source = Vec::new();
             file.read_to_end(&mut source).unwrap();
-            assemble::<TestContextObject>(
-                std::str::from_utf8(source.as_slice()).unwrap(),
-                config,
-                loader,
-            )
+            assemble::<TestContextObject>(std::str::from_utf8(source.as_slice()).unwrap(), loader)
         }
         None => {
             let mut file = File::open(Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            Executable::<TestContextObject>::from_elf(&elf, config, loader)
+            Executable::<TestContextObject>::from_elf(&elf, loader)
                 .map_err(|err| format!("Executable constructor failed: {:?}", err))
         }
     }

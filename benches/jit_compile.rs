@@ -24,8 +24,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TestContextObject>::from_elf(
         &elf,
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let verified_executable =
@@ -51,8 +50,7 @@ fn bench_jit_compile(bencher: &mut Bencher) {
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TestContextObject>::from_elf(
         &elf,
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let mut verified_executable =

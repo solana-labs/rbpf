@@ -57,8 +57,7 @@ fn test_verifier_success() {
         "
         mov32 r0, 0xBEE
         exit",
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let verified_executable =
@@ -80,8 +79,7 @@ fn test_verifier_fail() {
         "
         mov32 r0, 0xBEE
         exit",
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let _verified_executable =
@@ -97,8 +95,7 @@ fn test_verifier_err_div_by_zero_imm() {
         mov32 r0, 1
         div32 r0, 0
         exit",
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let _verified_executable =
@@ -116,8 +113,7 @@ fn test_verifier_err_endian_size() {
     ];
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -136,8 +132,7 @@ fn test_verifier_err_incomplete_lddw() {
     ];
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -155,11 +150,10 @@ fn test_verifier_err_invalid_reg_dst() {
             "
             mov r11, 1
             exit",
-            Config {
+            Arc::new(BuiltInProgram::new_loader(Config {
                 dynamic_stack_frames,
                 ..Config::default()
-            },
-            Arc::new(BuiltInProgram::default()),
+            })),
         )
         .unwrap();
         let result =
@@ -182,11 +176,10 @@ fn test_verifier_err_invalid_reg_src() {
             "
             mov r0, r11
             exit",
-            Config {
+            Arc::new(BuiltInProgram::new_loader(Config {
                 dynamic_stack_frames,
                 ..Config::default()
-            },
-            Arc::new(BuiltInProgram::default()),
+            })),
         )
         .unwrap();
         let result =
@@ -207,12 +200,10 @@ fn test_verifier_resize_stack_ptr_success() {
         sub r11, 1
         add r11, 1
         exit",
-        Config {
-            dynamic_stack_frames: true,
+        Arc::new(BuiltInProgram::new_loader(Config {
             enable_stack_frame_gaps: false,
             ..Config::default()
-        },
-        Arc::new(BuiltInProgram::default()),
+        })),
     )
     .unwrap();
     let _verified_executable =
@@ -228,8 +219,7 @@ fn test_verifier_err_jmp_lddw() {
         ja +1
         lddw r0, 0x1122334455667788
         exit",
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let _verified_executable =
@@ -244,8 +234,7 @@ fn test_verifier_err_jmp_out() {
         "
         ja +2
         exit",
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let _verified_executable =
@@ -260,8 +249,7 @@ fn test_verifier_err_jmp_out_start() {
         "
         ja -2
         exit",
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let _verified_executable =
@@ -278,8 +266,7 @@ fn test_verifier_err_unknown_opcode() {
     ];
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -295,8 +282,7 @@ fn test_verifier_err_write_r10() {
         "
         mov r10, 1
         exit",
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let _verified_executable =
@@ -334,8 +320,7 @@ fn test_verifier_err_all_shift_overflows() {
         let assembly = format!("\n{}\nexit", overflowing_instruction);
         let executable = assemble::<TestContextObject>(
             &assembly,
-            Config::default(),
-            Arc::new(BuiltInProgram::default()),
+            Arc::new(BuiltInProgram::new_loader(Config::default())),
         )
         .unwrap();
         let result =
@@ -368,11 +353,10 @@ fn test_sdiv_disabled() {
             let assembly = format!("\n{}\nexit", instruction);
             let executable = assemble::<TestContextObject>(
                 &assembly,
-                Config {
+                Arc::new(BuiltInProgram::new_loader(Config {
                     enable_sdiv,
                     ..Config::default()
-                },
-                Arc::new(BuiltInProgram::default()),
+                })),
             )
             .unwrap();
             let result =

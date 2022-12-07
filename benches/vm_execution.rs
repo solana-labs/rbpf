@@ -26,8 +26,7 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TestContextObject>::from_elf(
         &elf,
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let verified_executable =
@@ -55,8 +54,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TestContextObject>::from_elf(
         &elf,
-        Config::default(),
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
     let mut verified_executable =
@@ -87,8 +85,7 @@ fn bench_jit_vs_interpreter(
 ) {
     let executable = solana_rbpf::assembler::assemble::<TestContextObject>(
         assembly,
-        config,
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(config)),
     )
     .unwrap();
     let mut verified_executable =

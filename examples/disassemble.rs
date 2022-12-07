@@ -8,7 +8,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     elf::Executable,
     static_analysis::Analysis,
-    vm::{BuiltInProgram, Config, FunctionRegistry, TestContextObject},
+    vm::{BuiltInProgram, FunctionRegistry, TestContextObject},
 };
 use std::sync::Arc;
 
@@ -31,10 +31,8 @@ fn main() {
         0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     let loader = Arc::new(BuiltInProgram::default());
-    let config = Config::default();
     let executable = Executable::<TestContextObject>::from_text_bytes(
         program,
-        config,
         loader,
         FunctionRegistry::default(),
     )

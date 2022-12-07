@@ -14,7 +14,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     elf::Executable,
     static_analysis::Analysis,
-    vm::{BuiltInProgram, Config, FunctionRegistry, TestContextObject},
+    vm::{BuiltInProgram, FunctionRegistry, TestContextObject},
 };
 use std::sync::Arc;
 // Turn a program into a JSON string.
@@ -29,7 +29,6 @@ use std::sync::Arc;
 fn to_json(program: &[u8]) -> String {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         program,
-        Config::default(),
         Arc::new(BuiltInProgram::default()),
         FunctionRegistry::default(),
     )

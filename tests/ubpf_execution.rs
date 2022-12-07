@@ -125,10 +125,10 @@ macro_rules! test_interpreter_and_jit_asm {
     ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $check:block $(,)?) => {
         #[allow(unused_mut)]
         {
-            let mut loader = BuiltInProgram::default();
+            let mut loader = BuiltInProgram::new_loader($config);
             $(test_interpreter_and_jit!(register, loader, $location => $syscall_function);)*
             let loader = Arc::new(loader);
-            let mut executable = assemble($source, $config, loader).unwrap();
+            let mut executable = assemble($source, loader).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $check);
         }
     };
@@ -151,10 +151,10 @@ macro_rules! test_interpreter_and_jit_elf {
         file.read_to_end(&mut elf).unwrap();
         #[allow(unused_mut)]
         {
-            let mut loader = BuiltInProgram::default();
+            let mut loader = BuiltInProgram::new_loader($config);
             $(test_interpreter_and_jit!(register, loader, $location => $syscall_function);)*
             let loader = Arc::new(loader);
-            let mut executable = Executable::<TestContextObject>::from_elf(&elf, $config, loader).unwrap();
+            let mut executable = Executable::<TestContextObject>::from_elf(&elf, loader).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $check);
         }
     };
@@ -2592,15 +2592,13 @@ fn test_err_mem_access_out_of_bound() {
     prog[0] = ebpf::LD_DW_IMM;
     prog[16] = ebpf::ST_B_IMM;
     prog[24] = ebpf::EXIT;
-    let loader = Arc::new(BuiltInProgram::default());
+    let loader = Arc::new(BuiltInProgram::new_loader(Config::default()));
     for address in [0x2u64, 0x8002u64, 0x80000002u64, 0x8000000000000002u64] {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
-        let config = Config::default();
         #[allow(unused_mut)]
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             &prog,
-            config,
             loader.clone(),
             FunctionRegistry::default(),
         )
@@ -3099,7 +3097,7 @@ fn nested_vm_syscall(
 ) {
     #[allow(unused_mut)]
     if depth > 0 {
-        let mut loader = BuiltInProgram::default();
+        let mut loader = BuiltInProgram::new_loader(Config::default());
         loader
             .register_function_by_name("nested_vm_syscall", nested_vm_syscall)
             .unwrap();
@@ -3110,7 +3108,6 @@ fn nested_vm_syscall(
             ldxb r1, [r1]
             syscall nested_vm_syscall
             exit",
-            Config::default(),
             Arc::new(loader),
         )
         .unwrap();
@@ -3630,16 +3627,15 @@ fn test_err_call_unresolved() {
 
 #[test]
 fn test_err_unresolved_elf() {
-    let mut loader = BuiltInProgram::default();
+    let mut loader = BuiltInProgram::new_loader(Config {
+        reject_broken_elfs: true,
+        ..Config::default()
+    });
     test_interpreter_and_jit!(register, loader, "log" => syscalls::bpf_syscall_string);
     let mut file = File::open("tests/elfs/unresolved_syscall.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let config = Config {
-        reject_broken_elfs: true,
-        ..Config::default()
-    };
-    let result = Executable::<TestContextObject>::from_elf(&elf, config, Arc::new(loader));
+    let result = Executable::<TestContextObject>::from_elf(&elf, Arc::new(loader));
     assert!(
         matches!(result, Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 67 && offset == 304)
     );
@@ -4006,14 +4002,12 @@ fn test_tcp_sack_nomatch() {
 fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
-    let config = Config {
-        enable_instruction_tracing: true,
-        ..Config::default()
-    };
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
-        config,
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltInProgram::new_loader(Config {
+            enable_instruction_tracing: true,
+            ..Config::default()
+        })),
         FunctionRegistry::default(),
     );
     let executable = if let Ok(executable) = executable {
