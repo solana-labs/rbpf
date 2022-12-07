@@ -11,7 +11,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use rand::{rngs::SmallRng, Rng, SeedableRng};
-use std::{fmt::Debug, marker::PhantomData, mem, ptr};
+use std::{fmt::Debug, mem, ptr};
 
 use crate::{
     ebpf::{self, FIRST_SCRATCH_REG, FRAME_PTR_REG, INSN_SIZE, SCRATCH_REGS, STACK_PTR_REG},
@@ -30,17 +30,16 @@ const MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION: usize = 110;
 const MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT: usize = 13;
 const ERR_KIND_OFFSET: usize = 1;
 
-pub struct JitProgram<C: ContextObject> {
+pub struct JitProgram {
     /// OS page size in bytes and the alignment of the sections
     page_size: usize,
     /// A `*const u8` pointer into the text_section for each BPF instruction
     pc_section: &'static mut [usize],
     /// The x86 machinecode
     text_section: &'static mut [u8],
-    _marker: PhantomData<C>,
 }
 
-impl<C: ContextObject> JitProgram<C> {
+impl JitProgram {
     fn new(pc: usize, code_size: usize) -> Result<Self, EbpfError> {
         let page_size = get_system_page_size();
         let pc_loc_table_size = round_to_page_size(pc * 8, page_size);
@@ -54,7 +53,6 @@ impl<C: ContextObject> JitProgram<C> {
                     (raw as *mut u8).add(pc_loc_table_size),
                     over_allocated_code_size,
                 ),
-                _marker: PhantomData::default(),
             })
         }
     }
@@ -92,7 +90,7 @@ impl<C: ContextObject> JitProgram<C> {
         Ok(())
     }
 
-    pub fn invoke(
+    pub fn invoke<C: ContextObject>(
         &self,
         config: &Config,
         env: &mut RuntimeEnvironment<C>,
@@ -148,7 +146,7 @@ impl<C: ContextObject> JitProgram<C> {
     }
 }
 
-impl<C: ContextObject> Drop for JitProgram<C> {
+impl Drop for JitProgram {
     fn drop(&mut self) {
         let pc_loc_table_size = round_to_page_size(self.pc_section.len() * 8, self.page_size);
         let code_size = round_to_page_size(self.text_section.len(), self.page_size);
@@ -163,13 +161,13 @@ impl<C: ContextObject> Drop for JitProgram<C> {
     }
 }
 
-impl<C: ContextObject> Debug for JitProgram<C> {
+impl Debug for JitProgram {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.write_fmt(format_args!("JitProgram {:?}", self as *const _))
     }
 }
 
-impl<C: ContextObject> PartialEq for JitProgram<C> {
+impl PartialEq for JitProgram {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self as *const _, other as *const _)
     }
@@ -306,7 +304,7 @@ enum RuntimeEnvironmentSlot {
 */
 
 pub struct JitCompiler<'a, C: ContextObject> {
-    result: JitProgram<C>,
+    result: JitProgram,
     text_section_jumps: Vec<Jump>,
     anchors: [*const u8; ANCHOR_COUNT],
     offset_in_text_section: usize,
@@ -365,7 +363,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     }
 
     /// Compiles the given executable, consuming the compiler
-    pub fn compile(mut self) -> Result<JitProgram<C>, EbpfError> {
+    pub fn compile(mut self) -> Result<JitProgram, EbpfError> {
         let text_section_base = self.result.text_section.as_ptr();
 
         self.emit_subroutines();
