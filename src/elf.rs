@@ -2119,10 +2119,9 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        let mut executable =
-            ElfExecutable::from_elf(&elf_bytes, loader()).expect("validation failed");
+        let executable = ElfExecutable::from_elf(&elf_bytes, loader()).expect("validation failed");
         {
-            Executable::jit_compile(&mut executable).unwrap();
+            Executable::jit_compile(&executable).unwrap();
         }
 
         assert_eq!(10554, executable.mem_size());

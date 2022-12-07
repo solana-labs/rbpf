@@ -1588,8 +1588,8 @@ mod tests {
 
         let empty_program_machine_code_length = {
             prog[0] = ebpf::EXIT;
-            let mut executable = create_mockup_executable(&prog[0..ebpf::INSN_SIZE]);
-            Executable::<TestContextObject>::jit_compile(&mut executable).unwrap();
+            let executable = create_mockup_executable(&prog[0..ebpf::INSN_SIZE]);
+            Executable::<TestContextObject>::jit_compile(&executable).unwrap();
             let empty_program_machine_code_length = executable
                 .get_compiled_program()
                 .read()
@@ -1619,8 +1619,8 @@ mod tests {
                 prog[pc * ebpf::INSN_SIZE + 3] = 0xFF;
                 LittleEndian::write_u32(&mut prog[pc * ebpf::INSN_SIZE + 4..], immediate);
             }
-            let mut executable = create_mockup_executable(&prog);
-            let result = Executable::<TestContextObject>::jit_compile(&mut executable);
+            let executable = create_mockup_executable(&prog);
+            let result = Executable::<TestContextObject>::jit_compile(&executable);
             if result.is_err() {
                 assert!(matches!(
                     result.unwrap_err(),
