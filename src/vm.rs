@@ -222,7 +222,7 @@ pub struct Config {
     /// Use 0 to disable encryption. Otherwise only leave PROGRAM_ENVIRONMENT_KEY_SHIFT MSBs 0.
     pub runtime_environment_key: i32,
     /// Throw ElfError::SymbolHashCollision when a BPF function collides with a registered syscall
-    pub syscall_internal_function_hash_collision: bool,
+    pub external_internal_function_hash_collision: bool,
     /// Have the verifier reject "callx r10"
     pub reject_callx_r10: bool,
     /// Use dynamic stack frame sizes
@@ -267,7 +267,7 @@ impl Default for Config {
             sanitize_user_provided_values: true,
             runtime_environment_key: rand::thread_rng().gen::<i32>()
                 >> PROGRAM_ENVIRONMENT_KEY_SHIFT,
-            syscall_internal_function_hash_collision: true,
+            external_internal_function_hash_collision: true,
             reject_callx_r10: true,
             dynamic_stack_frames: true,
             enable_sdiv: true,

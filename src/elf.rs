@@ -141,7 +141,8 @@ pub fn register_internal_function<
         pc as u32
     } else {
         let hash = hash_internal_function(pc, name.as_ref());
-        if config.syscall_internal_function_hash_collision && loader.lookup_function(hash).is_some()
+        if config.external_internal_function_hash_collision
+            && loader.lookup_function(hash).is_some()
         {
             return Err(ElfError::SymbolHashCollision(hash));
         }
