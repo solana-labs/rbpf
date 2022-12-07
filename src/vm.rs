@@ -112,6 +112,14 @@ pub struct BuiltInProgram<C: ContextObject> {
 }
 
 impl<C: ContextObject> BuiltInProgram<C> {
+    /// Constructs a loader built-in program
+    pub fn new_loader(config: Config) -> Self {
+        Self {
+            config: Some(Box::new(config)),
+            functions: HashMap::new(),
+        }
+    }
+
     /// Get the configuration settings assuming this is a loader program
     pub fn get_config(&self) -> &Config {
         self.config.as_ref().unwrap()
