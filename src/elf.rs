@@ -1159,12 +1159,12 @@ impl<C: ContextObject> PartialEq for Executable<C> {
             loader,
             compiled_program,
         } = self;
-        elf_bytes.eq(&&other.elf_bytes)
-            && ro_section.eq(&&other.ro_section)
-            && text_section_info.eq(&&other.text_section_info)
-            && entry_pc.eq(&&other.entry_pc)
-            && function_registry.eq(&&other.function_registry)
-            && loader.eq(&&other.loader)
+        elf_bytes.eq(&other.elf_bytes)
+            && ro_section.eq(&other.ro_section)
+            && text_section_info.eq(&other.text_section_info)
+            && entry_pc.eq(&other.entry_pc)
+            && function_registry.eq(&other.function_registry)
+            && loader.eq(&other.loader)
             && compiled_program
                 .read()
                 .unwrap()

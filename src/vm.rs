@@ -584,7 +584,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         self.env.program_result = ProgramResult::Ok(0);
         let due_insn_count = if interpreted {
             #[cfg(feature = "debugger")]
-            let debug_port = self.debug_port.clone();
+            let debug_port = self.debug_port;
             let mut interpreter = match Interpreter::new(self, registers, target_pc) {
                 Ok(interpreter) => interpreter,
                 Err(error) => return (0, ProgramResult::Err(error)),
