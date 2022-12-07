@@ -303,13 +303,13 @@ impl<C: ContextObject> Executable<C> {
 #[derive(Debug, PartialEq)]
 #[repr(transparent)]
 pub struct VerifiedExecutable<V: Verifier, C: ContextObject> {
-    executable: Executable<C>,
+    executable: Arc<Executable<C>>,
     _verifier: PhantomData<V>,
 }
 
 impl<V: Verifier, C: ContextObject> VerifiedExecutable<V, C> {
     /// Verify an executable
-    pub fn from_executable(executable: Executable<C>) -> Result<Self, EbpfError> {
+    pub fn from_executable(executable: Arc<Executable<C>>) -> Result<Self, EbpfError> {
         <V as Verifier>::verify(
             executable.get_text_bytes().1,
             executable.get_config(),
@@ -323,12 +323,12 @@ impl<V: Verifier, C: ContextObject> VerifiedExecutable<V, C> {
 
     /// JIT compile the executable
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-    pub fn jit_compile(&mut self) -> Result<(), EbpfError> {
-        Executable::<C>::jit_compile(&mut self.executable)
+    pub fn jit_compile(&self) -> Result<(), EbpfError> {
+        Executable::<C>::jit_compile(&self.executable)
     }
 
     /// Get a reference to the underlying executable
-    pub fn get_executable(&self) -> &Executable<C> {
+    pub fn get_executable(&self) -> &Arc<Executable<C>> {
         &self.executable
     }
 }
@@ -596,16 +596,18 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         } else {
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             {
-                let compiled_program = match executable
+                let instruction_meter_final = match executable
                     .get_compiled_program()
+                    .read()
+                    .unwrap()
+                    .as_ref()
                     .ok_or(EbpfError::JitNotCompiled)
                 {
-                    Ok(compiled_program) => compiled_program,
+                    Ok(compiled_program) => compiled_program
+                        .invoke(config, &mut self.env, registers, target_pc)
+                        .max(0) as u64,
                     Err(error) => return (0, ProgramResult::Err(error)),
                 };
-                let instruction_meter_final = compiled_program
-                    .invoke(config, &mut self.env, registers, target_pc)
-                    .max(0) as u64;
                 self.env
                     .context_object_pointer
                     .get_remaining()

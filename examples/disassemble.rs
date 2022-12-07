@@ -37,7 +37,7 @@ fn main() {
         FunctionRegistry::default(),
     )
     .unwrap();
-    let analysis = Analysis::from_executable(&executable).unwrap();
+    let analysis = Analysis::from_executable(Arc::new(executable)).unwrap();
     let stdout = std::io::stdout();
     analysis.disassemble(&mut stdout.lock()).unwrap();
 }

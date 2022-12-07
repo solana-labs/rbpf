@@ -27,13 +27,15 @@ use std::sync::Arc;
 // * Print integers as integers, and not as strings containing their hexadecimal representation
 //   (just replace the relevant `format!()` calls by the commented values.
 fn to_json(program: &[u8]) -> String {
-    let executable = Executable::<TestContextObject>::from_text_bytes(
-        program,
-        Arc::new(BuiltInProgram::default()),
-        FunctionRegistry::default(),
-    )
-    .unwrap();
-    let analysis = Analysis::from_executable(&executable).unwrap();
+    let executable = Arc::new(
+        Executable::<TestContextObject>::from_text_bytes(
+            program,
+            Arc::new(BuiltInProgram::default()),
+            FunctionRegistry::default(),
+        )
+        .unwrap(),
+    );
+    let analysis = Analysis::from_executable(executable).unwrap();
 
     let mut json_insns = vec![];
     for insn in analysis.instructions.iter() {

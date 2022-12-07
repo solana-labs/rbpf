@@ -33,7 +33,7 @@ use std::{
     mem,
     ops::Range,
     str,
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 /// Error definitions
@@ -264,7 +264,7 @@ pub(crate) enum Section {
 }
 
 /// Elf loader/relocator
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Executable<C: ContextObject> {
     /// Loaded and executable elf
     elf_bytes: AlignedMemory<{ HOST_ALIGN }>,
@@ -280,7 +280,7 @@ pub struct Executable<C: ContextObject> {
     loader: Arc<BuiltInProgram<C>>,
     /// Compiled program and argument
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-    compiled_program: Option<JitProgram>,
+    compiled_program: RwLock<Option<JitProgram>,
 }
 
 impl<C: ContextObject> Executable<C> {
@@ -347,15 +347,15 @@ impl<C: ContextObject> Executable<C> {
 
     /// Get the JIT compiled program
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-    pub fn get_compiled_program(&self) -> Option<&JitProgram> {
-        self.compiled_program.as_ref()
+    pub fn get_compiled_program(&self) -> &RwLock<Option<JitProgram>> {
+        &self.compiled_program
     }
 
     /// JIT compile the executable
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-    pub fn jit_compile(executable: &mut Self) -> Result<(), crate::error::EbpfError> {
-        let jit = JitCompiler::<C>::new(executable)?;
-        executable.compiled_program = Some(jit.compile()?);
+    pub fn jit_compile(&self) -> Result<(), crate::error::EbpfError> {
+        let jit = JitCompiler::<C>::new(self)?;
+        *self.compiled_program.write().unwrap() = Some(jit.compile()?);
         Ok(())
     }
 
@@ -398,7 +398,7 @@ impl<C: ContextObject> Executable<C> {
             function_registry,
             loader,
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-            compiled_program: None,
+            compiled_program: RwLock::default(),
         })
     }
 
@@ -504,7 +504,7 @@ impl<C: ContextObject> Executable<C> {
             function_registry,
             loader,
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-            compiled_program: None,
+            compiled_program: RwLock::default(),
         })
     }
 
@@ -536,7 +536,12 @@ impl<C: ContextObject> Executable<C> {
         #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
         {
             // compiled programs
-            total = total.saturating_add(self.compiled_program.as_ref().map_or(0, |program| program.mem_size()));
+            total = total.saturating_add(
+                self.compiled_program
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .map_or(0, |program| program.mem_size()));
         }
 
         total
@@ -1140,6 +1145,32 @@ impl<C: ContextObject> Executable<C> {
                 eight_bytes.push(*i);
             }
         }
+    }
+}
+
+impl<C: ContextObject> PartialEq for Executable<C> {
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            config,
+            elf_bytes,
+            ro_section,
+            text_section_info,
+            entry_pc,
+            function_registry,
+            loader,
+            compiled_program,
+        } = self;
+        config.eq(&&other.config)
+            && elf_bytes.eq(&&other.elf_bytes)
+            && ro_section.eq(&&other.ro_section)
+            && text_section_info.eq(&&other.text_section_info)
+            && entry_pc.eq(&&other.entry_pc)
+            && function_registry.eq(&&other.function_registry)
+            && loader.eq(&&other.loader)
+            && compiled_program
+                .read()
+                .unwrap()
+                .eq(&other.compiled_program.read().unwrap())
     }
 }
 

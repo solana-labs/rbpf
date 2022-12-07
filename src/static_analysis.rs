@@ -1,15 +1,20 @@
 #![allow(clippy::integer_arithmetic)]
 //! Static Byte Code Analysis
 
-use crate::disassembler::disassemble_instruction;
-use crate::{
-    ebpf,
-    elf::{self, Executable},
-    error::EbpfError,
-    vm::{ContextObject, DynamicAnalysis, TestContextObject},
+use {
+    crate::{
+        disassembler::disassemble_instruction,
+        ebpf,
+        elf::{self, Executable},
+        error::EbpfError,
+        vm::{ContextObject, DynamicAnalysis, TestContextObject},
+    },
+    rustc_demangle::demangle,
+    std::{
+        collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+        sync::Arc,
+    },
 };
-use rustc_demangle::demangle;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// Register state recorded after executing one instruction
 ///
@@ -124,9 +129,9 @@ impl Default for CfgNode {
 }
 
 /// Result of the executable analysis
-pub struct Analysis<'a> {
+pub struct Analysis {
     /// The program which is analyzed
-    executable: &'a Executable<TestContextObject>,
+    executable: Arc<Executable<TestContextObject>>,
     /// Plain list of instructions as they occur in the executable
     pub instructions: Vec<ebpf::Insn>,
     /// Functions in the executable
@@ -145,10 +150,10 @@ pub struct Analysis<'a> {
     pub dfg_reverse_edges: BTreeMap<DfgNode, BTreeSet<DfgEdge>>,
 }
 
-impl<'a> Analysis<'a> {
+impl Analysis {
     /// Analyze an executable statically
     pub fn from_executable<C: ContextObject>(
-        executable: &'a Executable<C>,
+        executable: Arc<Executable<C>>,
     ) -> Result<Self, EbpfError> {
         let (_program_vm_addr, program) = executable.get_text_bytes();
         let mut functions = BTreeMap::new();
@@ -175,6 +180,7 @@ impl<'a> Analysis<'a> {
             instructions.push(insn);
             insn_ptr += 1;
         }
+        let entrypoint = executable.get_entrypoint_instruction_offset();
         let mut result = Self {
             // Removes the generic ContextObject which is safe because we are not going to execute the program
             executable: unsafe { std::mem::transmute(executable) },
@@ -182,7 +188,7 @@ impl<'a> Analysis<'a> {
             functions,
             cfg_nodes: BTreeMap::new(),
             topological_order: Vec::new(),
-            entrypoint: executable.get_entrypoint_instruction_offset(),
+            entrypoint,
             super_root: insn_ptr,
             dfg_forward_edges: BTreeMap::new(),
             dfg_reverse_edges: BTreeMap::new(),
@@ -194,6 +200,10 @@ impl<'a> Analysis<'a> {
         let basic_block_outputs = result.intra_basic_block_data_flow();
         result.inter_basic_block_data_flow(basic_block_outputs);
         Ok(result)
+    }
+
+    pub fn executable(&self) -> &Arc<Executable<TestContextObject>> {
+        &self.executable
     }
 
     fn link_cfg_edges(&mut self, cfg_edges: Vec<(usize, Vec<usize>)>, both_directions: bool) {
@@ -471,12 +481,8 @@ impl<'a> Analysis<'a> {
         Ok(())
     }
 
-    /// Use this method to print the trace log
-    pub fn disassemble_trace_log<W: std::io::Write>(
-        &self,
-        output: &mut W,
-        trace_log: &[TraceLogEntry],
-    ) -> Result<(), std::io::Error> {
+    /// Generates PC-to-instruction index map
+    pub fn calc_pc_to_insn_index(&self) -> Vec<usize> {
         let mut pc_to_insn_index = vec![
             0usize;
             self.instructions
@@ -488,6 +494,16 @@ impl<'a> Analysis<'a> {
             pc_to_insn_index[insn.ptr] = index;
             pc_to_insn_index[insn.ptr + 1] = index;
         }
+        pc_to_insn_index
+    }
+
+    /// Use this method to print the trace log
+    pub fn disassemble_trace_log<W: std::io::Write>(
+        &self,
+        output: &mut W,
+        trace_log: &[TraceLogEntry],
+    ) -> Result<(), std::io::Error> {
+        let pc_to_insn_index = self.calc_pc_to_insn_index();
         for (index, entry) in trace_log.iter().enumerate() {
             let pc = entry[11] as usize;
             let insn = &self.instructions[pc_to_insn_index[pc]];
