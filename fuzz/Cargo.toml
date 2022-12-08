@@ -1,6 +1,6 @@
 [package]
 name = "solana_rbpf-fuzz"
-version = "0.2.37"
+version = "0.2.38"
 authors = ["Automatically generated"]
 publish = false
 edition = "2018"
