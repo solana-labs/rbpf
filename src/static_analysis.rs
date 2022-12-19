@@ -448,7 +448,12 @@ impl<'a> Analysis<'a> {
 
     /// Generates assembler code for a single instruction
     pub fn disassemble_instruction(&self, insn: &ebpf::Insn) -> String {
-        disassemble_instruction(insn, &self.cfg_nodes, self.executable.get_loader())
+        disassemble_instruction(
+            insn,
+            &self.cfg_nodes,
+            self.executable.get_function_registry(),
+            self.executable.get_loader(),
+        )
     }
 
     /// Generates assembler code for the analyzed executable

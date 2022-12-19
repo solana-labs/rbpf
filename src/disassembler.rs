@@ -10,7 +10,7 @@
 
 use crate::ebpf;
 use crate::static_analysis::CfgNode;
-use crate::vm::{BuiltInProgram, ContextObject};
+use crate::vm::{BuiltInProgram, ContextObject, FunctionRegistry};
 use std::collections::BTreeMap;
 
 fn resolve_label(cfg_nodes: &BTreeMap<usize, CfgNode>, pc: usize) -> &str {
@@ -122,7 +122,8 @@ fn jmp_reg_str(name: &str, insn: &ebpf::Insn, cfg_nodes: &BTreeMap<usize, CfgNod
 #[rustfmt::skip]
 pub fn disassemble_instruction<C: ContextObject>(
     insn: &ebpf::Insn, 
-    cfg_nodes: &BTreeMap<usize, CfgNode>, 
+    cfg_nodes: &BTreeMap<usize, CfgNode>,
+    function_registry: &FunctionRegistry,
     loader: &BuiltInProgram<C>,
 ) -> String {
     let name;
@@ -249,13 +250,22 @@ pub fn disassemble_instruction<C: ContextObject>(
         ebpf::JSLE_IMM   => { name = "jsle"; desc = jmp_imm_str(name, insn, cfg_nodes); },
         ebpf::JSLE_REG   => { name = "jsle"; desc = jmp_reg_str(name, insn, cfg_nodes); },
         ebpf::CALL_IMM   => {
-            desc = if let Some((function_name, _function)) = loader.lookup_function(insn.imm as u32) {
-                name = "syscall";
-                format!("{} {}", name, function_name)
+            let mut function_name = None;
+            if loader.get_config().static_syscalls {
+                if insn.src != 0 {
+                    function_name = Some(resolve_label(cfg_nodes, insn.imm as usize));
+                }
             } else {
+                function_name = function_registry.get(&(insn.imm as u32)).map(|(_, function_name)| function_name.as_str());
+            }
+            let function_name = if let Some(function_name) = function_name {
                 name = "call";
-                format!("{} {}", name, resolve_label(cfg_nodes, insn.imm as usize))
+                function_name
+            } else {
+                name = "syscall";
+                loader.lookup_function(insn.imm as u32).map(|(function_name, _)| function_name).unwrap_or("[invalid]")
             };
+            desc = format!("{} {}", name, function_name);
         },
         ebpf::CALL_REG   => { name = "callx"; desc = format!("{} r{}", name, insn.imm); },
         ebpf::EXIT       => { name = "exit"; desc = name.to_string(); },
