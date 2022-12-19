@@ -34,10 +34,7 @@ fn alu_reg_str(name: &str, insn: &ebpf::Insn) -> String {
 fn byteswap_str(name: &str, insn: &ebpf::Insn) -> String {
     match insn.imm {
         16 | 32 | 64 => {}
-        _ => println!(
-            "[Disassembler] Warning: Invalid offset value for {} insn",
-            name
-        ),
+        _ => println!("[Disassembler] Warning: Invalid offset value for {name} insn"),
     }
     format!("{}{} r{}", name, insn.imm, insn.dst)
 }
@@ -47,7 +44,7 @@ fn signed_off_str(value: i16) -> String {
     if value < 0 {
         format!("-{:#x}", -value)
     } else {
-        format!("+{:#x}", value)
+        format!("+{value:#x}")
     }
 }
 
@@ -265,7 +262,7 @@ pub fn disassemble_instruction<C: ContextObject>(
                 name = "syscall";
                 loader.lookup_function(insn.imm as u32).map(|(function_name, _)| function_name).unwrap_or("[invalid]")
             };
-            desc = format!("{} {}", name, function_name);
+            desc = format!("{name} {function_name}");
         },
         ebpf::CALL_REG   => { name = "callx"; desc = format!("{} r{}", name, insn.imm); },
         ebpf::EXIT       => { name = "exit"; desc = name.to_string(); },

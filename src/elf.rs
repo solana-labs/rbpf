@@ -570,7 +570,7 @@ impl<C: ContextObject> Executable<C> {
                     ));
                 }
                 let name = if config.enable_symbol_and_section_labels {
-                    format!("function_{}", target_pc)
+                    format!("function_{target_pc}")
                 } else {
                     String::default()
                 };
@@ -1131,10 +1131,10 @@ impl<C: ContextObject> Executable<C> {
     #[allow(dead_code)]
     fn dump_data(name: &str, prog: &[u8]) {
         let mut eight_bytes: Vec<u8> = Vec::new();
-        println!("{}", name);
+        println!("{name}");
         for i in prog.iter() {
             if eight_bytes.len() >= 7 {
-                println!("{:02X?}", eight_bytes);
+                println!("{eight_bytes:02X?}");
                 eight_bytes.clear();
             } else {
                 eight_bytes.push(*i);

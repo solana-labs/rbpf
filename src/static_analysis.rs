@@ -412,7 +412,7 @@ impl<'a> Analysis<'a> {
             cfg_node.label = if let Some(function) = self.functions.get(pc) {
                 demangle(&function.1).to_string()
             } else {
-                format!("lbb_{}", pc)
+                format!("lbb_{pc}")
             };
         }
         if let Some(super_root) = self.cfg_nodes.get_mut(&self.super_root) {
@@ -557,7 +557,7 @@ impl<'a> Analysis<'a> {
                         let mut rest = desc[split_index+1..].to_string();
                         if rest.len() > MAX_CELL_CONTENT_LENGTH + 1 {
                             rest.truncate(MAX_CELL_CONTENT_LENGTH);
-                            rest = format!("{}…", rest);
+                            rest = format!("{rest}…");
                         }
                         format!("<tr><td align=\"left\">{}</td><td align=\"left\">{}</td></tr>", html_escape(&desc[..split_index]), html_escape(&rest))
                     } else {
@@ -684,9 +684,9 @@ impl<'a> Analysis<'a> {
             } else {
                 let dynamic_analysis = dynamic_analysis.unwrap();
                 for (destination, counter) in edges {
-                    write!(output, "  lbb_{} -> ", cfg_node_start)?;
+                    write!(output, "  lbb_{cfg_node_start} -> ")?;
                     if function_range.contains(&destination) {
-                        write!(output, "lbb_{}", destination)?;
+                        write!(output, "lbb_{destination}")?;
                     } else {
                         write!(
                             output,

@@ -108,7 +108,7 @@ fn main() {
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
             Executable::<TestContextObject>::from_elf(&elf, loader)
-                .map_err(|err| format!("Executable constructor failed: {:?}", err))
+                .map_err(|err| format!("Executable constructor failed: {err:?}"))
         }
     }
     .unwrap();
@@ -190,8 +190,8 @@ fn main() {
         vm.debug_port = Some(matches.value_of("port").unwrap().parse::<u16>().unwrap());
     }
     let (instruction_count, result) = vm.execute_program(matches.value_of("use").unwrap() != "jit");
-    println!("Result: {:?}", result);
-    println!("Instruction Count: {}", instruction_count);
+    println!("Result: {result:?}");
+    println!("Instruction Count: {instruction_count}");
     if matches.is_present("trace") {
         println!("Trace:\n");
         let stdout = std::io::stdout();

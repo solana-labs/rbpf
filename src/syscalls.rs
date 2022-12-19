@@ -97,7 +97,7 @@ pub fn bpf_trace_printf(
     _memory_mapping: &mut MemoryMapping,
     result: &mut ProgramResult,
 ) {
-    println!("bpf_trace_printf: {:#x}, {:#x}, {:#x}", arg3, arg4, arg5);
+    println!("bpf_trace_printf: {arg3:#x}, {arg4:#x}, {arg5:#x}");
     let size_arg = |x| {
         if x == 0 {
             1
@@ -280,7 +280,7 @@ pub fn bpf_syscall_string(
         }
         let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize))
             .unwrap_or("Invalid UTF-8 String");
-        println!("log: {}", message);
+        println!("log: {message}");
     }
     *result = ProgramResult::Ok(0);
 }

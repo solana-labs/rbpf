@@ -158,7 +158,7 @@ fn test_verifier_err_invalid_reg_dst() {
         .unwrap();
         let result =
             VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-                .map_err(|err| format!("Executable constructor {:?}", err));
+                .map_err(|err| format!("Executable constructor {err:?}"));
 
         assert_eq!(
             result.unwrap_err(),
@@ -184,7 +184,7 @@ fn test_verifier_err_invalid_reg_src() {
         .unwrap();
         let result =
             VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-                .map_err(|err| format!("Executable constructor {:?}", err));
+                .map_err(|err| format!("Executable constructor {err:?}"));
 
         assert_eq!(
             result.unwrap_err(),
@@ -317,7 +317,7 @@ fn test_verifier_err_all_shift_overflows() {
     ];
 
     for (overflowing_instruction, expected) in testcases {
-        let assembly = format!("\n{}\nexit", overflowing_instruction);
+        let assembly = format!("\n{overflowing_instruction}\nexit");
         let executable = assemble::<TestContextObject>(
             &assembly,
             Arc::new(BuiltInProgram::new_loader(Config::default())),
@@ -325,13 +325,13 @@ fn test_verifier_err_all_shift_overflows() {
         .unwrap();
         let result =
             VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-                .map_err(|err| format!("Executable constructor {:?}", err));
+                .map_err(|err| format!("Executable constructor {err:?}"));
         match expected {
             Ok(()) => assert!(result.is_ok()),
             Err(overflow_msg) => match result {
                 Err(err) => assert_eq!(
                     err,
-                    format!("Executable constructor VerifierError({})", overflow_msg),
+                    format!("Executable constructor VerifierError({overflow_msg})"),
                 ),
                 _ => panic!("Expected error"),
             },
@@ -350,7 +350,7 @@ fn test_sdiv_disabled() {
 
     for (opc, instruction) in instructions {
         for enable_sdiv in [true, false] {
-            let assembly = format!("\n{}\nexit", instruction);
+            let assembly = format!("\n{instruction}\nexit");
             let executable = assemble::<TestContextObject>(
                 &assembly,
                 Arc::new(BuiltInProgram::new_loader(Config {
@@ -363,7 +363,7 @@ fn test_sdiv_disabled() {
                 VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(
                     executable,
                 )
-                .map_err(|err| format!("Executable constructor {:?}", err));
+                .map_err(|err| format!("Executable constructor {err:?}"));
             if enable_sdiv {
                 assert!(result.is_ok());
             } else {

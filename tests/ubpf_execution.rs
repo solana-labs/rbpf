@@ -4058,15 +4058,15 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     .unwrap();
     let (instruction_count_jit, result_jit) = vm.execute_program(false);
     let tracer_jit = &vm.env.context_object_pointer;
-    if format!("{:?}", result_interpreter) != format!("{:?}", result_jit)
+    if format!("{result_interpreter:?}") != format!("{result_jit:?}")
         || !TestContextObject::compare_trace_log(&tracer_interpreter, tracer_jit)
     {
         let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
             verified_executable.get_executable(),
         )
         .unwrap();
-        println!("result_interpreter={:?}", result_interpreter);
-        println!("result_jit={:?}", result_jit);
+        println!("result_interpreter={result_interpreter:?}");
+        println!("result_jit={result_jit:?}");
         let stdout = std::io::stdout();
         analysis
             .disassemble_trace_log(&mut stdout.lock(), &tracer_interpreter.trace_log)

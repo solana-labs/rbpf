@@ -102,8 +102,8 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
         // AluBinary.
         for &(name, opc) in &alu_binary_ops {
             entry(name, AluBinary, ebpf::BPF_ALU64 | opc);
-            entry(&format!("{}32", name), AluBinary, ebpf::BPF_ALU | opc);
-            entry(&format!("{}64", name), AluBinary, ebpf::BPF_ALU64 | opc);
+            entry(&format!("{name}32"), AluBinary, ebpf::BPF_ALU | opc);
+            entry(&format!("{name}64"), AluBinary, ebpf::BPF_ALU64 | opc);
         }
 
         entry("sdiv", AluBinary, ebpf::BPF_ALU64 | ebpf::BPF_SDIV);
@@ -113,27 +113,27 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
         // LoadAbs, LoadInd, LoadReg, StoreImm, and StoreReg.
         for &(suffix, size) in &mem_sizes {
             entry(
-                &format!("ldabs{}", suffix),
+                &format!("ldabs{suffix}"),
                 LoadAbs,
                 ebpf::BPF_ABS | ebpf::BPF_LD | size,
             );
             entry(
-                &format!("ldind{}", suffix),
+                &format!("ldind{suffix}"),
                 LoadInd,
                 ebpf::BPF_IND | ebpf::BPF_LD | size,
             );
             entry(
-                &format!("ldx{}", suffix),
+                &format!("ldx{suffix}"),
                 LoadReg,
                 ebpf::BPF_MEM | ebpf::BPF_LDX | size,
             );
             entry(
-                &format!("st{}", suffix),
+                &format!("st{suffix}"),
                 StoreImm,
                 ebpf::BPF_MEM | ebpf::BPF_ST | size,
             );
             entry(
-                &format!("stx{}", suffix),
+                &format!("stx{suffix}"),
                 StoreReg,
                 ebpf::BPF_MEM | ebpf::BPF_STX | size,
             );
@@ -146,8 +146,8 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
 
         // Endian.
         for &size in &[16, 32, 64] {
-            entry(&format!("be{}", size), Endian(size), ebpf::BE);
-            entry(&format!("le{}", size), Endian(size), ebpf::LE);
+            entry(&format!("be{size}"), Endian(size), ebpf::BE);
+            entry(&format!("le{size}"), Endian(size), ebpf::LE);
         }
     }
 
@@ -156,16 +156,16 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
 
 fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String> {
     if !(0..16).contains(&dst) {
-        return Err(format!("Invalid destination register {}", dst));
+        return Err(format!("Invalid destination register {dst}"));
     }
     if dst < 0 || src >= 16 {
-        return Err(format!("Invalid source register {}", src));
+        return Err(format!("Invalid source register {src}"));
     }
     if off < i16::MIN as i64 || off > i16::MAX as i64 {
-        return Err(format!("Invalid offset {}", off));
+        return Err(format!("Invalid offset {off}"));
     }
     if imm < i32::MIN as i64 || imm > i32::MAX as i64 {
-        return Err(format!("Invalid immediate {}", imm));
+        return Err(format!("Invalid immediate {imm}"));
     }
     Ok(Insn {
         ptr: 0,
@@ -225,7 +225,7 @@ pub fn assemble<C: ContextObject>(
         labels
             .get(label)
             .map(|target_pc| *target_pc as i64 - insn_ptr as i64 - 1)
-            .ok_or_else(|| format!("Label not found {}", label))
+            .ok_or_else(|| format!("Label not found {label}"))
     }
 
     let statements = parse(src)?;
@@ -239,7 +239,7 @@ pub fn assemble<C: ContextObject>(
             Statement::Label { name } => {
                 if name.starts_with("function_") || name == "entrypoint" {
                     register_internal_function(&mut function_registry, &loader, insn_ptr, name)
-                        .map_err(|_| format!("Label hash collision {}", name))?;
+                        .map_err(|_| format!("Label hash collision {name}"))?;
                 }
                 labels.insert(name.as_str(), insn_ptr);
             }
@@ -292,7 +292,7 @@ pub fn assemble<C: ContextObject>(
                                 target_pc as usize,
                                 label,
                             )
-                            .map_err(|_| format!("Label hash collision {}", name))?;
+                            .map_err(|_| format!("Label hash collision {name}"))?;
                             insn(opc, 0, 1, 0, target_pc)
                         }
                         (CallReg, [Register(dst)]) => insn(opc, 0, 0, 0, *dst),
@@ -321,14 +321,14 @@ pub fn assemble<C: ContextObject>(
                             let label: &str = label;
                             let target_pc = *labels
                                 .get(label)
-                                .ok_or_else(|| format!("Label not found {}", label))?;
+                                .ok_or_else(|| format!("Label not found {label}"))?;
                             insn(opc, 0, 1, 0, target_pc as i64)
                         }
                         (Endian(size), [Register(dst)]) => insn(opc, *dst, 0, 0, size),
                         (LoadImm, [Register(dst), Integer(imm)]) => {
                             insn(opc, *dst, 0, 0, (*imm << 32) >> 32)
                         }
-                        _ => Err(format!("Unexpected operands: {:?}", operands)),
+                        _ => Err(format!("Unexpected operands: {operands:?}")),
                     }?;
                     insn.ptr = insn_ptr;
                     instructions.push(insn);
@@ -344,7 +344,7 @@ pub fn assemble<C: ContextObject>(
                         }
                     }
                 }
-                None => return Err(format!("Invalid instruction {:?}", name)),
+                None => return Err(format!("Invalid instruction {name:?}")),
             }
         }
     }
@@ -353,5 +353,5 @@ pub fn assemble<C: ContextObject>(
         .flat_map(|insn| insn.to_vec())
         .collect::<Vec<_>>();
     Executable::<C>::from_text_bytes(&program, loader, function_registry)
-        .map_err(|err| format!("Executable constructor {:?}", err))
+        .map_err(|err| format!("Executable constructor {err:?}"))
 }

@@ -501,7 +501,7 @@ impl<'a> fmt::Debug for Elf64<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{:#X?}", self.file_header)?;
         for program_header in self.program_header_table.iter() {
-            writeln!(f, "{:#X?}", program_header)?;
+            writeln!(f, "{program_header:#X?}")?;
         }
         for section_header in self.section_header_table.iter() {
             let section_name = self
@@ -511,12 +511,12 @@ impl<'a> fmt::Debug for Elf64<'a> {
                     SECTION_NAME_LENGTH_MAXIMUM,
                 )
                 .unwrap();
-            writeln!(f, "{}", section_name)?;
-            writeln!(f, "{:#X?}", section_header)?;
+            writeln!(f, "{section_name}")?;
+            writeln!(f, "{section_header:#X?}")?;
         }
         if let Some(section_header) = self.symbol_section_header {
             let symbol_table = self.get_symbol_table_of_section(section_header).unwrap();
-            writeln!(f, "{:#X?}", symbol_table)?;
+            writeln!(f, "{symbol_table:#X?}")?;
             for symbol in symbol_table.iter() {
                 if symbol.st_name != 0 {
                     let symbol_name = self
@@ -526,7 +526,7 @@ impl<'a> fmt::Debug for Elf64<'a> {
                             SYMBOL_NAME_LENGTH_MAXIMUM,
                         )
                         .unwrap();
-                    writeln!(f, "{}", symbol_name)?;
+                    writeln!(f, "{symbol_name}")?;
                 }
             }
         }
