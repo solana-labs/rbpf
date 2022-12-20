@@ -3996,6 +3996,20 @@ fn test_tcp_sack_nomatch() {
     );
 }
 
+#[test]
+fn test_struct_func_pointer() {
+    // This tests checks that a struct field adjacent to another field
+    // which is a relocatable function pointer is not overwritten when
+    // the function pointer is relocated at load time.
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/struct_func_pointer.so",
+        [],
+        (),
+        TestContextObject::new(3),
+        { |_vm, res: ProgramResult| { res.unwrap() == 0x102030405060708 } },
+    );
+}
+
 // Fuzzy
 
 #[cfg(all(not(windows), target_arch = "x86_64"))]

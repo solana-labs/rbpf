@@ -903,13 +903,19 @@ impl<C: ContextObject> Executable<C> {
                     .saturating_add(header.p_offset() as usize);
             }
 
-            // Offset of the immediate field
-            let imm_offset = r_offset.saturating_add(BYTE_OFFSET_IMMEDIATE);
-
             match BpfRelocationType::from_x86_relocation_type(relocation.r_type()) {
                 Some(BpfRelocationType::R_Bpf_64_64) => {
-                    let imm_low_offset = imm_offset;
-                    let imm_high_offset = imm_low_offset.saturating_add(INSN_SIZE);
+                    // Offset of the immediate field
+                    let imm_offset = if text_section
+                        .file_range()
+                        .unwrap_or_default()
+                        .contains(&r_offset)
+                        || elf.header().e_flags != EF_SBF_V2
+                    {
+                        r_offset.saturating_add(BYTE_OFFSET_IMMEDIATE)
+                    } else {
+                        r_offset
+                    };
 
                     // Read the instruction's immediate field which contains virtual
                     // address to convert to physical
@@ -934,27 +940,49 @@ impl<C: ContextObject> Executable<C> {
                         addr = ebpf::MM_PROGRAM_START.saturating_add(addr);
                     }
 
-                    // Write the low side of the relocate address
-                    let imm_slice = elf_bytes
-                        .get_mut(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
-                        .ok_or(ElfError::ValueOutOfBounds)?;
-                    LittleEndian::write_u32(imm_slice, (addr & 0xFFFFFFFF) as u32);
+                    if text_section
+                        .file_range()
+                        .unwrap_or_default()
+                        .contains(&r_offset)
+                        || elf.header().e_flags != EF_SBF_V2
+                    {
+                        let imm_low_offset = imm_offset;
+                        let imm_high_offset = imm_low_offset.saturating_add(INSN_SIZE);
 
-                    // Write the high side of the relocate address
-                    let imm_slice = elf_bytes
-                        .get_mut(
-                            imm_high_offset..imm_high_offset.saturating_add(BYTE_LENGTH_IMMEDIATE),
-                        )
-                        .ok_or(ElfError::ValueOutOfBounds)?;
-                    LittleEndian::write_u32(
-                        imm_slice,
-                        addr.checked_shr(32).unwrap_or_default() as u32,
-                    );
+                        // Write the low side of the relocate address
+                        let imm_slice = elf_bytes
+                            .get_mut(
+                                imm_low_offset
+                                    ..imm_low_offset.saturating_add(BYTE_LENGTH_IMMEDIATE),
+                            )
+                            .ok_or(ElfError::ValueOutOfBounds)?;
+                        LittleEndian::write_u32(imm_slice, (addr & 0xFFFFFFFF) as u32);
+
+                        // Write the high side of the relocate address
+                        let imm_slice = elf_bytes
+                            .get_mut(
+                                imm_high_offset
+                                    ..imm_high_offset.saturating_add(BYTE_LENGTH_IMMEDIATE),
+                            )
+                            .ok_or(ElfError::ValueOutOfBounds)?;
+                        LittleEndian::write_u32(
+                            imm_slice,
+                            addr.checked_shr(32).unwrap_or_default() as u32,
+                        );
+                    } else {
+                        let imm_slice = elf_bytes
+                            .get_mut(imm_offset..imm_offset.saturating_add(8))
+                            .ok_or(ElfError::ValueOutOfBounds)?;
+                        LittleEndian::write_u64(imm_slice, addr);
+                    }
                 }
                 Some(BpfRelocationType::R_Bpf_64_Relative) => {
                     // Relocation between different sections, where the target
                     // memory is not associated to a symbol (eg some compiler
                     // generated rodata that doesn't have an explicit symbol).
+
+                    // Offset of the immediate field
+                    let imm_offset = r_offset.saturating_add(BYTE_OFFSET_IMMEDIATE);
 
                     if text_section
                         .file_range()
@@ -1058,6 +1086,9 @@ impl<C: ContextObject> Executable<C> {
                     // The .text section has an unresolved call to symbol instruction
                     // Hash the symbol name and stick it into the call instruction's imm
                     // field.  Later that hash will be used to look up the function location.
+
+                    // Offset of the immediate field
+                    let imm_offset = r_offset.saturating_add(BYTE_OFFSET_IMMEDIATE);
 
                     let symbol = elf
                         .dynamic_symbol(relocation.r_sym())

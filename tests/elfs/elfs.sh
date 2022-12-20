@@ -100,3 +100,7 @@ rm program_headers_overflow.o
 "$LLVM_DIR"clang $CC_FLAGS -fdebug-prefix-map=$(pwd)=. -o scratch_registers_debug.o -c scratch_registers.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --section-start=.text=0x1000 -o scratch_registers_debug.so scratch_registers_debug.o
 rm scratch_registers_debug.o
+
+"$LLVM_DIR"clang $CC_FLAGS -o struct_func_pointer.o -c struct_func_pointer.c
+"$LLVM_DIR"ld.lld $LD_FLAGS -o struct_func_pointer.so struct_func_pointer.o
+rm struct_func_pointer.o
