@@ -36,6 +36,33 @@ macro_rules! translate_memory_access {
     };
 }
 
+macro_rules! translate_memory_load {
+    ($self:ident, $vm_addr:ident, $pc:ident, $T:ty) => {
+        match $self.vm.env.memory_mapping.load(
+            $vm_addr,
+            std::mem::size_of::<$T>() as u64,
+            $pc + ebpf::ELF_INSN_DUMP_OFFSET,
+        ) {
+            ProgramResult::Ok(v) => v,
+            ProgramResult::Err(err) => throw_error!($self, err),
+        }
+    };
+}
+
+macro_rules! translate_memory_store {
+    ($self:ident, $value:expr, $vm_addr:ident, $pc:ident, $T:ty) => {
+        match $self.vm.env.memory_mapping.store(
+            $value as u64,
+            $vm_addr,
+            std::mem::size_of::<$T>() as u64,
+            $pc + ebpf::ELF_INSN_DUMP_OFFSET,
+        ) {
+            ProgramResult::Ok(v) => v,
+            ProgramResult::Err(err) => throw_error!($self, err),
+        }
+    };
+}
+
 macro_rules! throw_error {
     ($self:expr, $err:expr) => {{
         $self.vm.env.program_result = ProgramResult::Err($err);
@@ -212,18 +239,15 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             },
             ebpf::LD_H_REG   => {
                 let vm_addr = (self.reg[src] as i64).wrapping_add(insn.off as i64) as u64;
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u16);
-                self.reg[dst] = unsafe { *host_ptr as u64 };
+                self.reg[dst] = translate_memory_load!(self, vm_addr, pc, u16);
             },
             ebpf::LD_W_REG   => {
                 let vm_addr = (self.reg[src] as i64).wrapping_add(insn.off as i64) as u64;
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u32);
-                self.reg[dst] = unsafe { *host_ptr as u64 };
+                self.reg[dst] = translate_memory_load!(self, vm_addr, pc, u32);
             },
             ebpf::LD_DW_REG  => {
                 let vm_addr = (self.reg[src] as i64).wrapping_add(insn.off as i64) as u64;
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Load, pc, u64);
-                self.reg[dst] = unsafe { *host_ptr };
+                self.reg[dst] = translate_memory_load!(self, vm_addr, pc, u64);
             },
 
             // BPF_ST class
@@ -234,18 +258,15 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             },
             ebpf::ST_H_IMM   => {
                 let vm_addr = (self.reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u16);
-                unsafe { *host_ptr = insn.imm as u16 };
+                translate_memory_store!(self, insn.imm, vm_addr, pc, u16);
             },
             ebpf::ST_W_IMM   => {
                 let vm_addr = (self.reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u32);
-                unsafe { *host_ptr = insn.imm as u32 };
+                translate_memory_store!(self, insn.imm, vm_addr, pc, u32);
             },
             ebpf::ST_DW_IMM  => {
                 let vm_addr = (self.reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u64);
-                unsafe { *host_ptr = insn.imm as u64 };
+                translate_memory_store!(self, insn.imm, vm_addr, pc, u64);
             },
 
             // BPF_STX class
@@ -256,18 +277,15 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             },
             ebpf::ST_H_REG   => {
                 let vm_addr = (self.reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u16);
-                unsafe { *host_ptr = self.reg[src] as u16 };
+                translate_memory_store!(self, self.reg[src], vm_addr, pc, u16);
             },
             ebpf::ST_W_REG   => {
                 let vm_addr = (self.reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u32);
-                unsafe { *host_ptr = self.reg[src] as u32 };
+                translate_memory_store!(self, self.reg[src], vm_addr, pc, u32);
             },
             ebpf::ST_DW_REG  => {
                 let vm_addr = (self.reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
-                let host_ptr = translate_memory_access!(self, vm_addr, AccessType::Store, pc, u64);
-                unsafe { *host_ptr = self.reg[src] };
+                translate_memory_store!(self, self.reg[src], vm_addr, pc, u64);
             },
 
             // BPF_ALU class
