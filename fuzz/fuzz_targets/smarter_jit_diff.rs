@@ -31,7 +31,9 @@ struct FuzzData {
 }
 
 fn dump_insns<V: Verifier, C: ContextObject>(verified_executable: &VerifiedExecutable<V, C>) {
-    let analysis = Analysis::from_executable(verified_executable.get_executable()).unwrap();
+    let analysis =
+        Analysis::from_executable(std::sync::Arc::clone(verified_executable.get_executable()))
+            .unwrap();
     eprint!("Using the following disassembly");
     analysis.disassemble(&mut std::io::stderr().lock()).unwrap();
 }
