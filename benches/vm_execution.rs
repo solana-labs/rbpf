@@ -59,7 +59,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
         Arc::new(BuiltInProgram::new_loader(Config::default())),
     )
     .unwrap();
-    let mut verified_executable =
+    let verified_executable =
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(Arc::new(
             executable,
         ))
