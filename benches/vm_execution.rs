@@ -92,7 +92,7 @@ fn bench_jit_vs_interpreter(
         Arc::new(BuiltInProgram::new_loader(config)),
     )
     .unwrap();
-    let mut verified_executable =
+    let verified_executable =
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(Arc::new(
             executable,
         ))
