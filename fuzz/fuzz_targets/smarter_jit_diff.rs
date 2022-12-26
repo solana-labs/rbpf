@@ -54,7 +54,7 @@ fuzz_target!(|data: FuzzData| {
         function_registry,
     )
     .unwrap();
-    let mut verified_executable =
+    let verified_executable =
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(
             std::sync::Arc::new(executable),
         )
