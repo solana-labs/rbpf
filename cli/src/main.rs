@@ -162,7 +162,7 @@ fn main() {
         || matches.is_present("trace")
         || matches.is_present("profile")
     {
-        Some(Analysis::from_executable(verified_executable.get_executable()).unwrap())
+        Some(Analysis::from_executable(Arc::clone(verified_executable.get_executable())).unwrap())
     } else {
         None
     };
