@@ -53,9 +53,9 @@ fuzz_target!(|data: FuzzData| {
     )
     .unwrap();
     let mut verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(Arc::new(
-            executable,
-        ))
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(
+            std::sync::Arc::new(executable),
+        )
         .unwrap();
     if verified_executable.jit_compile().is_ok() {
         let mut interp_context_object = TestContextObject::new(1 << 16);

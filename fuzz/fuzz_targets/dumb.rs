@@ -40,9 +40,9 @@ fuzz_target!(|data: DumbFuzzData| {
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(Arc::new(
-            executable,
-        ))
+        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(
+            std::sync::Arc::new(executable),
+        )
         .unwrap();
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut context_object = TestContextObject::new(29);
