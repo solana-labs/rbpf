@@ -24,16 +24,20 @@ use crate::{
     vm::{BuiltInProgram, Config, ContextObject, FunctionRegistry},
 };
 
-#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-use crate::jit::{JitCompiler, JitProgram};
 use byteorder::{ByteOrder, LittleEndian};
 use std::{
     collections::{btree_map::Entry, BTreeMap},
     fmt::Debug,
     mem,
-    ops::{Deref, Range},
+    ops::Range,
     str,
-    sync::{Arc, RwLock},
+    sync::Arc,
+};
+#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
+use {
+    crate::jit::{JitCompiler, JitProgram},
+    std::ops::Deref,
+    std::sync::RwLock,
 };
 
 /// Error definitions
@@ -264,9 +268,11 @@ pub(crate) enum Section {
 }
 
 /// Thread-safe optional JIT-compiled program
+#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 #[derive(Debug, Default)]
 pub struct CompiledProgram(RwLock<Option<JitProgram>>);
 
+#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 impl Deref for CompiledProgram {
     type Target = RwLock<Option<JitProgram>>;
 
@@ -275,6 +281,7 @@ impl Deref for CompiledProgram {
     }
 }
 
+#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 impl PartialEq for CompiledProgram {
     fn eq(&self, other: &Self) -> bool {
         self.read().unwrap().eq(&other.read().unwrap())
