@@ -31,7 +31,7 @@ use std::{
     collections::{btree_map::Entry, BTreeMap},
     fmt::Debug,
     mem,
-    ops::Range,
+    ops::{Deref, Range},
     str,
     sync::{Arc, RwLock},
 };
@@ -263,8 +263,26 @@ pub(crate) enum Section {
     Borrowed(usize, Range<usize>),
 }
 
+/// Thread-safe optional JIT-compiled program
+#[derive(Debug, Default)]
+pub struct CompiledProgram(RwLock<Option<JitProgram>>);
+
+impl Deref for CompiledProgram {
+    type Target = RwLock<Option<JitProgram>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl PartialEq for CompiledProgram {
+    fn eq(&self, other: &Self) -> bool {
+        self.read().unwrap().eq(&other.read().unwrap())
+    }
+}
+
 /// Elf loader/relocator
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Executable<C: ContextObject> {
     /// Loaded and executable elf
     elf_bytes: AlignedMemory<{ HOST_ALIGN }>,
@@ -280,7 +298,7 @@ pub struct Executable<C: ContextObject> {
     loader: Arc<BuiltInProgram<C>>,
     /// Compiled program and argument
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-    compiled_program: RwLock<Option<JitProgram>,
+    compiled_program: CompiledProgram,
 }
 
 impl<C: ContextObject> Executable<C> {
@@ -347,7 +365,7 @@ impl<C: ContextObject> Executable<C> {
 
     /// Get the JIT compiled program
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-    pub fn get_compiled_program(&self) -> &RwLock<Option<JitProgram>> {
+    pub fn get_compiled_program(&self) -> &CompiledProgram {
         &self.compiled_program
     }
 
@@ -398,7 +416,7 @@ impl<C: ContextObject> Executable<C> {
             function_registry,
             loader,
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-            compiled_program: RwLock::default(),
+            compiled_program: CompiledProgram::default(),
         })
     }
 
@@ -504,7 +522,7 @@ impl<C: ContextObject> Executable<C> {
             function_registry,
             loader,
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-            compiled_program: RwLock::default(),
+            compiled_program: CompiledProgram::default(),
         })
     }
 
@@ -1145,30 +1163,6 @@ impl<C: ContextObject> Executable<C> {
                 eight_bytes.push(*i);
             }
         }
-    }
-}
-
-impl<C: ContextObject> PartialEq for Executable<C> {
-    fn eq(&self, other: &Self) -> bool {
-        let Self {
-            elf_bytes,
-            ro_section,
-            text_section_info,
-            entry_pc,
-            function_registry,
-            loader,
-            compiled_program,
-        } = self;
-        elf_bytes.eq(&other.elf_bytes)
-            && ro_section.eq(&other.ro_section)
-            && text_section_info.eq(&other.text_section_info)
-            && entry_pc.eq(&other.entry_pc)
-            && function_registry.eq(&other.function_registry)
-            && loader.eq(&other.loader)
-            && compiled_program
-                .read()
-                .unwrap()
-                .eq(&other.compiled_program.read().unwrap())
     }
 }
 
