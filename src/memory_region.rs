@@ -389,6 +389,27 @@ impl<'a> UnalignedMemoryMapping<'a> {
         )
     }
 
+    /// Returns the `MemoryRegion` corresponding to the given address.
+    pub fn region(
+        &self,
+        access_type: AccessType,
+        vm_addr: u64,
+    ) -> Result<&MemoryRegion, EbpfError> {
+        // Safety:
+        // &mut references to the mapping cache are only created internally from methods that do not
+        // invoke each other. UnalignedMemoryMapping is !Sync, so the cache reference below is
+        // guaranteed to be unique.
+        let cache = unsafe { &mut *self.cache.get() };
+        if let Some(region) = self.find_region(cache, vm_addr) {
+            if (region.vm_addr..region.vm_addr_end).contains(&vm_addr)
+                && (access_type == AccessType::Load || region.is_writable)
+            {
+                return Ok(region);
+            }
+        }
+        Err(generate_access_violation(self.config, access_type, vm_addr, 0, 0).unwrap_err())
+    }
+
     /// Returns the `MemoryRegion`s in this mapping
     pub fn get_regions(&self) -> &[MemoryRegion] {
         &self.regions
@@ -489,6 +510,26 @@ impl<'a> AlignedMemoryMapping<'a> {
         }
     }
 
+    /// Returns the `MemoryRegion` corresponding to the given address.
+    pub fn region(
+        &self,
+        access_type: AccessType,
+        vm_addr: u64,
+    ) -> Result<&MemoryRegion, EbpfError> {
+        let index = vm_addr
+            .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
+            .unwrap_or(0) as usize;
+        if (1..self.regions.len()).contains(&index) {
+            let region = &self.regions[index];
+            if (region.vm_addr..region.vm_addr_end).contains(&vm_addr)
+                && (access_type == AccessType::Load || region.is_writable)
+            {
+                return Ok(region);
+            }
+        }
+        Err(generate_access_violation(self.config, access_type, vm_addr, 0, 0).unwrap_err())
+    }
+
     /// Returns the `MemoryRegion`s in this mapping
     pub fn get_regions(&self) -> &[MemoryRegion] {
         &self.regions
@@ -564,6 +605,18 @@ impl<'a> MemoryMapping<'a> {
         match self {
             MemoryMapping::Aligned(m) => m.store(value, vm_addr, len, pc),
             MemoryMapping::Unaligned(m) => m.store(value, vm_addr, len, pc),
+        }
+    }
+
+    /// Returns the `MemoryRegion` corresponding to the given address.
+    pub fn region(
+        &self,
+        access_type: AccessType,
+        vm_addr: u64,
+    ) -> Result<&MemoryRegion, EbpfError> {
+        match self {
+            MemoryMapping::Aligned(m) => m.region(access_type, vm_addr),
+            MemoryMapping::Unaligned(m) => m.region(access_type, vm_addr),
         }
     }
 
