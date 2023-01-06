@@ -191,9 +191,7 @@ const ANCHOR_EXTERNAL_FUNCTION_CALL: usize = 12;
 const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE: usize = 13;
 const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG: usize = 14;
 const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 22;
-const ANCHOR_LOAD_MEMORY_ADDRESS: usize = 30;
-const ANCHOR_STORE_MEMORY_ADDRESS: usize = 33;
-const ANCHOR_COUNT: usize = 36; // Update me when adding or removing anchors
+const ANCHOR_COUNT: usize = 31; // Update me when adding or removing anchors
 
 const REGISTER_MAP: [u8; 11] = [
     CALLER_SAVED_REGISTERS[0],
@@ -419,47 +417,44 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
                 // BPF_LDX class
                 ebpf::LD_B_REG   => {
-                    self.emit_address_translation(R11, Value::RegisterPlusConstant64(src, insn.off as i64, true), 1, AccessType::Load);
-                    self.emit_ins(X86Instruction::load(OperandSize::S8, R11, dst, X86IndirectAccess::Offset(0)));
+                    self.emit_address_translation(Some(dst), Value::RegisterPlusConstant64(src, insn.off as i64, true), 1, None);
                 },
                 ebpf::LD_H_REG   => {
-                    self.emit_memory_load(dst, Value::RegisterPlusConstant64(src, insn.off as i64, true), 2);
+                    self.emit_address_translation(Some(dst), Value::RegisterPlusConstant64(src, insn.off as i64, true), 2, None);
                 },
                 ebpf::LD_W_REG   => {
-                    self.emit_memory_load(dst, Value::RegisterPlusConstant64(src, insn.off as i64, true), 4);
+                    self.emit_address_translation(Some(dst), Value::RegisterPlusConstant64(src, insn.off as i64, true), 4, None);
                 },
                 ebpf::LD_DW_REG  => {
-                    self.emit_memory_load(dst, Value::RegisterPlusConstant64(src, insn.off as i64, true), 8);
+                    self.emit_address_translation(Some(dst), Value::RegisterPlusConstant64(src, insn.off as i64, true), 8, None);
                 },
 
                 // BPF_ST class
                 ebpf::ST_B_IMM   => {
-                    self.emit_address_translation(R11, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 1, AccessType::Store);
-                    self.emit_ins(X86Instruction::store_immediate(OperandSize::S8, R11, X86IndirectAccess::Offset(0), insn.imm));
+                    self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 1, Some(Value::Constant64(insn.imm, true)));
                 },
                 ebpf::ST_H_IMM   => {
-                    self.emit_memory_store(Value::Constant64(insn.imm, false), Value::RegisterPlusConstant64(dst, insn.off as i64, true), 2);
+                    self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 2, Some(Value::Constant64(insn.imm, true)));
                 },
                 ebpf::ST_W_IMM   => {
-                    self.emit_memory_store(Value::Constant64(insn.imm, false), Value::RegisterPlusConstant64(dst, insn.off as i64, true), 4);
+                    self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 4, Some(Value::Constant64(insn.imm, true)));
                 },
                 ebpf::ST_DW_IMM  => {
-                    self.emit_memory_store(Value::Constant64(insn.imm, false), Value::RegisterPlusConstant64(dst, insn.off as i64, true), 8);
+                    self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 8, Some(Value::Constant64(insn.imm, true)));
                 },
 
                 // BPF_STX class
                 ebpf::ST_B_REG  => {
-                    self.emit_address_translation(R11, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 1, AccessType::Store);
-                    self.emit_ins(X86Instruction::store(OperandSize::S8, src, R11, X86IndirectAccess::Offset(0)));
+                    self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 1, Some(Value::Register(src)));
                 },
                 ebpf::ST_H_REG  => {
-                    self.emit_memory_store(Value::Register(src), Value::RegisterPlusConstant64(dst, insn.off as i64, true), 2);
+                    self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 2, Some(Value::Register(src)));
                 },
                 ebpf::ST_W_REG  => {
-                    self.emit_memory_store(Value::Register(src), Value::RegisterPlusConstant64(dst, insn.off as i64, true), 4);
+                    self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 4, Some(Value::Register(src)));
                 },
                 ebpf::ST_DW_REG  => {
-                    self.emit_memory_store(Value::Register(src), Value::RegisterPlusConstant64(dst, insn.off as i64, true), 8);
+                    self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 8, Some(Value::Register(src)));
                 },
 
                 // BPF_ALU class
@@ -998,7 +993,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     }
 
     #[inline]
-    fn emit_address_translation(&mut self, host_addr: u8, vm_addr: Value, len: u64, access_type: AccessType) {
+    fn emit_address_translation(&mut self, dst: Option<u8>, vm_addr: Value, len: u64, value: Option<Value>) {
         match vm_addr {
             Value::RegisterPlusConstant64(reg, constant, user_provided) => {
                 if user_provided && self.should_sanitize_constant(constant) {
@@ -1020,67 +1015,28 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 unreachable!();
             },
         }
-        let anchor = ANCHOR_TRANSLATE_MEMORY_ADDRESS + len.trailing_zeros() as usize + 4 * (access_type as usize);
-        self.emit_ins(X86Instruction::push_immediate(OperandSize::S64, self.pc as i32));
-        self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(anchor, 5)));
-        self.emit_ins(X86Instruction::mov(OperandSize::S64, R11, host_addr));
-    }
 
-    fn emit_memory_load(&mut self, dst: u8, vm_addr: Value, len: u64) {
-        match vm_addr {
-            Value::RegisterPlusConstant64(reg, constant, user_provided) => {
-                if user_provided && self.should_sanitize_constant(constant) {
-                    self.emit_sanitized_load_immediate(OperandSize::S64, R11, constant);
-                } else {
-                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, constant));
-                }
-                self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, reg, R11, 0, None));
-            },
-            _ => {
-                #[cfg(debug_assertions)]
-                unreachable!();
-            },
-        }
-        let anchor = ANCHOR_LOAD_MEMORY_ADDRESS + len.trailing_zeros() as usize - 1;
-        self.emit_ins(X86Instruction::push_immediate(OperandSize::S64, self.pc as i32));
-        self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(anchor, 5)));
-        self.emit_ins(X86Instruction::mov(OperandSize::S64, R11, dst));
-    }
-
-    fn emit_memory_store(&mut self, value: Value, vm_addr: Value, len: u64) {
         match value {
-            Value::Register(reg) => {
+            Some(Value::Register(reg)) => {
                 self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, R10));
             }
-            Value::Constant64(constant, user_provided) => {
+            Some(Value::Constant64(constant, user_provided)) => {
                 if user_provided && self.should_sanitize_constant(constant) {
                     self.emit_sanitized_load_immediate(OperandSize::S64, R10, constant);
                 } else {
                     self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R10, constant));
                 }
             }
-            _ => {
-                #[cfg(debug_assertions)]
-                unreachable!();
-            },
+            _ => {}
         }
-        match vm_addr {
-            Value::RegisterPlusConstant64(reg, constant, user_provided) => {
-                if user_provided && self.should_sanitize_constant(constant) {
-                    self.emit_sanitized_load_immediate(OperandSize::S64, R11, constant);
-                } else {
-                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, constant));
-                }
-                self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, reg, R11, 0, None));
-            },
-            _ => {
-                #[cfg(debug_assertions)]
-                unreachable!();
-            },
-        }
-        let anchor = ANCHOR_STORE_MEMORY_ADDRESS + len.trailing_zeros() as usize - 1;
+
+        let access_type = if value.is_none() { AccessType::Load } else { AccessType::Store };
+        let anchor = ANCHOR_TRANSLATE_MEMORY_ADDRESS + len.trailing_zeros() as usize + 4 * (access_type as usize);
         self.emit_ins(X86Instruction::push_immediate(OperandSize::S64, self.pc as i32));
         self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(anchor, 5)));
+        if let Some(dst) = dst {
+            self.emit_ins(X86Instruction::mov(OperandSize::S64, R11, dst));
+        }
     }
 
     #[inline]
@@ -1474,15 +1430,34 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         ] {
             let target_offset = len.trailing_zeros() as usize + 4 * (*access_type as usize);
             self.set_anchor(ANCHOR_TRANSLATE_MEMORY_ADDRESS + target_offset);
-            // call MemoryMapping::map() storing the result in RuntimeEnvironmentSlot::ProgramResult
-            self.emit_rust_call(Value::Constant64(MemoryMapping::map as *const u8 as i64, false), &[
-                Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
-                Argument { index: 5, value: Value::Constant64(0, false) }, // self.pc is set later
-                Argument { index: 4, value: Value::Constant64(*len as i64, false) },
-                Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
-                Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
-                Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
-            ], None);
+            // call MemoryMapping::(map|load|store) storing the result in RuntimeEnvironmentSlot::ProgramResult
+            if *len == 1 {
+                self.emit_rust_call(Value::Constant64(MemoryMapping::map as *const u8 as i64, false), &[
+                    Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
+                    Argument { index: 5, value: Value::Constant64(0, false) }, // self.pc is set later
+                    Argument { index: 4, value: Value::Constant64(*len as i64, false) },
+                    Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
+                    Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
+                    Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
+                ], None);
+            } else if *access_type == AccessType::Load {
+                self.emit_rust_call(Value::Constant64(MemoryMapping::load as *const u8 as i64, false), &[
+                    Argument { index: 2, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
+                    Argument { index: 4, value: Value::Constant64(0, false) }, // self.pc is set later
+                    Argument { index: 3, value: Value::Constant64(*len as i64, false) },
+                    Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
+                    Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
+                ], None);
+            } else {
+                self.emit_rust_call(Value::Constant64(MemoryMapping::store as *const u8 as i64, false), &[
+                    Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
+                    Argument { index: 2, value: Value::Register(R10) },
+                    Argument { index: 5, value: Value::Constant64(0, false) }, // self.pc is set later
+                    Argument { index: 4, value: Value::Constant64(*len as i64, false) },
+                    Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
+                    Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
+                ], None);
+            }
 
             // Throw error if the result indicates one
             self.emit_result_is_err(R11);
@@ -1490,58 +1465,16 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             self.emit_ins(X86Instruction::xchg(OperandSize::S64, R11, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Swap return address and self.pc
             self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 6)));
 
-            // unwrap() the host addr into R11
+            // unwrap() the result into R11
             self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R11, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
             self.emit_ins(X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)));
-
-            self.emit_ins(X86Instruction::return_near());
-        }
-
-        // Load a value from a virtual memory address
-        for len in &[2i32, 4, 8] {
-            let target_offset = len.trailing_zeros() as usize - 1;
-            self.set_anchor(ANCHOR_LOAD_MEMORY_ADDRESS + target_offset);
-            // call MemoryMapping::load() storing the result in RuntimeEnvironmentSlot::ProgramResult
-            self.emit_rust_call(Value::Constant64(MemoryMapping::load as *const u8 as i64, false), &[
-                Argument { index: 2, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
-                Argument { index: 4, value: Value::Constant64(0, false) }, // self.pc is set later
-                Argument { index: 3, value: Value::Constant64(*len as i64, false) },
-                Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
-                Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
-            ], None);
-
-            // Throw error if the result indicates one
-            self.emit_result_is_err(R11);
-            self.emit_ins(X86Instruction::pop(R11)); // R11 = self.pc
-            self.emit_ins(X86Instruction::xchg(OperandSize::S64, R11, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Swap return address and self.pc
-            self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 6)));
-
-            // unwrap() the host addr into R11
-            self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R11, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
-            self.emit_ins(X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)));
-
-            self.emit_ins(X86Instruction::return_near());
-        }
-
-        // Store a value at a virtual memory address
-        for len in &[2i32, 4, 8] {
-            let target_offset = len.trailing_zeros() as usize - 1;
-            self.set_anchor(ANCHOR_STORE_MEMORY_ADDRESS + target_offset);
-            // call MemoryMapping::load() storing the result in RuntimeEnvironmentSlot::ProgramResult
-            self.emit_rust_call(Value::Constant64(MemoryMapping::store as *const u8 as i64, false), &[
-                Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
-                Argument { index: 2, value: Value::Register(R10) },
-                Argument { index: 5, value: Value::Constant64(0, false) }, // self.pc is set later
-                Argument { index: 4, value: Value::Constant64(*len as i64, false) },
-                Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
-                Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
-            ], None);
-
-            // Throw error if the result indicates one
-            self.emit_result_is_err(R11);
-            self.emit_ins(X86Instruction::pop(R11)); // R11 = self.pc
-            self.emit_ins(X86Instruction::xchg(OperandSize::S64, R11, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Swap return address and self.pc
-            self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 6)));
+            if *len == 1 {
+                if *access_type == AccessType::Load {
+                    self.emit_ins(X86Instruction::load(OperandSize::S8, R11, R11, X86IndirectAccess::Offset(0)));
+                } else {
+                    self.emit_ins(X86Instruction::store(OperandSize::S8, R10, R11, X86IndirectAccess::Offset(0)));
+                }
+            }
 
             self.emit_ins(X86Instruction::return_near());
         }
