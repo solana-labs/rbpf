@@ -281,3 +281,60 @@ bench_mapping_with_n_entries!(
     bench_mapping_with_1024_entries_aligned,
     bench_mapping_with_1024_entries_unaligned
 );
+
+enum MemoryOperation {
+    Map,
+    Load,
+    Store(u64),
+}
+
+fn do_bench_mapping_operation(bencher: &mut Bencher, op: MemoryOperation, vm_addr: u64) {
+    let mut mem1 = vec![0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18];
+    let mut mem2 = vec![0x22; 1];
+    let config = Config::default();
+    let memory_mapping = UnalignedMemoryMapping::new(
+        vec![
+            MemoryRegion::new_writable(&mut mem1, 0x100000000),
+            MemoryRegion::new_writable(&mut mem2, 0x100000000 + 8),
+        ],
+        &config,
+    )
+    .unwrap();
+
+    match op {
+        MemoryOperation::Map => bencher.iter(|| {
+            let _ = memory_mapping.map(AccessType::Load, vm_addr, 8, 0).unwrap();
+        }),
+        MemoryOperation::Load => bencher.iter(|| {
+            let _ = memory_mapping.load(vm_addr, 8, 0).unwrap();
+        }),
+        MemoryOperation::Store(val) => bencher.iter(|| {
+            let _ = memory_mapping.store(val, vm_addr, 8, 0).unwrap();
+        }),
+    }
+}
+
+#[bench]
+fn bench_mapping_8_byte_map(bencher: &mut Bencher) {
+    do_bench_mapping_operation(bencher, MemoryOperation::Map, 0x100000000)
+}
+
+#[bench]
+fn bench_mapping_8_byte_load(bencher: &mut Bencher) {
+    do_bench_mapping_operation(bencher, MemoryOperation::Load, 0x100000000)
+}
+
+#[bench]
+fn bench_mapping_8_byte_load_non_contiguous(bencher: &mut Bencher) {
+    do_bench_mapping_operation(bencher, MemoryOperation::Load, 0x100000001)
+}
+
+#[bench]
+fn bench_mapping_8_byte_store(bencher: &mut Bencher) {
+    do_bench_mapping_operation(bencher, MemoryOperation::Store(42), 0x100000000)
+}
+
+#[bench]
+fn bench_mapping_8_byte_store_non_contiguous(bencher: &mut Bencher) {
+    do_bench_mapping_operation(bencher, MemoryOperation::Store(42), 0x100000001)
+}
