@@ -1451,8 +1451,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 };
                 self.emit_rust_call(Value::Constant64(load, false), &[
                     Argument { index: 2, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
-                    Argument { index: 4, value: Value::Constant64(0, false) }, // self.pc is set later
-                    Argument { index: 3, value: Value::Constant64(*len as i64, false) },
+                    Argument { index: 3, value: Value::Constant64(0, false) }, // self.pc is set later
                     Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
                     Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
                 ], None);
@@ -1467,8 +1466,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 self.emit_rust_call(Value::Constant64(store, false), &[
                     Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                     Argument { index: 2, value: Value::Register(R10) },
-                    Argument { index: 5, value: Value::Constant64(0, false) }, // self.pc is set later
-                    Argument { index: 4, value: Value::Constant64(*len as i64, false) },
+                    Argument { index: 4, value: Value::Constant64(0, false) }, // self.pc is set later
                     Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
                     Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
                 ], None);
