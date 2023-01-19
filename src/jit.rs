@@ -1430,17 +1430,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         ] {
             let target_offset = len.trailing_zeros() as usize + 4 * (*access_type as usize);
             self.set_anchor(ANCHOR_TRANSLATE_MEMORY_ADDRESS + target_offset);
-            // call MemoryMapping::(map|load|store) storing the result in RuntimeEnvironmentSlot::ProgramResult
-            if *len == 1 {
-                self.emit_rust_call(Value::Constant64(MemoryMapping::map as *const u8 as i64, false), &[
-                    Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
-                    Argument { index: 5, value: Value::Constant64(0, false) }, // self.pc is set later
-                    Argument { index: 4, value: Value::Constant64(*len as i64, false) },
-                    Argument { index: 2, value: Value::Constant64(*access_type as i64, false) },
-                    Argument { index: 1, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::MemoryMapping), false) },
-                    Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
-                ], None);
-            } else if *access_type == AccessType::Load {
+            // call MemoryMapping::(load|store) storing the result in RuntimeEnvironmentSlot::ProgramResult
+            if *access_type == AccessType::Load {
                 let load = match len {
                     1 => MemoryMapping::load::<u8> as *const u8 as i64,
                     2 => MemoryMapping::load::<u16> as *const u8 as i64,
@@ -1481,13 +1472,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             // unwrap() the result into R11
             self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R11, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
             self.emit_ins(X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)));
-            if *len == 1 {
-                if *access_type == AccessType::Load {
-                    self.emit_ins(X86Instruction::load(OperandSize::S8, R11, R11, X86IndirectAccess::Offset(0)));
-                } else {
-                    self.emit_ins(X86Instruction::store(OperandSize::S8, R10, R11, X86IndirectAccess::Offset(0)));
-                }
-            }
 
             self.emit_ins(X86Instruction::return_near());
         }
