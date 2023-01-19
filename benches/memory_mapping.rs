@@ -306,10 +306,10 @@ fn do_bench_mapping_operation(bencher: &mut Bencher, op: MemoryOperation, vm_add
             let _ = memory_mapping.map(AccessType::Load, vm_addr, 8, 0).unwrap();
         }),
         MemoryOperation::Load => bencher.iter(|| {
-            let _ = memory_mapping.load(vm_addr, 8, 0).unwrap();
+            let _ = memory_mapping.load::<u64>(vm_addr, 0).unwrap();
         }),
         MemoryOperation::Store(val) => bencher.iter(|| {
-            let _ = memory_mapping.store(val, vm_addr, 8, 0).unwrap();
+            let _ = memory_mapping.store(val, vm_addr, 0).unwrap();
         }),
     }
 }

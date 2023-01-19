@@ -1441,7 +1441,15 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
                 ], None);
             } else if *access_type == AccessType::Load {
-                self.emit_rust_call(Value::Constant64(MemoryMapping::load as *const u8 as i64, false), &[
+                let load = match len {
+                    1 => MemoryMapping::load::<u8> as *const u8 as i64,
+                    2 => MemoryMapping::load::<u16> as *const u8 as i64,
+                    4 => MemoryMapping::load::<u32> as *const u8 as i64,
+                    8 => MemoryMapping::load::<u64> as *const u8 as i64,
+                    _ => unreachable!()
+
+                };
+                self.emit_rust_call(Value::Constant64(load, false), &[
                     Argument { index: 2, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                     Argument { index: 4, value: Value::Constant64(0, false) }, // self.pc is set later
                     Argument { index: 3, value: Value::Constant64(*len as i64, false) },
@@ -1449,7 +1457,14 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     Argument { index: 0, value: Value::RegisterPlusConstant32(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult), false) },
                 ], None);
             } else {
-                self.emit_rust_call(Value::Constant64(MemoryMapping::store as *const u8 as i64, false), &[
+                let store = match len {
+                    1 => MemoryMapping::store::<u8> as *const u8 as i64,
+                    2 => MemoryMapping::store::<u16> as *const u8 as i64,
+                    4 => MemoryMapping::store::<u32> as *const u8 as i64,
+                    8 => MemoryMapping::store::<u64> as *const u8 as i64,
+                    _ => unreachable!()
+                };
+                self.emit_rust_call(Value::Constant64(store, false), &[
                     Argument { index: 3, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
                     Argument { index: 2, value: Value::Register(R10) },
                     Argument { index: 5, value: Value::Constant64(0, false) }, // self.pc is set later

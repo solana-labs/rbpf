@@ -16,7 +16,6 @@ use crate::{
     ebpf,
     ebpf::STACK_PTR_REG,
     error::EbpfError,
-    memory_region::AccessType,
     verifier::Verifier,
     vm::{Config, ContextObject, EbpfVm, ProgramResult},
 };
@@ -24,10 +23,9 @@ use crate::{
 /// Virtual memory operation helper.
 macro_rules! translate_memory_access {
     (_impl, $self:ident, $op:ident, $vm_addr:ident, $pc:ident, $T:ty, $($rest:expr),*) => {
-        match $self.vm.env.memory_mapping.$op(
+        match $self.vm.env.memory_mapping.$op::<$T>(
             $($rest,)*
             $vm_addr,
-            std::mem::size_of::<$T>() as u64,
             $pc + ebpf::ELF_INSN_DUMP_OFFSET,
         ) {
             ProgramResult::Ok(v) => v,
@@ -35,28 +33,14 @@ macro_rules! translate_memory_access {
         }
     };
 
-    // load one byte using MemoryMapping::map()
-    ($self:ident, load, $vm_addr:ident, $pc:ident, u8) => {
-        unsafe {
-            *(translate_memory_access!(_impl, $self, map, $vm_addr, $pc, u8, AccessType::Load) as *mut u8) as u64
-        }
-    };
-
-    // load more than one byte using MemoryMapping::load()
+    // MemoryMapping::load()
     ($self:ident, load, $vm_addr:ident, $pc:ident, $T:ty) => {
         translate_memory_access!(_impl, $self, load, $vm_addr, $pc, $T,)
     };
 
-    // store one byte using MemoryMapping::map()
-    ($self:ident, store, $value:expr, $vm_addr:ident, $pc:ident, u8) => {
-        unsafe {
-            *(translate_memory_access!(_impl, $self, map, $vm_addr, $pc, u8, AccessType::Store) as *mut u8) = ($value) as u8;
-        }
-    };
-
-    // store more than one byte using MemoryMapping::store()
+    // MemoryMapping::store()
     ($self:ident, store, $value:expr, $vm_addr:ident, $pc:ident, $T:ty) => {
-        translate_memory_access!(_impl, $self, store, $vm_addr, $pc, $T, ($value) as u64);
+        translate_memory_access!(_impl, $self, store, $vm_addr, $pc, $T, ($value) as $T);
     };
 }
 

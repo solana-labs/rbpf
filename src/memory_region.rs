@@ -1,11 +1,18 @@
 //! This module defines memory regions
 
 use crate::{
+    aligned_memory::Pod,
     ebpf,
     error::EbpfError,
     vm::{Config, ProgramResult},
 };
-use std::{array, cell::UnsafeCell, fmt, ops::Range, ptr::copy_nonoverlapping};
+use std::{
+    array,
+    cell::UnsafeCell,
+    fmt, mem,
+    ops::Range,
+    ptr::{self, copy_nonoverlapping},
+};
 
 /* Explaination of the Gapped Memory
 
@@ -259,11 +266,13 @@ impl<'a> UnalignedMemoryMapping<'a> {
         generate_access_violation(self.config, access_type, vm_addr, len, pc)
     }
 
-    /// Loads `len` bytes from the given address.
+    /// Loads `size_of::<T>()` bytes from the given address.
     ///
     /// See [MemoryMapping::load].
-    pub fn load(&self, mut vm_addr: u64, mut len: u64, pc: usize) -> ProgramResult {
-        debug_assert!(len <= 8);
+    #[inline(always)]
+    pub fn load<T: Pod + Into<u64>>(&self, mut vm_addr: u64, pc: usize) -> ProgramResult {
+        let mut len = mem::size_of::<T>() as u64;
+        debug_assert!(len <= mem::size_of::<u64>() as u64);
 
         // Safety:
         // &mut references to the mapping cache are only created internally from methods that do not
@@ -275,7 +284,9 @@ impl<'a> UnalignedMemoryMapping<'a> {
             Some(region) => {
                 if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len) {
                     // fast path
-                    return ProgramResult::Ok(read_uint(host_addr as *const _, len as usize));
+                    return ProgramResult::Ok(unsafe {
+                        ptr::read_unaligned::<T>(host_addr as *const _).into()
+                    });
                 }
 
                 region
@@ -295,8 +306,8 @@ impl<'a> UnalignedMemoryMapping<'a> {
             let load_len = len.min(region.vm_addr_end.saturating_sub(vm_addr));
             if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, load_len) {
                 // Safety:
-                // We debug_assert!(len <= 8) so we're guaranteed to write
-                // inside `value`
+                // we debug_assert!(len <= mem::size_of::<u64>()) so we never
+                // overflow &value
                 unsafe {
                     copy_nonoverlapping(host_addr as *const _, ptr, load_len as usize);
                     ptr = ptr.add(load_len as usize);
@@ -322,11 +333,12 @@ impl<'a> UnalignedMemoryMapping<'a> {
         )
     }
 
-    /// Store `len` bytes from `value` at the given address.
+    /// Store `value` at the given address.
     ///
     /// See [MemoryMapping::store].
-    pub fn store(&self, value: u64, mut vm_addr: u64, mut len: u64, pc: usize) -> ProgramResult {
-        debug_assert!(len <= 8);
+    #[inline]
+    pub fn store<T: Pod>(&self, value: T, mut vm_addr: u64, pc: usize) -> ProgramResult {
+        let mut len = mem::size_of::<T>() as u64;
 
         // Safety:
         // &mut references to the mapping cache are only created internally from methods that do not
@@ -341,9 +353,9 @@ impl<'a> UnalignedMemoryMapping<'a> {
                 // fast path
                 if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len) {
                     // Safety:
-                    // We debug_assert!(len <= 8) so we're guaranteed to write
-                    // inside `value`
-                    unsafe { copy_nonoverlapping(src, host_addr as *mut _, len as usize) };
+                    // vm_to_host() succeeded so we know there's enough space to
+                    // store `value`
+                    unsafe { ptr::write_unaligned(host_addr as *mut _, value) };
                     return ProgramResult::Ok(host_addr);
                 }
                 region
@@ -364,8 +376,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
             let write_len = len.min(region.vm_addr_end.saturating_sub(vm_addr));
             if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, write_len) {
                 // Safety:
-                // We debug_assert!(len <= 8) so we're guaranteed to write
-                // inside `value`
+                // vm_to_host() succeeded so we have enough space for write_len
                 unsafe { copy_nonoverlapping(src, host_addr as *mut _, write_len as usize) };
                 len = len.saturating_sub(write_len);
                 if len == 0 {
@@ -473,35 +484,34 @@ impl<'a> AlignedMemoryMapping<'a> {
         generate_access_violation(self.config, access_type, vm_addr, len, pc)
     }
 
-    /// Loads `len` bytes from the given address.
+    /// Loads `size_of::<T>()` bytes from the given address.
     ///
     /// See [MemoryMapping::load].
-    pub fn load(&self, vm_addr: u64, len: u64, pc: usize) -> ProgramResult {
+    #[inline]
+    pub fn load<T: Pod + Into<u64>>(&self, vm_addr: u64, pc: usize) -> ProgramResult {
+        let len = mem::size_of::<T>() as u64;
         match self.map(AccessType::Load, vm_addr, len, pc) {
             ProgramResult::Ok(host_addr) => {
-                ProgramResult::Ok(read_uint(host_addr as *const _, len as usize))
+                ProgramResult::Ok(unsafe { ptr::read_unaligned::<T>(host_addr as *const _) }.into())
             }
             err => err,
         }
     }
 
-    /// Store `len` bytes from `value` at the given address.
+    /// Store `value` at the given address.
     ///
     /// See [MemoryMapping::store].
-    pub fn store(&self, value: u64, vm_addr: u64, len: u64, pc: usize) -> ProgramResult {
-        debug_assert!(len <= 8);
+    #[inline]
+    pub fn store<T: Pod>(&self, value: T, vm_addr: u64, pc: usize) -> ProgramResult {
+        let len = mem::size_of::<T>() as u64;
+        debug_assert!(len <= mem::size_of::<u64>() as u64);
 
         match self.map(AccessType::Store, vm_addr, len, pc) {
             ProgramResult::Ok(host_addr) => {
                 // Safety:
-                // We debug_assert!(len <= 8) so we're guaranteed to write
-                // inside `value`
+                // map succeeded so we can write at least `len` bytes
                 unsafe {
-                    copy_nonoverlapping(
-                        &value as *const _ as *const u8,
-                        host_addr as *mut u8,
-                        len as usize,
-                    );
+                    ptr::write_unaligned(host_addr as *mut T, value);
                 }
                 ProgramResult::Ok(host_addr)
             }
@@ -588,23 +598,25 @@ impl<'a> MemoryMapping<'a> {
         }
     }
 
-    /// Load `len` bytes from the given address.
+    /// Loads `size_of::<T>()` bytes from the given address.
     ///
-    /// Works across memory region boundaries if `len` does not fit within a single region.
-    pub fn load(&self, vm_addr: u64, len: u64, pc: usize) -> ProgramResult {
+    /// Works across memory region boundaries.
+    #[inline]
+    pub fn load<T: Pod + Into<u64>>(&self, vm_addr: u64, pc: usize) -> ProgramResult {
         match self {
-            MemoryMapping::Aligned(m) => m.load(vm_addr, len, pc),
-            MemoryMapping::Unaligned(m) => m.load(vm_addr, len, pc),
+            MemoryMapping::Aligned(m) => m.load::<T>(vm_addr, pc),
+            MemoryMapping::Unaligned(m) => m.load::<T>(vm_addr, pc),
         }
     }
 
-    /// Store `len` bytes from `value` at the given address.
+    /// Store `value` at the given address.
     ///
     /// Works across memory region boundaries if `len` does not fit within a single region.
-    pub fn store(&self, value: u64, vm_addr: u64, len: u64, pc: usize) -> ProgramResult {
+    #[inline]
+    pub fn store<T: Pod>(&self, value: T, vm_addr: u64, pc: usize) -> ProgramResult {
         match self {
-            MemoryMapping::Aligned(m) => m.store(value, vm_addr, len, pc),
-            MemoryMapping::Unaligned(m) => m.store(value, vm_addr, len, pc),
+            MemoryMapping::Aligned(m) => m.store(value, vm_addr, pc),
+            MemoryMapping::Unaligned(m) => m.store(value, vm_addr, pc),
         }
     }
 
@@ -729,20 +741,6 @@ impl MappingCache {
         self.entries = array::from_fn(|_| (0..0, 0));
         self.head = 0;
     }
-}
-
-#[inline]
-fn read_uint(src: *const u8, len: usize) -> u64 {
-    debug_assert!(len <= 8);
-    let mut out = 0u64;
-    let dst = &mut out as *mut u64 as *mut u8;
-    // Safety:
-    // We debug_assert!(len <= 8) so we're guaranteed to write
-    // inside `value`
-    unsafe {
-        copy_nonoverlapping(src, dst, len);
-    }
-    out
 }
 
 #[cfg(test)]
@@ -949,16 +947,19 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(m.load(ebpf::MM_INPUT_START, 2, 0).unwrap(), 0x2211);
-        assert_eq!(m.load(ebpf::MM_INPUT_START, 4, 0).unwrap(), 0x44332211);
+        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START, 0).unwrap(), 0x2211);
+        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START, 0).unwrap(), 0x44332211);
         assert_eq!(
-            m.load(ebpf::MM_INPUT_START, 8, 0).unwrap(),
+            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
             0x8877665544332211
         );
-        assert_eq!(m.load(ebpf::MM_INPUT_START + 1, 2, 0).unwrap(), 0x3322);
-        assert_eq!(m.load(ebpf::MM_INPUT_START + 1, 4, 0).unwrap(), 0x55443322);
+        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START + 1, 0).unwrap(), 0x3322);
         assert_eq!(
-            m.load(ebpf::MM_INPUT_START + 1, 8, 0).unwrap(),
+            m.load::<u32>(ebpf::MM_INPUT_START + 1, 0).unwrap(),
+            0x55443322
+        );
+        assert_eq!(
+            m.load::<u64>(ebpf::MM_INPUT_START + 1, 0).unwrap(),
             0x9988776655443322
         );
     }
@@ -989,16 +990,16 @@ mod test {
             &config,
         )
         .unwrap();
-        m.store(0x1122, ebpf::MM_INPUT_START, 2, 0).unwrap();
-        assert_eq!(m.load(ebpf::MM_INPUT_START, 2, 0).unwrap(), 0x1122);
+        m.store(0x1122u16, ebpf::MM_INPUT_START, 0).unwrap();
+        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START, 0).unwrap(), 0x1122);
 
-        m.store(0x33445566, ebpf::MM_INPUT_START, 4, 0).unwrap();
-        assert_eq!(m.load(ebpf::MM_INPUT_START, 4, 0).unwrap(), 0x33445566);
+        m.store(0x33445566u32, ebpf::MM_INPUT_START, 0).unwrap();
+        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START, 0).unwrap(), 0x33445566);
 
-        m.store(0x778899AABBCCDDEE, ebpf::MM_INPUT_START, 8, 0)
+        m.store(0x778899AABBCCDDEEu64, ebpf::MM_INPUT_START, 0)
             .unwrap();
         assert_eq!(
-            m.load(ebpf::MM_INPUT_START, 8, 0).unwrap(),
+            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
             0x778899AABBCCDDEE
         );
     }
@@ -1020,7 +1021,7 @@ mod test {
             &config,
         )
         .unwrap();
-        m.store(0x11223344, ebpf::MM_INPUT_START, 4, 0).unwrap();
+        m.store(0x11223344, ebpf::MM_INPUT_START, 0).unwrap();
     }
 
     #[test]
