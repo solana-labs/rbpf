@@ -60,16 +60,16 @@ macro_rules! bench_gapped_randomized_access_with_1024_entries {
             let frame_size: u64 = 2;
             let frame_count: u64 = 1024;
             let content = vec![0; (frame_size * frame_count * 2) as usize];
-            let memory_regions = vec![MemoryRegion::new_for_testing(
-                &content[..],
-                0x100000000,
-                frame_size,
-                false,
-            )];
             bencher
                 .bench(|bencher| {
+                    let memory_regions = vec![MemoryRegion::new_for_testing(
+                        &content[..],
+                        0x100000000,
+                        frame_size,
+                        false,
+                    )];
                     let config = Config::default();
-                    let memory_mapping = $mem::new(memory_regions.clone(), &config).unwrap();
+                    let memory_mapping = $mem::new(memory_regions, &config).unwrap();
                     let mut prng = new_prng!();
                     bencher.iter(|| {
                         assert!(memory_mapping

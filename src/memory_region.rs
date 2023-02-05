@@ -32,7 +32,7 @@ use std::{
 */
 
 /// Memory region for bounds checking and address translation
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(PartialEq, Eq, Default)]
 #[repr(C, align(32))]
 pub struct MemoryRegion {
     /// start host address
@@ -169,7 +169,7 @@ pub struct UnalignedMemoryMapping<'a> {
 impl<'a> UnalignedMemoryMapping<'a> {
     fn construct_eytzinger_order(
         &mut self,
-        ascending_regions: &[MemoryRegion],
+        ascending_regions: &mut [MemoryRegion],
         mut in_index: usize,
         out_index: usize,
     ) -> usize {
@@ -181,8 +181,8 @@ impl<'a> UnalignedMemoryMapping<'a> {
             in_index,
             out_index.saturating_mul(2).saturating_add(1),
         );
-        self.regions[out_index] = ascending_regions[in_index].clone();
-        self.region_addresses[out_index] = ascending_regions[in_index].vm_addr;
+        self.regions[out_index] = mem::take(&mut ascending_regions[in_index]);
+        self.region_addresses[out_index] = self.regions[out_index].vm_addr;
         self.construct_eytzinger_order(
             ascending_regions,
             in_index.saturating_add(1),
@@ -202,12 +202,15 @@ impl<'a> UnalignedMemoryMapping<'a> {
         }
 
         let mut result = Self {
-            regions: vec![MemoryRegion::default(); regions.len()].into_boxed_slice(),
+            regions: (0..regions.len())
+                .map(|_| MemoryRegion::default())
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
             region_addresses: vec![0; regions.len()].into_boxed_slice(),
             cache: UnsafeCell::new(MappingCache::new()),
             config,
         };
-        result.construct_eytzinger_order(&regions, 0, 0);
+        result.construct_eytzinger_order(&mut regions, 0, 0);
         Ok(result)
     }
 
