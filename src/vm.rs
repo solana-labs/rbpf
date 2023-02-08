@@ -563,12 +563,12 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     ///
     /// If interpreted = `false` then the JIT compiled executable is used.
     pub fn execute_program(&mut self, interpreted: bool) -> (u64, ProgramResult) {
-        let mut registers = [0u64; 11];
-        // R1 points to beginning of input memory, R10 to the stack of the first frame
+        let executable = self.verified_executable.get_executable();
+        let mut registers = [0u64; 12];
+        // R1 points to beginning of input memory, R10 to the stack of the first frame, R11 is the pc (hidden)
         registers[1] = ebpf::MM_INPUT_START;
         registers[ebpf::FRAME_PTR_REG] = self.env.stack_pointer;
-        let executable = self.verified_executable.get_executable();
-        let target_pc = executable.get_entrypoint_instruction_offset();
+        registers[11] = executable.get_entrypoint_instruction_offset() as u64;
         let config = executable.get_config();
         let initial_insn_count = if config.enable_instruction_meter {
             self.env.context_object_pointer.get_remaining()
@@ -580,7 +580,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         let due_insn_count = if interpreted {
             #[cfg(feature = "debugger")]
             let debug_port = self.debug_port.clone();
-            let mut interpreter = match Interpreter::new(self, registers, target_pc) {
+            let mut interpreter = match Interpreter::new(self, registers) {
                 Ok(interpreter) => interpreter,
                 Err(error) => return (0, ProgramResult::Err(error)),
             };
@@ -604,7 +604,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                     Err(error) => return (0, ProgramResult::Err(error)),
                 };
                 let instruction_meter_final = compiled_program
-                    .invoke(config, &mut self.env, registers, target_pc)
+                    .invoke(config, &mut self.env, registers)
                     .max(0) as u64;
                 self.env
                     .context_object_pointer

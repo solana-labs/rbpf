@@ -94,11 +94,11 @@ impl JitProgram {
         &self,
         config: &Config,
         env: &mut RuntimeEnvironment<C>,
-        registers: [u64; 11],
-        target_pc: usize,
+        registers: [u64; 12],
     ) -> i64 {
         unsafe {
-            let mut instruction_meter = env.previous_instruction_meter as i64 + target_pc as i64;
+            let mut instruction_meter =
+                (env.previous_instruction_meter as i64).wrapping_add(registers[11] as i64);
             std::arch::asm!(
                 // RBP and RBX must be saved and restored manually in the current version of rustc and llvm.
                 "push rbx",
@@ -117,7 +117,7 @@ impl JitProgram {
                 "mov r13, [r10 + 0x38]",
                 "mov r14, [r10 + 0x40]",
                 "mov r15, [r10 + 0x48]",
-                "xor r10, r10",
+                "mov r10, [r10 + 0x58]",
                 "call r11",
                 "pop rbp",
                 "pop rbx",
@@ -126,7 +126,7 @@ impl JitProgram {
                 rbx = in(reg) registers[ebpf::FRAME_PTR_REG],
                 inlateout("rdi") instruction_meter,
                 inlateout("r10") &registers => _,
-                inlateout("r11") self.pc_section[target_pc] => _,
+                inlateout("r11") self.pc_section[registers[11] as usize] => _,
                 lateout("rax") _, lateout("rsi") _, lateout("rdx") _, lateout("rcx") _, lateout("r8") _,
                 lateout("r9") _, lateout("r12") _, lateout("r13") _, lateout("r14") _, lateout("r15") _,
                 // lateout("rbp") _, lateout("rbx") _,

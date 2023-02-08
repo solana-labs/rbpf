@@ -19,6 +19,7 @@ use crate::{
     verifier::Verifier,
     vm::{Config, ContextObject, EbpfVm, ProgramResult},
 };
+use std::convert::TryInto;
 
 /// Virtual memory operation helper.
 macro_rules! translate_memory_access {
@@ -80,11 +81,7 @@ pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
 
 impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Creates a new interpreter state
-    pub fn new(
-        vm: &'a mut EbpfVm<'b, V, C>,
-        registers: [u64; 11],
-        target_pc: usize,
-    ) -> Result<Self, EbpfError> {
+    pub fn new(vm: &'a mut EbpfVm<'b, V, C>, registers: [u64; 12]) -> Result<Self, EbpfError> {
         let executable = vm.verified_executable.get_executable();
         let (program_vm_addr, program) = executable.get_text_bytes();
         Ok(Self {
@@ -92,8 +89,8 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             program,
             program_vm_addr,
             due_insn_count: 0,
-            reg: registers,
-            pc: target_pc,
+            reg: registers[0..11].try_into().unwrap(),
+            pc: registers[11] as usize,
             #[cfg(feature = "debugger")]
             debug_state: DebugState::Continue,
             #[cfg(feature = "debugger")]
