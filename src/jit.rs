@@ -104,29 +104,29 @@ impl JitProgram {
                 "push rbx",
                 "push rbp",
                 "mov [{host_stack_pointer}], rsp",
-                "add QWORD PTR [{host_stack_pointer}], -8", // We will push RIP in "call r11" later
+                "add QWORD PTR [{host_stack_pointer}], -8", // We will push RIP in "call r10" later
                 "mov rbp, {rbp}",
                 "mov rbx, {rbx}",
-                "mov rax, [r10 + 0x00]",
-                "mov rsi, [r10 + 0x08]",
-                "mov rdx, [r10 + 0x10]",
-                "mov rcx, [r10 + 0x18]",
-                "mov r8,  [r10 + 0x20]",
-                "mov r9,  [r10 + 0x28]",
-                "mov r12, [r10 + 0x30]",
-                "mov r13, [r10 + 0x38]",
-                "mov r14, [r10 + 0x40]",
-                "mov r15, [r10 + 0x48]",
-                "mov r10, [r10 + 0x58]",
-                "call r11",
+                "mov rax, [r11 + 0x00]",
+                "mov rsi, [r11 + 0x08]",
+                "mov rdx, [r11 + 0x10]",
+                "mov rcx, [r11 + 0x18]",
+                "mov r8,  [r11 + 0x20]",
+                "mov r9,  [r11 + 0x28]",
+                "mov r12, [r11 + 0x30]",
+                "mov r13, [r11 + 0x38]",
+                "mov r14, [r11 + 0x40]",
+                "mov r15, [r11 + 0x48]",
+                "mov r11, [r11 + 0x58]",
+                "call r10",
                 "pop rbp",
                 "pop rbx",
                 host_stack_pointer = in(reg) &mut env.host_stack_pointer,
                 rbp = in(reg) (env as *mut _ as *mut u64).offset(config.runtime_environment_key as isize),
                 rbx = in(reg) registers[ebpf::FRAME_PTR_REG],
                 inlateout("rdi") instruction_meter,
-                inlateout("r10") &registers => _,
-                inlateout("r11") self.pc_section[registers[11] as usize] => _,
+                inlateout("r10") self.pc_section[registers[11] as usize] => _,
+                inlateout("r11") &registers => _,
                 lateout("rax") _, lateout("rsi") _, lateout("rdx") _, lateout("rcx") _, lateout("r8") _,
                 lateout("r9") _, lateout("r12") _, lateout("r13") _, lateout("r14") _, lateout("r15") _,
                 // lateout("rbp") _, lateout("rbx") _,
@@ -184,14 +184,13 @@ const ANCHOR_CALL_DEPTH_EXCEEDED: usize = 5;
 const ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT: usize = 6;
 const ANCHOR_DIV_BY_ZERO: usize = 7;
 const ANCHOR_DIV_OVERFLOW: usize = 8;
-const ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION: usize = 9;
-const ANCHOR_CALL_UNSUPPORTED_INSTRUCTION: usize = 10;
-const ANCHOR_EXIT: usize = 11;
-const ANCHOR_EXTERNAL_FUNCTION_CALL: usize = 12;
-const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE: usize = 13;
-const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG: usize = 14;
-const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 22;
-const ANCHOR_COUNT: usize = 31; // Update me when adding or removing anchors
+const ANCHOR_CALL_UNSUPPORTED_INSTRUCTION: usize = 9;
+const ANCHOR_EXIT: usize = 10;
+const ANCHOR_EXTERNAL_FUNCTION_CALL: usize = 11;
+const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE: usize = 12;
+const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG: usize = 13;
+const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 21;
+const ANCHOR_COUNT: usize = 30; // Update me when adding or removing anchors
 
 const REGISTER_MAP: [u8; 11] = [
     CALLER_SAVED_REGISTERS[0],
@@ -966,9 +965,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG, 5)));
 
                 self.emit_validate_and_profile_instruction_count(false, None);
-                self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11)); // Save target_pc
+                self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R10));
                 self.emit_ins(X86Instruction::pop(REGISTER_MAP[0])); // Restore RAX
-                self.emit_ins(X86Instruction::call_reg(R11, None)); // callq *%r11
+                self.emit_ins(X86Instruction::call_reg(R10, None)); // callq *%r10
             },
             Value::Constant64(target_pc, user_provided) => {
                 debug_assert!(!user_provided);
@@ -1294,12 +1293,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
 
         // Handler for EbpfError::UnsupportedInstruction
-        self.set_anchor(ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION);
-        // Load BPF target pc from stack (which was saved in ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG)
-        self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, R11, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0))); // R11 = RSP[-16];
-        // self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5))); // Fall-through
-
-        // Handler for EbpfError::UnsupportedInstruction
         self.set_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION);
         if self.config.enable_instruction_tracing {
             self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRACE, 5)));
@@ -1402,12 +1395,11 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Calculate offset relative to instruction_addresses
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0], 0, None)); // RAX -= self.program_vm_addr;
         // Calculate the target_pc (dst / INSN_SIZE) to update the instruction_meter
+        // and as target pc for potential ANCHOR_CALL_UNSUPPORTED_INSTRUCTION
         let shift_amount = INSN_SIZE.trailing_zeros();
         debug_assert_eq!(INSN_SIZE, 1 << shift_amount);
         self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], R11));
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0xc1, 5, R11, shift_amount as i64, None));
-        // Save BPF target pc for potential ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION
-        self.emit_ins(X86Instruction::store(OperandSize::S64, R11, RSP, X86IndirectAccess::OffsetIndexShift(-8, RSP, 0))); // RSP[-8] = R11;
         // Load host target_address from self.result.pc_section
         debug_assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], self.result.pc_section.as_ptr() as i64));
@@ -1517,7 +1509,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         }
         // There is no `VerifierError::JumpToMiddleOfLDDW` for `call imm` so patch it here
         let call_unsupported_instruction = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
-        let callx_unsupported_instruction = self.anchors[ANCHOR_CALLX_UNSUPPORTED_INSTRUCTION] as usize;
         if self.config.static_syscalls {
             let mut prev_pc = 0;
             for current_pc in self.executable.get_function_registry().keys() {
@@ -1525,18 +1516,12 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     break;
                 }
                 for pc in prev_pc..*current_pc as usize {
-                    self.result.pc_section[pc] = callx_unsupported_instruction;
+                    self.result.pc_section[pc] = call_unsupported_instruction;
                 }
                 prev_pc = *current_pc as usize + 1;
             }
             for pc in prev_pc..self.result.pc_section.len() {
-                self.result.pc_section[pc] = callx_unsupported_instruction;
-            }
-        } else {
-            for offset in self.result.pc_section.iter_mut() {
-                if *offset == call_unsupported_instruction {
-                    *offset = callx_unsupported_instruction;
-                }
+                self.result.pc_section[pc] = call_unsupported_instruction;
             }
         }
     }
