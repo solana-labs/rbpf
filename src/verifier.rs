@@ -216,8 +216,20 @@ pub struct RequisiteVerifier {}
 impl Verifier for RequisiteVerifier {
     /// Check the program against the verifier's rules
     #[rustfmt::skip]
-    fn verify(prog: &[u8], config: &Config, _function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
+    fn verify(prog: &[u8], config: &Config, function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
         check_prog_len(prog)?;
+
+        if config.static_syscalls {
+            for (_key, (dst_insn_ptr, _name)) in function_registry.iter() {
+                let dst_insn = ebpf::get_insn(prog, *dst_insn_ptr);
+                if dst_insn.opc == 0 {
+                    return Err(VerifierError::JumpToMiddleOfLDDW(
+                        *dst_insn_ptr,
+                        adj_insn_ptr(*dst_insn_ptr),
+                    ));
+                }
+            }
+        }
 
         let mut insn_ptr: usize = 0;
         while (insn_ptr + 1) * ebpf::INSN_SIZE <= prog.len() {

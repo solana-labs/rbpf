@@ -2777,25 +2777,6 @@ fn test_err_static_jmp_lddw() {
         TestContextObject::new(9),
         { |_vm, res: ProgramResult| { res.unwrap() == 0x2 } },
     );
-    test_interpreter_and_jit_asm!(
-        "
-        call 3
-        mov r0, r0
-        mov r0, r0
-        lddw r0, 0x1122334455667788
-        exit
-        ",
-        [],
-        (),
-        TestContextObject::new(2),
-        {
-            |_vm, res: ProgramResult| {
-                matches!(res.unwrap_err(),
-                    EbpfError::UnsupportedInstruction(pc) if pc == 33
-                )
-            }
-        },
-    );
 }
 
 #[test]
