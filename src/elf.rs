@@ -510,6 +510,7 @@ impl<C: ContextObject> Executable<C> {
 
     /// Calculate the total memory size of the executable
     #[rustfmt::skip]
+    #[allow(clippy::size_of_ref)]
     pub fn mem_size(&self) -> usize {
         let mut total = mem::size_of::<Self>();
         total = total
@@ -527,7 +528,7 @@ impl<C: ContextObject> Executable<C> {
             .saturating_add(self.function_registry
             .iter()
             .fold(0, |state: usize, (_, (val, name))| state
-                .saturating_add(mem::size_of_val(&val)
+                .saturating_add(mem::size_of_val(val)
                 .saturating_add(mem::size_of_val(&name)
                 .saturating_add(name.capacity())))))
             // loader built-in program
