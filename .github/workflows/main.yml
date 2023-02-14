@@ -38,7 +38,6 @@ jobs:
         export RUSTFLAGS="-D warnings"
         cargo build --verbose
         cargo test --verbose
-      if: matrix.rust != 'nightly'
       shell: bash
     - name: CLI - Lint
       run: |
@@ -51,7 +50,6 @@ jobs:
         export RUSTFLAGS="-D warnings"
         cargo build --manifest-path cli/Cargo.toml --verbose
         cargo test --manifest-path cli/Cargo.toml --verbose
-      if: matrix.rust != 'nightly'
       shell: bash
     - name: Check fuzz
       run: |
