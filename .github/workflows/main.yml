@@ -24,14 +24,14 @@ jobs:
       run: |
         rustup update ${{ matrix.rust }} --no-self-update
         rustup default ${{ matrix.rust }}
-        rustup component add clippy-preview
+        rustup component add clippy
         rustup component add rustfmt
       shell: bash
     - name: Lint
       run: |
         cargo fmt --all -- --check
         cargo clippy --all --tests -- --deny=warnings
-      if: matrix.rust != 'nightly'
+      if: matrix.rust == 'nightly'
       shell: bash
     - name: Build and test
       run: |
@@ -40,11 +40,15 @@ jobs:
         cargo test --verbose
       if: matrix.rust != 'nightly'
       shell: bash
-    - name: Check CLI
+    - name: CLI - Lint
       run: |
-        export RUSTFLAGS="-D warnings"
         cargo fmt --all --manifest-path cli/Cargo.toml -- --check
         cargo clippy --all --tests --manifest-path cli/Cargo.toml -- --deny=warnings
+      if: matrix.rust == 'nightly'
+      shell: bash
+    - name: CLI - Build and test
+      run: |
+        export RUSTFLAGS="-D warnings"
         cargo build --manifest-path cli/Cargo.toml --verbose
         cargo test --manifest-path cli/Cargo.toml --verbose
       if: matrix.rust != 'nightly'
