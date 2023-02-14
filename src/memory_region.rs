@@ -8,7 +8,7 @@ use crate::{
 };
 use std::{
     array,
-    cell::UnsafeCell,
+    cell::{Cell, UnsafeCell},
     fmt, mem,
     ops::Range,
     ptr::{self, copy_nonoverlapping},
@@ -31,12 +31,14 @@ use std::{
     Host:  frame 0 | frame 1 | frame 2 | ...
 */
 
+type CowCallback = Box<dyn Fn() -> Result<u64, ()>>;
+
 /// Memory region for bounds checking and address translation
-#[derive(PartialEq, Eq, Default)]
+#[derive(Default)]
 #[repr(C, align(32))]
 pub struct MemoryRegion {
     /// start host address
-    pub host_addr: u64,
+    pub host_addr: Cell<u64>,
     /// start virtual address
     pub vm_addr: u64,
     /// end virtual address
@@ -47,10 +49,31 @@ pub struct MemoryRegion {
     pub vm_gap_shift: u8,
     /// Is also writable (otherwise it is readonly)
     pub is_writable: bool,
+    /// Callback executed when a CoW region is first written to.
+    pub cow_cb: Cell<Option<CowCallback>>,
 }
 
+impl PartialEq for MemoryRegion {
+    fn eq(&self, other: &Self) -> bool {
+        self.host_addr == other.host_addr
+            && self.vm_addr == other.vm_addr
+            && self.vm_addr_end == other.vm_addr_end
+            && self.len == other.len
+            && self.vm_gap_shift == other.vm_gap_shift
+            && self.is_writable == other.is_writable
+    }
+}
+
+impl Eq for MemoryRegion {}
+
 impl MemoryRegion {
-    fn new(slice: &[u8], vm_addr: u64, vm_gap_size: u64, is_writable: bool) -> Self {
+    fn new(
+        slice: &[u8],
+        vm_addr: u64,
+        vm_gap_size: u64,
+        is_writable: bool,
+        cow_cb: Option<CowCallback>,
+    ) -> Self {
         let mut vm_gap_shift = (std::mem::size_of::<u64>() as u8)
             .saturating_mul(8)
             .saturating_sub(1);
@@ -59,12 +82,13 @@ impl MemoryRegion {
             debug_assert_eq!(Some(vm_gap_size), 1_u64.checked_shl(vm_gap_shift as u32));
         };
         MemoryRegion {
-            host_addr: slice.as_ptr() as u64,
+            host_addr: Cell::new(slice.as_ptr() as u64),
             vm_addr,
             vm_addr_end: vm_addr.saturating_add(slice.len() as u64),
             len: slice.len() as u64,
             vm_gap_shift,
             is_writable,
+            cow_cb: Cell::new(cow_cb),
         }
     }
 
@@ -75,22 +99,30 @@ impl MemoryRegion {
         vm_gap_size: u64,
         is_writable: bool,
     ) -> Self {
-        Self::new(slice, vm_addr, vm_gap_size, is_writable)
+        Self::new(slice, vm_addr, vm_gap_size, is_writable, None)
     }
 
     /// Creates a new readonly MemoryRegion from a slice
     pub fn new_readonly(slice: &[u8], vm_addr: u64) -> Self {
-        Self::new(slice, vm_addr, 0, false)
+        Self::new(slice, vm_addr, 0, false, None)
     }
 
     /// Creates a new writable MemoryRegion from a mutable slice
     pub fn new_writable(slice: &mut [u8], vm_addr: u64) -> Self {
-        Self::new(slice, vm_addr, 0, true)
+        Self::new(slice, vm_addr, 0, true, None)
+    }
+
+    /// Creates a new writable MemoryRegion, using copy on write.
+    ///
+    /// The first time the region is written to, the `cow_cb` callback is
+    /// executed to perform the CoW logic.
+    pub fn new_cow(slice: &[u8], vm_addr: u64, cow_cb: CowCallback) -> Self {
+        Self::new(slice, vm_addr, 0, true, Some(cow_cb))
     }
 
     /// Creates a new writable gapped MemoryRegion from a mutable slice
     pub fn new_writable_gapped(slice: &mut [u8], vm_addr: u64, vm_gap_size: u64) -> Self {
-        Self::new(slice, vm_addr, vm_gap_size, true)
+        Self::new(slice, vm_addr, vm_gap_size, true, None)
     }
 
     /// Convert a virtual machine address into a host address
@@ -113,10 +145,25 @@ impl MemoryRegion {
             (begin_offset & gap_mask).checked_shr(1).unwrap_or(0) | (begin_offset & !gap_mask);
         if let Some(end_offset) = gapped_offset.checked_add(len) {
             if end_offset <= self.len && !is_in_gap {
-                return ProgramResult::Ok(self.host_addr.saturating_add(gapped_offset));
+                return ProgramResult::Ok(self.host_addr.get().saturating_add(gapped_offset));
             }
         }
         ProgramResult::Err(EbpfError::InvalidVirtualAddress(vm_addr))
+    }
+
+    fn ensure_writable(&self) -> bool {
+        if !self.is_writable {
+            return false;
+        }
+
+        if let Some(cb) = self.cow_cb.take() {
+            match cb() {
+                Ok(host_addr) => self.host_addr.replace(host_addr),
+                Err(_) => return false,
+            };
+        }
+
+        true
     }
 }
 
@@ -126,7 +173,7 @@ impl fmt::Debug for MemoryRegion {
             f,
             "host_addr: {:#x?}-{:#x?}, vm_addr: {:#x?}-{:#x?}, len: {}",
             self.host_addr,
-            self.host_addr.saturating_add(self.len),
+            self.host_addr.get().saturating_add(self.len),
             self.vm_addr,
             self.vm_addr.saturating_add(self.len),
             self.len
@@ -260,7 +307,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
             None => return generate_access_violation(self.config, access_type, vm_addr, len, pc),
         };
 
-        if access_type == AccessType::Load || region.is_writable {
+        if access_type == AccessType::Load || region.ensure_writable() {
             if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len) {
                 return ProgramResult::Ok(host_addr);
             }
@@ -352,7 +399,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         let mut src = &value as *const _ as *const u8;
 
         let mut region = match self.find_region(cache, vm_addr) {
-            Some(region) if region.is_writable => {
+            Some(region) if region.ensure_writable() => {
                 // fast path
                 if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len) {
                     // Safety:
@@ -373,9 +420,10 @@ impl<'a> UnalignedMemoryMapping<'a> {
         let initial_vm_addr = vm_addr;
 
         while len > 0 {
-            if !region.is_writable {
+            if !region.ensure_writable() {
                 break;
             }
+
             let write_len = len.min(region.vm_addr_end.saturating_sub(vm_addr));
             if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, write_len) {
                 // Safety:
@@ -416,7 +464,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         let cache = unsafe { &mut *self.cache.get() };
         if let Some(region) = self.find_region(cache, vm_addr) {
             if (region.vm_addr..region.vm_addr_end).contains(&vm_addr)
-                && (access_type == AccessType::Load || region.is_writable)
+                && (access_type == AccessType::Load || region.ensure_writable())
             {
                 return Ok(region);
             }
@@ -478,7 +526,7 @@ impl<'a> AlignedMemoryMapping<'a> {
             .unwrap_or(0) as usize;
         if (1..self.regions.len()).contains(&index) {
             let region = &self.regions[index];
-            if access_type == AccessType::Load || region.is_writable {
+            if access_type == AccessType::Load || region.ensure_writable() {
                 if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, len) {
                     return ProgramResult::Ok(host_addr);
                 }
@@ -535,7 +583,7 @@ impl<'a> AlignedMemoryMapping<'a> {
         if (1..self.regions.len()).contains(&index) {
             let region = &self.regions[index];
             if (region.vm_addr..region.vm_addr_end).contains(&vm_addr)
-                && (access_type == AccessType::Load || region.is_writable)
+                && (access_type == AccessType::Load || region.ensure_writable())
             {
                 return Ok(region);
             }
@@ -748,6 +796,8 @@ impl MappingCache {
 
 #[cfg(test)]
 mod test {
+    use std::{cell::RefCell, sync::Arc};
+
     use super::*;
 
     #[test]
@@ -1147,5 +1197,122 @@ mod test {
             m.map(AccessType::Load, ebpf::MM_STACK_START, 1, 0).unwrap(),
             mem3.as_ptr() as u64
         );
+    }
+
+    #[test]
+    fn test_cow_map() {
+        for aligned_memory_mapping in [true, false] {
+            let config = Config {
+                aligned_memory_mapping,
+                ..Config::default()
+            };
+            let original = [11, 22];
+            let copied = Arc::new(RefCell::new(Vec::new()));
+
+            let c = Arc::clone(&copied);
+            let m = MemoryMapping::new(
+                vec![MemoryRegion::new_cow(
+                    &original,
+                    ebpf::MM_PROGRAM_START,
+                    Box::new(move || {
+                        c.borrow_mut().extend_from_slice(&original);
+                        Ok(c.borrow().as_slice().as_ptr() as u64)
+                    }),
+                )],
+                &config,
+            )
+            .unwrap();
+
+            assert_eq!(
+                m.map(AccessType::Load, ebpf::MM_PROGRAM_START, 1, 0)
+                    .unwrap(),
+                original.as_ptr() as u64
+            );
+            assert_eq!(
+                m.map(AccessType::Store, ebpf::MM_PROGRAM_START, 1, 0)
+                    .unwrap(),
+                copied.borrow().as_ptr() as u64
+            );
+        }
+    }
+
+    #[test]
+    fn test_cow_load_store() {
+        for aligned_memory_mapping in [true, false] {
+            let config = Config {
+                aligned_memory_mapping,
+                ..Config::default()
+            };
+            let original = [11, 22];
+            let copied = Arc::new(RefCell::new(Vec::new()));
+
+            let c = Arc::clone(&copied);
+            let m = MemoryMapping::new(
+                vec![MemoryRegion::new_cow(
+                    &original,
+                    ebpf::MM_PROGRAM_START,
+                    Box::new(move || {
+                        c.borrow_mut().extend_from_slice(&original);
+                        Ok(c.borrow().as_slice().as_ptr() as u64)
+                    }),
+                )],
+                &config,
+            )
+            .unwrap();
+
+            assert_eq!(
+                m.map(AccessType::Load, ebpf::MM_PROGRAM_START, 1, 0)
+                    .unwrap(),
+                original.as_ptr() as u64
+            );
+
+            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START, 0).unwrap(), 11);
+            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START + 1, 0).unwrap(), 22);
+            assert!(copied.borrow().is_empty());
+
+            m.store(33u8, ebpf::MM_PROGRAM_START, 0).unwrap();
+            assert_eq!(original[0], 11);
+            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START, 0).unwrap(), 33);
+            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START + 1, 0).unwrap(), 22);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "AccessViolation")]
+    fn test_map_cow_error() {
+        let config = Config::default();
+        let original = [11, 22];
+
+        let m = MemoryMapping::new(
+            vec![MemoryRegion::new_cow(
+                &original,
+                ebpf::MM_PROGRAM_START,
+                Box::new(|| Err(())),
+            )],
+            &config,
+        )
+        .unwrap();
+
+        m.map(AccessType::Store, ebpf::MM_PROGRAM_START, 1, 0)
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "AccessViolation")]
+    fn test_store_cow_error() {
+        let config = Config::default();
+        let original = [11, 22];
+
+        let m = MemoryMapping::new(
+            vec![MemoryRegion::new_cow(
+                &original,
+                ebpf::MM_PROGRAM_START,
+                Box::new(|| Err(())),
+            )],
+            &config,
+        )
+        .unwrap();
+
+        m.store(33u8, ebpf::MM_PROGRAM_START, 0).unwrap();
     }
 }
