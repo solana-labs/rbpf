@@ -12,7 +12,7 @@ use solana_rbpf::{
     static_analysis::Analysis,
     verifier::{RequisiteVerifier, Verifier},
     vm::{
-        ContextObject, EbpfVm, FunctionRegistry, ProgramResult, BuiltInProgram, TestContextObject,
+        BuiltInProgram, ContextObject, EbpfVm, FunctionRegistry, ProgramResult, TestContextObject,
         VerifiedExecutable,
     },
 };
@@ -63,6 +63,7 @@ fuzz_target!(|data: FuzzData| {
             &mut interp_context_object,
             &mut [],
             vec![interp_mem_region],
+            None,
         )
         .unwrap();
         let mut jit_context_object = TestContextObject::new(1 << 16);
@@ -72,6 +73,7 @@ fuzz_target!(|data: FuzzData| {
             &mut jit_context_object,
             &mut [],
             vec![jit_mem_region],
+            None,
         )
         .unwrap();
 

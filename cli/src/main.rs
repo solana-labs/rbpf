@@ -152,6 +152,7 @@ fn main() {
         &mut context_object,
         &mut heap,
         vec![mem_region],
+        None,
     )
     .unwrap();
 

@@ -53,6 +53,7 @@ macro_rules! test_interpreter_and_jit {
                 &mut context_object,
                 &mut [],
                 vec![mem_region],
+                None,
             )
             .unwrap();
             let (instruction_count_interpreter, result) = vm.execute_program(true);
@@ -75,6 +76,7 @@ macro_rules! test_interpreter_and_jit {
                 &mut context_object,
                 &mut [],
                 vec![mem_region],
+                None,
             )
             .unwrap();
             match compilation_result {
@@ -4050,6 +4052,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
             &mut context_object,
             &mut [],
             vec![mem_region],
+            None,
         )
         .unwrap();
         let (instruction_count_interpreter, result_interpreter) = vm.execute_program(true);
@@ -4068,6 +4071,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         &mut context_object,
         &mut [],
         vec![mem_region],
+        None,
     )
     .unwrap();
     let (instruction_count_jit, result_jit) = vm.execute_program(false);

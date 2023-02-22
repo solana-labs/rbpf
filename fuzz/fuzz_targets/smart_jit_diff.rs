@@ -9,7 +9,7 @@ use solana_rbpf::{
     insn_builder::{Arch, Instruction, IntoBytes},
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{EbpfVm, FunctionRegistry, BuiltInProgram, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, EbpfVm, FunctionRegistry, TestContextObject, VerifiedExecutable},
 };
 use test_utils::TautologyVerifier;
 
@@ -62,6 +62,7 @@ fuzz_target!(|data: FuzzData| {
             &mut interp_context_object,
             &mut [],
             vec![interp_mem_region],
+            None,
         )
         .unwrap();
         let mut jit_context_object = TestContextObject::new(1 << 16);
@@ -71,6 +72,7 @@ fuzz_target!(|data: FuzzData| {
             &mut jit_context_object,
             &mut [],
             vec![jit_mem_region],
+            None,
         )
         .unwrap();
 

@@ -9,7 +9,7 @@ use solana_rbpf::{
     elf::Executable,
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{EbpfVm, FunctionRegistry, BuiltInProgram, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, EbpfVm, FunctionRegistry, TestContextObject, VerifiedExecutable},
 };
 use test_utils::TautologyVerifier;
 
@@ -49,6 +49,7 @@ fuzz_target!(|data: DumbFuzzData| {
         &mut context_object,
         &mut [],
         vec![mem_region],
+        None,
     )
     .unwrap();
     let (_interp_ins_count, interp_res) = interp_vm.execute_program(true);

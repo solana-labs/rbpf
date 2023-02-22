@@ -18,7 +18,7 @@ use crate::{
     elf::Executable,
     error::EbpfError,
     interpreter::Interpreter,
-    memory_region::{MemoryMapping, MemoryRegion},
+    memory_region::{MemoryCowCallback, MemoryMapping, MemoryRegion},
     static_analysis::{Analysis, TraceLogEntry},
     verifier::Verifier,
 };
@@ -488,7 +488,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
 /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
 /// let mut context_object = TestContextObject::new(1);
-/// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region]).unwrap();
+/// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region], None).unwrap();
 ///
 /// let (instruction_count, result) = vm.execute_program(true);
 /// assert_eq!(instruction_count, 1);
@@ -511,6 +511,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         context_object: &'a mut C,
         heap_region: &mut [u8],
         additional_regions: Vec<MemoryRegion>,
+        cow_cb: Option<MemoryCowCallback>,
     ) -> Result<EbpfVm<'a, V, C>, EbpfError> {
         let executable = verified_executable.get_executable();
         let config = executable.get_config();
@@ -552,7 +553,11 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                 stopwatch_numerator: 0,
                 stopwatch_denominator: 0,
                 program_result: ProgramResult::Ok(0),
-                memory_mapping: MemoryMapping::new(regions, config)?,
+                memory_mapping: if let Some(cow_cb) = cow_cb {
+                    MemoryMapping::new_with_cow(regions, cow_cb, config)?
+                } else {
+                    MemoryMapping::new(regions, config)?
+                },
                 call_frames: vec![CallFrame::default(); config.max_call_depth],
             },
         };

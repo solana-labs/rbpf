@@ -38,6 +38,7 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
         &mut context_object,
         &mut [],
         Vec::new(),
+        None,
     )
     .unwrap();
     bencher.iter(|| {
@@ -67,6 +68,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
         &mut context_object,
         &mut [],
         Vec::new(),
+        None,
     )
     .unwrap();
     bencher.iter(|| {
@@ -99,6 +101,7 @@ fn bench_jit_vs_interpreter(
         &mut context_object,
         &mut [],
         vec![mem_region],
+        None,
     )
     .unwrap();
     let interpreter_summary = bencher

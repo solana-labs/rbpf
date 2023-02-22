@@ -37,6 +37,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
             &mut context_object,
             &mut [],
             Vec::new(),
+            None,
         )
         .unwrap();
     });

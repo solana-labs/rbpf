@@ -68,6 +68,7 @@ fn test_verifier_success() {
         &mut TestContextObject::default(),
         &mut [],
         Vec::new(),
+        None,
     )
     .unwrap();
 }

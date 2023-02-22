@@ -134,6 +134,7 @@ fn test_fuzz_execute() {
                         &mut context_object,
                         &mut [],
                         Vec::new(),
+                        None,
                     )
                     .unwrap();
                     let _ = vm.execute_program(true);
