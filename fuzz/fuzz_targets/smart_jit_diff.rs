@@ -9,9 +9,9 @@ use solana_rbpf::{
     insn_builder::{Arch, Instruction, IntoBytes},
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{BuiltInProgram, EbpfVm, FunctionRegistry, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, FunctionRegistry, TestContextObject, VerifiedExecutable},
 };
-use test_utils::TautologyVerifier;
+use test_utils::{create_vm, TautologyVerifier};
 
 use crate::common::ConfigTemplate;
 
@@ -57,24 +57,27 @@ fuzz_target!(|data: FuzzData| {
     if verified_executable.jit_compile().is_ok() {
         let mut interp_context_object = TestContextObject::new(1 << 16);
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
-        let mut interp_vm = EbpfVm::new(
+        create_vm!(
+            interp_vm,
             &verified_executable,
             &mut interp_context_object,
-            &mut [],
+            interp_stack,
+            interp_heap,
             vec![interp_mem_region],
-            None,
-        )
-        .unwrap();
+            None
+        );
+
         let mut jit_context_object = TestContextObject::new(1 << 16);
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
-        let mut jit_vm = EbpfVm::new(
+        create_vm!(
+            jit_vm,
             &verified_executable,
             &mut jit_context_object,
-            &mut [],
+            jit_stack,
+            jit_heap,
             vec![jit_mem_region],
-            None,
-        )
-        .unwrap();
+            None
+        );
 
         let (_interp_ins_count, interp_res) = interp_vm.execute_program(true);
         let (_jit_ins_count, jit_res) = jit_vm.execute_program(false);

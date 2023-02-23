@@ -11,11 +11,11 @@ extern crate test;
 
 use solana_rbpf::{
     elf::Executable,
-    vm::{BuiltInProgram, Config, EbpfVm, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, Config, TestContextObject, VerifiedExecutable},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;
-use test_utils::TautologyVerifier;
+use test_utils::{create_vm, TautologyVerifier};
 
 #[bench]
 fn bench_init_vm(bencher: &mut Bencher) {
@@ -32,14 +32,15 @@ fn bench_init_vm(bencher: &mut Bencher) {
             .unwrap();
     bencher.iter(|| {
         let mut context_object = TestContextObject::default();
-        EbpfVm::new(
+        create_vm!(
+            _vm,
             &verified_executable,
             &mut context_object,
-            &mut [],
+            stack,
+            heap,
             Vec::new(),
-            None,
-        )
-        .unwrap();
+            None
+        );
     });
 }
 

@@ -27,10 +27,10 @@ use solana_rbpf::{
     ebpf,
     elf::Executable,
     verifier::{RequisiteVerifier, Verifier, VerifierError},
-    vm::{BuiltInProgram, Config, EbpfVm, FunctionRegistry, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, Config, FunctionRegistry, TestContextObject, VerifiedExecutable},
 };
 use std::sync::Arc;
-use test_utils::TautologyVerifier;
+use test_utils::{create_vm, TautologyVerifier};
 use thiserror::Error;
 
 /// Error definitions
@@ -63,14 +63,15 @@ fn test_verifier_success() {
     let verified_executable =
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
-    let _vm = EbpfVm::<TautologyVerifier, TestContextObject>::new(
+    create_vm!(
+        _vm,
         &verified_executable,
         &mut TestContextObject::default(),
-        &mut [],
+        stack,
+        heap,
         Vec::new(),
-        None,
-    )
-    .unwrap();
+        None
+    );
 }
 
 #[test]

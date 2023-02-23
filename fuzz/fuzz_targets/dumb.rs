@@ -9,9 +9,9 @@ use solana_rbpf::{
     elf::Executable,
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{BuiltInProgram, EbpfVm, FunctionRegistry, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, FunctionRegistry, TestContextObject, VerifiedExecutable},
 };
-use test_utils::TautologyVerifier;
+use test_utils::{create_vm, TautologyVerifier};
 
 use crate::common::ConfigTemplate;
 
@@ -44,14 +44,16 @@ fuzz_target!(|data: DumbFuzzData| {
             .unwrap();
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut context_object = TestContextObject::new(29);
-    let mut interp_vm = EbpfVm::new(
+    create_vm!(
+        interp_vm,
         &verified_executable,
         &mut context_object,
-        &mut [],
+        stack,
+        heap,
         vec![mem_region],
-        None,
-    )
-    .unwrap();
+        None
+    );
+
     let (_interp_ins_count, interp_res) = interp_vm.execute_program(true);
     drop(black_box(interp_res));
 });

@@ -13,11 +13,11 @@ use solana_rbpf::{
     ebpf,
     elf::Executable,
     memory_region::MemoryRegion,
-    vm::{BuiltInProgram, Config, EbpfVm, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, Config, TestContextObject, VerifiedExecutable},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;
-use test_utils::TautologyVerifier;
+use test_utils::{create_vm, TautologyVerifier};
 
 #[bench]
 fn bench_init_interpreter_execution(bencher: &mut Bencher) {
@@ -33,14 +33,15 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
         VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
             .unwrap();
     let mut context_object = TestContextObject::default();
-    let mut vm = EbpfVm::new(
+    create_vm!(
+        vm,
         &verified_executable,
         &mut context_object,
-        &mut [],
+        stack,
+        heap,
         Vec::new(),
-        None,
-    )
-    .unwrap();
+        None
+    );
     bencher.iter(|| {
         vm.env.context_object_pointer.remaining = 37;
         vm.execute_program(true).1.unwrap()
@@ -63,14 +64,15 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
             .unwrap();
     verified_executable.jit_compile().unwrap();
     let mut context_object = TestContextObject::default();
-    let mut vm = EbpfVm::new(
+    create_vm!(
+        vm,
         &verified_executable,
         &mut context_object,
-        &mut [],
+        stack,
+        heap,
         Vec::new(),
-        None,
-    )
-    .unwrap();
+        None
+    );
     bencher.iter(|| {
         vm.env.context_object_pointer.remaining = 37;
         vm.execute_program(false).1.unwrap()
@@ -96,14 +98,15 @@ fn bench_jit_vs_interpreter(
     verified_executable.jit_compile().unwrap();
     let mut context_object = TestContextObject::default();
     let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::new(
+    create_vm!(
+        vm,
         &verified_executable,
         &mut context_object,
-        &mut [],
+        stack,
+        heap,
         vec![mem_region],
-        None,
-    )
-    .unwrap();
+        None
+    );
     let interpreter_summary = bencher
         .bench(|bencher| {
             bencher.iter(|| {

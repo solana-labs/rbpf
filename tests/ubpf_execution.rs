@@ -24,12 +24,12 @@ use solana_rbpf::{
     syscalls,
     verifier::RequisiteVerifier,
     vm::{
-        BuiltInProgram, Config, ContextObject, EbpfVm, FunctionRegistry, ProgramResult,
-        TestContextObject, VerifiedExecutable,
+        BuiltInProgram, Config, ContextObject, FunctionRegistry, ProgramResult, TestContextObject,
+        VerifiedExecutable,
     },
 };
 use std::{fs::File, io::Read, sync::Arc};
-use test_utils::{PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
+use test_utils::{create_vm, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 
 macro_rules! test_interpreter_and_jit {
     (register, $loader:expr, $location:expr => $syscall_function:expr) => {
@@ -48,14 +48,15 @@ macro_rules! test_interpreter_and_jit {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
             let mut context_object = $context_object;
-            let mut vm = EbpfVm::new(
+            create_vm!(
+                vm,
                 &verified_executable,
                 &mut context_object,
-                &mut [],
+                stack,
+                heap,
                 vec![mem_region],
-                None,
-            )
-            .unwrap();
+                None
+            );
             let (instruction_count_interpreter, result) = vm.execute_program(true);
             assert!(check_closure(&vm, result));
             (
@@ -71,14 +72,15 @@ macro_rules! test_interpreter_and_jit {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
             let mut context_object = $context_object;
-            let mut vm = EbpfVm::new(
+            create_vm!(
+                vm,
                 &verified_executable,
                 &mut context_object,
-                &mut [],
+                stack,
+                heap,
                 vec![mem_region],
-                None,
-            )
-            .unwrap();
+                None
+            );
             match compilation_result {
                 Err(err) => assert!(check_closure(&vm, ProgramResult::Err(err))),
                 Ok(()) => {
@@ -4047,14 +4049,15 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         let mut mem = vec![0u8; mem_size];
         let mut context_object = TestContextObject::new(max_instruction_count);
         let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-        let mut vm = EbpfVm::new(
+        create_vm!(
+            vm,
             &verified_executable,
             &mut context_object,
-            &mut [],
+            stack,
+            heap,
             vec![mem_region],
-            None,
-        )
-        .unwrap();
+            None
+        );
         let (instruction_count_interpreter, result_interpreter) = vm.execute_program(true);
         let tracer_interpreter = vm.env.context_object_pointer.clone();
         (
@@ -4066,14 +4069,15 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let mut mem = vec![0u8; mem_size];
     let mut context_object = TestContextObject::new(max_instruction_count);
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-    let mut vm = EbpfVm::new(
+    create_vm!(
+        vm,
         &verified_executable,
         &mut context_object,
-        &mut [],
+        stack,
+        heap,
         vec![mem_region],
-        None,
-    )
-    .unwrap();
+        None
+    );
     let (instruction_count_jit, result_jit) = vm.execute_program(false);
     let tracer_jit = &vm.env.context_object_pointer;
     if format!("{result_interpreter:?}") != format!("{result_jit:?}")

@@ -27,9 +27,10 @@ use solana_rbpf::{
     fuzz::fuzz,
     syscalls,
     verifier::RequisiteVerifier,
-    vm::{BuiltInProgram, EbpfVm, TestContextObject, VerifiedExecutable},
+    vm::{BuiltInProgram, TestContextObject, VerifiedExecutable},
 };
 use std::{fs::File, io::Read, sync::Arc};
+use test_utils::create_vm;
 
 // The following two examples have been compiled from C with the following command:
 //
@@ -129,14 +130,15 @@ fn test_fuzz_execute() {
                 >::from_executable(executable)
                 {
                     let mut context_object = TestContextObject::new(1_000_000);
-                    let mut vm = EbpfVm::<RequisiteVerifier, TestContextObject>::new(
+                    create_vm!(
+                        vm,
                         &verified_executable,
                         &mut context_object,
-                        &mut [],
+                        stack,
+                        heap,
                         Vec::new(),
-                        None,
-                    )
-                    .unwrap();
+                        None
+                    );
                     let _ = vm.execute_program(true);
                 }
             }

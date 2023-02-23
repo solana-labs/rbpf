@@ -8,8 +8,14 @@
 
 #![allow(dead_code)]
 
-extern crate libc;
-extern crate solana_rbpf;
+use solana_rbpf::{
+    aligned_memory::AlignedMemory,
+    ebpf::{self, HOST_ALIGN},
+    elf::Executable,
+    error::EbpfError,
+    memory_region::{MemoryCowCallback, MemoryMapping, MemoryRegion},
+    vm::ContextObject,
+};
 
 // Assembly code and data for tcp_sack testcases.
 
@@ -161,4 +167,66 @@ impl solana_rbpf::verifier::Verifier for TautologyVerifier {
     ) -> std::result::Result<(), solana_rbpf::verifier::VerifierError> {
         Ok(())
     }
+}
+
+pub fn create_memory_mapping<'a, C: ContextObject>(
+    executable: &'a Executable<C>,
+    stack: &'a mut AlignedMemory<{ HOST_ALIGN }>,
+    heap: &'a mut AlignedMemory<{ HOST_ALIGN }>,
+    additional_regions: Vec<MemoryRegion>,
+    cow_cb: Option<MemoryCowCallback>,
+) -> Result<MemoryMapping<'a>, EbpfError> {
+    let config = executable.get_config();
+    let regions: Vec<MemoryRegion> = vec![
+        executable.get_ro_region(),
+        MemoryRegion::new_writable_gapped(
+            stack.as_slice_mut(),
+            ebpf::MM_STACK_START,
+            if !config.dynamic_stack_frames && config.enable_stack_frame_gaps {
+                config.stack_frame_size as u64
+            } else {
+                0
+            },
+        ),
+        MemoryRegion::new_writable(heap.as_slice_mut(), ebpf::MM_HEAP_START),
+    ]
+    .into_iter()
+    .chain(additional_regions.into_iter())
+    .collect();
+
+    Ok(if let Some(cow_cb) = cow_cb {
+        MemoryMapping::new_with_cow(regions, cow_cb, config)?
+    } else {
+        MemoryMapping::new(regions, config)?
+    })
+}
+
+#[macro_export]
+macro_rules! create_vm {
+    ($vm_name:ident, $verified_executable:expr, $context_object:expr, $stack:ident, $heap:ident, $additional_regions:expr, $cow_cb:expr) => {
+        let mut $stack = solana_rbpf::aligned_memory::AlignedMemory::zero_filled(
+            $verified_executable
+                .get_executable()
+                .get_config()
+                .stack_size(),
+        );
+        let mut $heap = solana_rbpf::aligned_memory::AlignedMemory::with_capacity(0);
+        let stack_len = $stack.len();
+        let memory_mapping = test_utils::create_memory_mapping(
+            $verified_executable.get_executable(),
+            &mut $stack,
+            &mut $heap,
+            $additional_regions,
+            $cow_cb,
+        )
+        .unwrap();
+
+        let mut $vm_name = solana_rbpf::vm::EbpfVm::new(
+            $verified_executable,
+            $context_object,
+            memory_mapping,
+            stack_len,
+        )
+        .unwrap();
+    };
 }

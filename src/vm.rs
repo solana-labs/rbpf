@@ -13,12 +13,11 @@
 //! Virtual machine for eBPF programs.
 
 use crate::{
-    aligned_memory::AlignedMemory,
     ebpf,
     elf::Executable,
     error::EbpfError,
     interpreter::Interpreter,
-    memory_region::{MemoryCowCallback, MemoryMapping, MemoryRegion},
+    memory_region::MemoryMapping,
     static_analysis::{Analysis, TraceLogEntry},
     verifier::Verifier,
 };
@@ -473,7 +472,14 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{ebpf, elf::Executable, memory_region::MemoryRegion, vm::{Config, EbpfVm, TestContextObject, FunctionRegistry, BuiltInProgram, VerifiedExecutable}, verifier::RequisiteVerifier};
+/// use solana_rbpf::{
+///     aligned_memory::AlignedMemory,
+///     ebpf,
+///     elf::Executable,
+///     memory_region::{MemoryMapping, MemoryRegion},
+///     verifier::RequisiteVerifier,
+///     vm::{BuiltInProgram, Config, EbpfVm, FunctionRegistry, TestContextObject, VerifiedExecutable},
+/// };
 ///
 /// let prog = &[
 ///     0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // exit
@@ -485,10 +491,32 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// let loader = std::sync::Arc::new(BuiltInProgram::new_loader(Config::default()));
 /// let function_registry = FunctionRegistry::default();
 /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, loader, function_registry).unwrap();
-/// let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
 /// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
 /// let mut context_object = TestContextObject::new(1);
-/// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, &mut [], vec![mem_region], None).unwrap();
+/// let config = verified_executable.get_executable().get_config();
+///
+/// let mut stack = AlignedMemory::<{ebpf::HOST_ALIGN}>::zero_filled(config.stack_size());
+/// let stack_len = stack.len();
+/// let mut heap = AlignedMemory::<{ebpf::HOST_ALIGN}>::with_capacity(0);
+///
+/// let regions: Vec<MemoryRegion> = vec![
+///     verified_executable.get_executable().get_ro_region(),
+///     MemoryRegion::new_writable_gapped(
+///         stack.as_slice_mut(),
+///         ebpf::MM_STACK_START,
+///         if !config.dynamic_stack_frames && config.enable_stack_frame_gaps {
+///             config.stack_frame_size as u64
+///         } else {
+///             0
+///         },
+///     ),
+///     MemoryRegion::new_writable(heap.as_slice_mut(), ebpf::MM_HEAP_START),
+///     MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START),
+/// ];
+///
+/// let memory_mapping = MemoryMapping::new(regions, config).unwrap();
+///
+/// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, memory_mapping, stack_len).unwrap();
 ///
 /// let (instruction_count, result) = vm.execute_program(true);
 /// assert_eq!(instruction_count, 1);
@@ -496,7 +524,6 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// ```
 pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
     pub(crate) verified_executable: &'a VerifiedExecutable<V, C>,
-    _stack: AlignedMemory<{ ebpf::HOST_ALIGN }>,
     /// TCP port for the debugger interface
     #[cfg(feature = "debugger")]
     pub debug_port: Option<u16>,
@@ -505,43 +532,24 @@ pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
 }
 
 impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
-    /// Create a new virtual machine instance
+    /// Creates a new virtual machine instance.
     pub fn new(
         verified_executable: &'a VerifiedExecutable<V, C>,
         context_object: &'a mut C,
-        heap_region: &mut [u8],
-        additional_regions: Vec<MemoryRegion>,
-        cow_cb: Option<MemoryCowCallback>,
+        memory_mapping: MemoryMapping<'a>,
+        stack_len: usize,
     ) -> Result<EbpfVm<'a, V, C>, EbpfError> {
         let executable = verified_executable.get_executable();
         let config = executable.get_config();
-        let mut stack = AlignedMemory::zero_filled(config.stack_size());
         let stack_pointer = ebpf::MM_STACK_START.saturating_add(if config.dynamic_stack_frames {
             // the stack is fully descending, frames start as empty and change size anytime r11 is modified
-            stack.len()
+            stack_len
         } else {
             // within a frame the stack grows down, but frames are ascending
             config.stack_frame_size
         } as u64);
-        let regions: Vec<MemoryRegion> = vec![
-            verified_executable.get_executable().get_ro_region(),
-            MemoryRegion::new_writable_gapped(
-                stack.as_slice_mut(),
-                ebpf::MM_STACK_START,
-                if !config.dynamic_stack_frames && config.enable_stack_frame_gaps {
-                    config.stack_frame_size as u64
-                } else {
-                    0
-                },
-            ),
-            MemoryRegion::new_writable(heap_region, ebpf::MM_HEAP_START),
-        ]
-        .into_iter()
-        .chain(additional_regions.into_iter())
-        .collect();
         let vm = EbpfVm {
             verified_executable,
-            _stack: stack,
             #[cfg(feature = "debugger")]
             debug_port: None,
             env: RuntimeEnvironment {
@@ -553,11 +561,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                 stopwatch_numerator: 0,
                 stopwatch_denominator: 0,
                 program_result: ProgramResult::Ok(0),
-                memory_mapping: if let Some(cow_cb) = cow_cb {
-                    MemoryMapping::new_with_cow(regions, cow_cb, config)?
-                } else {
-                    MemoryMapping::new(regions, config)?
-                },
+                memory_mapping,
                 call_frames: vec![CallFrame::default(); config.max_call_depth],
             },
         };

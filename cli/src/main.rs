@@ -1,9 +1,10 @@
 use clap::{crate_version, App, Arg};
 use solana_rbpf::{
+    aligned_memory::AlignedMemory,
     assembler::assemble,
     ebpf,
     elf::Executable,
-    memory_region::MemoryRegion,
+    memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
     verifier::RequisiteVerifier,
     vm::{BuiltInProgram, Config, DynamicAnalysis, EbpfVm, TestContextObject, VerifiedExecutable},
@@ -127,19 +128,10 @@ fn main() {
             memory
         }
     };
-    let mut heap = vec![
-        0_u8;
-        matches
-            .value_of("memory")
-            .unwrap()
-            .parse::<usize>()
-            .unwrap()
-    ];
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     if matches.value_of("use") == Some("jit") {
         verified_executable.jit_compile().unwrap();
     }
-    let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut context_object = TestContextObject::new(
         matches
             .value_of("instruction limit")
@@ -147,12 +139,38 @@ fn main() {
             .parse::<u64>()
             .unwrap(),
     );
+    let config = verified_executable.get_executable().get_config();
+    let mut stack = AlignedMemory::<{ ebpf::HOST_ALIGN }>::zero_filled(config.stack_size());
+    let stack_len = stack.len();
+    let mut heap = AlignedMemory::<{ ebpf::HOST_ALIGN }>::zero_filled(
+        matches
+            .value_of("memory")
+            .unwrap()
+            .parse::<usize>()
+            .unwrap(),
+    );
+    let regions: Vec<MemoryRegion> = vec![
+        verified_executable.get_executable().get_ro_region(),
+        MemoryRegion::new_writable_gapped(
+            stack.as_slice_mut(),
+            ebpf::MM_STACK_START,
+            if !config.dynamic_stack_frames && config.enable_stack_frame_gaps {
+                config.stack_frame_size as u64
+            } else {
+                0
+            },
+        ),
+        MemoryRegion::new_writable(heap.as_slice_mut(), ebpf::MM_HEAP_START),
+        MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START),
+    ];
+
+    let memory_mapping = MemoryMapping::new(regions, config).unwrap();
+
     let mut vm = EbpfVm::new(
         &verified_executable,
         &mut context_object,
-        &mut heap,
-        vec![mem_region],
-        None,
+        memory_mapping,
+        stack_len,
     )
     .unwrap();
 
