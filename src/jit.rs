@@ -1311,7 +1311,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Routine for external functions
         self.set_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL);
-        self.emit_ins(X86Instruction::push(R11, None)); // Padding for stack alignment
+        self.emit_ins(X86Instruction::push_immediate(OperandSize::S64, -1)); // Used as PC value in error case, acts as stack padding otherwise
         if self.config.enable_instruction_meter {
             // RDI = *PreviousInstructionMeter - RDI;
             self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x2B, ARGUMENT_REGISTERS[0], RBP, 0, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::PreviousInstructionMeter))))); // RDI -= *PreviousInstructionMeter;
@@ -1335,14 +1335,14 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             self.emit_rust_call(Value::Constant64(C::get_remaining as *const u8 as i64, false), &[
                 Argument { index: 0, value: Value::RegisterIndirect(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::ContextObjectPointer), false) },
             ], Some(ARGUMENT_REGISTERS[0]));
-            self.emit_ins(X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::PreviousInstructionMeter))));
+            self.emit_ins(X86Instruction::store(OperandSize::S64, ARGUMENT_REGISTERS[0], RBP, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::PreviousInstructionMeter)))); // *PreviousInstructionMeter = RDI;
         }
 
         // Test if result indicates that an error occured
         self.emit_result_is_err(R11);
+        self.emit_ins(X86Instruction::pop(R11));
         self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_EXCEPTION, 6)));
         // Store Ok value in result register
-        self.emit_ins(X86Instruction::pop(R11));
         self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R11, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
         self.emit_ins(X86Instruction::load(OperandSize::S64, R11, REGISTER_MAP[0], X86IndirectAccess::Offset(8)));
         self.emit_ins(X86Instruction::return_near());
