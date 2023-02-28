@@ -31,6 +31,8 @@ use solana_rbpf::{
 use std::{fs::File, io::Read, sync::Arc};
 use test_utils::{create_vm, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
 
+const INSTRUCTION_METER_BUDGET: u64 = 1024;
+
 macro_rules! test_interpreter_and_jit {
     (register, $loader:expr, $location:expr => $syscall_function:expr) => {
         $loader
@@ -39,6 +41,14 @@ macro_rules! test_interpreter_and_jit {
     };
     ($executable:expr, $mem:tt, $context_object:expr, $expected_result:expr $(,)?) => {
         let expected_instruction_count = $context_object.get_remaining();
+        #[allow(unused_mut)]
+        let mut context_object = $context_object;
+        match $expected_result {
+            ProgramResult::Err(EbpfError::ExceededMaxInstructions(_, _)) => {}
+            _ => {
+                context_object.remaining = INSTRUCTION_METER_BUDGET;
+            }
+        }
         let expected_result = format!("{:?}", $expected_result);
         #[allow(unused_mut)]
         let mut verified_executable =
@@ -46,7 +56,7 @@ macro_rules! test_interpreter_and_jit {
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-            let mut context_object = $context_object;
+            let mut context_object = context_object.clone();
             create_vm!(
                 vm,
                 &verified_executable,
@@ -58,6 +68,12 @@ macro_rules! test_interpreter_and_jit {
             );
             let (instruction_count_interpreter, result) = vm.execute_program(true);
             assert_eq!(format!("{:?}", result), expected_result);
+            if result.is_ok() {
+                assert_eq!(
+                    instruction_count_interpreter, expected_instruction_count,
+                    "Instruction meter did not consume expected amount",
+                );
+            }
             (
                 instruction_count_interpreter,
                 vm.env.context_object_pointer.clone(),
@@ -69,7 +85,6 @@ macro_rules! test_interpreter_and_jit {
             let compilation_result = verified_executable.jit_compile();
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
-            let mut context_object = $context_object;
             create_vm!(
                 vm,
                 &verified_executable,
@@ -103,13 +118,10 @@ macro_rules! test_interpreter_and_jit {
                             .unwrap();
                         panic!();
                     }
-                    if verified_executable
-                        .get_executable()
-                        .get_config()
-                        .enable_instruction_meter
-                    {
-                        assert_eq!(instruction_count_interpreter, instruction_count_jit);
-                    }
+                    assert_eq!(
+                        instruction_count_interpreter, instruction_count_jit,
+                        "Interpreter and JIT instruction meter diverged",
+                    );
                 }
             }
         }
