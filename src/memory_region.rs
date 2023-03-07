@@ -370,6 +370,9 @@ impl<'a> UnalignedMemoryMapping<'a> {
 
         while len > 0 {
             let load_len = len.min(region.vm_addr_end.saturating_sub(vm_addr));
+            if load_len == 0 {
+                break;
+            }
             if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, load_len) {
                 // Safety:
                 // we debug_assert!(len <= mem::size_of::<u64>()) so we never
@@ -441,6 +444,9 @@ impl<'a> UnalignedMemoryMapping<'a> {
             }
 
             let write_len = len.min(region.vm_addr_end.saturating_sub(vm_addr));
+            if write_len == 0 {
+                break;
+            }
             if let ProgramResult::Ok(host_addr) = region.vm_to_host(vm_addr, write_len) {
                 // Safety:
                 // vm_to_host() succeeded so we have enough space for write_len
@@ -992,13 +998,13 @@ mod test {
     #[test]
     fn test_unaligned_map() {
         let config = Config::default();
-        let mem1 = [11];
+        let mut mem1 = [11];
         let mem2 = [22, 22];
         let mem3 = [33];
         let mem4 = [44, 44];
         let m = UnalignedMemoryMapping::new(
             vec![
-                MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START),
+                MemoryRegion::new_writable(&mut mem1, ebpf::MM_INPUT_START),
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64),
                 MemoryRegion::new_readonly(
                     &mem3,
@@ -1017,6 +1023,17 @@ mod test {
             m.map(AccessType::Load, ebpf::MM_INPUT_START, 1, 0).unwrap(),
             mem1.as_ptr() as u64
         );
+
+        assert_eq!(
+            m.map(AccessType::Store, ebpf::MM_INPUT_START, 1, 0)
+                .unwrap(),
+            mem1.as_ptr() as u64
+        );
+
+        assert!(matches!(
+            m.map(AccessType::Load, ebpf::MM_INPUT_START, 2, 0),
+            ProgramResult::Err(EbpfError::AccessViolation(..))
+        ));
 
         assert_eq!(
             m.map(
@@ -1059,6 +1076,129 @@ mod test {
                 0,
             ),
             ProgramResult::Err(EbpfError::AccessViolation(..))
+        ));
+    }
+
+    #[test]
+    fn test_unaligned_region() {
+        let config = Config {
+            aligned_memory_mapping: false,
+            ..Config::default()
+        };
+
+        let mut mem1 = vec![0xFF; 4];
+        let mem2 = vec![0xDD; 4];
+        let m = MemoryMapping::new(
+            vec![
+                MemoryRegion::new_writable(&mut mem1, ebpf::MM_INPUT_START),
+                MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + 4),
+            ],
+            &config,
+        )
+        .unwrap();
+        assert!(matches!(
+            m.region(AccessType::Load, ebpf::MM_INPUT_START - 1),
+            Err(EbpfError::AccessViolation(..))
+        ));
+        assert_eq!(
+            m.region(AccessType::Load, ebpf::MM_INPUT_START)
+                .unwrap()
+                .host_addr
+                .get(),
+            mem1.as_ptr() as u64
+        );
+        assert_eq!(
+            m.region(AccessType::Load, ebpf::MM_INPUT_START + 3)
+                .unwrap()
+                .host_addr
+                .get(),
+            mem1.as_ptr() as u64
+        );
+        assert!(matches!(
+            m.region(AccessType::Store, ebpf::MM_INPUT_START + 4),
+            Err(EbpfError::AccessViolation(..))
+        ));
+        assert_eq!(
+            m.region(AccessType::Load, ebpf::MM_INPUT_START + 4)
+                .unwrap()
+                .host_addr
+                .get(),
+            mem2.as_ptr() as u64
+        );
+        assert_eq!(
+            m.region(AccessType::Load, ebpf::MM_INPUT_START + 7)
+                .unwrap()
+                .host_addr
+                .get(),
+            mem2.as_ptr() as u64
+        );
+        assert!(matches!(
+            m.region(AccessType::Load, ebpf::MM_INPUT_START + 8),
+            Err(EbpfError::AccessViolation(..))
+        ));
+    }
+
+    #[test]
+    fn test_aligned_region() {
+        let config = Config {
+            aligned_memory_mapping: true,
+            ..Config::default()
+        };
+
+        let mut mem1 = vec![0xFF; 4];
+        let mem2 = vec![0xDD; 4];
+        let m = MemoryMapping::new(
+            vec![
+                MemoryRegion::new_writable(&mut mem1, ebpf::MM_PROGRAM_START),
+                MemoryRegion::new_readonly(&mem2, ebpf::MM_STACK_START),
+            ],
+            &config,
+        )
+        .unwrap();
+        assert!(matches!(
+            m.region(AccessType::Load, ebpf::MM_PROGRAM_START - 1),
+            Err(EbpfError::AccessViolation(..))
+        ));
+        assert_eq!(
+            m.region(AccessType::Load, ebpf::MM_PROGRAM_START)
+                .unwrap()
+                .host_addr
+                .get(),
+            mem1.as_ptr() as u64
+        );
+        assert_eq!(
+            m.region(AccessType::Load, ebpf::MM_PROGRAM_START + 3)
+                .unwrap()
+                .host_addr
+                .get(),
+            mem1.as_ptr() as u64
+        );
+        assert!(matches!(
+            m.region(AccessType::Load, ebpf::MM_PROGRAM_START + 4),
+            Err(EbpfError::AccessViolation(..))
+        ));
+
+        assert!(matches!(
+            m.region(AccessType::Store, ebpf::MM_STACK_START),
+            Err(EbpfError::AccessViolation(..))
+        ));
+        assert_eq!(
+            m.region(AccessType::Load, ebpf::MM_STACK_START)
+                .unwrap()
+                .host_addr
+                .get(),
+            mem2.as_ptr() as u64
+        );
+        assert_eq!(
+            m.region(AccessType::Load, ebpf::MM_STACK_START + 3)
+                .unwrap()
+                .host_addr
+                .get(),
+            mem2.as_ptr() as u64
+        );
+        assert!(matches!(
+            m.region(AccessType::Load, ebpf::MM_INPUT_START + 4),
+            Err(EbpfError::AccessViolation(..))
         ));
     }
 
@@ -1144,6 +1284,166 @@ mod test {
             m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
             0x778899AABBCCDDEE
         );
+    }
+
+    #[test]
+    fn test_unaligned_map_load_store_fast_paths() {
+        let config = Config {
+            aligned_memory_mapping: false,
+            ..Config::default()
+        };
+        let mut mem1 = vec![0xff; 8];
+        let m = MemoryMapping::new(
+            vec![MemoryRegion::new_writable(&mut mem1, ebpf::MM_INPUT_START)],
+            &config,
+        )
+        .unwrap();
+
+        m.store(0x1122334455667788u64, ebpf::MM_INPUT_START, 0)
+            .unwrap();
+        assert_eq!(
+            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
+            0x1122334455667788
+        );
+        m.store(0x22334455u32, ebpf::MM_INPUT_START, 0).unwrap();
+        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START, 0).unwrap(), 0x22334455);
+
+        m.store(0x3344u16, ebpf::MM_INPUT_START, 0).unwrap();
+        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START, 0).unwrap(), 0x3344);
+
+        m.store(0x55u8, ebpf::MM_INPUT_START, 0).unwrap();
+        assert_eq!(m.load::<u8>(ebpf::MM_INPUT_START, 0).unwrap(), 0x55);
+    }
+
+    #[test]
+    fn test_unaligned_map_load_store_slow_paths() {
+        let config = Config {
+            aligned_memory_mapping: false,
+            ..Config::default()
+        };
+        let mut mem1 = vec![0xff; 7];
+        let mut mem2 = vec![0xff];
+        let m = MemoryMapping::new(
+            vec![
+                MemoryRegion::new_writable(&mut mem1, ebpf::MM_INPUT_START),
+                MemoryRegion::new_writable(&mut mem2, ebpf::MM_INPUT_START + 7),
+            ],
+            &config,
+        )
+        .unwrap();
+
+        m.store(0x1122334455667788u64, ebpf::MM_INPUT_START, 0)
+            .unwrap();
+        assert_eq!(
+            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
+            0x1122334455667788
+        );
+        m.store(0xAABBCCDDu32, ebpf::MM_INPUT_START + 4, 0).unwrap();
+        assert_eq!(
+            m.load::<u32>(ebpf::MM_INPUT_START + 4, 0).unwrap(),
+            0xAABBCCDD
+        );
+
+        m.store(0xEEFFu16, ebpf::MM_INPUT_START + 6, 0).unwrap();
+        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START + 6, 0).unwrap(), 0xEEFF);
+    }
+
+    #[test]
+    fn test_unaligned_map_store_out_of_bounds() {
+        let config = Config {
+            aligned_memory_mapping: false,
+            ..Config::default()
+        };
+
+        let mut mem1 = vec![0xFF];
+        let m = MemoryMapping::new(
+            vec![MemoryRegion::new_writable(&mut mem1, ebpf::MM_INPUT_START)],
+            &config,
+        )
+        .unwrap();
+        m.store(0x11u8, ebpf::MM_INPUT_START, 0).unwrap();
+        assert!(matches!(
+            m.store(0x11u8, ebpf::MM_INPUT_START - 1, 0),
+            ProgramResult::Err(EbpfError::AccessViolation(..))
+        ));
+        assert!(matches!(
+            m.store(0x11u8, ebpf::MM_INPUT_START + 1, 0),
+            ProgramResult::Err(EbpfError::AccessViolation(..))
+        ));
+        // this gets us line coverage for the case where we're completely
+        // outside the address space (the case above is just on the edge)
+        assert!(matches!(
+            m.store(0x11u8, ebpf::MM_INPUT_START + 2, 0),
+            ProgramResult::Err(EbpfError::AccessViolation(..))
+        ));
+
+        let mut mem1 = vec![0xFF; 4];
+        let mut mem2 = vec![0xDD; 4];
+        let m = MemoryMapping::new(
+            vec![
+                MemoryRegion::new_writable(&mut mem1, ebpf::MM_INPUT_START),
+                MemoryRegion::new_writable(&mut mem2, ebpf::MM_INPUT_START + 4),
+            ],
+            &config,
+        )
+        .unwrap();
+        m.store(0x1122334455667788u64, ebpf::MM_INPUT_START, 0)
+            .unwrap();
+        assert_eq!(
+            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
+            0x1122334455667788u64
+        );
+        assert!(matches!(
+            m.store(0x1122334455667788u64, ebpf::MM_INPUT_START + 1, 0),
+            ProgramResult::Err(EbpfError::AccessViolation(..))
+        ));
+    }
+
+    #[test]
+    fn test_unaligned_map_load_out_of_bounds() {
+        let config = Config {
+            aligned_memory_mapping: false,
+            ..Config::default()
+        };
+
+        let mem1 = vec![0xff];
+        let m = MemoryMapping::new(
+            vec![MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START)],
+            &config,
+        )
+        .unwrap();
+        assert_eq!(m.load::<u8>(ebpf::MM_INPUT_START, 0).unwrap(), 0xff);
+        assert!(matches!(
+            m.load::<u8>(ebpf::MM_INPUT_START - 1, 0),
+            ProgramResult::Err(EbpfError::AccessViolation(..))
+        ));
+        assert!(matches!(
+            m.load::<u8>(ebpf::MM_INPUT_START + 1, 0),
+            ProgramResult::Err(EbpfError::AccessViolation(..))
+        ));
+        assert!(matches!(
+            m.load::<u8>(ebpf::MM_INPUT_START + 2, 0),
+            ProgramResult::Err(EbpfError::AccessViolation(..))
+        ));
+
+        let mem1 = vec![0xFF; 4];
+        let mem2 = vec![0xDD; 4];
+        let m = MemoryMapping::new(
+            vec![
+                MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START),
+                MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + 4),
+            ],
+            &config,
+        )
+        .unwrap();
+        assert_eq!(
+            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
+            0xDDDDDDDDFFFFFFFF
+        );
+        assert!(matches!(
+            m.load::<u64>(ebpf::MM_INPUT_START + 1, 0),
+            ProgramResult::Err(EbpfError::AccessViolation(..))
+        ));
     }
 
     #[test]
