@@ -18,7 +18,7 @@ use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
-    elf::{ElfError, Executable},
+    elf::Executable,
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     syscalls,
@@ -29,7 +29,9 @@ use solana_rbpf::{
     },
 };
 use std::{fs::File, io::Read, sync::Arc};
-use test_utils::{create_vm, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH};
+use test_utils::{
+    assert_error, create_vm, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH,
+};
 
 const INSTRUCTION_METER_BUDGET: u64 = 1024;
 
@@ -3045,10 +3047,7 @@ fn test_nested_vm_syscall() {
         &mut memory_mapping,
         &mut result,
     );
-    assert!(matches!(result.unwrap_err(),
-        EbpfError::CallDepthExceeded(pc, depth)
-        if pc == 33 && depth == 0
-    ));
+    assert_error!(result, "CallDepthExceeded(33, 0)");
 }
 
 // Elf
@@ -3424,9 +3423,9 @@ fn test_err_unresolved_elf() {
     let mut file = File::open("tests/elfs/unresolved_syscall.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let result = Executable::<TestContextObject>::from_elf(&elf, Arc::new(loader));
-    assert!(
-        matches!(result, Err(EbpfError::ElfError(ElfError::UnresolvedSymbol(symbol, pc, offset))) if symbol == "log_64" && pc == 67 && offset == 304)
+    assert_error!(
+        Executable::<TestContextObject>::from_elf(&elf, Arc::new(loader)),
+        "UnresolvedSymbol(\"log_64\", 67, 304)"
     );
 }
 

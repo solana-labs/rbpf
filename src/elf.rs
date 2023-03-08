@@ -1200,13 +1200,13 @@ mod test {
             consts::{ELFCLASS32, ELFDATA2MSB, ET_REL},
             types::{Elf64Ehdr, Elf64Shdr},
         },
-        error::EbpfError,
         fuzz::fuzz,
         syscalls,
         vm::{ProgramResult, TestContextObject},
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
+    use test_utils::assert_error;
     type ElfExecutable = Executable<TestContextObject>;
 
     fn loader() -> Arc<BuiltInProgram<TestContextObject>> {
@@ -1784,12 +1784,11 @@ mod test {
         ));
 
         // one byte past the ro section is not mappable
-        assert!(matches!(
+        assert_error!(
             ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
-            ProgramResult::Err(EbpfError::InvalidVirtualAddress(
-                address
-            )) if address == ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size,
-        ));
+            "InvalidVirtualAddress({})",
+            ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+        );
     }
 
     #[test]
@@ -1830,12 +1829,11 @@ mod test {
         ));
 
         // one byte past the ro section is not mappable
-        assert!(matches!(
+        assert_error!(
             ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
-            ProgramResult::Err(EbpfError::InvalidVirtualAddress(
-                address
-            )) if address == ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size,
-        ));
+            "InvalidVirtualAddress({})",
+            ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+        );
     }
 
     #[test]
@@ -1867,16 +1865,18 @@ mod test {
         // s1 starts at sh_addr=10 so [MM_PROGRAM_START..MM_PROGRAM_START + 10] is not mappable
 
         // the low bound of the initial gap is not mappable
-        assert!(matches!(
+        assert_error!(
             ro_region.vm_to_host(ebpf::MM_PROGRAM_START, 1),
-            ProgramResult::Err(EbpfError::InvalidVirtualAddress(address)) if address == ebpf::MM_PROGRAM_START,
-        ));
+            "InvalidVirtualAddress({})",
+            ebpf::MM_PROGRAM_START
+        );
 
         // the hi bound of the initial gap is not mappable
-        assert!(matches!(
+        assert_error!(
             ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s1.sh_addr - 1, 1),
-            ProgramResult::Err(EbpfError::InvalidVirtualAddress(address)) if address == ebpf::MM_PROGRAM_START + 9,
-        ));
+            "InvalidVirtualAddress({})",
+            ebpf::MM_PROGRAM_START + 9
+        );
 
         // [s1.sh_addr..s3.sh_addr + s3.sh_size] is the valid ro memory area
         assert!(matches!(
@@ -1888,12 +1888,11 @@ mod test {
         ));
 
         // one byte past the ro section is not mappable
-        assert!(matches!(
+        assert_error!(
             ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
-            ProgramResult::Err(EbpfError::InvalidVirtualAddress(
-                address
-            )) if address == ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size,
-        ));
+            "InvalidVirtualAddress({})",
+            ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+        );
     }
 
     #[test]
@@ -1973,12 +1972,11 @@ mod test {
         ));
 
         // one byte past the ro section is not mappable
-        assert!(matches!(
+        assert_error!(
             ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size, 1),
-            ProgramResult::Err(EbpfError::InvalidVirtualAddress(
-                address
-            )) if address == ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size,
-        ));
+            "InvalidVirtualAddress({})",
+            ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size
+        );
     }
 
     #[test]
@@ -2004,16 +2002,18 @@ mod test {
         // s2 starts at sh_addr=10 so [0..10] is not mappable
 
         // the low bound of the initial gap is not mappable
-        assert!(matches!(
+        assert_error!(
             ro_region.vm_to_host(ebpf::MM_PROGRAM_START, 1),
-            ProgramResult::Err(EbpfError::InvalidVirtualAddress(address)) if address == ebpf::MM_PROGRAM_START,
-        ));
+            "InvalidVirtualAddress({})",
+            ebpf::MM_PROGRAM_START
+        );
 
         // the hi bound of the initial gap is not mappable
-        assert!(matches!(
+        assert_error!(
             ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s2.sh_addr - 1, 1),
-            ProgramResult::Err(EbpfError::InvalidVirtualAddress(address)) if address == ebpf::MM_PROGRAM_START + 9,
-        ));
+            "InvalidVirtualAddress({})",
+            ebpf::MM_PROGRAM_START + 9
+        );
 
         // [s2.sh_addr..s3.sh_addr + s3.sh_size] is the valid ro memory area
         assert!(matches!(
@@ -2025,12 +2025,11 @@ mod test {
         ));
 
         // one byte past the ro section is not mappable
-        assert!(matches!(
+        assert_error!(
             ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
-            ProgramResult::Err(EbpfError::InvalidVirtualAddress(
-                address
-            )) if address == ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size,
-        ));
+            "InvalidVirtualAddress({})",
+            ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+        );
     }
 
     #[test]

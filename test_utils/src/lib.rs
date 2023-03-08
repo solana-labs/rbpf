@@ -230,3 +230,10 @@ macro_rules! create_vm {
         .unwrap();
     };
 }
+
+#[macro_export]
+macro_rules! assert_error {
+    ($result:expr, $($error:expr),+) => {
+        assert!(format!("{:?}", $result).contains(&format!($($error),+)));
+    }
+}

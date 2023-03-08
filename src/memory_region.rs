@@ -892,6 +892,7 @@ impl MappingCache {
 #[cfg(test)]
 mod test {
     use std::{cell::RefCell, sync::Arc};
+    use test_utils::assert_error;
 
     use super::*;
 
@@ -957,16 +958,16 @@ mod test {
     fn test_map_empty() {
         let config = Config::default();
         let m = UnalignedMemoryMapping::new(vec![], &config).unwrap();
-        assert!(matches!(
+        assert_error!(
             m.map(AccessType::Load, ebpf::MM_INPUT_START, 8, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
 
         let m = AlignedMemoryMapping::new(vec![], &config).unwrap();
-        assert!(matches!(
+        assert_error!(
             m.map(AccessType::Load, ebpf::MM_INPUT_START, 8, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
     }
 
     #[test]
@@ -974,17 +975,16 @@ mod test {
         let config = Config::default();
         let mem1 = [1, 2, 3, 4];
         let mem2 = [5, 6];
-        assert!(matches!(
+        assert_error!(
             UnalignedMemoryMapping::new(
                 vec![
                     MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START),
                     MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64 - 1),
                 ],
                 &config,
-            )
-            .unwrap_err(),
-            EbpfError::InvalidMemoryRegion(1),
-        ));
+            ),
+            "InvalidMemoryRegion(1)"
+        );
         assert!(UnalignedMemoryMapping::new(
             vec![
                 MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START),
@@ -1030,10 +1030,10 @@ mod test {
             mem1.as_ptr() as u64
         );
 
-        assert!(matches!(
+        assert_error!(
             m.map(AccessType::Load, ebpf::MM_INPUT_START, 2, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
 
         assert_eq!(
             m.map(
@@ -1068,15 +1068,15 @@ mod test {
             mem4.as_ptr() as u64
         );
 
-        assert!(matches!(
+        assert_error!(
             m.map(
                 AccessType::Load,
                 ebpf::MM_INPUT_START + (mem1.len() + mem2.len() + mem3.len() + mem4.len()) as u64,
                 1,
                 0,
             ),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
     }
 
     #[test]
@@ -1096,10 +1096,10 @@ mod test {
             &config,
         )
         .unwrap();
-        assert!(matches!(
+        assert_error!(
             m.region(AccessType::Load, ebpf::MM_INPUT_START - 1),
-            Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
         assert_eq!(
             m.region(AccessType::Load, ebpf::MM_INPUT_START)
                 .unwrap()
@@ -1114,10 +1114,10 @@ mod test {
                 .get(),
             mem1.as_ptr() as u64
         );
-        assert!(matches!(
+        assert_error!(
             m.region(AccessType::Store, ebpf::MM_INPUT_START + 4),
-            Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
         assert_eq!(
             m.region(AccessType::Load, ebpf::MM_INPUT_START + 4)
                 .unwrap()
@@ -1132,10 +1132,10 @@ mod test {
                 .get(),
             mem2.as_ptr() as u64
         );
-        assert!(matches!(
+        assert_error!(
             m.region(AccessType::Load, ebpf::MM_INPUT_START + 8),
-            Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
     }
 
     #[test]
@@ -1155,10 +1155,10 @@ mod test {
             &config,
         )
         .unwrap();
-        assert!(matches!(
+        assert_error!(
             m.region(AccessType::Load, ebpf::MM_PROGRAM_START - 1),
-            Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
         assert_eq!(
             m.region(AccessType::Load, ebpf::MM_PROGRAM_START)
                 .unwrap()
@@ -1173,15 +1173,15 @@ mod test {
                 .get(),
             mem1.as_ptr() as u64
         );
-        assert!(matches!(
+        assert_error!(
             m.region(AccessType::Load, ebpf::MM_PROGRAM_START + 4),
-            Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
 
-        assert!(matches!(
+        assert_error!(
             m.region(AccessType::Store, ebpf::MM_STACK_START),
-            Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
         assert_eq!(
             m.region(AccessType::Load, ebpf::MM_STACK_START)
                 .unwrap()
@@ -1196,10 +1196,10 @@ mod test {
                 .get(),
             mem2.as_ptr() as u64
         );
-        assert!(matches!(
+        assert_error!(
             m.region(AccessType::Load, ebpf::MM_INPUT_START + 4),
-            Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
     }
 
     #[test]
@@ -1362,20 +1362,20 @@ mod test {
         )
         .unwrap();
         m.store(0x11u8, ebpf::MM_INPUT_START, 0).unwrap();
-        assert!(matches!(
+        assert_error!(
             m.store(0x11u8, ebpf::MM_INPUT_START - 1, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
-        assert!(matches!(
+            "AccessViolation"
+        );
+        assert_error!(
             m.store(0x11u8, ebpf::MM_INPUT_START + 1, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
         // this gets us line coverage for the case where we're completely
         // outside the address space (the case above is just on the edge)
-        assert!(matches!(
+        assert_error!(
             m.store(0x11u8, ebpf::MM_INPUT_START + 2, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
 
         let mut mem1 = vec![0xFF; 4];
         let mut mem2 = vec![0xDD; 4];
@@ -1393,10 +1393,10 @@ mod test {
             m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
             0x1122334455667788u64
         );
-        assert!(matches!(
+        assert_error!(
             m.store(0x1122334455667788u64, ebpf::MM_INPUT_START + 1, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
     }
 
     #[test]
@@ -1413,18 +1413,9 @@ mod test {
         )
         .unwrap();
         assert_eq!(m.load::<u8>(ebpf::MM_INPUT_START, 0).unwrap(), 0xff);
-        assert!(matches!(
-            m.load::<u8>(ebpf::MM_INPUT_START - 1, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
-        assert!(matches!(
-            m.load::<u8>(ebpf::MM_INPUT_START + 1, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
-        assert!(matches!(
-            m.load::<u8>(ebpf::MM_INPUT_START + 2, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
+        assert_error!(m.load::<u8>(ebpf::MM_INPUT_START - 1, 0), "AccessViolation");
+        assert_error!(m.load::<u8>(ebpf::MM_INPUT_START + 1, 0), "AccessViolation");
+        assert_error!(m.load::<u8>(ebpf::MM_INPUT_START + 2, 0), "AccessViolation");
 
         let mem1 = vec![0xFF; 4];
         let mem2 = vec![0xDD; 4];
@@ -1440,10 +1431,10 @@ mod test {
             m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
             0xDDDDDDDDFFFFFFFF
         );
-        assert!(matches!(
+        assert_error!(
             m.load::<u64>(ebpf::MM_INPUT_START + 1, 0),
-            ProgramResult::Err(EbpfError::AccessViolation(..))
-        ));
+            "AccessViolation"
+        );
     }
 
     #[test]
@@ -1497,13 +1488,13 @@ mod test {
             mem2.as_ptr() as u64
         );
 
-        assert!(matches!(
+        assert_error!(
             m.replace_region(
                 2,
                 MemoryRegion::new_readonly(&mem3, ebpf::MM_INPUT_START + mem1.len() as u64)
             ),
-            Err(EbpfError::InvalidMemoryRegion(2))
-        ));
+            "InvalidMemoryRegion(2)"
+        );
 
         let region_index = m
             .get_regions()
@@ -1512,13 +1503,14 @@ mod test {
             .unwrap();
 
         // old.vm_addr != new.vm_addr
-        assert!(matches!(
+        assert_error!(
             m.replace_region(
                 region_index,
                 MemoryRegion::new_readonly(&mem3, ebpf::MM_INPUT_START + mem1.len() as u64 + 1)
             ),
-            Err(EbpfError::InvalidMemoryRegion(i)) if i == region_index
-        ));
+            "InvalidMemoryRegion({})",
+            region_index
+        );
 
         m.replace_region(
             region_index,
@@ -1559,25 +1551,25 @@ mod test {
         );
 
         // index > regions.len()
-        assert!(matches!(
+        assert_error!(
             m.replace_region(3, MemoryRegion::new_readonly(&mem3, ebpf::MM_STACK_START)),
-            Err(EbpfError::InvalidMemoryRegion(3))
-        ));
+            "InvalidMemoryRegion(3)"
+        );
 
         // index != addr >> VIRTUAL_ADDRESS_BITS
-        assert!(matches!(
+        assert_error!(
             m.replace_region(2, MemoryRegion::new_readonly(&mem3, ebpf::MM_HEAP_START)),
-            Err(EbpfError::InvalidMemoryRegion(2))
-        ));
+            "InvalidMemoryRegion(2)"
+        );
 
         // index + len != addr >> VIRTUAL_ADDRESS_BITS
-        assert!(matches!(
+        assert_error!(
             m.replace_region(
                 2,
                 MemoryRegion::new_readonly(&mem3, ebpf::MM_HEAP_START - 1)
             ),
-            Err(EbpfError::InvalidMemoryRegion(2))
-        ));
+            "InvalidMemoryRegion(2)"
+        );
 
         m.replace_region(2, MemoryRegion::new_readonly(&mem3, ebpf::MM_STACK_START))
             .unwrap();
