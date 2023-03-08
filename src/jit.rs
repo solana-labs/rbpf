@@ -175,17 +175,17 @@ impl PartialEq for JitProgram {
 
 // Used to define subroutines and then call them
 // See JitCompiler::set_anchor() and JitCompiler::relative_to_anchor()
-const ANCHOR_EPILOGUE: usize = 0;
-const ANCHOR_TRACE: usize = 1;
-const ANCHOR_EXTERNAL_FUNCTION_EXCEPTION: usize = 2;
-const ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = 3;
-const ANCHOR_EXCEPTION_AT: usize = 4;
-const ANCHOR_CALL_DEPTH_EXCEEDED: usize = 5;
-const ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT: usize = 6;
-const ANCHOR_DIV_BY_ZERO: usize = 7;
-const ANCHOR_DIV_OVERFLOW: usize = 8;
-const ANCHOR_CALL_UNSUPPORTED_INSTRUCTION: usize = 9;
-const ANCHOR_EXIT: usize = 10;
+const ANCHOR_TRACE: usize = 0;
+const ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = 1;
+const ANCHOR_EPILOGUE: usize = 2;
+const ANCHOR_THROW_EXCEPTION_UNCHECKED: usize = 3;
+const ANCHOR_EXIT: usize = 4;
+const ANCHOR_THROW_EXCEPTION: usize = 5;
+const ANCHOR_CALL_DEPTH_EXCEEDED: usize = 6;
+const ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT: usize = 7;
+const ANCHOR_DIV_BY_ZERO: usize = 8;
+const ANCHOR_DIV_OVERFLOW: usize = 9;
+const ANCHOR_CALL_UNSUPPORTED_INSTRUCTION: usize = 10;
 const ANCHOR_EXTERNAL_FUNCTION_CALL: usize = 11;
 const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE: usize = 12;
 const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG: usize = 13;
@@ -665,7 +665,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_validate_and_profile_instruction_count(true, Some(self.pc + 2));
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
         self.emit_set_exception_kind(EbpfError::ExecutionOverrun(0));
-        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
+        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         self.resolve_jumps();
         self.result.seal(self.offset_in_text_section)?;
@@ -834,22 +834,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     fn emit_undo_profile_instruction_count(&mut self, target_pc: usize) {
         if self.config.enable_instruction_meter {
             self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, ARGUMENT_REGISTERS[0], self.pc as i64 + 1 - target_pc as i64, None)); // instruction_meter += (self.pc + 1) - target_pc;
-        }
-    }
-
-    #[inline]
-    fn emit_profile_instruction_count_finalize(&mut self, store_pc_in_exception: bool) {
-        if self.config.enable_instruction_meter || store_pc_in_exception {
-            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, R11, 1, None)); // R11 += 1;
-        }
-        if self.config.enable_instruction_meter {
-            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, R11, ARGUMENT_REGISTERS[0], 0, None)); // instruction_meter -= pc + 1;
-        }
-        if store_pc_in_exception {
-            self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
-            self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(0), 1)); // result.is_err = true;
-            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, R11, ebpf::ELF_INSN_DUMP_OFFSET as i64 - 1, None));
-            self.emit_ins(X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 1)) as i32))); // result.pc = self.pc + ebpf::ELF_INSN_DUMP_OFFSET;
         }
     }
 
@@ -1211,22 +1195,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     }
 
     fn emit_subroutines(&mut self) {
-        // Epilogue
-        self.set_anchor(ANCHOR_EPILOGUE);
-        // Print stop watch value
-        fn stopwatch_result(numerator: u64, denominator: u64) {
-            println!("Stop watch: {} / {} = {}", numerator, denominator, if denominator == 0 { 0.0 } else { numerator as f64 / denominator as f64 });
-        }
-        if self.stopwatch_is_active {
-            self.emit_rust_call(Value::Constant64(stopwatch_result as *const u8 as i64, false), &[
-                Argument { index: 1, value: Value::RegisterIndirect(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::StopwatchDenominator), false) },
-                Argument { index: 0, value: Value::RegisterIndirect(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::StopwatchNumerator), false) },
-            ], None);
-        }
-        // Restore stack pointer in case we did not exit gracefully
-        self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, RSP, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::HostStackPointer))));
-        self.emit_ins(X86Instruction::return_near());
-
         // Routine for instruction tracing
         if self.config.enable_instruction_tracing {
             self.set_anchor(ANCHOR_TRACE);
@@ -1249,48 +1217,77 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             self.emit_ins(X86Instruction::return_near());
         }
 
-        // Handler for exceptions coming from external functions
-        self.set_anchor(ANCHOR_EXTERNAL_FUNCTION_EXCEPTION);
-        self.emit_profile_instruction_count_finalize(false);
-        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
+        // Epilogue
+        self.set_anchor(ANCHOR_EPILOGUE);
+        if self.config.enable_instruction_meter {
+            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, ARGUMENT_REGISTERS[0], 1, None)); // instruction_meter -= 1;
+            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, R11, ARGUMENT_REGISTERS[0], 0, None)); // instruction_meter -= pc;
+        }
+        // Print stop watch value
+        fn stopwatch_result(numerator: u64, denominator: u64) {
+            println!("Stop watch: {} / {} = {}", numerator, denominator, if denominator == 0 { 0.0 } else { numerator as f64 / denominator as f64 });
+        }
+        if self.stopwatch_is_active {
+            self.emit_rust_call(Value::Constant64(stopwatch_result as *const u8 as i64, false), &[
+                Argument { index: 1, value: Value::RegisterIndirect(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::StopwatchDenominator), false) },
+                Argument { index: 0, value: Value::RegisterIndirect(RBP, self.slot_on_environment_stack(RuntimeEnvironmentSlot::StopwatchNumerator), false) },
+            ], None);
+        }
+        // Restore stack pointer in case we did not exit gracefully
+        self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, RSP, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::HostStackPointer))));
+        self.emit_ins(X86Instruction::return_near());
 
         // Handler for EbpfError::ExceededMaxInstructions
         self.set_anchor(ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         self.emit_set_exception_kind(EbpfError::ExceededMaxInstructions(0, 0));
         self.emit_ins(X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], R11)); // R11 = instruction_meter;
-        self.emit_profile_instruction_count_finalize(true);
+        // Fall through
+
+        // Epilogue for errors
+        self.set_anchor(ANCHOR_THROW_EXCEPTION_UNCHECKED);
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
+        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(0), 1)); // result.is_err = true;
+        self.emit_ins(X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 1)) as i32))); // result.pc = self.pc;
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, R10, ebpf::ELF_INSN_DUMP_OFFSET as i64, Some(X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 1)) as i32)))); // result.pc += ebpf::ELF_INSN_DUMP_OFFSET;
+        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
+
+        // Quit gracefully
+        self.set_anchor(ANCHOR_EXIT);
+        self.emit_validate_instruction_count(false, None);
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
+        self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(8))); // result.return_value = R0;
+        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], 0));
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
 
         // Handler for exceptions which report their pc
-        self.set_anchor(ANCHOR_EXCEPTION_AT);
+        self.set_anchor(ANCHOR_THROW_EXCEPTION);
         // Validate that we did not reach the instruction meter limit before the exception occured
         if self.config.enable_instruction_meter {
             self.emit_validate_instruction_count(false, None);
         }
-        self.emit_profile_instruction_count_finalize(true);
-        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
+        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION_UNCHECKED, 5)));
 
         // Handler for EbpfError::CallDepthExceeded
         self.set_anchor(ANCHOR_CALL_DEPTH_EXCEEDED);
         self.emit_set_exception_kind(EbpfError::CallDepthExceeded(0, 0));
         self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 2)) as i32), self.config.max_call_depth as i64)); // depth = jit.config.max_call_depth;
-        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
+        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Handler for EbpfError::CallOutsideTextSegment
         self.set_anchor(ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT);
         self.emit_set_exception_kind(EbpfError::CallOutsideTextSegment(0, 0));
         self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 2)) as i32))); // target_address = RAX;
-        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
+        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Handler for EbpfError::DivideByZero
         self.set_anchor(ANCHOR_DIV_BY_ZERO);
         self.emit_set_exception_kind(EbpfError::DivideByZero(0));
-        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
+        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Handler for EbpfError::DivideOverflow
         self.set_anchor(ANCHOR_DIV_OVERFLOW);
         self.emit_set_exception_kind(EbpfError::DivideOverflow(0));
-        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
+        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Handler for EbpfError::UnsupportedInstruction
         self.set_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION);
@@ -1298,16 +1295,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRACE, 5)));
         }
         self.emit_set_exception_kind(EbpfError::UnsupportedInstruction(0));
-        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 5)));
-
-        // Quit gracefully
-        self.set_anchor(ANCHOR_EXIT);
-        self.emit_validate_instruction_count(false, None);
-        self.emit_profile_instruction_count_finalize(false);
-        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
-        self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset(8))); // result.return_value = R0;
-        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], 0));
-        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
+        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Routine for external functions
         self.set_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL);
@@ -1341,7 +1329,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Test if result indicates that an error occured
         self.emit_result_is_err(R11);
         self.emit_ins(X86Instruction::pop(R11));
-        self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_EXCEPTION, 6)));
+        self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EPILOGUE, 6)));
         // Store Ok value in result register
         self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R11, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
         self.emit_ins(X86Instruction::load(OperandSize::S64, R11, REGISTER_MAP[0], X86IndirectAccess::Offset(8)));
@@ -1459,7 +1447,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             self.emit_result_is_err(R11);
             self.emit_ins(X86Instruction::pop(R11)); // R11 = self.pc
             self.emit_ins(X86Instruction::xchg(OperandSize::S64, R11, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Swap return address and self.pc
-            self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_EXCEPTION_AT, 6)));
+            self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 6)));
 
             // unwrap() the result into R11
             self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R11, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
