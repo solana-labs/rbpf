@@ -1245,7 +1245,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Epilogue for errors
         self.set_anchor(ANCHOR_THROW_EXCEPTION_UNCHECKED);
-        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
         self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(0), 1)); // result.is_err = true;
         self.emit_ins(X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 1)) as i32))); // result.pc = self.pc;
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, R10, ebpf::ELF_INSN_DUMP_OFFSET as i64, Some(X86IndirectAccess::Offset((std::mem::size_of::<u64>() * (ERR_KIND_OFFSET + 1)) as i32)))); // result.pc += ebpf::ELF_INSN_DUMP_OFFSET;
@@ -1447,11 +1446,11 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             self.emit_result_is_err(R11);
             self.emit_ins(X86Instruction::pop(R11)); // R11 = self.pc
             self.emit_ins(X86Instruction::xchg(OperandSize::S64, R11, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Swap return address and self.pc
+            self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
             self.emit_ins(X86Instruction::conditional_jump_immediate(0x85, self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 6)));
 
             // unwrap() the result into R11
-            self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R11, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
-            self.emit_ins(X86Instruction::load(OperandSize::S64, R11, R11, X86IndirectAccess::Offset(8)));
+            self.emit_ins(X86Instruction::load(OperandSize::S64, R10, R11, X86IndirectAccess::Offset(8)));
 
             self.emit_ins(X86Instruction::return_near());
         }
