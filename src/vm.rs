@@ -589,10 +589,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         let due_insn_count = if interpreted {
             #[cfg(feature = "debugger")]
             let debug_port = self.debug_port.clone();
-            let mut interpreter = match Interpreter::new(self, registers) {
-                Ok(interpreter) => interpreter,
-                Err(error) => return (0, ProgramResult::Err(error)),
-            };
+            let mut interpreter = Interpreter::new(self, registers);
             #[cfg(feature = "debugger")]
             if let Some(debug_port) = debug_port {
                 crate::debugger::execute(&mut interpreter, debug_port);

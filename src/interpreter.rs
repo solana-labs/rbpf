@@ -81,10 +81,10 @@ pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
 
 impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Creates a new interpreter state
-    pub fn new(vm: &'a mut EbpfVm<'b, V, C>, registers: [u64; 12]) -> Result<Self, EbpfError> {
+    pub fn new(vm: &'a mut EbpfVm<'b, V, C>, registers: [u64; 12]) -> Self {
         let executable = vm.verified_executable.get_executable();
         let (program_vm_addr, program) = executable.get_text_bytes();
-        Ok(Self {
+        Self {
             vm,
             program,
             program_vm_addr,
@@ -95,7 +95,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             debug_state: DebugState::Continue,
             #[cfg(feature = "debugger")]
             breakpoints: Vec::new(),
-        })
+        }
     }
 
     fn check_pc(&mut self, current_pc: usize) -> bool {
