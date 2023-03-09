@@ -101,9 +101,8 @@ macro_rules! test_interpreter_and_jit {
                 Ok(()) => {
                     let (instruction_count_jit, result) = vm.execute_program(false);
                     let tracer_jit = &vm.env.context_object_pointer;
-                    if format!("{:?}", result) != expected_result
-                        || !TestContextObject::compare_trace_log(&_tracer_interpreter, tracer_jit)
-                    {
+                    assert_eq!(format!("{:?}", result), expected_result);
+                    if !TestContextObject::compare_trace_log(&_tracer_interpreter, tracer_jit) {
                         let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
                             verified_executable.get_executable(),
                         )
