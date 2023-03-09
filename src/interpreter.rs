@@ -493,6 +493,9 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
 
             ebpf::EXIT       => {
                 if self.vm.env.call_depth == 0 {
+                    if config.enable_instruction_meter && self.due_insn_count > self.vm.env.previous_instruction_meter {
+                        throw_error!(self, EbpfError::ExceededMaxInstructions(pc + ebpf::ELF_INSN_DUMP_OFFSET, 0));
+                    }
                     self.vm.env.program_result = ProgramResult::Ok(self.reg[0]);
                     return false;
                 }

@@ -357,7 +357,6 @@ impl ContextObject for TestContextObject {
     }
 
     fn consume(&mut self, amount: u64) {
-        debug_assert!(amount <= self.remaining, "Execution count exceeded");
         self.remaining = self.remaining.saturating_sub(amount);
     }
 

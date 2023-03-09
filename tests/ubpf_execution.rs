@@ -1705,6 +1705,18 @@ fn test_stxb_chain() {
 // BPF_JMP : Branches
 
 #[test]
+fn test_exit_capped() {
+    test_interpreter_and_jit_asm!(
+        "
+        exit",
+        [],
+        (),
+        TestContextObject::new(0),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(29, 0))),
+    );
+}
+
+#[test]
 fn test_exit_without_value() {
     test_interpreter_and_jit_asm!(
         "
