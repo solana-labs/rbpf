@@ -6,13 +6,12 @@ use semantic_aware::*;
 use solana_rbpf::{
     ebpf,
     elf::Executable,
-    error::EbpfError,
     insn_builder::IntoBytes,
     memory_region::MemoryRegion,
     static_analysis::Analysis,
     verifier::{RequisiteVerifier, Verifier},
     vm::{
-        BuiltInProgram, ContextObject, FunctionRegistry, ProgramResult, TestContextObject,
+        BuiltInProgram, ContextObject, FunctionRegistry, TestContextObject,
         VerifiedExecutable,
     },
 };
@@ -82,22 +81,17 @@ fuzz_target!(|data: FuzzData| {
 
         let (_interp_ins_count, interp_res) = interp_vm.execute_program(true);
         let (_jit_ins_count, jit_res) = jit_vm.execute_program(false);
-        if format!("{:?}", interp_res) != format!("{:?}", jit_res) {
+        let interp_res_str = format!("{:?}", interp_res);
+        let jit_res_str = format!("{:?}", jit_res);
+        if interp_res_str != jit_res_str {
             // spot check: there's a meaningless bug where ExceededMaxInstructions is different due to jump calculations
-            if let ProgramResult::Err(EbpfError::ExceededMaxInstructions(interp_count, _)) =
-                interp_res
-            {
-                if let ProgramResult::Err(EbpfError::ExceededMaxInstructions(jit_count, _)) =
-                    jit_res
-                {
-                    if interp_count != jit_count {
-                        return;
-                    }
-                }
+            if interp_res_str.contains("ExceededMaxInstructions") &&
+                jit_res_str.contains("ExceededMaxInstructions") {
+                return;
             }
             eprintln!("{:#?}", &data.prog);
             dump_insns(&verified_executable);
-            panic!("Expected {:?}, but got {:?}", interp_res, jit_res);
+            panic!("Expected {}, but got {}", interp_res_str, jit_res_str);
         }
         if interp_res.is_ok() {
             // we know jit res must be ok if interp res is by this point

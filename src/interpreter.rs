@@ -30,7 +30,10 @@ macro_rules! translate_memory_access {
             $pc + ebpf::ELF_INSN_DUMP_OFFSET,
         ) {
             ProgramResult::Ok(v) => v,
-            ProgramResult::Err(err) => throw_error!($self, err),
+            ProgramResult::Err(err) => {
+                $self.vm.env.program_result = ProgramResult::Err(err);
+                return false;
+            },
         }
     };
 
@@ -47,7 +50,7 @@ macro_rules! translate_memory_access {
 
 macro_rules! throw_error {
     ($self:expr, $err:expr) => {{
-        $self.vm.env.program_result = ProgramResult::Err($err);
+        $self.vm.env.program_result = ProgramResult::Err(Box::new($err));
         return false;
     }};
 }

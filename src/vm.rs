@@ -93,7 +93,7 @@ impl<T, E> From<Result<T, E>> for StableResult<T, E> {
 }
 
 /// Return value of programs and syscalls
-pub type ProgramResult = StableResult<u64, EbpfError>;
+pub type ProgramResult = StableResult<u64, Box<dyn std::error::Error>>;
 
 /// Holds the function symbols of an Executable
 pub type FunctionRegistry = BTreeMap<u32, (usize, String)>;
@@ -604,7 +604,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             {
                 let compiled_program = match executable
                     .get_compiled_program()
-                    .ok_or(EbpfError::JitNotCompiled)
+                    .ok_or_else(|| Box::new(EbpfError::JitNotCompiled))
                 {
                     Ok(compiled_program) => compiled_program,
                     Err(error) => return (0, ProgramResult::Err(error)),
@@ -619,7 +619,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             }
             #[cfg(not(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64")))]
             {
-                return (0, ProgramResult::Err(EbpfError::JitNotCompiled));
+                return (0, ProgramResult::Err(Box::new(EbpfError::JitNotCompiled)));
             }
         };
         let instruction_count = if config.enable_instruction_meter {
@@ -628,11 +628,12 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         } else {
             0
         };
-        if let ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, _)) =
-            self.env.program_result
-        {
-            self.env.program_result =
-                ProgramResult::Err(EbpfError::ExceededMaxInstructions(pc, initial_insn_count));
+        if let ProgramResult::Err(err) = &mut self.env.program_result {
+            if let Some(EbpfError::ExceededMaxInstructions(_pc, insn_count)) =
+                err.downcast_mut::<EbpfError>()
+            {
+                *insn_count = initial_insn_count;
+            }
         }
         let mut result = ProgramResult::Ok(0);
         std::mem::swap(&mut result, &mut self.env.program_result);
@@ -648,7 +649,7 @@ mod tests {
     fn test_program_result_is_stable() {
         let ok = ProgramResult::Ok(42);
         assert_eq!(unsafe { *(&ok as *const _ as *const u64) }, 0);
-        let err = ProgramResult::Err(EbpfError::JitNotCompiled);
+        let err = ProgramResult::Err(Box::new(EbpfError::JitNotCompiled));
         assert_eq!(unsafe { *(&err as *const _ as *const u64) }, 1);
     }
 }
