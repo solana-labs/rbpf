@@ -226,8 +226,7 @@ macro_rules! create_vm {
             $context_object,
             memory_mapping,
             stack_len,
-        )
-        .unwrap();
+        );
     };
 }
 

@@ -516,7 +516,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 ///
 /// let memory_mapping = MemoryMapping::new(regions, config).unwrap();
 ///
-/// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, memory_mapping, stack_len).unwrap();
+/// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, memory_mapping, stack_len);
 ///
 /// let (instruction_count, result) = vm.execute_program(true);
 /// assert_eq!(instruction_count, 1);
@@ -538,7 +538,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         context_object: &'a mut C,
         memory_mapping: MemoryMapping<'a>,
         stack_len: usize,
-    ) -> Result<EbpfVm<'a, V, C>, EbpfError> {
+    ) -> EbpfVm<'a, V, C> {
         let executable = verified_executable.get_executable();
         let config = executable.get_config();
         let stack_pointer = ebpf::MM_STACK_START.saturating_add(if config.dynamic_stack_frames {
@@ -548,7 +548,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             // within a frame the stack grows down, but frames are ascending
             config.stack_frame_size
         } as u64);
-        let vm = EbpfVm {
+        EbpfVm {
             verified_executable,
             #[cfg(feature = "debugger")]
             debug_port: None,
@@ -564,8 +564,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
                 memory_mapping,
                 call_frames: vec![CallFrame::default(); config.max_call_depth],
             },
-        };
-        Ok(vm)
+        }
     }
 
     /// Execute the program

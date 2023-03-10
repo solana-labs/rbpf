@@ -171,8 +171,7 @@ fn main() {
         &mut context_object,
         memory_mapping,
         stack_len,
-    )
-    .unwrap();
+    );
 
     let analysis = if matches.value_of("use") == Some("cfg")
         || matches.value_of("use") == Some("disassembler")
