@@ -599,14 +599,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
                     if external {
                         if let Some((_function_name, function)) = self.executable.get_loader().lookup_function(insn.imm as u32) {
-                            if self.config.enable_instruction_meter {
-                                self.emit_validate_and_profile_instruction_count(true, Some(0));
-                            }
+                            self.emit_validate_and_profile_instruction_count(true, Some(0));
                             self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, function as usize as i64));
                             self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL, 5)));
-                            if self.config.enable_instruction_meter {
-                                self.emit_undo_profile_instruction_count(0);
-                            }
+                            self.emit_undo_profile_instruction_count(0);
                             resolved = true;
                         }
                     }
@@ -800,6 +796,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
     #[inline]
     fn emit_validate_instruction_count(&mut self, exclusive: bool, pc: Option<usize>) {
+        if !self.config.enable_instruction_meter {
+            return;
+        }
         // Update `MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT` if you change the code generation here
         if let Some(pc) = pc {
             self.last_instruction_meter_validation_pc = pc;
@@ -1273,9 +1272,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Handler for exceptions which report their pc
         self.set_anchor(ANCHOR_THROW_EXCEPTION);
         // Validate that we did not reach the instruction meter limit before the exception occured
-        if self.config.enable_instruction_meter {
-            self.emit_validate_instruction_count(false, None);
-        }
+        self.emit_validate_instruction_count(false, None);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION_UNCHECKED, 5)));
 
         // Handler for EbpfError::AccessViolation
