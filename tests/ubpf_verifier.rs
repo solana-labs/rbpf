@@ -246,6 +246,22 @@ fn test_verifier_err_call_lddw() {
 }
 
 #[test]
+#[should_panic(expected = "InvalidFunction(0)")]
+fn test_verifier_err_function_fallthrough() {
+    let executable = assemble::<TestContextObject>(
+        "
+        mov r0, r1
+        function_foo:
+        exit",
+        Arc::new(BuiltInProgram::new_loader(Config::default())),
+    )
+    .unwrap();
+    let _verified_executable =
+        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
+            .unwrap();
+}
+
+#[test]
 #[should_panic(expected = "JumpOutOfCode(3, 29)")]
 fn test_verifier_err_jmp_out() {
     let executable = assemble::<TestContextObject>(

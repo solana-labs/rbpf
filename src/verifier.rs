@@ -242,6 +242,13 @@ impl Verifier for RequisiteVerifier {
                         function_range.start,
                     ));
                 }
+                let insn = ebpf::get_insn(prog, function_range.end.saturating_sub(1));
+                match insn.opc {
+                    ebpf::JA | ebpf::CALL_IMM | ebpf::CALL_REG | ebpf::EXIT => {},
+                    _ => return Err(VerifierError::InvalidFunction(
+                        function_range.end.saturating_sub(1),
+                    )),
+                }
             }
 
             match insn.opc {
