@@ -144,11 +144,15 @@ fn check_load_dw(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
     Ok(())
 }
 
-fn check_jmp_offset(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
+fn check_jmp_offset(
+    prog: &[u8],
+    insn_ptr: usize,
+    function_range: &std::ops::Range<usize>,
+) -> Result<(), VerifierError> {
     let insn = ebpf::get_insn(prog, insn_ptr);
 
     let dst_insn_ptr = insn_ptr as isize + 1 + insn.off as isize;
-    if dst_insn_ptr < 0 || dst_insn_ptr as usize * ebpf::INSN_SIZE >= prog.len() {
+    if dst_insn_ptr < 0 || !function_range.contains(&(dst_insn_ptr as usize)) {
         return Err(VerifierError::JumpOutOfCode(
             dst_insn_ptr as usize,
             adj_insn_ptr(insn_ptr),
@@ -325,29 +329,29 @@ impl Verifier for RequisiteVerifier {
                 ebpf::ARSH64_REG => {},
 
                 // BPF_JMP class
-                ebpf::JA         => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JEQ_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JEQ_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JGT_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JGT_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JGE_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JGE_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JLT_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JLT_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JLE_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JLE_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSET_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSET_REG   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JNE_IMM    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JNE_REG    => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSGT_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSGT_REG   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSGE_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSGE_REG   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSLT_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr)?; },
-                ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr)?; },
+                ebpf::JA         => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JEQ_IMM    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JEQ_REG    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JGT_IMM    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JGT_REG    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JGE_IMM    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JGE_REG    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JLT_IMM    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JLT_REG    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JLE_IMM    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JLE_REG    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JSET_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JSET_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JNE_IMM    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JNE_REG    => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JSGT_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JSGT_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JSGE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JSGE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JSLT_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::CALL_IMM   => {},
                 ebpf::CALL_REG   => { check_imm_register(&insn, insn_ptr, config)?; },
                 ebpf::EXIT       => {},
