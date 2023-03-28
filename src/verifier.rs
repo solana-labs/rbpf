@@ -359,6 +359,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
+                ebpf::CALL_IMM   if config.static_syscalls && insn.src != 0 => { check_jmp_offset(prog, insn_ptr, &program_range)?; },
                 ebpf::CALL_IMM   => {},
                 ebpf::CALL_REG   => { check_imm_register(&insn, insn_ptr, config)?; },
                 ebpf::EXIT       => {},
