@@ -3328,8 +3328,8 @@ fn test_err_capped_before_exception() {
         exit",
         [],
         (),
-        TestContextObject::new(2),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(31, 2))),
+        TestContextObject::new(4),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(33, 4))),
     );
     test_interpreter_and_jit_asm!(
         "
