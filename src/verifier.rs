@@ -219,22 +219,24 @@ impl Verifier for RequisiteVerifier {
     fn verify(prog: &[u8], config: &Config, function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
         check_prog_len(prog)?;
 
-        if config.static_syscalls {
-            for (_key, (dst_insn_ptr, _name)) in function_registry.iter() {
-                let dst_insn = ebpf::get_insn(prog, *dst_insn_ptr);
-                if dst_insn.opc == 0 {
-                    return Err(VerifierError::JumpToMiddleOfLDDW(
-                        *dst_insn_ptr,
-                        adj_insn_ptr(*dst_insn_ptr),
-                    ));
-                }
-            }
-        }
-
+        let program_range = 0..prog.len() / ebpf::INSN_SIZE;
+        let mut function_iter = function_registry.keys().map(|insn_ptr| *insn_ptr as usize).peekable();
+        let mut function_range = program_range.start..program_range.end;
         let mut insn_ptr: usize = 0;
         while (insn_ptr + 1) * ebpf::INSN_SIZE <= prog.len() {
             let insn = ebpf::get_insn(prog, insn_ptr);
             let mut store = false;
+
+            if config.static_syscalls && function_iter.peek() == Some(&insn_ptr) {
+                function_range.start = function_iter.next().unwrap_or(0);
+                function_range.end = *function_iter.peek().unwrap_or(&program_range.end);
+                if insn.opc == 0 {
+                    return Err(VerifierError::JumpToMiddleOfLDDW(
+                        function_range.start,
+                        adj_insn_ptr(function_range.start),
+                    ));
+                }
+            }
 
             match insn.opc {
                 ebpf::LD_DW_IMM  => {
