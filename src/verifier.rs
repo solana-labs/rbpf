@@ -80,6 +80,9 @@ pub enum VerifierError {
     /// Invalid register specified
     #[error("Invalid register specified at instruction {0}")]
     InvalidRegister(usize),
+    /// Invalid function
+    #[error("Invalid function at instruction {0}")]
+    InvalidFunction(usize),
 }
 
 /// eBPF Verifier
@@ -231,9 +234,8 @@ impl Verifier for RequisiteVerifier {
                 function_range.start = function_iter.next().unwrap_or(0);
                 function_range.end = *function_iter.peek().unwrap_or(&program_range.end);
                 if insn.opc == 0 {
-                    return Err(VerifierError::JumpToMiddleOfLDDW(
+                    return Err(VerifierError::InvalidFunction(
                         function_range.start,
-                        adj_insn_ptr(function_range.start),
                     ));
                 }
             }

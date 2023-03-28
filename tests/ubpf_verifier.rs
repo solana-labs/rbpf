@@ -230,7 +230,7 @@ fn test_verifier_err_jmp_lddw() {
 }
 
 #[test]
-#[should_panic(expected = "JumpToMiddleOfLDDW(2, 31)")]
+#[should_panic(expected = "InvalidFunction(1)")]
 fn test_verifier_err_call_lddw() {
     let executable = assemble::<TestContextObject>(
         "
