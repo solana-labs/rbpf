@@ -1712,7 +1712,7 @@ fn test_exit_capped() {
         [],
         (),
         TestContextObject::new(0),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(29, 0))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(29))),
     );
 }
 
@@ -2770,7 +2770,7 @@ fn test_err_dynamic_jmp_lddw() {
         [],
         (),
         TestContextObject::new(4),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(33, 4))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(33))),
     );
     test_interpreter_and_jit_asm!(
         "
@@ -3151,7 +3151,7 @@ fn test_tight_infinite_loop_conditional() {
         [],
         (),
         TestContextObject::new(4),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(30, 4))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(30))),
     );
 }
 
@@ -3164,7 +3164,7 @@ fn test_tight_infinite_loop_unconditional() {
         [],
         (),
         TestContextObject::new(4),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(30, 4))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(30))),
     );
 }
 
@@ -3179,7 +3179,7 @@ fn test_tight_infinite_recursion() {
         [],
         (),
         TestContextObject::new(4),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(31, 4))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(31))),
     );
 }
 
@@ -3198,7 +3198,7 @@ fn test_tight_infinite_recursion_callx() {
         [],
         (),
         TestContextObject::new(8),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(35, 8))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(35))),
     );
 }
 
@@ -3232,7 +3232,7 @@ fn test_err_instruction_count_syscall_capped() {
             "bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(32, 3))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(32))),
     );
 }
 
@@ -3248,7 +3248,7 @@ fn test_err_instruction_count_lddw_capped() {
         [],
         (),
         TestContextObject::new(2),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(32, 2))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(32))),
     );
 }
 
@@ -3292,7 +3292,7 @@ fn test_err_non_terminate_capped() {
             "bpf_trace_printf" => syscalls::bpf_trace_printf,
         ),
         TestContextObject::new(7),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(36, 7))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(36))),
     );
     test_interpreter_and_jit_asm!(
         "
@@ -3311,7 +3311,7 @@ fn test_err_non_terminate_capped() {
             "bpf_trace_printf" => syscalls::bpf_trace_printf,
         ),
         TestContextObject::new(1000),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(37, 1000))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(37))),
     );
 }
 
@@ -3329,7 +3329,7 @@ fn test_err_capped_before_exception() {
         [],
         (),
         TestContextObject::new(4),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(33, 4))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(33))),
     );
     test_interpreter_and_jit_asm!(
         "
@@ -3343,7 +3343,7 @@ fn test_err_capped_before_exception() {
         [],
         (),
         TestContextObject::new(4),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(33, 4))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(33))),
     );
 }
 
@@ -3361,7 +3361,7 @@ fn test_err_exit_capped() {
         [],
         (),
         TestContextObject::new(5),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(34, 5))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(34))),
     );
     test_interpreter_and_jit_asm!(
         "
@@ -3376,7 +3376,7 @@ fn test_err_exit_capped() {
         [],
         (),
         TestContextObject::new(6),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(35, 6))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(35))),
     );
     test_interpreter_and_jit_asm!(
         "
@@ -3387,7 +3387,7 @@ fn test_err_exit_capped() {
         [],
         (),
         TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(32, 3))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(32))),
     );
 }
 

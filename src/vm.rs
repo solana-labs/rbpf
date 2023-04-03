@@ -626,13 +626,6 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         } else {
             0
         };
-        if let ProgramResult::Err(err) = &mut self.env.program_result {
-            if let Some(EbpfError::ExceededMaxInstructions(_pc, insn_count)) =
-                err.downcast_mut::<EbpfError>()
-            {
-                *insn_count = initial_insn_count;
-            }
-        }
         let mut result = ProgramResult::Ok(0);
         std::mem::swap(&mut result, &mut self.env.program_result);
         (instruction_count, result)

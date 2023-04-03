@@ -1251,7 +1251,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Handler for EbpfError::ExceededMaxInstructions
         self.set_anchor(ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS);
-        self.emit_set_exception_kind(EbpfError::ExceededMaxInstructions(0, 0));
+        self.emit_set_exception_kind(EbpfError::ExceededMaxInstructions(0));
         self.emit_ins(X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], R11)); // R11 = instruction_meter;
         // Fall through
 
