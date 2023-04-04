@@ -19,9 +19,6 @@
 
 use crate::{elf::ElfError, memory_region::AccessType, verifier::VerifierError};
 
-/// User defined errors must implement this trait
-pub trait UserDefinedError: 'static + std::error::Error {}
-
 /// Error definitions
 #[derive(Debug, thiserror::Error)]
 #[repr(u64)] // discriminant size, used in emit_exception_kind in JIT
