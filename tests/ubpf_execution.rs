@@ -38,7 +38,7 @@ const INSTRUCTION_METER_BUDGET: u64 = 1024;
 macro_rules! test_interpreter_and_jit {
     (register, $loader:expr, $location:expr => $syscall_function:expr) => {
         $loader
-            .register_function_by_name($location, $syscall_function)
+            .register_function($location.as_bytes(), $syscall_function)
             .unwrap();
     };
     ($executable:expr, $mem:tt, $context_object:expr, $expected_result:expr $(,)?) => {
@@ -3015,7 +3015,7 @@ fn nested_vm_syscall(
     if depth > 0 {
         let mut loader = BuiltInProgram::new_loader(Config::default());
         loader
-            .register_function_by_name("nested_vm_syscall", nested_vm_syscall)
+            .register_function(b"nested_vm_syscall", nested_vm_syscall)
             .unwrap();
         let mem = [depth as u8 - 1, throw as u8];
         let mut executable = assemble::<TestContextObject>(

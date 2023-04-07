@@ -107,7 +107,7 @@ pub struct BuiltInProgram<C: ContextObject> {
     /// Holds the Config if this is a loader program
     config: Option<Box<Config>>,
     /// Function pointers by symbol
-    functions: HashMap<u32, (&'static str, BuiltInFunction<C>)>,
+    functions: HashMap<u32, (&'static [u8], BuiltInFunction<C>)>,
 }
 
 impl<C: ContextObject> BuiltInProgram<C> {
@@ -125,12 +125,12 @@ impl<C: ContextObject> BuiltInProgram<C> {
     }
 
     /// Register a built-in function
-    pub fn register_function_by_name(
+    pub fn register_function(
         &mut self,
-        name: &'static str,
+        name: &'static [u8],
         function: BuiltInFunction<C>,
     ) -> Result<(), EbpfError> {
-        let key = ebpf::hash_symbol_name(name.as_bytes());
+        let key = ebpf::hash_symbol_name(name);
         if self.functions.insert(key, (name, function)).is_some() {
             Err(EbpfError::FunctionAlreadyRegistered(key as usize))
         } else {
@@ -139,7 +139,7 @@ impl<C: ContextObject> BuiltInProgram<C> {
     }
 
     /// Get a symbol's function pointer
-    pub fn lookup_function(&self, key: u32) -> Option<(&'static str, BuiltInFunction<C>)> {
+    pub fn lookup_function(&self, key: u32) -> Option<(&'static [u8], BuiltInFunction<C>)> {
         self.functions.get(&key).cloned()
     }
 
@@ -152,7 +152,7 @@ impl<C: ContextObject> BuiltInProgram<C> {
                 0
             }
             + self.functions.capacity()
-                * mem::size_of::<(u32, (&'static str, BuiltInFunction<C>))>()
+                * mem::size_of::<(u32, (&'static [u8], BuiltInFunction<C>))>()
     }
 }
 

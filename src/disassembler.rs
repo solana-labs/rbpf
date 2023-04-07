@@ -260,7 +260,7 @@ pub fn disassemble_instruction<C: ContextObject>(
                 function_name
             } else {
                 name = "syscall";
-                loader.lookup_function(insn.imm as u32).map(|(function_name, _)| function_name).unwrap_or("[invalid]")
+                loader.lookup_function(insn.imm as u32).map(|(function_name, _)| std::str::from_utf8(function_name).unwrap()).unwrap_or("[invalid]")
             };
             desc = format!("{name} {function_name}");
         },

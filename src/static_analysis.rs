@@ -229,7 +229,7 @@ impl<'a> Analysis<'a> {
                         .get_loader()
                         .lookup_function(insn.imm as u32)
                     {
-                        if function_name == "abort" {
+                        if function_name == b"abort" {
                             self.cfg_nodes
                                 .entry(insn.ptr + 1)
                                 .or_insert_with(CfgNode::default);

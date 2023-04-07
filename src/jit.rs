@@ -1584,7 +1584,7 @@ mod tests {
             ..Config::default()
         });
         loader
-            .register_function_by_name("gather_bytes", syscalls::bpf_gather_bytes)
+            .register_function(b"gather_bytes", syscalls::bpf_gather_bytes)
             .unwrap();
         let mut function_registry = FunctionRegistry::default();
         function_registry.insert(8, (8, "function_foo".to_string()));

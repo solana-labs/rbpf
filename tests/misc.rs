@@ -107,10 +107,10 @@ fn test_fuzz_execute() {
 
     let mut loader = BuiltInProgram::default();
     loader
-        .register_function_by_name("log", syscalls::bpf_syscall_string)
+        .register_function(b"log", syscalls::bpf_syscall_string)
         .unwrap();
     loader
-        .register_function_by_name("log_64", syscalls::bpf_syscall_u64)
+        .register_function(b"log_64", syscalls::bpf_syscall_u64)
         .unwrap();
     let loader = Arc::new(loader);
 
