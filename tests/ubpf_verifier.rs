@@ -26,11 +26,11 @@ use solana_rbpf::{
     assembler::assemble,
     ebpf,
     elf::Executable,
-    verifier::{RequisiteVerifier, Verifier, VerifierError},
-    vm::{BuiltInProgram, Config, FunctionRegistry, TestContextObject, VerifiedExecutable},
+    verifier::{RequisiteVerifier, TautologyVerifier, Verifier, VerifierError},
+    vm::{BuiltInProgram, Config, FunctionRegistry, TestContextObject},
 };
 use std::sync::Arc;
-use test_utils::{create_vm, TautologyVerifier};
+use test_utils::create_vm;
 use thiserror::Error;
 
 /// Error definitions
@@ -61,8 +61,7 @@ fn test_verifier_success() {
     )
     .unwrap();
     let verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<TautologyVerifier, TestContextObject>::verified(executable).unwrap();
     create_vm!(
         _vm,
         &verified_executable,
@@ -85,8 +84,7 @@ fn test_verifier_fail() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<ContradictionVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<ContradictionVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -101,8 +99,7 @@ fn test_verifier_err_div_by_zero_imm() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -113,15 +110,14 @@ fn test_verifier_err_endian_size() {
         0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let executable = Executable::<TestContextObject>::from_text_bytes(
+    let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltInProgram::new_loader(Config::default())),
         FunctionRegistry::default(),
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -132,15 +128,14 @@ fn test_verifier_err_incomplete_lddw() {
         0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let executable = Executable::<TestContextObject>::from_text_bytes(
+    let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltInProgram::new_loader(Config::default())),
         FunctionRegistry::default(),
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -158,9 +153,8 @@ fn test_verifier_err_invalid_reg_dst() {
             })),
         )
         .unwrap();
-        let result =
-            VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-                .map_err(|err| format!("Executable constructor {err:?}"));
+        let result = Executable::<RequisiteVerifier, TestContextObject>::verified(executable)
+            .map_err(|err| format!("Executable constructor {err:?}"));
 
         assert_eq!(
             result.unwrap_err(),
@@ -184,9 +178,8 @@ fn test_verifier_err_invalid_reg_src() {
             })),
         )
         .unwrap();
-        let result =
-            VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-                .map_err(|err| format!("Executable constructor {err:?}"));
+        let result = Executable::<RequisiteVerifier, TestContextObject>::verified(executable)
+            .map_err(|err| format!("Executable constructor {err:?}"));
 
         assert_eq!(
             result.unwrap_err(),
@@ -209,8 +202,7 @@ fn test_verifier_resize_stack_ptr_success() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -225,8 +217,7 @@ fn test_verifier_err_jmp_lddw() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -241,8 +232,7 @@ fn test_verifier_err_call_lddw() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -257,8 +247,7 @@ fn test_verifier_err_function_fallthrough() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -272,8 +261,7 @@ fn test_verifier_err_jmp_out() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -287,8 +275,7 @@ fn test_verifier_err_jmp_out_start() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -298,15 +285,14 @@ fn test_verifier_err_unknown_opcode() {
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
     ];
-    let executable = Executable::<TestContextObject>::from_text_bytes(
+    let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltInProgram::new_loader(Config::default())),
         FunctionRegistry::default(),
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -320,8 +306,7 @@ fn test_verifier_err_write_r10() {
     )
     .unwrap();
     let _verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 }
 
 #[test]
@@ -357,9 +342,8 @@ fn test_verifier_err_all_shift_overflows() {
             Arc::new(BuiltInProgram::new_loader(Config::default())),
         )
         .unwrap();
-        let result =
-            VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-                .map_err(|err| format!("Executable constructor {err:?}"));
+        let result = Executable::<RequisiteVerifier, TestContextObject>::verified(executable)
+            .map_err(|err| format!("Executable constructor {err:?}"));
         match expected {
             Ok(()) => assert!(result.is_ok()),
             Err(overflow_msg) => match result {
@@ -393,10 +377,7 @@ fn test_sdiv_disabled() {
                 })),
             )
             .unwrap();
-            let result =
-                VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(
-                    executable,
-                )
+            let result = Executable::<RequisiteVerifier, TestContextObject>::verified(executable)
                 .map_err(|err| format!("Executable constructor {err:?}"));
             if enable_sdiv {
                 assert!(result.is_ok());

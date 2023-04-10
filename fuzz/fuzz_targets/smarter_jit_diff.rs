@@ -9,13 +9,12 @@ use solana_rbpf::{
     insn_builder::IntoBytes,
     memory_region::MemoryRegion,
     static_analysis::Analysis,
-    verifier::{RequisiteVerifier, Verifier},
+    verifier::{RequisiteVerifier, TautologyVerifier, Verifier},
     vm::{
         BuiltInProgram, ContextObject, FunctionRegistry, TestContextObject,
-        VerifiedExecutable,
     },
 };
-use test_utils::{create_vm, TautologyVerifier};
+use test_utils::create_vm;
 
 use crate::common::ConfigTemplate;
 
@@ -29,8 +28,8 @@ struct FuzzData {
     mem: Vec<u8>,
 }
 
-fn dump_insns<V: Verifier, C: ContextObject>(verified_executable: &VerifiedExecutable<V, C>) {
-    let analysis = Analysis::from_executable(verified_executable.get_executable()).unwrap();
+fn dump_insns<V: Verifier, C: ContextObject>(verified_executable: &Executable<V, C>) {
+    let analysis = Analysis::from_executable(verified_executable).unwrap();
     eprint!("Using the following disassembly");
     analysis.disassemble(&mut std::io::stderr().lock()).unwrap();
 }
@@ -45,21 +44,18 @@ fuzz_target!(|data: FuzzData| {
     }
     let mut interp_mem = data.mem.clone();
     let mut jit_mem = data.mem;
-    let executable = Executable::<TestContextObject>::from_text_bytes(
+    let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog.into_bytes(),
         std::sync::Arc::new(BuiltInProgram::new_loader(config)),
         function_registry,
     )
     .unwrap();
-    let mut verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
-    if verified_executable.jit_compile().is_ok() {
+    if executable.jit_compile().is_ok() {
         let mut interp_context_object = TestContextObject::new(1 << 16);
         let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
         create_vm!(
             interp_vm,
-            &verified_executable,
+            &executable,
             &mut interp_context_object,
             interp_stack,
             interp_heap,
@@ -71,7 +67,7 @@ fuzz_target!(|data: FuzzData| {
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
         create_vm!(
             jit_vm,
-            &verified_executable,
+            &executable,
             &mut jit_context_object,
             jit_stack,
             jit_heap,
@@ -90,20 +86,20 @@ fuzz_target!(|data: FuzzData| {
                 return;
             }
             eprintln!("{:#?}", &data.prog);
-            dump_insns(&verified_executable);
+            dump_insns(&executable);
             panic!("Expected {}, but got {}", interp_res_str, jit_res_str);
         }
         if interp_res.is_ok() {
             // we know jit res must be ok if interp res is by this point
             if interp_context_object.remaining != jit_context_object.remaining {
-                dump_insns(&verified_executable);
+                dump_insns(&executable);
                 panic!(
                     "Expected {} insts remaining, but got {}",
                     interp_context_object.remaining, jit_context_object.remaining
                 );
             }
             if interp_mem != jit_mem {
-                dump_insns(&verified_executable);
+                dump_insns(&executable);
                 panic!(
                     "Expected different memory. From interpreter: {:?}\nFrom JIT: {:?}",
                     interp_mem, jit_mem

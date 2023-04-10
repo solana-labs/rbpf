@@ -14,6 +14,7 @@ use solana_rbpf::{
     elf::Executable,
     error::EbpfError,
     memory_region::{MemoryCowCallback, MemoryMapping, MemoryRegion},
+    verifier::Verifier,
     vm::ContextObject,
 };
 
@@ -158,19 +159,8 @@ pub const TCP_SACK_NOMATCH: [u8; 66] = [
     0x9e, 0x27, //
 ];
 
-pub struct TautologyVerifier {}
-impl solana_rbpf::verifier::Verifier for TautologyVerifier {
-    fn verify(
-        _prog: &[u8],
-        _config: &solana_rbpf::vm::Config,
-        _function_registry: &solana_rbpf::vm::FunctionRegistry,
-    ) -> std::result::Result<(), solana_rbpf::verifier::VerifierError> {
-        Ok(())
-    }
-}
-
-pub fn create_memory_mapping<'a, C: ContextObject>(
-    executable: &'a Executable<C>,
+pub fn create_memory_mapping<'a, V: Verifier, C: ContextObject>(
+    executable: &'a Executable<V, C>,
     stack: &'a mut AlignedMemory<{ HOST_ALIGN }>,
     heap: &'a mut AlignedMemory<{ HOST_ALIGN }>,
     additional_regions: Vec<MemoryRegion>,
@@ -205,15 +195,12 @@ pub fn create_memory_mapping<'a, C: ContextObject>(
 macro_rules! create_vm {
     ($vm_name:ident, $verified_executable:expr, $context_object:expr, $stack:ident, $heap:ident, $additional_regions:expr, $cow_cb:expr) => {
         let mut $stack = solana_rbpf::aligned_memory::AlignedMemory::zero_filled(
-            $verified_executable
-                .get_executable()
-                .get_config()
-                .stack_size(),
+            $verified_executable.get_config().stack_size(),
         );
         let mut $heap = solana_rbpf::aligned_memory::AlignedMemory::with_capacity(0);
         let stack_len = $stack.len();
         let memory_mapping = test_utils::create_memory_mapping(
-            $verified_executable.get_executable(),
+            $verified_executable,
             &mut $stack,
             &mut $heap,
             $additional_regions,

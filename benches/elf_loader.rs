@@ -13,6 +13,7 @@ extern crate test_utils;
 use solana_rbpf::{
     elf::Executable,
     syscalls::bpf_syscall_u64,
+    verifier::TautologyVerifier,
     vm::{BuiltInProgram, Config, TestContextObject},
 };
 use std::{fs::File, io::Read, sync::Arc};
@@ -32,7 +33,9 @@ fn bench_load_elf(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let loader = loader();
-    bencher.iter(|| Executable::<TestContextObject>::from_elf(&elf, loader.clone()).unwrap());
+    bencher.iter(|| {
+        Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, loader.clone()).unwrap()
+    });
 }
 
 #[bench]
@@ -41,7 +44,9 @@ fn bench_load_elf_without_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let loader = loader();
-    bencher.iter(|| Executable::<TestContextObject>::from_elf(&elf, loader.clone()).unwrap());
+    bencher.iter(|| {
+        Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, loader.clone()).unwrap()
+    });
 }
 
 #[bench]
@@ -50,5 +55,7 @@ fn bench_load_elf_with_syscall(bencher: &mut Bencher) {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let loader = loader();
-    bencher.iter(|| Executable::<TestContextObject>::from_elf(&elf, loader.clone()).unwrap());
+    bencher.iter(|| {
+        Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, loader.clone()).unwrap()
+    });
 }

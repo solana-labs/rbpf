@@ -10,10 +10,10 @@ use solana_rbpf::{
     elf::Executable,
     insn_builder::{Arch, IntoBytes},
     memory_region::MemoryRegion,
-    verifier::{RequisiteVerifier, Verifier},
-    vm::{BuiltInProgram, FunctionRegistry, TestContextObject, VerifiedExecutable},
+    verifier::{RequisiteVerifier, TautologyVerifier, Verifier},
+    vm::{BuiltInProgram, FunctionRegistry, TestContextObject},
 };
-use test_utils::{create_vm, TautologyVerifier};
+use test_utils::create_vm;
 
 use crate::common::ConfigTemplate;
 
@@ -37,20 +37,17 @@ fuzz_target!(|data: FuzzData| {
         return;
     }
     let mut mem = data.mem;
-    let executable = Executable::<TestContextObject>::from_text_bytes(
+    let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog.into_bytes(),
         std::sync::Arc::new(BuiltInProgram::new_loader(config)),
         function_registry,
     )
     .unwrap();
-    let verified_executable =
-        VerifiedExecutable::<TautologyVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
     let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
     let mut context_object = TestContextObject::new(1 << 16);
     create_vm!(
         interp_vm,
-        &verified_executable,
+        &executable,
         &mut context_object,
         stack,
         heap,

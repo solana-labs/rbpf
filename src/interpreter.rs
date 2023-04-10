@@ -85,8 +85,7 @@ pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
 impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Creates a new interpreter state
     pub fn new(vm: &'a mut EbpfVm<'b, V, C>, registers: [u64; 12]) -> Self {
-        let executable = vm.verified_executable.get_executable();
-        let (program_vm_addr, program) = executable.get_text_bytes();
+        let (program_vm_addr, program) = vm.executable.get_text_bytes();
         Self {
             vm,
             program,
@@ -123,12 +122,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Translate between the virtual machines' pc value and the pc value used by the debugger
     #[cfg(feature = "debugger")]
     pub fn get_dbg_pc(&self) -> u64 {
-        ((self.pc * ebpf::INSN_SIZE) as u64)
-            + self
-                .vm
-                .verified_executable
-                .get_executable()
-                .get_text_section_offset()
+        ((self.pc * ebpf::INSN_SIZE) as u64) + self.vm.executable.get_text_section_offset()
     }
 
     fn push_frame(&mut self, config: &Config) -> bool {
@@ -166,8 +160,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Returns false if the program terminated or threw an error.
     #[rustfmt::skip]
     pub fn step(&mut self) -> bool {
-        let executable = self.vm.verified_executable.get_executable();
-        let config = &executable.get_config();
+        let config = &self.vm.executable.get_config();
 
         let mut instruction_width = 1;
         self.due_insn_count += 1;
@@ -427,7 +420,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 if !self.check_pc(pc) {
                     return false;
                 }
-                if config.static_syscalls && executable.lookup_internal_function(self.pc as u32).is_none() {
+                if config.static_syscalls && self.vm.executable.lookup_internal_function(self.pc as u32).is_none() {
                     self.due_insn_count += 1;
                     throw_error!(self, EbpfError::UnsupportedInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
@@ -444,7 +437,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 };
 
                 if external {
-                    if let Some((_function_name, function)) = executable.get_loader().lookup_function(insn.imm as u32) {
+                    if let Some((_function_name, function)) = self.vm.executable.get_loader().lookup_function(insn.imm as u32) {
                         resolved = true;
 
                         if config.enable_instruction_meter {
@@ -472,7 +465,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 }
 
                 if internal && !resolved {
-                    if let Some(target_pc) = executable.lookup_internal_function(insn.imm as u32) {
+                    if let Some(target_pc) = self.vm.executable.lookup_internal_function(insn.imm as u32) {
                         resolved = true;
 
                         // make BPF to BPF call

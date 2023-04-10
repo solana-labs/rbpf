@@ -6,8 +6,8 @@ use solana_rbpf::{
     elf::Executable,
     memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
-    verifier::RequisiteVerifier,
-    vm::{BuiltInProgram, Config, DynamicAnalysis, EbpfVm, TestContextObject, VerifiedExecutable},
+    verifier::{RequisiteVerifier, TautologyVerifier},
+    vm::{BuiltInProgram, Config, DynamicAnalysis, EbpfVm, TestContextObject},
 };
 use std::{fs::File, io::Read, path::Path, sync::Arc};
 
@@ -108,16 +108,15 @@ fn main() {
             let mut file = File::open(Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            Executable::<TestContextObject>::from_elf(&elf, loader)
+            Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, loader)
                 .map_err(|err| format!("Executable constructor failed: {err:?}"))
         }
     }
     .unwrap();
 
     #[allow(unused_mut)]
-    let mut verified_executable =
-        VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable)
-            .unwrap();
+    let verified_executable =
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 
     let mut mem = match matches.value_of("input").unwrap().parse::<usize>() {
         Ok(allocate) => vec![0u8; allocate],
@@ -139,7 +138,7 @@ fn main() {
             .parse::<u64>()
             .unwrap(),
     );
-    let config = verified_executable.get_executable().get_config();
+    let config = verified_executable.get_config();
     let mut stack = AlignedMemory::<{ ebpf::HOST_ALIGN }>::zero_filled(config.stack_size());
     let stack_len = stack.len();
     let mut heap = AlignedMemory::<{ ebpf::HOST_ALIGN }>::zero_filled(
@@ -150,7 +149,7 @@ fn main() {
             .unwrap(),
     );
     let regions: Vec<MemoryRegion> = vec![
-        verified_executable.get_executable().get_ro_region(),
+        verified_executable.get_ro_region(),
         MemoryRegion::new_writable_gapped(
             stack.as_slice_mut(),
             ebpf::MM_STACK_START,
@@ -178,7 +177,7 @@ fn main() {
         || matches.is_present("trace")
         || matches.is_present("profile")
     {
-        Some(Analysis::from_executable(verified_executable.get_executable()).unwrap())
+        Some(Analysis::from_executable(&verified_executable).unwrap())
     } else {
         None
     };

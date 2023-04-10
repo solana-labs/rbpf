@@ -19,13 +19,12 @@ use crate::{
     interpreter::Interpreter,
     memory_region::MemoryMapping,
     static_analysis::{Analysis, TraceLogEntry},
-    verifier::Verifier,
+    verifier::{TautologyVerifier, Verifier},
 };
 use rand::Rng;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
-    marker::PhantomData,
     mem,
     sync::Arc,
 };
@@ -281,7 +280,7 @@ impl Default for Config {
 }
 
 /// Static constructors for Executable
-impl<C: ContextObject> Executable<C> {
+impl<C: ContextObject> Executable<TautologyVerifier, C> {
     /// Creates an executable from an ELF file
     pub fn from_elf(elf_bytes: &[u8], loader: Arc<BuiltInProgram<C>>) -> Result<Self, EbpfError> {
         let executable = Executable::load(elf_bytes, loader)?;
@@ -295,40 +294,6 @@ impl<C: ContextObject> Executable<C> {
     ) -> Result<Self, EbpfError> {
         Executable::new_from_text_bytes(text_bytes, loader, function_registry)
             .map_err(EbpfError::ElfError)
-    }
-}
-
-/// Verified executable
-#[derive(Debug, PartialEq)]
-#[repr(transparent)]
-pub struct VerifiedExecutable<V: Verifier, C: ContextObject> {
-    executable: Executable<C>,
-    _verifier: PhantomData<V>,
-}
-
-impl<V: Verifier, C: ContextObject> VerifiedExecutable<V, C> {
-    /// Verify an executable
-    pub fn from_executable(executable: Executable<C>) -> Result<Self, EbpfError> {
-        <V as Verifier>::verify(
-            executable.get_text_bytes().1,
-            executable.get_config(),
-            executable.get_function_registry(),
-        )?;
-        Ok(VerifiedExecutable {
-            executable,
-            _verifier: PhantomData,
-        })
-    }
-
-    /// JIT compile the executable
-    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-    pub fn jit_compile(&mut self) -> Result<(), EbpfError> {
-        Executable::<C>::jit_compile(&mut self.executable)
-    }
-
-    /// Get a reference to the underlying executable
-    pub fn get_executable(&self) -> &Executable<C> {
-        &self.executable
     }
 }
 
@@ -476,8 +441,8 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 ///     ebpf,
 ///     elf::Executable,
 ///     memory_region::{MemoryMapping, MemoryRegion},
-///     verifier::RequisiteVerifier,
-///     vm::{BuiltInProgram, Config, EbpfVm, FunctionRegistry, TestContextObject, VerifiedExecutable},
+///     verifier::{TautologyVerifier, RequisiteVerifier},
+///     vm::{BuiltInProgram, Config, EbpfVm, FunctionRegistry, TestContextObject},
 /// };
 ///
 /// let prog = &[
@@ -489,17 +454,17 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 ///
 /// let loader = std::sync::Arc::new(BuiltInProgram::new_loader(Config::default()));
 /// let function_registry = FunctionRegistry::default();
-/// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, loader, function_registry).unwrap();
-/// let verified_executable = VerifiedExecutable::<RequisiteVerifier, TestContextObject>::from_executable(executable).unwrap();
+/// let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(prog, loader, function_registry).unwrap();
+/// let verified_executable = Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 /// let mut context_object = TestContextObject::new(1);
-/// let config = verified_executable.get_executable().get_config();
+/// let config = verified_executable.get_config();
 ///
 /// let mut stack = AlignedMemory::<{ebpf::HOST_ALIGN}>::zero_filled(config.stack_size());
 /// let stack_len = stack.len();
 /// let mut heap = AlignedMemory::<{ebpf::HOST_ALIGN}>::with_capacity(0);
 ///
 /// let regions: Vec<MemoryRegion> = vec![
-///     verified_executable.get_executable().get_ro_region(),
+///     verified_executable.get_ro_region(),
 ///     MemoryRegion::new_writable_gapped(
 ///         stack.as_slice_mut(),
 ///         ebpf::MM_STACK_START,
@@ -522,7 +487,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// assert_eq!(result.unwrap(), 0);
 /// ```
 pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
-    pub(crate) verified_executable: &'a VerifiedExecutable<V, C>,
+    pub(crate) executable: &'a Executable<V, C>,
     /// TCP port for the debugger interface
     #[cfg(feature = "debugger")]
     pub debug_port: Option<u16>,
@@ -533,12 +498,11 @@ pub struct EbpfVm<'a, V: Verifier, C: ContextObject> {
 impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     /// Creates a new virtual machine instance.
     pub fn new(
-        verified_executable: &'a VerifiedExecutable<V, C>,
+        executable: &'a Executable<V, C>,
         context_object: &'a mut C,
         memory_mapping: MemoryMapping<'a>,
         stack_len: usize,
     ) -> EbpfVm<'a, V, C> {
-        let executable = verified_executable.get_executable();
         let config = executable.get_config();
         let stack_pointer = ebpf::MM_STACK_START.saturating_add(if config.dynamic_stack_frames {
             // the stack is fully descending, frames start as empty and change size anytime r11 is modified
@@ -548,7 +512,7 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
             config.stack_frame_size
         } as u64);
         EbpfVm {
-            verified_executable,
+            executable,
             #[cfg(feature = "debugger")]
             debug_port: None,
             env: RuntimeEnvironment {
@@ -570,13 +534,12 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
     ///
     /// If interpreted = `false` then the JIT compiled executable is used.
     pub fn execute_program(&mut self, interpreted: bool) -> (u64, ProgramResult) {
-        let executable = self.verified_executable.get_executable();
         let mut registers = [0u64; 12];
         // R1 points to beginning of input memory, R10 to the stack of the first frame, R11 is the pc (hidden)
         registers[1] = ebpf::MM_INPUT_START;
         registers[ebpf::FRAME_PTR_REG] = self.env.stack_pointer;
-        registers[11] = executable.get_entrypoint_instruction_offset() as u64;
-        let config = executable.get_config();
+        registers[11] = self.executable.get_entrypoint_instruction_offset() as u64;
+        let config = self.executable.get_config();
         let initial_insn_count = if config.enable_instruction_meter {
             self.env.context_object_pointer.get_remaining()
         } else {
@@ -600,7 +563,8 @@ impl<'a, V: Verifier, C: ContextObject> EbpfVm<'a, V, C> {
         } else {
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             {
-                let compiled_program = match executable
+                let compiled_program = match self
+                    .executable
                     .get_compiled_program()
                     .ok_or_else(|| Box::new(EbpfError::JitNotCompiled))
                 {

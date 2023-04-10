@@ -19,6 +19,7 @@ use crate::{
     },
     ebpf::{self, Insn},
     elf::{register_internal_function, Executable},
+    verifier::TautologyVerifier,
     vm::{BuiltInProgram, ContextObject, FunctionRegistry},
 };
 use std::{collections::HashMap, sync::Arc};
@@ -216,7 +217,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 pub fn assemble<C: ContextObject>(
     src: &str,
     loader: Arc<BuiltInProgram<C>>,
-) -> Result<Executable<C>, String> {
+) -> Result<Executable<TautologyVerifier, C>, String> {
     fn resolve_label(
         insn_ptr: usize,
         labels: &HashMap<&str, usize>,
@@ -352,6 +353,6 @@ pub fn assemble<C: ContextObject>(
         .iter()
         .flat_map(|insn| insn.to_vec())
         .collect::<Vec<_>>();
-    Executable::<C>::from_text_bytes(&program, loader, function_registry)
+    Executable::<TautologyVerifier, C>::from_text_bytes(&program, loader, function_registry)
         .map_err(|err| format!("Executable constructor {err:?}"))
 }

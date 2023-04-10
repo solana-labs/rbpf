@@ -14,6 +14,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     elf::Executable,
     static_analysis::Analysis,
+    verifier::TautologyVerifier,
     vm::{BuiltInProgram, FunctionRegistry, TestContextObject},
 };
 use std::sync::Arc;
@@ -27,7 +28,7 @@ use std::sync::Arc;
 // * Print integers as integers, and not as strings containing their hexadecimal representation
 //   (just replace the relevant `format!()` calls by the commented values.
 fn to_json(program: &[u8]) -> String {
-    let executable = Executable::<TestContextObject>::from_text_bytes(
+    let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         program,
         Arc::new(BuiltInProgram::default()),
         FunctionRegistry::default(),

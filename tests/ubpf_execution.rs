@@ -21,11 +21,11 @@ use solana_rbpf::{
     elf::Executable,
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
+    static_analysis::Analysis,
     syscalls,
-    verifier::RequisiteVerifier,
+    verifier::{RequisiteVerifier, TautologyVerifier},
     vm::{
         BuiltInProgram, Config, ContextObject, FunctionRegistry, ProgramResult, TestContextObject,
-        VerifiedExecutable,
     },
 };
 use std::{fs::File, io::Read, sync::Arc};
@@ -51,7 +51,7 @@ macro_rules! test_interpreter_and_jit {
         }
         #[allow(unused_mut)]
         let mut verified_executable =
-            VerifiedExecutable::<RequisiteVerifier, _>::from_executable($executable).unwrap();
+            Executable::<RequisiteVerifier, _>::verified($executable).unwrap();
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
@@ -100,10 +100,7 @@ macro_rules! test_interpreter_and_jit {
                     let tracer_jit = &vm.env.context_object_pointer;
                     assert_eq!(format!("{:?}", result), expected_result);
                     if !TestContextObject::compare_trace_log(&_tracer_interpreter, tracer_jit) {
-                        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
-                            verified_executable.get_executable(),
-                        )
-                        .unwrap();
+                        let analysis = Analysis::from_executable(&verified_executable).unwrap();
                         let stdout = std::io::stdout();
                         analysis
                             .disassemble_trace_log(
@@ -123,11 +120,7 @@ macro_rules! test_interpreter_and_jit {
                 }
             }
         }
-        if verified_executable
-            .get_executable()
-            .get_config()
-            .enable_instruction_meter
-        {
+        if verified_executable.get_config().enable_instruction_meter {
             assert_eq!(instruction_count_interpreter, expected_instruction_count);
         }
     };
@@ -166,7 +159,7 @@ macro_rules! test_interpreter_and_jit_elf {
             let mut loader = BuiltInProgram::new_loader($config);
             $(test_interpreter_and_jit!(register, loader, $location => $syscall_function);)*
             let loader = Arc::new(loader);
-            let mut executable = Executable::<TestContextObject>::from_elf(&elf, loader).unwrap();
+            let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, loader).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $expected_result);
         }
     };
@@ -2579,7 +2572,7 @@ fn test_err_mem_access_out_of_bound() {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
         #[allow(unused_mut)]
-        let mut executable = Executable::<TestContextObject>::from_text_bytes(
+        let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
             &prog,
             loader.clone(),
             FunctionRegistry::default(),
@@ -3442,7 +3435,7 @@ fn test_err_unresolved_elf() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     assert_error!(
-        Executable::<TestContextObject>::from_elf(&elf, Arc::new(loader)),
+        Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, Arc::new(loader)),
         "UnresolvedSymbol(\"log_64\", 67, 304)"
     );
 }
@@ -3822,7 +3815,7 @@ fn test_struct_func_pointer() {
 fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
-    let executable = Executable::<TestContextObject>::from_text_bytes(
+    let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltInProgram::new_loader(Config {
             enable_instruction_tracing: true,
@@ -3835,10 +3828,8 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     } else {
         return false;
     };
-    let verified_executable = VerifiedExecutable::<
-        solana_rbpf::verifier::RequisiteVerifier,
-        TestContextObject,
-    >::from_executable(executable);
+    let verified_executable =
+        Executable::<RequisiteVerifier, TestContextObject>::verified(executable);
     let mut verified_executable = if let Ok(verified_executable) = verified_executable {
         verified_executable
     } else {
@@ -3885,10 +3876,8 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     if format!("{result_interpreter:?}") != format!("{result_jit:?}")
         || !TestContextObject::compare_trace_log(&tracer_interpreter, tracer_jit)
     {
-        let analysis = solana_rbpf::static_analysis::Analysis::from_executable(
-            verified_executable.get_executable(),
-        )
-        .unwrap();
+        let analysis =
+            solana_rbpf::static_analysis::Analysis::from_executable(&verified_executable).unwrap();
         println!("result_interpreter={result_interpreter:?}");
         println!("result_jit={result_jit:?}");
         let stdout = std::io::stdout();
@@ -3900,11 +3889,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
             .unwrap();
         panic!();
     }
-    if verified_executable
-        .get_executable()
-        .get_config()
-        .enable_instruction_meter
-    {
+    if verified_executable.get_config().enable_instruction_meter {
         assert_eq!(instruction_count_interpreter, instruction_count_jit);
     }
     true

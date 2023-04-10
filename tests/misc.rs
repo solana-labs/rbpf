@@ -26,8 +26,8 @@ use solana_rbpf::{
     elf::Executable,
     fuzz::fuzz,
     syscalls,
-    verifier::RequisiteVerifier,
-    vm::{BuiltInProgram, TestContextObject, VerifiedExecutable},
+    verifier::{RequisiteVerifier, TautologyVerifier},
+    vm::{BuiltInProgram, TestContextObject},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test_utils::create_vm;
@@ -122,12 +122,11 @@ fn test_fuzz_execute() {
         0..elf.len(),
         0..255,
         |bytes: &mut [u8]| {
-            if let Ok(executable) = Executable::<TestContextObject>::from_elf(bytes, loader.clone())
+            if let Ok(executable) =
+                Executable::<TautologyVerifier, TestContextObject>::from_elf(bytes, loader.clone())
             {
-                if let Ok(verified_executable) = VerifiedExecutable::<
-                    RequisiteVerifier,
-                    TestContextObject,
-                >::from_executable(executable)
+                if let Ok(verified_executable) =
+                    Executable::<RequisiteVerifier, TestContextObject>::verified(executable)
                 {
                     let mut context_object = TestContextObject::new(1_000_000);
                     create_vm!(
