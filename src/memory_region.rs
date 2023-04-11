@@ -681,6 +681,8 @@ impl<'a> AlignedMemoryMapping<'a> {
 /// Maps virtual memory to host memory.
 #[derive(Debug)]
 pub enum MemoryMapping<'a> {
+    /// Used when address translation is disabled
+    Identity,
     /// Aligned memory mapping which uses the upper half of an address to
     /// identify the underlying memory region.
     Aligned(AlignedMemoryMapping<'a>),
@@ -689,6 +691,10 @@ pub enum MemoryMapping<'a> {
 }
 
 impl<'a> MemoryMapping<'a> {
+    pub(crate) fn new_identity() -> Self {
+        MemoryMapping::Identity
+    }
+
     /// Creates a new memory mapping.
     ///
     /// Uses aligned or unaligned memory mapping depending on the value of
@@ -721,6 +727,7 @@ impl<'a> MemoryMapping<'a> {
     /// Map virtual memory to host memory.
     pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64, pc: usize) -> ProgramResult {
         match self {
+            MemoryMapping::Identity => ProgramResult::Ok(vm_addr),
             MemoryMapping::Aligned(m) => m.map(access_type, vm_addr, len, pc),
             MemoryMapping::Unaligned(m) => m.map(access_type, vm_addr, len, pc),
         }
@@ -732,6 +739,9 @@ impl<'a> MemoryMapping<'a> {
     #[inline]
     pub fn load<T: Pod + Into<u64>>(&self, vm_addr: u64, pc: usize) -> ProgramResult {
         match self {
+            MemoryMapping::Identity => unsafe {
+                ProgramResult::Ok(ptr::read_unaligned(vm_addr as *const T).into())
+            },
             MemoryMapping::Aligned(m) => m.load::<T>(vm_addr, pc),
             MemoryMapping::Unaligned(m) => m.load::<T>(vm_addr, pc),
         }
@@ -743,6 +753,10 @@ impl<'a> MemoryMapping<'a> {
     #[inline]
     pub fn store<T: Pod>(&self, value: T, vm_addr: u64, pc: usize) -> ProgramResult {
         match self {
+            MemoryMapping::Identity => unsafe {
+                ptr::write_unaligned(vm_addr as *mut T, value);
+                ProgramResult::Ok(0)
+            },
             MemoryMapping::Aligned(m) => m.store(value, vm_addr, pc),
             MemoryMapping::Unaligned(m) => m.store(value, vm_addr, pc),
         }
@@ -755,6 +769,7 @@ impl<'a> MemoryMapping<'a> {
         vm_addr: u64,
     ) -> Result<&MemoryRegion, Box<dyn std::error::Error>> {
         match self {
+            MemoryMapping::Identity => Err(Box::new(EbpfError::InvalidMemoryRegion(0))),
             MemoryMapping::Aligned(m) => m.region(access_type, vm_addr),
             MemoryMapping::Unaligned(m) => m.region(access_type, vm_addr),
         }
@@ -763,6 +778,7 @@ impl<'a> MemoryMapping<'a> {
     /// Returns the `MemoryRegion`s in this mapping.
     pub fn get_regions(&self) -> &[MemoryRegion] {
         match self {
+            MemoryMapping::Identity => &[],
             MemoryMapping::Aligned(m) => m.get_regions(),
             MemoryMapping::Unaligned(m) => m.get_regions(),
         }
@@ -771,6 +787,7 @@ impl<'a> MemoryMapping<'a> {
     /// Replaces the `MemoryRegion` at the given index
     pub fn replace_region(&mut self, index: usize, region: MemoryRegion) -> Result<(), EbpfError> {
         match self {
+            MemoryMapping::Identity => Err(EbpfError::InvalidMemoryRegion(index)),
             MemoryMapping::Aligned(m) => m.replace_region(index, region),
             MemoryMapping::Unaligned(m) => m.replace_region(index, region),
         }

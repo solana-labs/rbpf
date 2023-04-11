@@ -1014,10 +1014,29 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
             _ => {}
         }
 
-        let access_type = if value.is_none() { AccessType::Load } else { AccessType::Store };
-        let anchor = ANCHOR_TRANSLATE_MEMORY_ADDRESS + len.trailing_zeros() as usize + 4 * (access_type as usize);
-        self.emit_ins(X86Instruction::push_immediate(OperandSize::S64, self.pc as i32));
-        self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(anchor, 5)));
+        if self.config.enable_address_translation {
+            let access_type = if value.is_none() { AccessType::Load } else { AccessType::Store };
+            let anchor = ANCHOR_TRANSLATE_MEMORY_ADDRESS + len.trailing_zeros() as usize + 4 * (access_type as usize);
+            self.emit_ins(X86Instruction::push_immediate(OperandSize::S64, self.pc as i32));
+            self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(anchor, 5)));
+        } else if value.is_some() {
+            match len {
+                1 => self.emit_ins(X86Instruction::store(OperandSize::S8, R10, R11, X86IndirectAccess::Offset(0))),
+                2 => self.emit_ins(X86Instruction::store(OperandSize::S16, R10, R11, X86IndirectAccess::Offset(0))),
+                4 => self.emit_ins(X86Instruction::store(OperandSize::S32, R10, R11, X86IndirectAccess::Offset(0))),
+                8 => self.emit_ins(X86Instruction::store(OperandSize::S64, R10, R11, X86IndirectAccess::Offset(0))),
+                _ => unreachable!(),
+            }
+        } else {
+            match len {
+                1 => self.emit_ins(X86Instruction::load(OperandSize::S8, R11, R10, X86IndirectAccess::Offset(0))),
+                2 => self.emit_ins(X86Instruction::load(OperandSize::S16, R11, R10, X86IndirectAccess::Offset(0))),
+                4 => self.emit_ins(X86Instruction::load(OperandSize::S32, R11, R10, X86IndirectAccess::Offset(0))),
+                8 => self.emit_ins(X86Instruction::load(OperandSize::S64, R11, R10, X86IndirectAccess::Offset(0))),
+                _ => unreachable!(),
+            }
+        }
+
         if let Some(dst) = dst {
             self.emit_ins(X86Instruction::mov(OperandSize::S64, R11, dst));
         }
@@ -1432,7 +1451,6 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                     4 => MemoryMapping::load::<u32> as *const u8 as i64,
                     8 => MemoryMapping::load::<u64> as *const u8 as i64,
                     _ => unreachable!()
-
                 };
                 self.emit_rust_call(Value::Constant64(load, false), &[
                     Argument { index: 2, value: Value::Register(R11) }, // Specify first as the src register could be overwritten by other arguments
