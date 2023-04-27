@@ -660,6 +660,15 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             {
                 return Err(ElfError::InvalidProgramHeader);
             }
+
+            // The toolchain currently emits up to 4 program headers. 10 is a
+            // future proof nice round number.
+            //
+            // program_headers() returns an ExactSizeIterator so count doesn't
+            // actually iterate again.
+            if elf.program_headers().count() >= 10 {
+                return Err(ElfError::InvalidProgramHeader);
+            }
         }
 
         let num_text_sections = elf
