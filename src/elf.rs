@@ -82,9 +82,6 @@ pub enum ElfError {
     #[error("Multiple or no text sections, consider removing llc option: -function-sections")]
     NotOneTextSection,
     /// Read-write data not supported
-    #[error("Found .bss section in ELF, read-write data not supported")]
-    BssNotSupported,
-    /// Read-write data not supported
     #[error("Found writable section ({0}) in ELF, read-write data not supported")]
     WritableSectionNotSupported(String),
     /// Relocation failed, no loadable section contains virtual address
@@ -692,8 +689,6 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                         && (name.starts_with(".data") && !name.starts_with(".data.rel")))
                 {
                     return Err(ElfError::WritableSectionNotSupported(name.to_owned()));
-                } else if name == ".bss" {
-                    return Err(ElfError::BssNotSupported);
                 }
             }
         }
