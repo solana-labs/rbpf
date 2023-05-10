@@ -400,7 +400,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             0
         };
         Ok(Self {
-            _verifier: PhantomData::default(),
+            _verifier: PhantomData,
             elf_bytes,
             ro_section: Section::Borrowed(0, 0..text_bytes.len()),
             text_section_info: SectionInfo {
@@ -515,7 +515,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         )?;
 
         Ok(Self {
-            _verifier: PhantomData::default(),
+            _verifier: PhantomData,
             elf_bytes,
             ro_section,
             text_section_info,

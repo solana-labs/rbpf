@@ -896,7 +896,7 @@ impl<'a> Analysis<'a> {
                     };
                 }
                 if cfg_node.dominator_parent != dominator_parent {
-                    let mut cfg_node = self.cfg_nodes.get_mut(b).unwrap();
+                    let cfg_node = self.cfg_nodes.get_mut(b).unwrap();
                     cfg_node.dominator_parent = dominator_parent;
                     terminate = false;
                 }
