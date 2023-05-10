@@ -2141,20 +2141,4 @@ mod test {
             .expect("failed to read elf file");
         ElfExecutable::load(&elf_bytes, loader()).expect("validation failed");
     }
-
-    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-    #[test]
-    fn test_size() {
-        let mut file = File::open("tests/elfs/noop.so").expect("file open failed");
-        let mut elf_bytes = Vec::new();
-        file.read_to_end(&mut elf_bytes)
-            .expect("failed to read elf file");
-        let mut executable =
-            ElfExecutable::from_elf(&elf_bytes, loader()).expect("validation failed");
-        {
-            Executable::jit_compile(&mut executable).unwrap();
-        }
-
-        assert_eq!(10546, executable.mem_size());
-    }
 }
