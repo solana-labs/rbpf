@@ -32,7 +32,7 @@ so it should work out of the box by adding it as a dependency in your
 
 ```toml
 [dependencies]
-solana_rbpf = "0.3.0"
+solana_rbpf = "0.4.0"
 ```
 
 You can also use the development version from this GitHub repository. This
