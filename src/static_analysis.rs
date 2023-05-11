@@ -682,8 +682,7 @@ impl<'a> Analysis<'a> {
                         .collect::<Vec<String>>()
                         .join(" ")
                 )?;
-            } else {
-                let dynamic_analysis = dynamic_analysis.unwrap();
+            } else if let Some(dynamic_analysis) = dynamic_analysis {
                 for (destination, counter) in edges {
                     write!(output, "  lbb_{cfg_node_start} -> ")?;
                     if function_range.contains(&destination) {
