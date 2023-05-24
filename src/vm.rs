@@ -175,6 +175,9 @@ impl<C: ContextObject> Debug for BuiltinProgram<C> {
 
 impl<C: ContextObject> PartialEq for BuiltinProgram<C> {
     fn eq(&self, other: &Self) -> bool {
+        if self.config != other.config {
+            return false;
+        }
         for ((a_key, a_function), (b_key, b_function)) in
             self.functions.iter().zip(other.functions.iter())
         {
