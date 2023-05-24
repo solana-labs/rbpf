@@ -1,4 +1,4 @@
-#![allow(clippy::integer_arithmetic)]
+#![allow(clippy::arithmetic_side_effects)]
 #![allow(clippy::too_many_arguments)]
 // Copyright 2015 Big Switch Networks, Inc
 //      (Algorithms for uBPF syscalls, originally in C)

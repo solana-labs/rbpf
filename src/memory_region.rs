@@ -277,7 +277,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         Self::new_internal(regions, Some(cow_cb), config)
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     fn find_region(&self, cache: &mut MappingCache, vm_addr: u64) -> Option<&MemoryRegion> {
         if let Some(index) = cache.find(vm_addr) {
             // Safety:
@@ -874,7 +874,7 @@ impl MappingCache {
         }
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     #[inline]
     fn find(&self, vm_addr: u64) -> Option<usize> {
         for i in 0..Self::SIZE {
@@ -890,7 +890,7 @@ impl MappingCache {
         None
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     #[inline]
     fn insert(&mut self, vm_range: Range<u64>, region_index: usize) {
         self.head = (self.head - 1).rem_euclid(Self::SIZE);
