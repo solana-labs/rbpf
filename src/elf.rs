@@ -343,7 +343,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
     }
 
     /// Get the loader built-in program
-    pub fn get_loader(&self) -> &BuiltinProgram<C> {
+    pub fn get_loader(&self) -> &Arc<BuiltinProgram<C>> {
         &self.loader
     }
 
