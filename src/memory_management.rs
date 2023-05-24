@@ -88,7 +88,8 @@ pub fn round_to_page_size(value: usize, page_size: usize) -> usize {
     value
         .saturating_add(page_size)
         .saturating_sub(1)
-        .saturating_div(page_size)
+        .checked_div(page_size)
+        .unwrap()
         .saturating_mul(page_size)
 }
 
