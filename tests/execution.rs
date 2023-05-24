@@ -25,7 +25,7 @@ use solana_rbpf::{
     syscalls,
     verifier::{RequisiteVerifier, TautologyVerifier},
     vm::{
-        BuiltInProgram, Config, ContextObject, FunctionRegistry, ProgramResult, TestContextObject,
+        BuiltinProgram, Config, ContextObject, FunctionRegistry, ProgramResult, TestContextObject,
     },
 };
 use std::{fs::File, io::Read, sync::Arc};
@@ -130,7 +130,7 @@ macro_rules! test_interpreter_and_jit_asm {
     ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
         #[allow(unused_mut)]
         {
-            let mut loader = BuiltInProgram::new_loader($config);
+            let mut loader = BuiltinProgram::new_loader($config);
             $(test_interpreter_and_jit!(register, loader, $location => $syscall_function);)*
             let loader = Arc::new(loader);
             let mut executable = assemble($source, loader).unwrap();
@@ -156,7 +156,7 @@ macro_rules! test_interpreter_and_jit_elf {
         file.read_to_end(&mut elf).unwrap();
         #[allow(unused_mut)]
         {
-            let mut loader = BuiltInProgram::new_loader($config);
+            let mut loader = BuiltinProgram::new_loader($config);
             $(test_interpreter_and_jit!(register, loader, $location => $syscall_function);)*
             let loader = Arc::new(loader);
             let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, loader).unwrap();
@@ -2567,7 +2567,7 @@ fn test_err_mem_access_out_of_bound() {
     prog[0] = ebpf::LD_DW_IMM;
     prog[16] = ebpf::ST_B_IMM;
     prog[24] = ebpf::EXIT;
-    let loader = Arc::new(BuiltInProgram::new_loader(Config::default()));
+    let loader = Arc::new(BuiltinProgram::new_loader(Config::default()));
     for address in [0x2u64, 0x8002u64, 0x80000002u64, 0x8000000000000002u64] {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
@@ -3006,7 +3006,7 @@ fn nested_vm_syscall(
     };
     #[allow(unused_mut)]
     if depth > 0 {
-        let mut loader = BuiltInProgram::new_loader(Config::default());
+        let mut loader = BuiltinProgram::new_loader(Config::default());
         loader
             .register_function(b"nested_vm_syscall", nested_vm_syscall)
             .unwrap();
@@ -3426,7 +3426,7 @@ fn test_err_call_unresolved() {
 
 #[test]
 fn test_err_unresolved_elf() {
-    let mut loader = BuiltInProgram::new_loader(Config {
+    let mut loader = BuiltinProgram::new_loader(Config {
         reject_broken_elfs: true,
         ..Config::default()
     });
@@ -3817,7 +3817,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let mem_size = 1024 * 1024;
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
-        Arc::new(BuiltInProgram::new_loader(Config {
+        Arc::new(BuiltinProgram::new_loader(Config {
             enable_instruction_tracing: true,
             ..Config::default()
         })),

@@ -98,18 +98,18 @@ pub type ProgramResult = StableResult<u64, Box<dyn std::error::Error>>;
 pub type FunctionRegistry = BTreeMap<u32, (usize, String)>;
 
 /// Syscall function without context
-pub type BuiltInFunction<C> =
+pub type BuiltinFunction<C> =
     fn(&mut C, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
 
 /// Represents the interface to a fixed functionality program
-pub struct BuiltInProgram<C: ContextObject> {
+pub struct BuiltinProgram<C: ContextObject> {
     /// Holds the Config if this is a loader program
     config: Option<Box<Config>>,
     /// Function pointers by symbol
-    functions: HashMap<u32, (&'static [u8], BuiltInFunction<C>)>,
+    functions: HashMap<u32, (&'static [u8], BuiltinFunction<C>)>,
 }
 
-impl<C: ContextObject> BuiltInProgram<C> {
+impl<C: ContextObject> BuiltinProgram<C> {
     /// Constructs a loader built-in program
     pub fn new_loader(config: Config) -> Self {
         Self {
@@ -127,7 +127,7 @@ impl<C: ContextObject> BuiltInProgram<C> {
     pub fn register_function(
         &mut self,
         name: &'static [u8],
-        function: BuiltInFunction<C>,
+        function: BuiltinFunction<C>,
     ) -> Result<(), EbpfError> {
         let key = ebpf::hash_symbol_name(name);
         if self.functions.insert(key, (name, function)).is_some() {
@@ -138,7 +138,7 @@ impl<C: ContextObject> BuiltInProgram<C> {
     }
 
     /// Get a symbol's function pointer
-    pub fn lookup_function(&self, key: u32) -> Option<(&'static [u8], BuiltInFunction<C>)> {
+    pub fn lookup_function(&self, key: u32) -> Option<(&'static [u8], BuiltinFunction<C>)> {
         self.functions.get(&key).cloned()
     }
 
@@ -151,11 +151,11 @@ impl<C: ContextObject> BuiltInProgram<C> {
                 0
             }
             + self.functions.capacity()
-                * mem::size_of::<(u32, (&'static [u8], BuiltInFunction<C>))>()
+                * mem::size_of::<(u32, (&'static [u8], BuiltinFunction<C>))>()
     }
 }
 
-impl<C: ContextObject> Default for BuiltInProgram<C> {
+impl<C: ContextObject> Default for BuiltinProgram<C> {
     fn default() -> Self {
         Self {
             config: None,
@@ -164,7 +164,7 @@ impl<C: ContextObject> Default for BuiltInProgram<C> {
     }
 }
 
-impl<C: ContextObject> Debug for BuiltInProgram<C> {
+impl<C: ContextObject> Debug for BuiltinProgram<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         writeln!(f, "{:?}", unsafe {
             std::mem::transmute::<_, &HashMap<u32, *const u8>>(&self.functions)
@@ -173,7 +173,7 @@ impl<C: ContextObject> Debug for BuiltInProgram<C> {
     }
 }
 
-impl<C: ContextObject> PartialEq for BuiltInProgram<C> {
+impl<C: ContextObject> PartialEq for BuiltinProgram<C> {
     fn eq(&self, other: &Self) -> bool {
         for ((a_key, a_function), (b_key, b_function)) in
             self.functions.iter().zip(other.functions.iter())
@@ -285,14 +285,14 @@ impl Default for Config {
 /// Static constructors for Executable
 impl<C: ContextObject> Executable<TautologyVerifier, C> {
     /// Creates an executable from an ELF file
-    pub fn from_elf(elf_bytes: &[u8], loader: Arc<BuiltInProgram<C>>) -> Result<Self, EbpfError> {
+    pub fn from_elf(elf_bytes: &[u8], loader: Arc<BuiltinProgram<C>>) -> Result<Self, EbpfError> {
         let executable = Executable::load(elf_bytes, loader)?;
         Ok(executable)
     }
     /// Creates an executable from machine code
     pub fn from_text_bytes(
         text_bytes: &[u8],
-        loader: Arc<BuiltInProgram<C>>,
+        loader: Arc<BuiltinProgram<C>>,
         function_registry: FunctionRegistry,
     ) -> Result<Self, EbpfError> {
         Executable::new_from_text_bytes(text_bytes, loader, function_registry)
@@ -445,7 +445,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 ///     elf::Executable,
 ///     memory_region::{MemoryMapping, MemoryRegion},
 ///     verifier::{TautologyVerifier, RequisiteVerifier},
-///     vm::{BuiltInProgram, Config, EbpfVm, FunctionRegistry, TestContextObject},
+///     vm::{BuiltinProgram, Config, EbpfVm, FunctionRegistry, TestContextObject},
 /// };
 ///
 /// let prog = &[
@@ -455,7 +455,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 ///     0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd
 /// ];
 ///
-/// let loader = std::sync::Arc::new(BuiltInProgram::new_loader(Config::default()));
+/// let loader = std::sync::Arc::new(BuiltinProgram::new_loader(Config::default()));
 /// let function_registry = FunctionRegistry::default();
 /// let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(prog, loader, function_registry).unwrap();
 /// let verified_executable = Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();

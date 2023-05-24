@@ -10,7 +10,7 @@ extern crate solana_rbpf;
 use solana_rbpf::{
     assembler::assemble,
     static_analysis::Analysis,
-    vm::{BuiltInProgram, Config, TestContextObject},
+    vm::{BuiltinProgram, Config, TestContextObject},
 };
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ use std::sync::Arc;
 macro_rules! disasm {
     ($src:expr) => {{
         let src = $src;
-        let loader = BuiltInProgram::new_loader(Config {
+        let loader = BuiltinProgram::new_loader(Config {
             enable_symbol_and_section_labels: true,
             ..Config::default()
         });

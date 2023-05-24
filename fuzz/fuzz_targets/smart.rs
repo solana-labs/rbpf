@@ -11,7 +11,7 @@ use solana_rbpf::{
     insn_builder::{Arch, IntoBytes},
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, TautologyVerifier, Verifier},
-    vm::{BuiltInProgram, FunctionRegistry, TestContextObject},
+    vm::{BuiltinProgram, FunctionRegistry, TestContextObject},
 };
 use test_utils::create_vm;
 
@@ -39,7 +39,7 @@ fuzz_target!(|data: FuzzData| {
     let mut mem = data.mem;
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog.into_bytes(),
-        std::sync::Arc::new(BuiltInProgram::new_loader(config)),
+        std::sync::Arc::new(BuiltinProgram::new_loader(config)),
         function_registry,
     )
     .unwrap();

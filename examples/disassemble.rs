@@ -9,7 +9,7 @@ use solana_rbpf::{
     elf::Executable,
     static_analysis::Analysis,
     verifier::TautologyVerifier,
-    vm::{BuiltInProgram, FunctionRegistry, TestContextObject},
+    vm::{BuiltinProgram, FunctionRegistry, TestContextObject},
 };
 use std::sync::Arc;
 
@@ -31,7 +31,7 @@ fn main() {
         0x00, 0x00, 0x00, 0x00, 0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x95, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00,
     ];
-    let loader = Arc::new(BuiltInProgram::default());
+    let loader = Arc::new(BuiltinProgram::default());
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         program,
         loader,

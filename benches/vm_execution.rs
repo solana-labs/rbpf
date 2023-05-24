@@ -14,7 +14,7 @@ use solana_rbpf::{
     elf::Executable,
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, TautologyVerifier},
-    vm::{BuiltInProgram, Config, TestContextObject},
+    vm::{BuiltinProgram, Config, TestContextObject},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;
@@ -27,7 +27,7 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(
         &elf,
-        Arc::new(BuiltInProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_loader(Config::default())),
     )
     .unwrap();
     let verified_executable =
@@ -56,7 +56,7 @@ fn bench_init_jit_execution(bencher: &mut Bencher) {
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(
         &elf,
-        Arc::new(BuiltInProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_loader(Config::default())),
     )
     .unwrap();
     let mut verified_executable =
@@ -88,7 +88,7 @@ fn bench_jit_vs_interpreter(
 ) {
     let executable = solana_rbpf::assembler::assemble::<TestContextObject>(
         assembly,
-        Arc::new(BuiltInProgram::new_loader(config)),
+        Arc::new(BuiltinProgram::new_loader(config)),
     )
     .unwrap();
     let mut verified_executable =

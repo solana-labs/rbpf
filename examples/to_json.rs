@@ -15,7 +15,7 @@ use solana_rbpf::{
     elf::Executable,
     static_analysis::Analysis,
     verifier::TautologyVerifier,
-    vm::{BuiltInProgram, FunctionRegistry, TestContextObject},
+    vm::{BuiltinProgram, FunctionRegistry, TestContextObject},
 };
 use std::sync::Arc;
 // Turn a program into a JSON string.
@@ -30,7 +30,7 @@ use std::sync::Arc;
 fn to_json(program: &[u8]) -> String {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         program,
-        Arc::new(BuiltInProgram::default()),
+        Arc::new(BuiltinProgram::default()),
         FunctionRegistry::default(),
     )
     .unwrap();

@@ -20,7 +20,7 @@ use crate::{
     ebpf::{self, Insn},
     elf::{register_internal_function, Executable},
     verifier::TautologyVerifier,
-    vm::{BuiltInProgram, ContextObject, FunctionRegistry},
+    vm::{BuiltinProgram, ContextObject, FunctionRegistry},
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -183,7 +183,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{assembler::assemble, vm::{Config, TestContextObject, BuiltInProgram}};
+/// use solana_rbpf::{assembler::assemble, vm::{Config, TestContextObject, BuiltinProgram}};
 /// let executable = assemble::<TestContextObject>(
 ///    "add64 r1, 0x605
 ///     mov64 r2, 0x32
@@ -191,7 +191,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///     be16 r0
 ///     neg64 r2
 ///     exit",
-///     std::sync::Arc::new(BuiltInProgram::new_loader(Config::default())),
+///     std::sync::Arc::new(BuiltinProgram::new_loader(Config::default())),
 /// ).unwrap();
 /// let program = executable.get_text_bytes().1;
 /// println!("{:?}", program);
@@ -216,7 +216,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 /// ```
 pub fn assemble<C: ContextObject>(
     src: &str,
-    loader: Arc<BuiltInProgram<C>>,
+    loader: Arc<BuiltinProgram<C>>,
 ) -> Result<Executable<TautologyVerifier, C>, String> {
     fn resolve_label(
         insn_ptr: usize,

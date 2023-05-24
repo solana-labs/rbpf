@@ -23,7 +23,7 @@ use crate::{
     error::EbpfError,
     memory_region::MemoryRegion,
     verifier::{TautologyVerifier, Verifier},
-    vm::{BuiltInProgram, Config, ContextObject, FunctionRegistry},
+    vm::{BuiltinProgram, Config, ContextObject, FunctionRegistry},
 };
 
 #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
@@ -130,7 +130,7 @@ pub fn register_internal_function<
     T: AsRef<str> + ToString + std::cmp::PartialEq<&'static str>,
 >(
     function_registry: &mut FunctionRegistry,
-    loader: &BuiltInProgram<C>,
+    loader: &BuiltinProgram<C>,
     pc: usize,
     name: T,
 ) -> Result<u32, ElfError> {
@@ -279,7 +279,7 @@ pub struct Executable<V: Verifier, C: ContextObject> {
     /// Call resolution map (hash, pc, name)
     function_registry: FunctionRegistry,
     /// Loader built-in program
-    loader: Arc<BuiltInProgram<C>>,
+    loader: Arc<BuiltinProgram<C>>,
     /// Compiled program and argument
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     compiled_program: Option<JitProgram>,
@@ -343,7 +343,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
     }
 
     /// Get the loader built-in program
-    pub fn get_loader(&self) -> &BuiltInProgram<C> {
+    pub fn get_loader(&self) -> &BuiltinProgram<C> {
         &self.loader
     }
 
@@ -381,7 +381,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
     /// Create from raw text section bytes (list of instructions)
     pub fn new_from_text_bytes(
         text_bytes: &[u8],
-        loader: Arc<BuiltInProgram<C>>,
+        loader: Arc<BuiltinProgram<C>>,
         mut function_registry: FunctionRegistry,
     ) -> Result<Self, ElfError> {
         let elf_bytes = AlignedMemory::from_slice(text_bytes);
@@ -418,7 +418,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
     }
 
     /// Fully loads an ELF, including validation and relocation
-    pub fn load(bytes: &[u8], loader: Arc<BuiltInProgram<C>>) -> Result<Self, ElfError> {
+    pub fn load(bytes: &[u8], loader: Arc<BuiltinProgram<C>>) -> Result<Self, ElfError> {
         if loader.get_config().new_elf_parser {
             // The new parser creates references from the input byte slice, so
             // it must be properly aligned. We assume that HOST_ALIGN is a
@@ -439,7 +439,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
     fn load_with_parser<'a, P: ElfParser<'a>>(
         elf: &'a P,
         bytes: &[u8],
-        loader: Arc<BuiltInProgram<C>>,
+        loader: Arc<BuiltinProgram<C>>,
     ) -> Result<Self, ElfError> {
         let mut elf_bytes = AlignedMemory::from_slice(bytes);
         let config = loader.get_config();
@@ -564,7 +564,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
     /// Fix-ups relative calls
     pub fn fixup_relative_calls(
         function_registry: &mut FunctionRegistry,
-        loader: &BuiltInProgram<C>,
+        loader: &BuiltinProgram<C>,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
         let config = loader.get_config();
@@ -886,7 +886,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
     /// Relocates the ELF in-place
     fn relocate<'a, P: ElfParser<'a>>(
         function_registry: &mut FunctionRegistry,
-        loader: &BuiltInProgram<C>,
+        loader: &BuiltinProgram<C>,
         elf: &'a P,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
@@ -1232,8 +1232,8 @@ mod test {
     use test_utils::assert_error;
     type ElfExecutable = Executable<TautologyVerifier, TestContextObject>;
 
-    fn loader() -> Arc<BuiltInProgram<TestContextObject>> {
-        let mut loader = BuiltInProgram::new_loader(Config::default());
+    fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
+        let mut loader = BuiltinProgram::new_loader(Config::default());
         loader
             .register_function(b"log", syscalls::bpf_syscall_string)
             .unwrap();
@@ -1399,7 +1399,7 @@ mod test {
     #[test]
     fn test_fixup_relative_calls_back() {
         let mut function_registry = FunctionRegistry::default();
-        let loader = BuiltInProgram::new_loader(Config {
+        let loader = BuiltinProgram::new_loader(Config {
             static_syscalls: false,
             enable_symbol_and_section_labels: true,
             ..Config::default()
@@ -1448,7 +1448,7 @@ mod test {
     #[test]
     fn test_fixup_relative_calls_forward() {
         let mut function_registry = FunctionRegistry::default();
-        let loader = BuiltInProgram::new_loader(Config {
+        let loader = BuiltinProgram::new_loader(Config {
             static_syscalls: false,
             enable_symbol_and_section_labels: true,
             ..Config::default()
@@ -2117,7 +2117,7 @@ mod test {
     #[test]
     #[should_panic(expected = r#"validation failed: RelativeJumpOutOfBounds(29)"#)]
     fn test_static_syscall_disabled() {
-        let loader = BuiltInProgram::new_loader(Config {
+        let loader = BuiltinProgram::new_loader(Config {
             static_syscalls: false,
             ..Config::default()
         });

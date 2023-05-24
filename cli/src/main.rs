@@ -7,7 +7,7 @@ use solana_rbpf::{
     memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
     verifier::{RequisiteVerifier, TautologyVerifier},
-    vm::{BuiltInProgram, Config, DynamicAnalysis, EbpfVm, TestContextObject},
+    vm::{BuiltinProgram, Config, DynamicAnalysis, EbpfVm, TestContextObject},
 };
 use std::{fs::File, io::Read, path::Path, sync::Arc};
 
@@ -92,7 +92,7 @@ fn main() {
         )
         .get_matches();
 
-    let loader = Arc::new(BuiltInProgram::new_loader(Config {
+    let loader = Arc::new(BuiltinProgram::new_loader(Config {
         enable_instruction_tracing: matches.is_present("trace") || matches.is_present("profile"),
         enable_symbol_and_section_labels: true,
         ..Config::default()

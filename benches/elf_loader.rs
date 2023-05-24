@@ -14,13 +14,13 @@ use solana_rbpf::{
     elf::Executable,
     syscalls::bpf_syscall_u64,
     verifier::TautologyVerifier,
-    vm::{BuiltInProgram, Config, TestContextObject},
+    vm::{BuiltinProgram, Config, TestContextObject},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;
 
-fn loader() -> Arc<BuiltInProgram<TestContextObject>> {
-    let mut loader = BuiltInProgram::new_loader(Config::default());
+fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
+    let mut loader = BuiltinProgram::new_loader(Config::default());
     loader
         .register_function(b"log_64", bpf_syscall_u64)
         .unwrap();

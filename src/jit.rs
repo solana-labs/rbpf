@@ -1553,7 +1553,7 @@ mod tests {
     use crate::{
         syscalls,
         verifier::TautologyVerifier,
-        vm::{BuiltInProgram, FunctionRegistry, TestContextObject},
+        vm::{BuiltinProgram, FunctionRegistry, TestContextObject},
     };
     use byteorder::{ByteOrder, LittleEndian};
     use std::sync::Arc;
@@ -1601,7 +1601,7 @@ mod tests {
     fn create_mockup_executable(
         program: &[u8],
     ) -> Executable<TautologyVerifier, TestContextObject> {
-        let mut loader = BuiltInProgram::new_loader(Config {
+        let mut loader = BuiltinProgram::new_loader(Config {
             noop_instruction_rate: 0,
             ..Config::default()
         });
