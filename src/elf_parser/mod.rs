@@ -132,7 +132,7 @@ impl<'a> Elf64<'a> {
             slice_from_bytes::<Elf64Shdr>(elf_bytes, section_header_table_range.clone())?;
         section_header_table
             .get(0)
-            .map(|section_header| section_header.sh_type == SHT_NULL)
+            .filter(|section_header| section_header.sh_type == SHT_NULL)
             .ok_or(ElfParserError::InvalidSectionHeader)?;
 
         let mut prev_program_header: Option<&Elf64Phdr> = None;
