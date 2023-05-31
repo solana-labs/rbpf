@@ -67,22 +67,22 @@ pub trait ElfParser<'a>: Sized {
     fn section_headers(&'a self) -> Self::SectionHeaders;
 
     /// Returns the section with the given `name`.
-    fn section(&self, name: &str) -> Result<Self::SectionHeader, ElfError>;
+    fn section(&self, name: &[u8]) -> Result<Self::SectionHeader, ElfError>;
 
     /// Returns the section name at the given `sh_name` offset.
-    fn section_name(&self, sh_name: Elf64Word) -> Option<&str>;
+    fn section_name(&self, sh_name: Elf64Word) -> Option<&[u8]>;
 
     /// Returns the symbols included in the symbol table.
     fn symbols(&'a self) -> Self::Symbols;
 
     /// Returns the symbol name at the given `st_name` offset.
-    fn symbol_name(&self, st_name: Elf64Word) -> Option<&str>;
+    fn symbol_name(&self, st_name: Elf64Word) -> Option<&[u8]>;
 
     /// Returns the symbols included in the dynamic symbol table.
     fn dynamic_symbol(&self, index: Elf64Word) -> Option<Self::Symbol>;
 
     /// Returns the dynamic symbol name at the given `st_name` offset.
-    fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Option<&str>;
+    fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Option<&[u8]>;
 
     /// Returns the dynamic relocations.
     fn dynamic_relocations(&'a self) -> Self::Relocations;
@@ -215,7 +215,7 @@ impl<'a> ElfParser<'a> for GoblinParser<'a> {
         self.elf.section_headers.iter()
     }
 
-    fn section(&self, name: &str) -> Result<Self::SectionHeader, ElfError> {
+    fn section(&self, name: &[u8]) -> Result<Self::SectionHeader, ElfError> {
         match self.elf.section_headers.iter().find(|section_header| {
             if let Some(this_name) = self.section_name(section_header.sh_name as Elf64Word) {
                 return this_name == name;
@@ -223,28 +223,41 @@ impl<'a> ElfParser<'a> for GoblinParser<'a> {
             false
         }) {
             Some(section) => Ok(section.clone()),
-            None => Err(ElfError::SectionNotFound(name.to_string())),
+            None => Err(ElfError::SectionNotFound(
+                std::str::from_utf8(name)
+                    .unwrap_or("UTF-8 error")
+                    .to_string(),
+            )),
         }
     }
 
-    fn section_name(&self, sh_name: Elf64Word) -> Option<&str> {
-        self.elf.shdr_strtab.get_at(sh_name as usize)
+    fn section_name(&self, sh_name: Elf64Word) -> Option<&[u8]> {
+        self.elf
+            .shdr_strtab
+            .get_at(sh_name as usize)
+            .map(|name| name.as_bytes())
     }
 
     fn symbols(&'a self) -> Self::Symbols {
         self.elf.syms.iter().map(Cow::Owned)
     }
 
-    fn symbol_name(&self, st_name: Elf64Word) -> Option<&str> {
-        self.elf.strtab.get_at(st_name as usize)
+    fn symbol_name(&self, st_name: Elf64Word) -> Option<&[u8]> {
+        self.elf
+            .strtab
+            .get_at(st_name as usize)
+            .map(|name| name.as_bytes())
     }
 
     fn dynamic_symbol(&self, index: Elf64Word) -> Option<Self::Symbol> {
         self.elf.dynsyms.get(index as usize)
     }
 
-    fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Option<&str> {
-        self.elf.dynstrtab.get_at(st_name as usize)
+    fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Option<&[u8]> {
+        self.elf
+            .dynstrtab
+            .get_at(st_name as usize)
+            .map(|name| name.as_bytes())
     }
 
     fn dynamic_relocations(&self) -> Self::Relocations {
@@ -390,17 +403,21 @@ impl<'a> ElfParser<'a> for NewParser<'a> {
         self.elf.section_header_table().iter()
     }
 
-    fn section(&self, name: &str) -> Result<Self::SectionHeader, ElfError> {
+    fn section(&self, name: &[u8]) -> Result<Self::SectionHeader, ElfError> {
         for section_header in self.elf.section_header_table() {
             if self.elf.section_name(section_header.sh_name)? == name {
                 return Ok(section_header.clone());
             }
         }
 
-        Err(ElfError::SectionNotFound(name.to_string()))
+        Err(ElfError::SectionNotFound(
+            std::str::from_utf8(name)
+                .unwrap_or("UTF-8 error")
+                .to_string(),
+        ))
     }
 
-    fn section_name(&self, sh_name: Elf64Word) -> Option<&str> {
+    fn section_name(&self, sh_name: Elf64Word) -> Option<&[u8]> {
         self.elf.section_name(sh_name).ok()
     }
 
@@ -414,7 +431,7 @@ impl<'a> ElfParser<'a> for NewParser<'a> {
             .map(Cow::Borrowed)
     }
 
-    fn symbol_name(&self, st_name: Elf64Word) -> Option<&str> {
+    fn symbol_name(&self, st_name: Elf64Word) -> Option<&[u8]> {
         self.elf.symbol_name(st_name).ok()
     }
 
@@ -424,7 +441,7 @@ impl<'a> ElfParser<'a> for NewParser<'a> {
             .and_then(|table| table.get(index as usize).cloned())
     }
 
-    fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Option<&str> {
+    fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Option<&[u8]> {
         self.elf.dynamic_symbol_name(st_name).ok()
     }
 

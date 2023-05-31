@@ -258,9 +258,9 @@ impl<'a> Elf64<'a> {
             )?;
             section_header_by_name!(
                 self, section_header, section_name,
-                ".symtab" => symbol_section_header,
-                ".strtab" => symbol_names_section_header,
-                ".dynstr" => dynamic_symbol_names_section_header,
+                b".symtab" => symbol_section_header,
+                b".strtab" => symbol_names_section_header,
+                b".dynstr" => dynamic_symbol_names_section_header,
             )
         }
 
@@ -378,7 +378,7 @@ impl<'a> Elf64<'a> {
         section_header: &Elf64Shdr,
         offset_in_section: Elf64Word,
         maximum_length: usize,
-    ) -> Result<&'a str, ElfParserError> {
+    ) -> Result<&'a [u8], ElfParserError> {
         if section_header.sh_type != SHT_STRTAB {
             return Err(ElfParserError::InvalidSectionHeader);
         }
@@ -396,12 +396,11 @@ impl<'a> Elf64<'a> {
             .iter()
             .position(|byte| *byte == 0x00)
             .and_then(|string_length| unterminated_string_bytes.get(0..string_length))
-            .and_then(|string_bytes| std::str::from_utf8(string_bytes).ok())
             .ok_or(ElfParserError::InvalidString)
     }
 
     /// Returns the string corresponding to the given `sh_name`
-    pub fn section_name(&self, sh_name: Elf64Word) -> Result<&'a str, ElfParserError> {
+    pub fn section_name(&self, sh_name: Elf64Word) -> Result<&'a [u8], ElfParserError> {
         self.get_string_in_section(
             self.section_names_section_header
                 .ok_or(ElfParserError::NoSectionNameStringTable)?,
@@ -411,7 +410,7 @@ impl<'a> Elf64<'a> {
     }
 
     /// Returns the name of the `st_name` symbol
-    pub fn symbol_name(&self, st_name: Elf64Word) -> Result<&'a str, ElfParserError> {
+    pub fn symbol_name(&self, st_name: Elf64Word) -> Result<&'a [u8], ElfParserError> {
         self.get_string_in_section(
             self.symbol_names_section_header
                 .ok_or(ElfParserError::NoStringTable)?,
@@ -428,7 +427,7 @@ impl<'a> Elf64<'a> {
     }
 
     /// Returns the name of the `st_name` dynamic symbol
-    pub fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Result<&'a str, ElfParserError> {
+    pub fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Result<&'a [u8], ElfParserError> {
         self.get_string_in_section(
             self.dynamic_symbol_names_section_header
                 .ok_or(ElfParserError::NoDynamicStringTable)?,
@@ -510,6 +509,9 @@ impl<'a> fmt::Debug for Elf64<'a> {
                     section_header.sh_name,
                     SECTION_NAME_LENGTH_MAXIMUM,
                 )
+                .and_then(|name| {
+                    std::str::from_utf8(name).map_err(|_| ElfParserError::InvalidString)
+                })
                 .unwrap();
             writeln!(f, "{section_name}")?;
             writeln!(f, "{section_header:#X?}")?;
@@ -525,6 +527,9 @@ impl<'a> fmt::Debug for Elf64<'a> {
                             symbol.st_name,
                             SYMBOL_NAME_LENGTH_MAXIMUM,
                         )
+                        .and_then(|name| {
+                            std::str::from_utf8(name).map_err(|_| ElfParserError::InvalidString)
+                        })
                         .unwrap();
                     writeln!(f, "{symbol_name}")?;
                 }

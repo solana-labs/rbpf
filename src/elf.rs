@@ -114,8 +114,8 @@ pub enum ElfError {
 }
 
 /// Generates the hash by which a symbol can be called
-pub fn hash_internal_function(pc: usize, name: &str) -> u32 {
-    if name == "entrypoint" {
+pub fn hash_internal_function(pc: usize, name: &[u8]) -> u32 {
+    if name == b"entrypoint" {
         ebpf::hash_symbol_name(b"entrypoint")
     } else {
         let mut key = [0u8; mem::size_of::<u64>()];
@@ -125,14 +125,11 @@ pub fn hash_internal_function(pc: usize, name: &str) -> u32 {
 }
 
 /// Register a symbol or throw ElfError::SymbolHashCollision
-pub fn register_internal_function<
-    C: ContextObject,
-    T: AsRef<str> + ToString + std::cmp::PartialEq<&'static str>,
->(
+pub fn register_internal_function<C: ContextObject>(
     function_registry: &mut FunctionRegistry,
     loader: &BuiltinProgram<C>,
     pc: usize,
-    name: T,
+    name: &[u8],
 ) -> Result<u32, ElfError> {
     let config = loader.get_config();
     let key = if config.static_syscalls {
@@ -140,7 +137,7 @@ pub fn register_internal_function<
         // Thus, we don't need to hash them here anymore and collisions are gone as well.
         pc as u32
     } else {
-        let hash = hash_internal_function(pc, name.as_ref());
+        let hash = hash_internal_function(pc, name);
         if config.external_internal_function_hash_collision
             && loader.lookup_function(hash).is_some()
         {
@@ -152,8 +149,8 @@ pub fn register_internal_function<
         Entry::Vacant(entry) => {
             entry.insert((
                 pc,
-                if config.enable_symbol_and_section_labels || name == "entrypoint" {
-                    name.to_string()
+                if config.enable_symbol_and_section_labels || name == b"entrypoint" {
+                    String::from_utf8_lossy(name).to_string()
                 } else {
                     String::default()
                 },
@@ -389,11 +386,11 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         let enable_symbol_and_section_labels = config.enable_symbol_and_section_labels;
         let entry_pc = if let Some((pc, _name)) = function_registry
             .values()
-            .find(|(_pc, name)| name == "entrypoint")
+            .find(|(_pc, name)| name.as_bytes() == b"entrypoint")
         {
             *pc
         } else {
-            register_internal_function(&mut function_registry, &loader, 0, "entrypoint")?;
+            register_internal_function(&mut function_registry, &loader, 0, b"entrypoint")?;
             0
         };
         Ok(Self {
@@ -447,10 +444,11 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         Self::validate(config, elf, elf_bytes.as_slice())?;
 
         // calculate the text section info
-        let text_section = elf.section(".text")?;
+        let text_section = elf.section(b".text")?;
         let text_section_info = SectionInfo {
             name: if config.enable_symbol_and_section_labels {
                 elf.section_name(text_section.sh_name())
+                    .and_then(|name| std::str::from_utf8(name).ok())
                     .unwrap_or(".text")
                     .to_string()
             } else {
@@ -498,7 +496,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             if !config.static_syscalls {
                 function_registry.remove(&ebpf::hash_symbol_name(b"entrypoint"));
             }
-            register_internal_function(&mut function_registry, &loader, entry_pc, "entrypoint")?;
+            register_internal_function(&mut function_registry, &loader, entry_pc, b"entrypoint")?;
             entry_pc
         } else {
             return Err(ElfError::InvalidEntrypoint);
@@ -596,7 +594,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                     function_registry,
                     loader,
                     target_pc as usize,
-                    name,
+                    name.as_bytes(),
                 )?;
                 insn.imm = key as i64;
                 let offset = i.saturating_mul(ebpf::INSN_SIZE);
@@ -672,7 +670,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             .section_headers()
             .fold(0, |count: usize, section_header| {
                 if let Some(this_name) = elf.section_name(section_header.sh_name()) {
-                    if this_name == ".text" {
+                    if this_name == b".text" {
                         return count.saturating_add(1);
                     }
                 }
@@ -684,11 +682,13 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
 
         for section_header in elf.section_headers() {
             if let Some(name) = elf.section_name(section_header.sh_name()) {
-                if name.starts_with(".bss")
+                if name.starts_with(b".bss")
                     || (section_header.is_writable()
-                        && (name.starts_with(".data") && !name.starts_with(".data.rel")))
+                        && (name.starts_with(b".data") && !name.starts_with(b".data.rel")))
                 {
-                    return Err(ElfError::WritableSectionNotSupported(name.to_owned()));
+                    return Err(ElfError::WritableSectionNotSupported(
+                        String::from_utf8_lossy(name).to_string(),
+                    ));
                 }
             }
         }
@@ -703,7 +703,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                 .get(start..end)
                 .ok_or(ElfError::ValueOutOfBounds)?;
         }
-        let text_section = elf.section(".text")?;
+        let text_section = elf.section(b".text")?;
         if !text_section.vm_range().contains(&header.e_entry) {
             return Err(ElfError::EntrypointOutOfBounds);
         }
@@ -714,7 +714,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
     pub(crate) fn parse_ro_sections<
         'a,
         T: ElfSectionHeader + 'a,
-        S: IntoIterator<Item = (Option<&'a str>, &'a T)>,
+        S: IntoIterator<Item = (Option<&'a [u8]>, &'a T)>,
     >(
         config: &Config,
         sections: S,
@@ -742,10 +742,10 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         for (i, (name, section_header)) in sections.into_iter().enumerate() {
             match name {
                 Some(name)
-                    if name == ".text"
-                        || name == ".rodata"
-                        || name == ".data.rel.ro"
-                        || name == ".eh_frame" => {}
+                    if name == b".text"
+                        || name == b".rodata"
+                        || name == b".data.rel.ro"
+                        || name == b".eh_frame" => {}
                 _ => continue,
             }
 
@@ -891,7 +891,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
         let mut syscall_cache = BTreeMap::new();
-        let text_section = elf.section(".text")?;
+        let text_section = elf.section(b".text")?;
 
         // Fixup all program counter relative call instructions
         Self::fixup_relative_calls(
@@ -1136,10 +1136,10 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                         // Else it's a syscall
                         let hash = *syscall_cache
                             .entry(symbol.st_name())
-                            .or_insert_with(|| ebpf::hash_symbol_name(name.as_bytes()));
+                            .or_insert_with(|| ebpf::hash_symbol_name(name));
                         if config.reject_broken_elfs && loader.lookup_function(hash).is_none() {
                             return Err(ElfError::UnresolvedSymbol(
-                                name.to_string(),
+                                String::from_utf8_lossy(name).to_string(),
                                 r_offset
                                     .checked_div(ebpf::INSN_SIZE)
                                     .and_then(|offset| {
@@ -1417,7 +1417,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(&mut function_registry, &loader, &mut prog).unwrap();
         let name = "function_4".to_string();
-        let hash = hash_internal_function(4, &name);
+        let hash = hash_internal_function(4, name.as_bytes());
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1433,7 +1433,7 @@ mod test {
         prog.splice(44.., vec![0xfa, 0xff, 0xff, 0xff]);
         ElfExecutable::fixup_relative_calls(&mut function_registry, &loader, &mut prog).unwrap();
         let name = "function_0".to_string();
-        let hash = hash_internal_function(0, &name);
+        let hash = hash_internal_function(0, name.as_bytes());
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1466,7 +1466,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(&mut function_registry, &loader, &mut prog).unwrap();
         let name = "function_1".to_string();
-        let hash = hash_internal_function(1, &name);
+        let hash = hash_internal_function(1, name.as_bytes());
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1482,7 +1482,7 @@ mod test {
         prog.splice(4..8, vec![0x04, 0x00, 0x00, 0x00]);
         ElfExecutable::fixup_relative_calls(&mut function_registry, &loader, &mut prog).unwrap();
         let name = "function_5".to_string();
-        let hash = hash_internal_function(5, &name);
+        let hash = hash_internal_function(5, name.as_bytes());
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1514,7 +1514,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(&mut function_registry, &loader, &mut prog).unwrap();
         let name = "function_1".to_string();
-        let hash = hash_internal_function(1, &name);
+        let hash = hash_internal_function(1, name.as_bytes());
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1546,7 +1546,7 @@ mod test {
 
         ElfExecutable::fixup_relative_calls(&mut function_registry, &loader, &mut prog).unwrap();
         let name = "function_4".to_string();
-        let hash = hash_internal_function(4, &name);
+        let hash = hash_internal_function(4, name.as_bytes());
         let insn = ebpf::Insn {
             opc: 0x85,
             dst: 0,
@@ -1645,10 +1645,15 @@ mod test {
         let s2 = new_section(20, 10);
         let s3 = new_section(30, 10);
 
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 3] = [
+            (Some(b".text"), &s1),
+            (Some(b".dynamic"), &s2),
+            (Some(b".rodata"), &s3),
+        ];
         assert!(matches!(
             ElfExecutable::parse_ro_sections(
                 &config,
-                [(Some(".text"), &s1), (Some(".dynamic"), &s2), (Some(".rodata"), &s3)],
+                sections,
                 &elf_bytes,
             ),
             Ok(Section::Owned(offset, data)) if offset == 10 && data.len() == 30
@@ -1669,10 +1674,12 @@ mod test {
         let mut s2 = new_section(20, 10);
         s2.sh_offset = 30;
 
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 2] =
+            [(Some(b".text"), &s1), (Some(b".rodata"), &s2)];
         assert!(matches!(
             ElfExecutable::parse_ro_sections(
                 &config,
-                [(Some(".text"), &s1), (Some(".rodata"), &s2)],
+                sections,
                 &elf_bytes,
             ),
             Ok(Section::Owned(offset, data)) if offset == 10 && data.len() == 20
@@ -1690,13 +1697,15 @@ mod test {
 
         let mut s1 = new_section(10, 10);
 
-        assert!(
-            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes,).is_ok()
-        );
+        {
+            let sections: [(Option<&[u8]>, &Elf64Shdr); 1] = [(Some(b".text"), &s1)];
+            assert!(ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes).is_ok());
+        }
 
         s1.sh_offset = 0;
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 1] = [(Some(b".text"), &s1)];
         assert_eq!(
-            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes,),
+            ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes),
             Err(ElfError::ValueOutOfBounds)
         );
     }
@@ -1714,12 +1723,10 @@ mod test {
         let mut s2 = new_section(20, 10);
         s2.sh_offset = 30;
 
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 2] =
+            [(Some(b".text"), &s1), (Some(b".rodata"), &s2)];
         assert_eq!(
-            ElfExecutable::parse_ro_sections(
-                &config,
-                [(Some(".text"), &s1), (Some(".rodata"), &s2)],
-                &elf_bytes,
-            ),
+            ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes,),
             Err(ElfError::ValueOutOfBounds)
         );
     }
@@ -1740,12 +1747,10 @@ mod test {
         s1.sh_offset = 100;
         s2.sh_offset = 120;
 
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 2] =
+            [(Some(b".text"), &s1), (Some(b".rodata"), &s2)];
         assert_eq!(
-            ElfExecutable::parse_ro_sections(
-                &config,
-                [(Some(".text"), &s1), (Some(".rodata"), &s2)],
-                &elf_bytes,
-            ),
+            ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes,),
             Err(ElfError::ValueOutOfBounds)
         );
     }
@@ -1764,12 +1769,10 @@ mod test {
         s1.sh_offset = 100;
         s2.sh_offset = 110;
 
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 2] =
+            [(Some(b".text"), &s1), (Some(b".rodata"), &s2)];
         assert_eq!(
-            ElfExecutable::parse_ro_sections(
-                &config,
-                [(Some(".text"), &s1), (Some(".rodata"), &s2)],
-                &elf_bytes,
-            ),
+            ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes,),
             Ok(Section::Borrowed(10, 100..120))
         );
     }
@@ -1784,16 +1787,12 @@ mod test {
         let s2 = new_section(10, 10);
         let s3 = new_section(20, 10);
 
-        let ro_section = ElfExecutable::parse_ro_sections(
-            &config,
-            [
-                (Some(".text"), &s1),
-                (Some(".dynamic"), &s2),
-                (Some(".rodata"), &s3),
-            ],
-            &elf_bytes,
-        )
-        .unwrap();
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 3] = [
+            (Some(b".text"), &s1),
+            (Some(b".dynamic"), &s2),
+            (Some(b".rodata"), &s3),
+        ];
+        let ro_section = ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes).unwrap();
         let ro_region = get_ro_region(&ro_section, &elf_bytes);
         let owned_section = match &ro_section {
             Section::Owned(_offset, data) => data.as_slice(),
@@ -1827,16 +1826,12 @@ mod test {
         let s2 = new_section(20, 10);
         let s3 = new_section(30, 10);
 
-        let ro_section = ElfExecutable::parse_ro_sections(
-            &config,
-            [
-                (Some(".text"), &s1),
-                (Some(".dynamic"), &s2),
-                (Some(".rodata"), &s3),
-            ],
-            &elf_bytes,
-        )
-        .unwrap();
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 3] = [
+            (Some(b".text"), &s1),
+            (Some(b".dynamic"), &s2),
+            (Some(b".rodata"), &s3),
+        ];
+        let ro_section = ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes).unwrap();
         let ro_region = get_ro_region(&ro_section, &elf_bytes);
         let owned_section = match &ro_section {
             Section::Owned(_offset, data) => data.as_slice(),
@@ -1869,16 +1864,12 @@ mod test {
         let s2 = new_section(20, 10);
         let s3 = new_section(30, 10);
 
-        let ro_section = ElfExecutable::parse_ro_sections(
-            &config,
-            [
-                (Some(".text"), &s1),
-                (Some(".dynamic"), &s2),
-                (Some(".rodata"), &s3),
-            ],
-            &elf_bytes,
-        )
-        .unwrap();
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 3] = [
+            (Some(b".text"), &s1),
+            (Some(b".dynamic"), &s2),
+            (Some(b".rodata"), &s3),
+        ];
+        let ro_section = ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes).unwrap();
         let owned_section = match &ro_section {
             Section::Owned(_offset, data) => data.as_slice(),
             _ => panic!(),
@@ -1931,10 +1922,12 @@ mod test {
         let s1 = new_section(0, 10);
         let s2 = new_section(10, 10);
 
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 2] =
+            [(Some(b".text"), &s1), (Some(b".rodata"), &s2)];
         assert!(matches!(
             ElfExecutable::parse_ro_sections(
                 &config,
-                [(Some(".text"), &s1), (Some(".rodata"), &s2)],
+                sections,
                 &elf_bytes,
             ),
             Ok(Section::Owned(offset, data)) if offset == 0 && data.len() == 20
@@ -1951,17 +1944,14 @@ mod test {
         let s3 = new_section(40, 10);
         let s4 = new_section(50, 10);
 
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 4] = [
+            (Some(b".dynsym"), &s1),
+            (Some(b".text"), &s2),
+            (Some(b".rodata"), &s3),
+            (Some(b".dynamic"), &s4),
+        ];
         assert_eq!(
-            ElfExecutable::parse_ro_sections(
-                &config,
-                [
-                    (Some(".dynsym"), &s1),
-                    (Some(".text"), &s2),
-                    (Some(".rodata"), &s3),
-                    (Some(".dynamic"), &s4)
-                ],
-                &elf_bytes,
-            ),
+            ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes,),
             Ok(Section::Borrowed(20, 20..50))
         );
     }
@@ -1975,16 +1965,12 @@ mod test {
         let s2 = new_section(10, 10);
         let s3 = new_section(10, 10);
 
-        let ro_section = ElfExecutable::parse_ro_sections(
-            &config,
-            [
-                (Some(".text"), &s1),
-                (Some(".rodata"), &s2),
-                (Some(".dynamic"), &s3),
-            ],
-            &elf_bytes,
-        )
-        .unwrap();
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 3] = [
+            (Some(b".text"), &s1),
+            (Some(b".rodata"), &s2),
+            (Some(b".dynamic"), &s3),
+        ];
+        let ro_section = ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes).unwrap();
         let ro_region = get_ro_region(&ro_section, &elf_bytes);
 
         // s1 starts at sh_addr=0 so [0..s2.sh_addr + s2.sh_size] is the valid
@@ -2010,16 +1996,12 @@ mod test {
         let s2 = new_section(10, 10);
         let s3 = new_section(20, 10);
 
-        let ro_section = ElfExecutable::parse_ro_sections(
-            &config,
-            [
-                (Some(".dynamic"), &s1),
-                (Some(".text"), &s2),
-                (Some(".rodata"), &s3),
-            ],
-            &elf_bytes,
-        )
-        .unwrap();
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 3] = [
+            (Some(b".dynamic"), &s1),
+            (Some(b".text"), &s2),
+            (Some(b".rodata"), &s3),
+        ];
+        let ro_section = ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes).unwrap();
         let ro_region = get_ro_region(&ro_section, &elf_bytes);
 
         // s2 starts at sh_addr=10 so [0..10] is not mappable
@@ -2067,33 +2049,30 @@ mod test {
         // no overlap
         let mut s1 = new_section(ebpf::MM_STACK_START - 10, 10);
         s1.sh_offset = 0;
-
-        assert!(
-            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes).is_ok()
-        );
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 1] = [(Some(b".text"), &s1)];
+        assert!(ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes).is_ok());
 
         // no overlap
         let mut s1 = new_section(ebpf::MM_STACK_START, 0);
         s1.sh_offset = 0;
-
-        assert!(
-            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes).is_ok()
-        );
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 1] = [(Some(b".text"), &s1)];
+        assert!(ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes).is_ok());
 
         // overlap
         let mut s1 = new_section(ebpf::MM_STACK_START, 1);
         s1.sh_offset = 0;
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 1] = [(Some(b".text"), &s1)];
         assert_eq!(
-            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes),
+            ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes),
             Err(ElfError::ValueOutOfBounds)
         );
 
         // valid start but start + size overlap
         let mut s1 = new_section(ebpf::MM_STACK_START - 10, 11);
         s1.sh_offset = 0;
-
+        let sections: [(Option<&[u8]>, &Elf64Shdr); 1] = [(Some(b".text"), &s1)];
         assert_eq!(
-            ElfExecutable::parse_ro_sections(&config, [(Some(".text"), &s1)], &elf_bytes),
+            ElfExecutable::parse_ro_sections(&config, sections, &elf_bytes),
             Err(ElfError::ValueOutOfBounds)
         );
     }

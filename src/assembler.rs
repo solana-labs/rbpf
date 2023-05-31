@@ -239,8 +239,13 @@ pub fn assemble<C: ContextObject>(
         match statement {
             Statement::Label { name } => {
                 if name.starts_with("function_") || name == "entrypoint" {
-                    register_internal_function(&mut function_registry, &loader, insn_ptr, name)
-                        .map_err(|_| format!("Label hash collision {name}"))?;
+                    register_internal_function(
+                        &mut function_registry,
+                        &loader,
+                        insn_ptr,
+                        name.as_bytes(),
+                    )
+                    .map_err(|_| format!("Label hash collision {name}"))?;
                 }
                 labels.insert(name.as_str(), insn_ptr);
             }
@@ -291,7 +296,7 @@ pub fn assemble<C: ContextObject>(
                                 &mut function_registry,
                                 &loader,
                                 target_pc as usize,
-                                label,
+                                label.as_bytes(),
                             )
                             .map_err(|_| format!("Label hash collision {name}"))?;
                             insn(opc, 0, 1, 0, target_pc)

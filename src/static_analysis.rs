@@ -843,7 +843,7 @@ impl<'a> Analysis<'a> {
             cfg_node.sources.push(self.super_root);
             self.functions.entry(*v).or_insert_with(|| {
                 let name = format!("function_{}", *v);
-                let hash = elf::hash_internal_function(*v, &name);
+                let hash = elf::hash_internal_function(*v, name.as_bytes());
                 (hash, name)
             });
         }
