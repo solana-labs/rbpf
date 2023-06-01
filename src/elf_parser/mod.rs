@@ -9,7 +9,7 @@ use crate::{ArithmeticOverflow, ErrCheckedArithmetic};
 use {consts::*, types::*};
 
 const SECTION_NAME_LENGTH_MAXIMUM: usize = 16;
-const SYMBOL_NAME_LENGTH_MAXIMUM: usize = 1024;
+const SYMBOL_NAME_LENGTH_MAXIMUM: usize = 64;
 
 /// Error definitions
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
