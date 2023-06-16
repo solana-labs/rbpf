@@ -988,6 +988,38 @@ mod test {
     }
 
     #[test]
+    fn test_gapped_map() {
+        for aligned_memory_mapping in [false, true] {
+            let config = Config {
+                aligned_memory_mapping,
+                ..Config::default()
+            };
+            let mut mem1 = vec![0xff; 8];
+            let m = MemoryMapping::new(
+                vec![
+                    MemoryRegion::new_readonly(&[0; 8], ebpf::MM_PROGRAM_START),
+                    MemoryRegion::new_writable_gapped(&mut mem1, ebpf::MM_STACK_START, 2),
+                ],
+                &config,
+            )
+            .unwrap();
+            for frame in 0..4 {
+                let address = ebpf::MM_STACK_START + frame * 4;
+                assert!(m.region(AccessType::Load, address).is_ok());
+                assert!(m.map(AccessType::Load, address, 2, 0).is_ok());
+                assert_error!(
+                    m.map(AccessType::Load, address + 2, 2, 0),
+                    "AccessViolation"
+                );
+                assert_eq!(m.load::<u16>(address, 0).unwrap(), 0xFFFF);
+                assert_error!(m.load::<u16>(address + 2, 0), "AccessViolation");
+                assert!(m.store::<u16>(0xFFFF, address, 0).is_ok());
+                assert_error!(m.store::<u16>(0xFFFF, address + 2, 0), "AccessViolation");
+            }
+        }
+    }
+
+    #[test]
     fn test_unaligned_map_overlap() {
         let config = Config::default();
         let mem1 = [1, 2, 3, 4];
