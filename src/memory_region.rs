@@ -67,17 +67,19 @@ pub struct MemoryRegion {
 
 impl MemoryRegion {
     fn new(slice: &[u8], vm_addr: u64, vm_gap_size: u64, state: MemoryState) -> Self {
+        let mut vm_addr_end = vm_addr.saturating_add(slice.len() as u64);
         let mut vm_gap_shift = (std::mem::size_of::<u64>() as u8)
             .saturating_mul(8)
             .saturating_sub(1);
         if vm_gap_size > 0 {
+            vm_addr_end = vm_addr_end.saturating_add(slice.len() as u64);
             vm_gap_shift = vm_gap_shift.saturating_sub(vm_gap_size.leading_zeros() as u8);
             debug_assert_eq!(Some(vm_gap_size), 1_u64.checked_shl(vm_gap_shift as u32));
         };
         MemoryRegion {
             host_addr: Cell::new(slice.as_ptr() as u64),
             vm_addr,
-            vm_addr_end: vm_addr.saturating_add(slice.len() as u64),
+            vm_addr_end,
             len: slice.len() as u64,
             vm_gap_shift,
             state: Cell::new(state),
@@ -151,7 +153,7 @@ impl fmt::Debug for MemoryRegion {
             self.host_addr,
             self.host_addr.get().saturating_add(self.len),
             self.vm_addr,
-            self.vm_addr.saturating_add(self.len),
+            self.vm_addr_end,
             self.len
         )
     }
@@ -242,7 +244,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         for index in 1..regions.len() {
             let first = &regions[index.saturating_sub(1)];
             let second = &regions[index];
-            if first.vm_addr.saturating_add(first.len) > second.vm_addr {
+            if first.vm_addr_end > second.vm_addr {
                 return Err(EbpfError::InvalidMemoryRegion(index));
             }
         }
@@ -302,10 +304,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
             // we check for index==0 above, and by construction if we get here index
             // must be contained in region
             let region = unsafe { self.regions.get_unchecked(index - 1) };
-            cache.insert(
-                region.vm_addr..region.vm_addr.saturating_add(region.len),
-                index,
-            );
+            cache.insert(region.vm_addr..region.vm_addr_end, index);
             Some(region)
         }
     }
