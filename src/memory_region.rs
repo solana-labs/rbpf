@@ -389,6 +389,8 @@ impl<'a> UnalignedMemoryMapping<'a> {
                     Some(region) => region,
                     None => break,
                 };
+            } else {
+                break;
             }
         }
 
@@ -460,6 +462,8 @@ impl<'a> UnalignedMemoryMapping<'a> {
                     Some(region) => region,
                     None => break,
                 };
+            } else {
+                break;
             }
         }
 
