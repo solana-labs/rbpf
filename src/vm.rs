@@ -14,7 +14,7 @@
 
 use crate::{
     ebpf,
-    elf::Executable,
+    elf::{Executable, ExecutableCapabilities},
     error::EbpfError,
     interpreter::Interpreter,
     memory_region::MemoryMapping,
@@ -302,9 +302,10 @@ impl<C: ContextObject> Executable<TautologyVerifier, C> {
     pub fn from_text_bytes(
         text_bytes: &[u8],
         loader: Arc<BuiltinProgram<C>>,
+        capabilities: ExecutableCapabilities,
         function_registry: FunctionRegistry,
     ) -> Result<Self, EbpfError> {
-        Executable::new_from_text_bytes(text_bytes, loader, function_registry)
+        Executable::new_from_text_bytes(text_bytes, loader, capabilities, function_registry)
             .map_err(EbpfError::ElfError)
     }
 }
@@ -451,7 +452,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 /// use solana_rbpf::{
 ///     aligned_memory::AlignedMemory,
 ///     ebpf,
-///     elf::Executable,
+///     elf::{Executable, ExecutableCapabilities},
 ///     memory_region::{MemoryMapping, MemoryRegion},
 ///     verifier::{TautologyVerifier, RequisiteVerifier},
 ///     vm::{BuiltinProgram, Config, EbpfVm, FunctionRegistry, TestContextObject},
@@ -466,7 +467,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 ///
 /// let loader = std::sync::Arc::new(BuiltinProgram::new_loader(Config::default()));
 /// let function_registry = FunctionRegistry::default();
-/// let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(prog, loader, function_registry).unwrap();
+/// let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(prog, loader, ExecutableCapabilities::SBPFv2, function_registry).unwrap();
 /// let verified_executable = Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
 /// let mut context_object = TestContextObject::new(1);
 /// let config = verified_executable.get_config();
@@ -490,7 +491,7 @@ pub struct RuntimeEnvironment<'a, C: ContextObject> {
 ///     MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START),
 /// ];
 ///
-/// let memory_mapping = MemoryMapping::new(regions, config).unwrap();
+/// let memory_mapping = MemoryMapping::new(regions, config, verified_executable.get_capabilities()).unwrap();
 ///
 /// let mut vm = EbpfVm::new(&verified_executable, &mut context_object, memory_mapping, stack_len);
 ///

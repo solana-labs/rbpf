@@ -1552,6 +1552,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
 mod tests {
     use super::*;
     use crate::{
+        elf::ExecutableCapabilities,
         syscalls,
         verifier::TautologyVerifier,
         vm::{BuiltinProgram, FunctionRegistry, TestContextObject},
@@ -1572,7 +1573,12 @@ mod tests {
             stopwatch_numerator: 0,
             stopwatch_denominator: 0,
             program_result: ProgramResult::Ok(0),
-            memory_mapping: MemoryMapping::new(Vec::new(), &config).unwrap(),
+            memory_mapping: MemoryMapping::new(
+                Vec::new(),
+                &config,
+                &ExecutableCapabilities::SBPFv2,
+            )
+            .unwrap(),
             call_frames: Vec::new(),
         };
 
@@ -1614,6 +1620,7 @@ mod tests {
         Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
             program,
             Arc::new(loader),
+            ExecutableCapabilities::SBPFv2,
             function_registry,
         )
         .unwrap()

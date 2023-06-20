@@ -4,6 +4,7 @@ use libfuzzer_sys::fuzz_target;
 
 use semantic_aware::*;
 use solana_rbpf::{
+    elf::ExecutableCapabilities,
     insn_builder::IntoBytes,
     verifier::{RequisiteVerifier, Verifier},
     vm::FunctionRegistry,
@@ -24,5 +25,5 @@ fuzz_target!(|data: FuzzData| {
     let prog = make_program(&data.prog);
     let config = data.template.into();
     let function_registry = FunctionRegistry::default();
-    RequisiteVerifier::verify(prog.into_bytes(), &config, &function_registry).unwrap();
+    RequisiteVerifier::verify(prog.into_bytes(), &config, &ExecutableCapabilities::SBPFv2, &function_registry).unwrap();
 });

@@ -163,7 +163,8 @@ fn main() {
         MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START),
     ];
 
-    let memory_mapping = MemoryMapping::new(regions, config).unwrap();
+    let memory_mapping =
+        MemoryMapping::new(regions, config, verified_executable.get_capabilities()).unwrap();
 
     let mut vm = EbpfVm::new(
         &verified_executable,

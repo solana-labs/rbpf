@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 extern crate solana_rbpf;
 use solana_rbpf::{
-    elf::Executable,
+    elf::{Executable, ExecutableCapabilities},
     static_analysis::Analysis,
     verifier::TautologyVerifier,
     vm::{BuiltinProgram, FunctionRegistry, TestContextObject},
@@ -31,6 +31,7 @@ fn to_json(program: &[u8]) -> String {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         program,
         Arc::new(BuiltinProgram::default()),
+        ExecutableCapabilities::SBPFv2,
         FunctionRegistry::default(),
     )
     .unwrap();

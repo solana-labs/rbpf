@@ -25,6 +25,7 @@
 
 use crate::{
     ebpf,
+    elf::ExecutableCapabilities,
     vm::{Config, FunctionRegistry},
 };
 use thiserror::Error;
@@ -98,6 +99,7 @@ pub trait Verifier {
     fn verify(
         prog: &[u8],
         config: &Config,
+        capabilities: &ExecutableCapabilities,
         function_registry: &FunctionRegistry,
     ) -> Result<(), VerifierError>;
 }
@@ -223,7 +225,7 @@ pub struct RequisiteVerifier {}
 impl Verifier for RequisiteVerifier {
     /// Check the program against the verifier's rules
     #[rustfmt::skip]
-    fn verify(prog: &[u8], config: &Config, function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
+    fn verify(prog: &[u8], config: &Config, _capabilities: &ExecutableCapabilities, function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
         check_prog_len(prog)?;
 
         let program_range = 0..prog.len() / ebpf::INSN_SIZE;
@@ -390,6 +392,7 @@ impl Verifier for TautologyVerifier {
     fn verify(
         _prog: &[u8],
         _config: &Config,
+        _capabilities: &ExecutableCapabilities,
         _function_registry: &FunctionRegistry,
     ) -> std::result::Result<(), VerifierError> {
         Ok(())

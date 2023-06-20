@@ -25,7 +25,7 @@ extern crate thiserror;
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
-    elf::Executable,
+    elf::{Executable, ExecutableCapabilities},
     verifier::{RequisiteVerifier, TautologyVerifier, Verifier, VerifierError},
     vm::{BuiltinProgram, Config, FunctionRegistry, TestContextObject},
 };
@@ -45,6 +45,7 @@ impl Verifier for ContradictionVerifier {
     fn verify(
         _prog: &[u8],
         _config: &Config,
+        _capabilities: &ExecutableCapabilities,
         _function_registry: &FunctionRegistry,
     ) -> std::result::Result<(), VerifierError> {
         Err(VerifierError::NoProgram)
@@ -113,6 +114,7 @@ fn test_verifier_err_endian_size() {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltinProgram::new_loader(Config::default())),
+        ExecutableCapabilities::SBPFv2,
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -131,6 +133,7 @@ fn test_verifier_err_incomplete_lddw() {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltinProgram::new_loader(Config::default())),
+        ExecutableCapabilities::SBPFv2,
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -288,6 +291,7 @@ fn test_verifier_err_unknown_opcode() {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltinProgram::new_loader(Config::default())),
+        ExecutableCapabilities::SBPFv2,
         FunctionRegistry::default(),
     )
     .unwrap();

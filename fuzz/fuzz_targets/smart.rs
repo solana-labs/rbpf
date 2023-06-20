@@ -7,7 +7,7 @@ use libfuzzer_sys::fuzz_target;
 use grammar_aware::*;
 use solana_rbpf::{
     ebpf,
-    elf::Executable,
+    elf::{Executable, ExecutableCapabilities},
     insn_builder::{Arch, IntoBytes},
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, TautologyVerifier, Verifier},
@@ -32,7 +32,7 @@ fuzz_target!(|data: FuzzData| {
     let prog = make_program(&data.prog, data.arch);
     let config = data.template.into();
     let function_registry = FunctionRegistry::default();
-    if RequisiteVerifier::verify(prog.into_bytes(), &config, &function_registry).is_err() {
+    if RequisiteVerifier::verify(prog.into_bytes(), &config, &ExecutableCapabilities::SBPFv2, &function_registry).is_err() {
         // verify please
         return;
     }
@@ -40,6 +40,7 @@ fuzz_target!(|data: FuzzData| {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog.into_bytes(),
         std::sync::Arc::new(BuiltinProgram::new_loader(config)),
+        ExecutableCapabilities::SBPFv2,
         function_registry,
     )
     .unwrap();

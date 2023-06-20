@@ -167,6 +167,7 @@ pub fn create_memory_mapping<'a, V: Verifier, C: ContextObject>(
     cow_cb: Option<MemoryCowCallback>,
 ) -> Result<MemoryMapping<'a>, EbpfError> {
     let config = executable.get_config();
+    let capabilities = executable.get_capabilities();
     let regions: Vec<MemoryRegion> = vec![
         executable.get_ro_region(),
         MemoryRegion::new_writable_gapped(
@@ -185,9 +186,9 @@ pub fn create_memory_mapping<'a, V: Verifier, C: ContextObject>(
     .collect();
 
     Ok(if let Some(cow_cb) = cow_cb {
-        MemoryMapping::new_with_cow(regions, cow_cb, config)?
+        MemoryMapping::new_with_cow(regions, cow_cb, config, capabilities)?
     } else {
-        MemoryMapping::new(regions, config)?
+        MemoryMapping::new(regions, config, capabilities)?
     })
 }
 

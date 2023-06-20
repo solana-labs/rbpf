@@ -18,7 +18,7 @@ use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
-    elf::Executable,
+    elf::{Executable, ExecutableCapabilities},
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
@@ -2575,6 +2575,7 @@ fn test_err_mem_access_out_of_bound() {
         let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
             &prog,
             loader.clone(),
+            ExecutableCapabilities::SBPFv2,
             FunctionRegistry::default(),
         )
         .unwrap();
@@ -3033,7 +3034,8 @@ fn nested_vm_syscall(
 fn test_nested_vm_syscall() {
     let config = Config::default();
     let mut context_object = TestContextObject::default();
-    let mut memory_mapping = MemoryMapping::new(vec![], &config).unwrap();
+    let mut memory_mapping =
+        MemoryMapping::new(vec![], &config, &ExecutableCapabilities::SBPFv2).unwrap();
     let mut result = ProgramResult::Ok(0);
     nested_vm_syscall(
         &mut context_object,
@@ -3821,6 +3823,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
             enable_instruction_tracing: true,
             ..Config::default()
         })),
+        ExecutableCapabilities::SBPFv2,
         FunctionRegistry::default(),
     );
     let executable = if let Ok(executable) = executable {

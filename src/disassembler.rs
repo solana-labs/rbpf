@@ -8,9 +8,12 @@
 //! Functions in this module are used to handle eBPF programs with a higher level representation,
 //! for example to disassemble the code into a human-readable format.
 
-use crate::ebpf;
-use crate::static_analysis::CfgNode;
-use crate::vm::{BuiltinProgram, ContextObject, FunctionRegistry};
+use crate::{
+    ebpf,
+    elf::ExecutableCapabilities,
+    static_analysis::CfgNode,
+    vm::{BuiltinProgram, ContextObject, FunctionRegistry},
+};
 use std::collections::BTreeMap;
 
 fn resolve_label(cfg_nodes: &BTreeMap<usize, CfgNode>, pc: usize) -> &str {
@@ -122,6 +125,7 @@ pub fn disassemble_instruction<C: ContextObject>(
     cfg_nodes: &BTreeMap<usize, CfgNode>,
     function_registry: &FunctionRegistry,
     loader: &BuiltinProgram<C>,
+    _capabilities: &ExecutableCapabilities,
 ) -> String {
     let name;
     let desc;
