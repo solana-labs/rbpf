@@ -12,13 +12,13 @@ use solana_rbpf::{
 use std::{fs::File, io::Read, path::Path, sync::Arc};
 
 fn main() {
-    let matches = App::new("Solana RBPF CLI")
+    let matches = App::new("Solana BPF CLI")
         .version(crate_version!())
         .author("Solana Maintainers <maintainers@solana.foundation>")
-        .about("CLI to test and analyze eBPF programs")
+        .about("CLI to test and analyze Solana BPF programs")
         .arg(
             Arg::new("assembler")
-                .about("Assemble and load eBPF executable")
+                .about("Assemble and load Solana BPF executable")
                 .short('a')
                 .long("asm")
                 .value_name("FILE")
@@ -27,7 +27,7 @@ fn main() {
         )
         .arg(
             Arg::new("elf")
-                .about("Load ELF as eBPF executable")
+                .about("Load ELF as Solana BPF executable")
                 .short('e')
                 .long("elf")
                 .value_name("FILE")

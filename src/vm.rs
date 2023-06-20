@@ -236,7 +236,7 @@ pub struct Config {
     pub optimize_rodata: bool,
     /// Support syscalls via pseudo calls (insn.src = 0)
     pub static_syscalls: bool,
-    /// Allow sh_addr != sh_offset in elf sections. Used in SBFv2 to align
+    /// Allow sh_addr != sh_offset in elf sections. Used in SBPFv2 to align
     /// section vaddrs to MM_PROGRAM_START.
     pub enable_elf_vaddr: bool,
     /// Use the new ELF parser
@@ -246,6 +246,10 @@ pub struct Config {
     pub reject_rodata_stack_overlap: bool,
     /// Use aligned memory mapping
     pub aligned_memory_mapping: bool,
+    /// Allow ExecutableCapability::SBPFv1
+    pub enable_sbpf_v1: bool,
+    /// Allow ExecutableCapability::SBPFv2
+    pub enable_sbpf_v2: bool,
 }
 
 impl Config {
@@ -281,6 +285,8 @@ impl Default for Config {
             new_elf_parser: true,
             reject_rodata_stack_overlap: true,
             aligned_memory_mapping: true,
+            enable_sbpf_v1: true,
+            enable_sbpf_v2: true,
         }
     }
 }

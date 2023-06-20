@@ -22,8 +22,8 @@ use byteorder::{ByteOrder, LittleEndian};
 use hash32::{Hash, Hasher, Murmur3Hasher};
 use std::fmt;
 
-/// SBF version flag
-pub const EF_SBF_V2: u32 = 0x20;
+/// Solana BPF version flag
+pub const EF_SBPF_V2: u32 = 0x20;
 /// Maximum number of instructions in an eBPF program.
 pub const PROG_MAX_INSNS: usize = 65_536;
 /// Size of an eBPF instructions, in bytes.

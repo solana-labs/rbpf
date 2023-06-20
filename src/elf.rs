@@ -8,10 +8,10 @@
 
 use crate::{
     aligned_memory::{is_memory_aligned, AlignedMemory},
-    ebpf::{self, EF_SBF_V2, HOST_ALIGN, INSN_SIZE},
+    ebpf::{self, EF_SBPF_V2, HOST_ALIGN, INSN_SIZE},
     elf_parser::{
         consts::{
-            ELFCLASS64, ELFDATA2LSB, ELFOSABI_NONE, EM_BPF, EM_SBF, ET_DYN, R_X86_64_32,
+            ELFCLASS64, ELFDATA2LSB, ELFOSABI_NONE, EM_BPF, EM_SBPF, ET_DYN, R_X86_64_32,
             R_X86_64_64, R_X86_64_NONE, R_X86_64_RELATIVE,
         },
         types::Elf64Word,
@@ -623,22 +623,18 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         if header.e_ident.ei_osabi != ELFOSABI_NONE {
             return Err(ElfError::WrongAbi);
         }
-        if header.e_machine != EM_BPF && (!config.new_elf_parser || header.e_machine != EM_SBF) {
+        if header.e_machine != EM_BPF && (!config.new_elf_parser || header.e_machine != EM_SBPF) {
             return Err(ElfError::WrongMachine);
         }
         if header.e_type != ET_DYN {
             return Err(ElfError::WrongType);
         }
 
-        if header.e_flags == EF_SBF_V2 {
-            if !config.dynamic_stack_frames {
+        if header.e_flags == EF_SBPF_V2 {
+            if !config.enable_sbpf_v2 {
                 return Err(ElfError::UnsupportedExecutableCapabilities);
             }
-        } else if config.dynamic_stack_frames
-            && config.enable_elf_vaddr
-            && config.reject_rodata_stack_overlap
-            && config.static_syscalls
-        {
+        } else if !config.enable_sbpf_v1 {
             return Err(ElfError::UnsupportedExecutableCapabilities);
         }
 
@@ -934,7 +930,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                         .file_range()
                         .unwrap_or_default()
                         .contains(&r_offset)
-                        || elf.header().e_flags != EF_SBF_V2
+                        || elf.header().e_flags != EF_SBPF_V2
                     {
                         r_offset.saturating_add(BYTE_OFFSET_IMMEDIATE)
                     } else {
@@ -968,7 +964,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                         .file_range()
                         .unwrap_or_default()
                         .contains(&r_offset)
-                        || elf.header().e_flags != EF_SBF_V2
+                        || elf.header().e_flags != EF_SBPF_V2
                     {
                         let imm_low_offset = imm_offset;
                         let imm_high_offset = imm_low_offset.saturating_add(INSN_SIZE);
@@ -1074,7 +1070,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                             refd_addr.checked_shr(32).unwrap_or_default() as u32,
                         );
                     } else {
-                        let refd_addr = if elf.header().e_flags == EF_SBF_V2 {
+                        let refd_addr = if elf.header().e_flags == EF_SBPF_V2 {
                             // We're relocating an address inside a data section (eg .rodata). The
                             // address is encoded as a simple u64.
 
