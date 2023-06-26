@@ -128,12 +128,12 @@ pub fn hash_internal_function(pc: usize, name: &[u8]) -> u32 {
 pub fn register_internal_function<C: ContextObject>(
     function_registry: &mut FunctionRegistry,
     loader: &BuiltinProgram<C>,
-    _capabilities: &ExecutableCapabilities,
+    capabilities: &ExecutableCapabilities,
     pc: usize,
     name: &[u8],
 ) -> Result<u32, ElfError> {
     let config = loader.get_config();
-    let key = if config.static_syscalls {
+    let key = if capabilities.static_syscalls() {
         // With static_syscalls normal function calls and syscalls are differentiated in the ISA.
         // Thus, we don't need to hash them here anymore and collisions are gone as well.
         pc as u32
@@ -292,6 +292,11 @@ impl ExecutableCapabilities {
 
     /// Use dynamic stack frame sizes
     pub fn dynamic_stack_frames(&self) -> bool {
+        self != &ExecutableCapabilities::SBPFv1
+    }
+
+    /// Support syscalls via pseudo calls (insn.src = 0)
+    pub fn static_syscalls(&self) -> bool {
         self != &ExecutableCapabilities::SBPFv1
     }
 }
@@ -553,7 +558,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             return Err(ElfError::InvalidEntrypoint);
         }
         let entry_pc = if let Some(entry_pc) = (offset as usize).checked_div(ebpf::INSN_SIZE) {
-            if !config.static_syscalls {
+            if !capabilities.static_syscalls() {
                 function_registry.remove(&ebpf::hash_symbol_name(b"entrypoint"));
             }
             register_internal_function(
@@ -643,7 +648,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             let mut insn = ebpf::get_insn(elf_bytes, i);
             if insn.opc == ebpf::CALL_IMM
                 && insn.imm != -1
-                && !(config.static_syscalls && insn.src == 0)
+                && !(capabilities.static_syscalls() && insn.src == 0)
             {
                 let target_pc = (i as isize)
                     .saturating_add(1)
@@ -1489,7 +1494,6 @@ mod test {
     fn test_fixup_relative_calls_back() {
         let mut function_registry = FunctionRegistry::default();
         let loader = BuiltinProgram::new_loader(Config {
-            static_syscalls: false,
             enable_symbol_and_section_labels: true,
             ..Config::default()
         });
@@ -1507,7 +1511,7 @@ mod test {
         ElfExecutable::fixup_relative_calls(
             &mut function_registry,
             &loader,
-            &ExecutableCapabilities::SBPFv2,
+            &ExecutableCapabilities::SBPFv1,
             &mut prog,
         )
         .unwrap();
@@ -1529,7 +1533,7 @@ mod test {
         ElfExecutable::fixup_relative_calls(
             &mut function_registry,
             &loader,
-            &ExecutableCapabilities::SBPFv2,
+            &ExecutableCapabilities::SBPFv1,
             &mut prog,
         )
         .unwrap();
@@ -1550,7 +1554,6 @@ mod test {
     fn test_fixup_relative_calls_forward() {
         let mut function_registry = FunctionRegistry::default();
         let loader = BuiltinProgram::new_loader(Config {
-            static_syscalls: false,
             enable_symbol_and_section_labels: true,
             ..Config::default()
         });
@@ -1568,7 +1571,7 @@ mod test {
         ElfExecutable::fixup_relative_calls(
             &mut function_registry,
             &loader,
-            &ExecutableCapabilities::SBPFv2,
+            &ExecutableCapabilities::SBPFv1,
             &mut prog,
         )
         .unwrap();
@@ -1590,7 +1593,7 @@ mod test {
         ElfExecutable::fixup_relative_calls(
             &mut function_registry,
             &loader,
-            &ExecutableCapabilities::SBPFv2,
+            &ExecutableCapabilities::SBPFv1,
             &mut prog,
         )
         .unwrap();
@@ -2304,16 +2307,16 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = r#"validation failed: RelativeJumpOutOfBounds(29)"#)]
+    #[should_panic(expected = r#"validation failed: UnsupportedExecutableCapabilities"#)]
     fn test_static_syscall_disabled() {
         let loader = BuiltinProgram::new_loader(Config {
-            static_syscalls: false,
+            enable_sbpf_v2: false,
             ..Config::default()
         });
         let elf_bytes =
             std::fs::read("tests/elfs/syscall_static_unknown.so").expect("failed to read elf file");
 
-        // when config.static_syscalls=false, all CALL_IMMs are treated as relative
+        // when capabilities.static_syscalls()=false, all CALL_IMMs are treated as relative
         // calls for backwards compatibility
         ElfExecutable::load(&elf_bytes, Arc::new(loader)).expect("validation failed");
     }

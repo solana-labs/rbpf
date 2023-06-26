@@ -592,7 +592,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                     // For JIT, external functions MUST be registered at compile time.
 
                     let mut resolved = false;
-                    let (external, internal) = if self.config.static_syscalls {
+                    let (external, internal) = if self.executable.get_capabilities().static_syscalls() {
                         (insn.src == 0, insn.src != 0)
                     } else {
                         (true, true)
@@ -1530,7 +1530,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
         }
         // There is no `VerifierError::JumpToMiddleOfLDDW` for `call imm` so patch it here
         let call_unsupported_instruction = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
-        if self.config.static_syscalls {
+        if self.executable.get_capabilities().static_syscalls() {
             let mut prev_pc = 0;
             for current_pc in self.executable.get_function_registry().keys() {
                 if *current_pc as usize >= self.result.pc_section.len() {

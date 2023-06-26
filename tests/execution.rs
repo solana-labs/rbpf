@@ -2740,7 +2740,7 @@ fn test_err_static_jmp_lddw() {
 #[test]
 fn test_err_dynamic_jmp_lddw() {
     let config = Config {
-        static_syscalls: false,
+        enable_sbpf_v2: false,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(

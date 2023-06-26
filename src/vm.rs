@@ -230,8 +230,6 @@ pub struct Config {
     pub reject_callx_r10: bool,
     /// Avoid copying read only sections when possible
     pub optimize_rodata: bool,
-    /// Support syscalls via pseudo calls (insn.src = 0)
-    pub static_syscalls: bool,
     /// Use the new ELF parser
     pub new_elf_parser: bool,
     /// Use aligned memory mapping
@@ -268,7 +266,6 @@ impl Default for Config {
             external_internal_function_hash_collision: true,
             reject_callx_r10: true,
             optimize_rodata: true,
-            static_syscalls: true,
             new_elf_parser: true,
             aligned_memory_mapping: true,
             enable_sbpf_v1: true,

@@ -420,7 +420,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 if !self.check_pc(pc) {
                     return false;
                 }
-                if config.static_syscalls && self.vm.executable.lookup_internal_function(self.pc as u32).is_none() {
+                if self.vm.executable.get_capabilities().static_syscalls() && self.vm.executable.lookup_internal_function(self.pc as u32).is_none() {
                     self.due_insn_count += 1;
                     throw_error!(self, EbpfError::UnsupportedInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
@@ -430,7 +430,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             // changed after the program has been verified.
             ebpf::CALL_IMM   => {
                 let mut resolved = false;
-                let (external, internal) = if config.static_syscalls {
+                let (external, internal) = if self.vm.executable.get_capabilities().static_syscalls() {
                     (insn.src == 0, insn.src != 0)
                 } else {
                     (true, true)

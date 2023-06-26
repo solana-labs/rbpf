@@ -237,7 +237,7 @@ impl Verifier for RequisiteVerifier {
             let insn = ebpf::get_insn(prog, insn_ptr);
             let mut store = false;
 
-            if config.static_syscalls && function_iter.peek() == Some(&insn_ptr) {
+            if capabilities.static_syscalls() && function_iter.peek() == Some(&insn_ptr) {
                 function_range.start = function_iter.next().unwrap_or(0);
                 function_range.end = *function_iter.peek().unwrap_or(&program_range.end);
                 if insn.opc == 0 {
@@ -362,7 +362,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
-                ebpf::CALL_IMM   if config.static_syscalls && insn.src != 0 => { check_jmp_offset(prog, insn_ptr, &program_range)?; },
+                ebpf::CALL_IMM   if capabilities.static_syscalls() && insn.src != 0 => { check_jmp_offset(prog, insn_ptr, &program_range)?; },
                 ebpf::CALL_IMM   => {},
                 ebpf::CALL_REG   => { check_imm_register(&insn, insn_ptr, config)?; },
                 ebpf::EXIT       => {},

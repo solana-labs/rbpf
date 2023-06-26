@@ -247,7 +247,7 @@ pub fn assemble<C: ContextObject>(
                     register_internal_function(
                         &mut function_registry,
                         &loader,
-                        &capabilities,
+                        &ExecutableCapabilities::SBPFv2,
                         insn_ptr,
                         name.as_bytes(),
                     )
@@ -301,7 +301,7 @@ pub fn assemble<C: ContextObject>(
                             register_internal_function(
                                 &mut function_registry,
                                 &loader,
-                                &capabilities,
+                                &ExecutableCapabilities::SBPFv2,
                                 target_pc as usize,
                                 label.as_bytes(),
                             )
