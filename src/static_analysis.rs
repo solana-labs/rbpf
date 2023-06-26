@@ -454,7 +454,7 @@ impl<'a> Analysis<'a> {
             &self.cfg_nodes,
             self.executable.get_function_registry(),
             self.executable.get_loader(),
-            self.executable.get_capabilities(),
+            self.executable.get_sbpf_version(),
         )
     }
 

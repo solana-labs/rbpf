@@ -56,11 +56,11 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{elf::ExecutableCapabilities, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_trace_printf, vm::{Config, ProgramResult, TestContextObject}};
+/// use solana_rbpf::{elf::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_trace_printf, vm::{Config, ProgramResult, TestContextObject}};
 ///
 /// let mut result = ProgramResult::Ok(0);
 /// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new(vec![], &config, &ExecutableCapabilities::SBPFv2).unwrap();
+/// let mut memory_mapping = MemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
 /// bpf_trace_printf(&mut TestContextObject::default(), 0, 0, 1, 15, 32, &mut memory_mapping, &mut result);
 /// assert_eq!(result.unwrap() as usize, "bpf_trace_printf: 0x1, 0xf, 0x20\n".len());
 /// ```
@@ -119,11 +119,11 @@ pub fn bpf_trace_printf(
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{elf::ExecutableCapabilities, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_gather_bytes, vm::{Config, ProgramResult, TestContextObject}};
+/// use solana_rbpf::{elf::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_gather_bytes, vm::{Config, ProgramResult, TestContextObject}};
 ///
 /// let mut result = ProgramResult::Ok(0);
 /// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new(vec![], &config, &ExecutableCapabilities::SBPFv2).unwrap();
+/// let mut memory_mapping = MemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
 /// bpf_gather_bytes(&mut TestContextObject::default(), 0x11, 0x22, 0x33, 0x44, 0x55, &mut memory_mapping, &mut result);
 /// assert_eq!(result.unwrap(), 0x1122334455);
 /// ```
@@ -153,14 +153,14 @@ pub fn bpf_gather_bytes(
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{elf::ExecutableCapabilities, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_mem_frob, vm::{Config, ProgramResult, TestContextObject}};
+/// use solana_rbpf::{elf::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_mem_frob, vm::{Config, ProgramResult, TestContextObject}};
 ///
 /// let mut val = &mut [0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
 /// let val_va = 0x100000000;
 ///
 /// let mut result = ProgramResult::Ok(0);
 /// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_writable(val, val_va)], &config, &ExecutableCapabilities::SBPFv2).unwrap();
+/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_writable(val, val_va)], &config, &SBPFVersion::V2).unwrap();
 /// bpf_mem_frob(&mut TestContextObject::default(), val_va, 8, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert_eq!(val, &[0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
 /// bpf_mem_frob(&mut TestContextObject::default(), val_va, 8, 0, 0, 0, &mut memory_mapping, &mut result);
@@ -194,7 +194,7 @@ pub fn bpf_mem_frob(
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{elf::ExecutableCapabilities, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_str_cmp, vm::{Config, ProgramResult, TestContextObject}};
+/// use solana_rbpf::{elf::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_str_cmp, vm::{Config, ProgramResult, TestContextObject}};
 ///
 /// let foo = "This is a string.";
 /// let bar = "This is another sting.";
@@ -203,11 +203,11 @@ pub fn bpf_mem_frob(
 ///
 /// let mut result = ProgramResult::Ok(0);
 /// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo)], &config, &ExecutableCapabilities::SBPFv2).unwrap();
+/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo)], &config, &SBPFVersion::V2).unwrap();
 /// bpf_str_cmp(&mut TestContextObject::default(), va_foo, va_foo, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert!(result.unwrap() == 0);
 /// let mut result = ProgramResult::Ok(0);
-/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo), MemoryRegion::new_readonly(bar.as_bytes(), va_bar)], &config, &ExecutableCapabilities::SBPFv2).unwrap();
+/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo), MemoryRegion::new_readonly(bar.as_bytes(), va_bar)], &config, &SBPFVersion::V2).unwrap();
 /// bpf_str_cmp(&mut TestContextObject::default(), va_foo, va_bar, 0, 0, 0, &mut memory_mapping, &mut result);
 /// assert!(result.unwrap() != 0);
 /// ```

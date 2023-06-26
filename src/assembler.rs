@@ -18,7 +18,7 @@ use crate::{
         Statement,
     },
     ebpf::{self, Insn},
-    elf::{register_internal_function, Executable, ExecutableCapabilities},
+    elf::{register_internal_function, Executable, SBPFVersion},
     verifier::TautologyVerifier,
     vm::{BuiltinProgram, ContextObject, FunctionRegistry},
 };
@@ -218,10 +218,10 @@ pub fn assemble<C: ContextObject>(
     src: &str,
     loader: Arc<BuiltinProgram<C>>,
 ) -> Result<Executable<TautologyVerifier, C>, String> {
-    let capabilities = if loader.get_config().enable_sbpf_v2 {
-        ExecutableCapabilities::SBPFv2
+    let sbpf_version = if loader.get_config().enable_sbpf_v2 {
+        SBPFVersion::V2
     } else {
-        ExecutableCapabilities::SBPFv1
+        SBPFVersion::V1
     };
     fn resolve_label(
         insn_ptr: usize,
@@ -247,7 +247,7 @@ pub fn assemble<C: ContextObject>(
                     register_internal_function(
                         &mut function_registry,
                         &loader,
-                        &ExecutableCapabilities::SBPFv2,
+                        &SBPFVersion::V2,
                         insn_ptr,
                         name.as_bytes(),
                     )
@@ -301,7 +301,7 @@ pub fn assemble<C: ContextObject>(
                             register_internal_function(
                                 &mut function_registry,
                                 &loader,
-                                &ExecutableCapabilities::SBPFv2,
+                                &SBPFVersion::V2,
                                 target_pc as usize,
                                 label.as_bytes(),
                             )
@@ -368,7 +368,7 @@ pub fn assemble<C: ContextObject>(
     Executable::<TautologyVerifier, C>::from_text_bytes(
         &program,
         loader,
-        capabilities,
+        sbpf_version,
         function_registry,
     )
     .map_err(|err| format!("Executable constructor {err:?}"))

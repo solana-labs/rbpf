@@ -25,7 +25,7 @@ extern crate thiserror;
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
-    elf::{Executable, ExecutableCapabilities},
+    elf::{Executable, SBPFVersion},
     verifier::{RequisiteVerifier, TautologyVerifier, Verifier, VerifierError},
     vm::{BuiltinProgram, Config, FunctionRegistry, TestContextObject},
 };
@@ -45,7 +45,7 @@ impl Verifier for ContradictionVerifier {
     fn verify(
         _prog: &[u8],
         _config: &Config,
-        _capabilities: &ExecutableCapabilities,
+        _sbpf_version: &SBPFVersion,
         _function_registry: &FunctionRegistry,
     ) -> std::result::Result<(), VerifierError> {
         Err(VerifierError::NoProgram)
@@ -114,7 +114,7 @@ fn test_verifier_err_endian_size() {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltinProgram::new_loader(Config::default())),
-        ExecutableCapabilities::SBPFv2,
+        SBPFVersion::V2,
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -133,7 +133,7 @@ fn test_verifier_err_incomplete_lddw() {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltinProgram::new_loader(Config::default())),
-        ExecutableCapabilities::SBPFv2,
+        SBPFVersion::V2,
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -143,8 +143,8 @@ fn test_verifier_err_incomplete_lddw() {
 
 #[test]
 fn test_verifier_err_invalid_reg_dst() {
-    // r11 is disabled when capabilities.dynamic_stack_frames()=false, and only sub and add are
-    // allowed when capabilities.dynamic_stack_frames()=true
+    // r11 is disabled when sbpf_version.dynamic_stack_frames()=false, and only sub and add are
+    // allowed when sbpf_version.dynamic_stack_frames()=true
     for enable_sbpf_v2 in [false, true] {
         let executable = assemble::<TestContextObject>(
             "
@@ -168,8 +168,8 @@ fn test_verifier_err_invalid_reg_dst() {
 
 #[test]
 fn test_verifier_err_invalid_reg_src() {
-    // r11 is disabled when capabilities.dynamic_stack_frames()=false, and only sub and add are
-    // allowed when capabilities.dynamic_stack_frames()=true
+    // r11 is disabled when sbpf_version.dynamic_stack_frames()=false, and only sub and add are
+    // allowed when sbpf_version.dynamic_stack_frames()=true
     for enable_sbpf_v2 in [false, true] {
         let executable = assemble::<TestContextObject>(
             "
@@ -291,7 +291,7 @@ fn test_verifier_err_unknown_opcode() {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltinProgram::new_loader(Config::default())),
-        ExecutableCapabilities::SBPFv2,
+        SBPFVersion::V2,
         FunctionRegistry::default(),
     )
     .unwrap();

@@ -6,7 +6,7 @@ use libfuzzer_sys::fuzz_target;
 
 use solana_rbpf::{
     ebpf,
-    elf::{Executable, ExecutableCapabilities},
+    elf::{Executable, SBPFVersion},
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, TautologyVerifier, Verifier},
     vm::{BuiltinProgram, FunctionRegistry, TestContextObject},
@@ -28,7 +28,7 @@ fuzz_target!(|data: DumbFuzzData| {
     let prog = data.prog;
     let config = data.template.into();
     let function_registry = FunctionRegistry::default();
-    if RequisiteVerifier::verify(&prog, &config, &ExecutableCapabilities::SBPFv2, &function_registry).is_err() {
+    if RequisiteVerifier::verify(&prog, &config, &SBPFVersion::V2, &function_registry).is_err() {
         // verify please
         return;
     }
@@ -36,7 +36,7 @@ fuzz_target!(|data: DumbFuzzData| {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         &prog,
         std::sync::Arc::new(BuiltinProgram::new_loader(config)),
-        ExecutableCapabilities::SBPFv2,
+        SBPFVersion::V2,
         function_registry,
     )
     .unwrap();

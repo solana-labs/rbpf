@@ -139,7 +139,7 @@ fn main() {
             .unwrap(),
     );
     let config = verified_executable.get_config();
-    let capabilities = verified_executable.get_capabilities();
+    let sbpf_version = verified_executable.get_sbpf_version();
     let mut stack = AlignedMemory::<{ ebpf::HOST_ALIGN }>::zero_filled(config.stack_size());
     let stack_len = stack.len();
     let mut heap = AlignedMemory::<{ ebpf::HOST_ALIGN }>::zero_filled(
@@ -154,7 +154,7 @@ fn main() {
         MemoryRegion::new_writable_gapped(
             stack.as_slice_mut(),
             ebpf::MM_STACK_START,
-            if !capabilities.dynamic_stack_frames() && config.enable_stack_frame_gaps {
+            if !sbpf_version.dynamic_stack_frames() && config.enable_stack_frame_gaps {
                 config.stack_frame_size as u64
             } else {
                 0
@@ -164,7 +164,7 @@ fn main() {
         MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START),
     ];
 
-    let memory_mapping = MemoryMapping::new(regions, config, capabilities).unwrap();
+    let memory_mapping = MemoryMapping::new(regions, config, sbpf_version).unwrap();
 
     let mut vm = EbpfVm::new(
         &verified_executable,

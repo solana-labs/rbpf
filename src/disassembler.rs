@@ -10,7 +10,7 @@
 
 use crate::{
     ebpf,
-    elf::ExecutableCapabilities,
+    elf::SBPFVersion,
     static_analysis::CfgNode,
     vm::{BuiltinProgram, ContextObject, FunctionRegistry},
 };
@@ -125,7 +125,7 @@ pub fn disassemble_instruction<C: ContextObject>(
     cfg_nodes: &BTreeMap<usize, CfgNode>,
     function_registry: &FunctionRegistry,
     loader: &BuiltinProgram<C>,
-    capabilities: &ExecutableCapabilities,
+    sbpf_version: &SBPFVersion,
 ) -> String {
     let name;
     let desc;
@@ -252,7 +252,7 @@ pub fn disassemble_instruction<C: ContextObject>(
         ebpf::JSLE_REG   => { name = "jsle"; desc = jmp_reg_str(name, insn, cfg_nodes); },
         ebpf::CALL_IMM   => {
             let mut function_name = None;
-            if capabilities.static_syscalls() {
+            if sbpf_version.static_syscalls() {
                 if insn.src != 0 {
                     function_name = Some(resolve_label(cfg_nodes, insn.imm as usize));
                 }

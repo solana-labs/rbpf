@@ -25,7 +25,7 @@
 
 use crate::{
     ebpf,
-    elf::ExecutableCapabilities,
+    elf::SBPFVersion,
     vm::{Config, FunctionRegistry},
 };
 use thiserror::Error;
@@ -99,7 +99,7 @@ pub trait Verifier {
     fn verify(
         prog: &[u8],
         config: &Config,
-        capabilities: &ExecutableCapabilities,
+        sbpf_version: &SBPFVersion,
         function_registry: &FunctionRegistry,
     ) -> Result<(), VerifierError>;
 }
@@ -174,7 +174,7 @@ fn check_registers(
     insn: &ebpf::Insn,
     store: bool,
     insn_ptr: usize,
-    capabilities: &ExecutableCapabilities,
+    sbpf_version: &SBPFVersion,
 ) -> Result<(), VerifierError> {
     if insn.src > 10 {
         return Err(VerifierError::InvalidSourceRegister(adj_insn_ptr(insn_ptr)));
@@ -183,7 +183,7 @@ fn check_registers(
     match (insn.dst, store) {
         (0..=9, _) | (10, true) => Ok(()),
         (11, _)
-            if capabilities.dynamic_stack_frames()
+            if sbpf_version.dynamic_stack_frames()
                 && (insn.opc == ebpf::SUB64_IMM || insn.opc == ebpf::ADD64_IMM) =>
         {
             Ok(())
@@ -226,7 +226,7 @@ pub struct RequisiteVerifier {}
 impl Verifier for RequisiteVerifier {
     /// Check the program against the verifier's rules
     #[rustfmt::skip]
-    fn verify(prog: &[u8], config: &Config, capabilities: &ExecutableCapabilities, function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
+    fn verify(prog: &[u8], config: &Config, sbpf_version: &SBPFVersion, function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
         check_prog_len(prog)?;
 
         let program_range = 0..prog.len() / ebpf::INSN_SIZE;
@@ -237,7 +237,7 @@ impl Verifier for RequisiteVerifier {
             let insn = ebpf::get_insn(prog, insn_ptr);
             let mut store = false;
 
-            if capabilities.static_syscalls() && function_iter.peek() == Some(&insn_ptr) {
+            if sbpf_version.static_syscalls() && function_iter.peek() == Some(&insn_ptr) {
                 function_range.start = function_iter.next().unwrap_or(0);
                 function_range.end = *function_iter.peek().unwrap_or(&program_range.end);
                 if insn.opc == 0 {
@@ -287,8 +287,8 @@ impl Verifier for RequisiteVerifier {
                 ebpf::MUL32_REG  => {},
                 ebpf::DIV32_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
                 ebpf::DIV32_REG  => {},
-                ebpf::SDIV32_IMM if capabilities.enable_sdiv() => { check_imm_nonzero(&insn, insn_ptr)?; },
-                ebpf::SDIV32_REG if capabilities.enable_sdiv() => {},
+                ebpf::SDIV32_IMM if sbpf_version.enable_sdiv() => { check_imm_nonzero(&insn, insn_ptr)?; },
+                ebpf::SDIV32_REG if sbpf_version.enable_sdiv() => {},
                 ebpf::OR32_IMM   => {},
                 ebpf::OR32_REG   => {},
                 ebpf::AND32_IMM  => {},
@@ -318,8 +318,8 @@ impl Verifier for RequisiteVerifier {
                 ebpf::MUL64_REG  => {},
                 ebpf::DIV64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
                 ebpf::DIV64_REG  => {},
-                ebpf::SDIV64_IMM if capabilities.enable_sdiv() => { check_imm_nonzero(&insn, insn_ptr)?; },
-                ebpf::SDIV64_REG if capabilities.enable_sdiv() => {},
+                ebpf::SDIV64_IMM if sbpf_version.enable_sdiv() => { check_imm_nonzero(&insn, insn_ptr)?; },
+                ebpf::SDIV64_REG if sbpf_version.enable_sdiv() => {},
                 ebpf::OR64_IMM   => {},
                 ebpf::OR64_REG   => {},
                 ebpf::AND64_IMM  => {},
@@ -362,7 +362,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
-                ebpf::CALL_IMM   if capabilities.static_syscalls() && insn.src != 0 => { check_jmp_offset(prog, insn_ptr, &program_range)?; },
+                ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src != 0 => { check_jmp_offset(prog, insn_ptr, &program_range)?; },
                 ebpf::CALL_IMM   => {},
                 ebpf::CALL_REG   => { check_imm_register(&insn, insn_ptr, config)?; },
                 ebpf::EXIT       => {},
@@ -372,7 +372,7 @@ impl Verifier for RequisiteVerifier {
                 }
             }
 
-            check_registers(&insn, store, insn_ptr, capabilities)?;
+            check_registers(&insn, store, insn_ptr, sbpf_version)?;
 
             insn_ptr += 1;
         }
@@ -393,7 +393,7 @@ impl Verifier for TautologyVerifier {
     fn verify(
         _prog: &[u8],
         _config: &Config,
-        _capabilities: &ExecutableCapabilities,
+        _sbpf_version: &SBPFVersion,
         _function_registry: &FunctionRegistry,
     ) -> std::result::Result<(), VerifierError> {
         Ok(())

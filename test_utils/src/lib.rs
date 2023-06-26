@@ -167,13 +167,13 @@ pub fn create_memory_mapping<'a, V: Verifier, C: ContextObject>(
     cow_cb: Option<MemoryCowCallback>,
 ) -> Result<MemoryMapping<'a>, EbpfError> {
     let config = executable.get_config();
-    let capabilities = executable.get_capabilities();
+    let sbpf_version = executable.get_sbpf_version();
     let regions: Vec<MemoryRegion> = vec![
         executable.get_ro_region(),
         MemoryRegion::new_writable_gapped(
             stack.as_slice_mut(),
             ebpf::MM_STACK_START,
-            if !capabilities.dynamic_stack_frames() && config.enable_stack_frame_gaps {
+            if !sbpf_version.dynamic_stack_frames() && config.enable_stack_frame_gaps {
                 config.stack_frame_size as u64
             } else {
                 0
@@ -186,9 +186,9 @@ pub fn create_memory_mapping<'a, V: Verifier, C: ContextObject>(
     .collect();
 
     Ok(if let Some(cow_cb) = cow_cb {
-        MemoryMapping::new_with_cow(regions, cow_cb, config, capabilities)?
+        MemoryMapping::new_with_cow(regions, cow_cb, config, sbpf_version)?
     } else {
-        MemoryMapping::new(regions, config, capabilities)?
+        MemoryMapping::new(regions, config, sbpf_version)?
     })
 }
 

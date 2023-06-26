@@ -392,7 +392,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
             let target_pc = (self.pc as isize + insn.off as isize + 1) as usize;
 
             match insn.opc {
-                _ if insn.dst == STACK_PTR_REG as u8 && self.executable.get_capabilities().dynamic_stack_frames() => {
+                _ if insn.dst == STACK_PTR_REG as u8 && self.executable.get_sbpf_version().dynamic_stack_frames() => {
                     let stack_ptr_access = X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::StackPointer));
                     match insn.opc {
                         ebpf::SUB64_IMM => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, RBP, insn.imm, Some(stack_ptr_access))),
@@ -592,7 +592,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                     // For JIT, external functions MUST be registered at compile time.
 
                     let mut resolved = false;
-                    let (external, internal) = if self.executable.get_capabilities().static_syscalls() {
+                    let (external, internal) = if self.executable.get_sbpf_version().static_syscalls() {
                         (insn.src == 0, insn.src != 0)
                     } else {
                         (true, true)
@@ -639,7 +639,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_MAP[FRAME_PTR_REG], 1, None));
                     self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], RBP, call_depth_access));
 
-                    if !self.executable.get_capabilities().dynamic_stack_frames() {
+                    if !self.executable.get_sbpf_version().dynamic_stack_frames() {
                         let stack_pointer_access = X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::StackPointer));
                         let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
                         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, RBP, stack_frame_size, Some(stack_pointer_access))); // env.stack_pointer -= stack_frame_size;
@@ -1391,7 +1391,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
 
         // Setup the frame pointer for the new frame. What we do depends on whether we're using dynamic or fixed frames.
         let stack_pointer_access = X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::StackPointer));
-        if !self.executable.get_capabilities().dynamic_stack_frames() {
+        if !self.executable.get_sbpf_version().dynamic_stack_frames() {
             // With fixed frames we start the new frame at the next fixed offset
             let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
             self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, stack_frame_size, Some(stack_pointer_access))); // env.stack_pointer += stack_frame_size;
@@ -1530,7 +1530,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
         }
         // There is no `VerifierError::JumpToMiddleOfLDDW` for `call imm` so patch it here
         let call_unsupported_instruction = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
-        if self.executable.get_capabilities().static_syscalls() {
+        if self.executable.get_sbpf_version().static_syscalls() {
             let mut prev_pc = 0;
             for current_pc in self.executable.get_function_registry().keys() {
                 if *current_pc as usize >= self.result.pc_section.len() {
@@ -1552,7 +1552,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
 mod tests {
     use super::*;
     use crate::{
-        elf::ExecutableCapabilities,
+        elf::SBPFVersion,
         syscalls,
         verifier::TautologyVerifier,
         vm::{BuiltinProgram, FunctionRegistry, TestContextObject},
@@ -1573,12 +1573,7 @@ mod tests {
             stopwatch_numerator: 0,
             stopwatch_denominator: 0,
             program_result: ProgramResult::Ok(0),
-            memory_mapping: MemoryMapping::new(
-                Vec::new(),
-                &config,
-                &ExecutableCapabilities::SBPFv2,
-            )
-            .unwrap(),
+            memory_mapping: MemoryMapping::new(Vec::new(), &config, &SBPFVersion::V2).unwrap(),
             call_frames: Vec::new(),
         };
 
@@ -1620,7 +1615,7 @@ mod tests {
         Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
             program,
             Arc::new(loader),
-            ExecutableCapabilities::SBPFv2,
+            SBPFVersion::V2,
             function_registry,
         )
         .unwrap()
