@@ -239,9 +239,6 @@ pub struct Config {
     pub enable_elf_vaddr: bool,
     /// Use the new ELF parser
     pub new_elf_parser: bool,
-    /// Ensure that rodata sections don't exceed their maximum allowed size and
-    /// overlap with the stack
-    pub reject_rodata_stack_overlap: bool,
     /// Use aligned memory mapping
     pub aligned_memory_mapping: bool,
     /// Allow ExecutableCapability::SBPFv1
@@ -280,7 +277,6 @@ impl Default for Config {
             static_syscalls: true,
             enable_elf_vaddr: true,
             new_elf_parser: true,
-            reject_rodata_stack_overlap: true,
             aligned_memory_mapping: true,
             enable_sbpf_v1: true,
             enable_sbpf_v2: true,

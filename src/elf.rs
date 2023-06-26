@@ -277,6 +277,12 @@ impl ExecutableCapabilities {
     pub fn enable_sdiv(&self) -> bool {
         self != &ExecutableCapabilities::SBPFv1
     }
+
+    /// Ensure that rodata sections don't exceed their maximum allowed size and
+    /// overlap with the stack
+    pub fn reject_rodata_stack_overlap(&self) -> bool {
+        self != &ExecutableCapabilities::SBPFv1
+    }
 }
 
 /// Elf loader/relocator
@@ -504,7 +510,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             },
             offset_range: text_section.file_range().unwrap_or_default(),
         };
-        let vaddr_end = if config.reject_rodata_stack_overlap {
+        let vaddr_end = if capabilities.reject_rodata_stack_overlap() {
             text_section_info
                 .vaddr
                 .saturating_add(text_section.sh_size())
@@ -768,7 +774,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         S: IntoIterator<Item = (Option<&'a [u8]>, &'a T)>,
     >(
         config: &Config,
-        _capabilities: &ExecutableCapabilities,
+        capabilities: &ExecutableCapabilities,
         sections: S,
         elf_bytes: &[u8],
     ) -> Result<Section, ElfError> {
@@ -844,7 +850,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             } else {
                 section_addr.saturating_add(ebpf::MM_PROGRAM_START)
             };
-            if config.reject_rodata_stack_overlap {
+            if capabilities.reject_rodata_stack_overlap() {
                 vaddr_end = vaddr_end.saturating_add(section_header.sh_size());
             }
             if (config.reject_broken_elfs && invalid_offsets) || vaddr_end > ebpf::MM_STACK_START {
@@ -2211,7 +2217,6 @@ mod test {
     fn test_reject_rodata_stack_overlap() {
         let config = Config {
             enable_elf_vaddr: true,
-            reject_rodata_stack_overlap: true,
             ..Config::default()
         };
         let elf_bytes = [0u8; 512];
