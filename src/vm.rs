@@ -230,8 +230,6 @@ pub struct Config {
     pub reject_callx_r10: bool,
     /// Use dynamic stack frame sizes
     pub dynamic_stack_frames: bool,
-    /// Enable native signed division
-    pub enable_sdiv: bool,
     /// Avoid copying read only sections when possible
     pub optimize_rodata: bool,
     /// Support syscalls via pseudo calls (insn.src = 0)
@@ -278,7 +276,6 @@ impl Default for Config {
             external_internal_function_hash_collision: true,
             reject_callx_r10: true,
             dynamic_stack_frames: true,
-            enable_sdiv: true,
             optimize_rodata: true,
             static_syscalls: true,
             enable_elf_vaddr: true,

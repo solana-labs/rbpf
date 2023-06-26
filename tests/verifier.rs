@@ -371,19 +371,19 @@ fn test_sdiv_disabled() {
     ];
 
     for (opc, instruction) in instructions {
-        for enable_sdiv in [true, false] {
+        for enable_sbpf_v2 in [true, false] {
             let assembly = format!("\n{instruction}\nexit");
             let executable = assemble::<TestContextObject>(
                 &assembly,
                 Arc::new(BuiltinProgram::new_loader(Config {
-                    enable_sdiv,
+                    enable_sbpf_v2,
                     ..Config::default()
                 })),
             )
             .unwrap();
             let result = Executable::<RequisiteVerifier, TestContextObject>::verified(executable)
                 .map_err(|err| format!("Executable constructor {err:?}"));
-            if enable_sdiv {
+            if enable_sbpf_v2 {
                 assert!(result.is_ok());
             } else {
                 assert_eq!(

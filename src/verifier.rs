@@ -225,7 +225,7 @@ pub struct RequisiteVerifier {}
 impl Verifier for RequisiteVerifier {
     /// Check the program against the verifier's rules
     #[rustfmt::skip]
-    fn verify(prog: &[u8], config: &Config, _capabilities: &ExecutableCapabilities, function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
+    fn verify(prog: &[u8], config: &Config, capabilities: &ExecutableCapabilities, function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
         check_prog_len(prog)?;
 
         let program_range = 0..prog.len() / ebpf::INSN_SIZE;
@@ -286,8 +286,8 @@ impl Verifier for RequisiteVerifier {
                 ebpf::MUL32_REG  => {},
                 ebpf::DIV32_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
                 ebpf::DIV32_REG  => {},
-                ebpf::SDIV32_IMM if config.enable_sdiv => { check_imm_nonzero(&insn, insn_ptr)?; },
-                ebpf::SDIV32_REG if config.enable_sdiv => {},
+                ebpf::SDIV32_IMM if capabilities.enable_sdiv() => { check_imm_nonzero(&insn, insn_ptr)?; },
+                ebpf::SDIV32_REG if capabilities.enable_sdiv() => {},
                 ebpf::OR32_IMM   => {},
                 ebpf::OR32_REG   => {},
                 ebpf::AND32_IMM  => {},
@@ -317,8 +317,8 @@ impl Verifier for RequisiteVerifier {
                 ebpf::MUL64_REG  => {},
                 ebpf::DIV64_IMM  => { check_imm_nonzero(&insn, insn_ptr)?; },
                 ebpf::DIV64_REG  => {},
-                ebpf::SDIV64_IMM if config.enable_sdiv => { check_imm_nonzero(&insn, insn_ptr)?; },
-                ebpf::SDIV64_REG if config.enable_sdiv => {},
+                ebpf::SDIV64_IMM if capabilities.enable_sdiv() => { check_imm_nonzero(&insn, insn_ptr)?; },
+                ebpf::SDIV64_REG if capabilities.enable_sdiv() => {},
                 ebpf::OR64_IMM   => {},
                 ebpf::OR64_REG   => {},
                 ebpf::AND64_IMM  => {},

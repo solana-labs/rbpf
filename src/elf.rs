@@ -273,7 +273,10 @@ pub enum ExecutableCapabilities {
 }
 
 impl ExecutableCapabilities {
-    
+    /// Enable native signed division
+    pub fn enable_sdiv(&self) -> bool {
+        self != &ExecutableCapabilities::SBPFv1
+    }
 }
 
 /// Elf loader/relocator
