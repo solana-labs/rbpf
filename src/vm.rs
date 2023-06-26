@@ -234,9 +234,6 @@ pub struct Config {
     pub optimize_rodata: bool,
     /// Support syscalls via pseudo calls (insn.src = 0)
     pub static_syscalls: bool,
-    /// Allow sh_addr != sh_offset in elf sections. Used in SBPFv2 to align
-    /// section vaddrs to MM_PROGRAM_START.
-    pub enable_elf_vaddr: bool,
     /// Use the new ELF parser
     pub new_elf_parser: bool,
     /// Use aligned memory mapping
@@ -275,7 +272,6 @@ impl Default for Config {
             dynamic_stack_frames: true,
             optimize_rodata: true,
             static_syscalls: true,
-            enable_elf_vaddr: true,
             new_elf_parser: true,
             aligned_memory_mapping: true,
             enable_sbpf_v1: true,

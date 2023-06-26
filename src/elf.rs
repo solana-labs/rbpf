@@ -283,6 +283,12 @@ impl ExecutableCapabilities {
     pub fn reject_rodata_stack_overlap(&self) -> bool {
         self != &ExecutableCapabilities::SBPFv1
     }
+
+    /// Allow sh_addr != sh_offset in elf sections. Used in SBPFv2 to align
+    /// section vaddrs to MM_PROGRAM_START.
+    pub fn enable_elf_vaddr(&self) -> bool {
+        self != &ExecutableCapabilities::SBPFv1
+    }
 }
 
 /// Elf loader/relocator
@@ -501,7 +507,9 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             } else {
                 String::default()
             },
-            vaddr: if config.enable_elf_vaddr && text_section.sh_addr() >= ebpf::MM_PROGRAM_START {
+            vaddr: if capabilities.enable_elf_vaddr()
+                && text_section.sh_addr() >= ebpf::MM_PROGRAM_START
+            {
                 text_section.sh_addr()
             } else {
                 text_section
@@ -518,7 +526,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             text_section_info.vaddr
         };
         if (config.reject_broken_elfs
-            && !config.enable_elf_vaddr
+            && !capabilities.enable_elf_vaddr()
             && text_section.sh_addr() != text_section.sh_offset())
             || vaddr_end > ebpf::MM_STACK_START
         {
@@ -687,7 +695,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             return Err(ElfError::WrongType);
         }
 
-        let _capabilities = if header.e_flags == EF_SBPF_V2 {
+        let capabilities = if header.e_flags == EF_SBPF_V2 {
             if !config.enable_sbpf_v2 {
                 return Err(ElfError::UnsupportedExecutableCapabilities);
             }
@@ -699,7 +707,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             ExecutableCapabilities::SBPFv1
         };
 
-        if config.enable_elf_vaddr {
+        if capabilities.enable_elf_vaddr() {
             // This is needed to avoid an overflow error in header.vm_range() as
             // used by relocate(). See https://github.com/m4b/goblin/pull/306.
             //
@@ -785,7 +793,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         // the aggregated section length, not including gaps between sections
         let mut ro_fill_length = 0usize;
         let mut invalid_offsets = false;
-        // when config.enable_elf_vaddr=true, we allow section_addr != sh_offset
+        // when capabilities.enable_elf_vaddr()=true, we allow section_addr != sh_offset
         // if section_addr - sh_offset is constant across all sections. That is,
         // we allow sections to be translated by a fixed virtual offset.
         let mut addr_file_offset = None;
@@ -817,16 +825,16 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
 
             // sh_offset handling:
             //
-            // If config.enable_elf_vaddr=true, we allow section_addr >
+            // If capabilities.enable_elf_vaddr()=true, we allow section_addr >
             // sh_offset, if section_addr - sh_offset is constant across all
             // sections. That is, we allow the linker to align rodata to a
             // positive base address (MM_PROGRAM_START) as long as the mapping
             // to sh_offset(s) stays linear.
             //
-            // If config.enable_elf_vaddr=false, section_addr must match
+            // If capabilities.enable_elf_vaddr()=false, section_addr must match
             // sh_offset for backwards compatibility
             if !invalid_offsets {
-                if config.enable_elf_vaddr {
+                if capabilities.enable_elf_vaddr() {
                     if section_addr < section_header.sh_offset() {
                         invalid_offsets = true;
                     } else {
@@ -844,12 +852,12 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                 }
             }
 
-            let mut vaddr_end = if config.enable_elf_vaddr && section_addr >= ebpf::MM_PROGRAM_START
-            {
-                section_addr
-            } else {
-                section_addr.saturating_add(ebpf::MM_PROGRAM_START)
-            };
+            let mut vaddr_end =
+                if capabilities.enable_elf_vaddr() && section_addr >= ebpf::MM_PROGRAM_START {
+                    section_addr
+                } else {
+                    section_addr.saturating_add(ebpf::MM_PROGRAM_START)
+                };
             if capabilities.reject_rodata_stack_overlap() {
                 vaddr_end = vaddr_end.saturating_add(section_header.sh_size());
             }
@@ -882,7 +890,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             // Read only sections are grouped together with no intermixed non-ro
             // sections. We can borrow.
 
-            // When config.enable_elf_vaddr=true, section addresses and their
+            // When capabilities.enable_elf_vaddr()=true, section addresses and their
             // corresponding buffer offsets can be translated by a constant
             // amount. Subtract the constant to get buffer positions.
             let buf_offset_start =
@@ -973,10 +981,10 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         for relocation in elf.dynamic_relocations() {
             let mut r_offset = relocation.r_offset() as usize;
 
-            // When config.enable_elf_vaddr=true, we allow section.sh_addr !=
+            // When capabilities.enable_elf_vaddr()=true, we allow section.sh_addr !=
             // section.sh_offset so we need to bring r_offset to the correct
             // byte offset.
-            if config.enable_elf_vaddr {
+            if capabilities.enable_elf_vaddr() {
                 match program_header {
                     Some(header) if header.vm_range().contains(&(r_offset as u64)) => {}
                     _ => {
@@ -1804,7 +1812,7 @@ mod test {
     fn test_sh_offset_not_same_as_vaddr() {
         let config = Config {
             reject_broken_elfs: true,
-            enable_elf_vaddr: false,
+            enable_sbpf_v2: false,
             ..Config::default()
         };
         let elf_bytes = [0u8; 512];
@@ -1815,7 +1823,7 @@ mod test {
             let sections: [(Option<&[u8]>, &Elf64Shdr); 1] = [(Some(b".text"), &s1)];
             assert!(ElfExecutable::parse_ro_sections(
                 &config,
-                &ExecutableCapabilities::SBPFv2,
+                &ExecutableCapabilities::SBPFv1,
                 sections,
                 &elf_bytes
             )
@@ -1827,7 +1835,7 @@ mod test {
         assert_eq!(
             ElfExecutable::parse_ro_sections(
                 &config,
-                &ExecutableCapabilities::SBPFv2,
+                &ExecutableCapabilities::SBPFv1,
                 sections,
                 &elf_bytes
             ),
@@ -2216,7 +2224,7 @@ mod test {
     #[test]
     fn test_reject_rodata_stack_overlap() {
         let config = Config {
-            enable_elf_vaddr: true,
+            enable_sbpf_v2: true,
             ..Config::default()
         };
         let elf_bytes = [0u8; 512];
