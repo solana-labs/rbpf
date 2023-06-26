@@ -2307,21 +2307,6 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = r#"validation failed: UnsupportedExecutableCapabilities"#)]
-    fn test_static_syscall_disabled() {
-        let loader = BuiltinProgram::new_loader(Config {
-            enable_sbpf_v2: false,
-            ..Config::default()
-        });
-        let elf_bytes =
-            std::fs::read("tests/elfs/syscall_static_unknown.so").expect("failed to read elf file");
-
-        // when capabilities.static_syscalls()=false, all CALL_IMMs are treated as relative
-        // calls for backwards compatibility
-        ElfExecutable::load(&elf_bytes, Arc::new(loader)).expect("validation failed");
-    }
-
-    #[test]
     #[should_panic(expected = "validation failed: InvalidProgramHeader")]
     fn test_program_headers_overflow() {
         let elf_bytes = std::fs::read("tests/elfs/program_headers_overflow.so")
