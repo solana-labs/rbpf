@@ -174,7 +174,7 @@ fn check_registers(
     insn: &ebpf::Insn,
     store: bool,
     insn_ptr: usize,
-    enable_stack_ptr: bool,
+    capabilities: &ExecutableCapabilities,
 ) -> Result<(), VerifierError> {
     if insn.src > 10 {
         return Err(VerifierError::InvalidSourceRegister(adj_insn_ptr(insn_ptr)));
@@ -183,7 +183,8 @@ fn check_registers(
     match (insn.dst, store) {
         (0..=9, _) | (10, true) => Ok(()),
         (11, _)
-            if enable_stack_ptr && (insn.opc == ebpf::SUB64_IMM || insn.opc == ebpf::ADD64_IMM) =>
+            if capabilities.dynamic_stack_frames()
+                && (insn.opc == ebpf::SUB64_IMM || insn.opc == ebpf::ADD64_IMM) =>
         {
             Ok(())
         }
@@ -371,7 +372,7 @@ impl Verifier for RequisiteVerifier {
                 }
             }
 
-            check_registers(&insn, store, insn_ptr, config.dynamic_stack_frames)?;
+            check_registers(&insn, store, insn_ptr, capabilities)?;
 
             insn_ptr += 1;
         }

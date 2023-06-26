@@ -171,7 +171,7 @@ fn bench_jit_vs_interpreter_address_translation_stack_fixed(bencher: &mut Benche
         bencher,
         ADDRESS_TRANSLATION_STACK_CODE,
         Config {
-            dynamic_stack_frames: false,
+            enable_sbpf_v2: false,
             ..Config::default()
         },
         524289,
@@ -186,7 +186,7 @@ fn bench_jit_vs_interpreter_address_translation_stack_dynamic(bencher: &mut Benc
         bencher,
         ADDRESS_TRANSLATION_STACK_CODE,
         Config {
-            dynamic_stack_frames: true,
+            enable_sbpf_v2: true,
             ..Config::default()
         },
         524289,
@@ -233,7 +233,7 @@ fn bench_jit_vs_interpreter_call_depth_fixed(bencher: &mut Bencher) {
     call function_foo
     exit",
         Config {
-            dynamic_stack_frames: false,
+            enable_sbpf_v2: false,
             ..Config::default()
         },
         137218,
@@ -264,7 +264,7 @@ fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
     add r11, 4
     exit",
         Config {
-            dynamic_stack_frames: true,
+            enable_sbpf_v2: true,
             ..Config::default()
         },
         176130,

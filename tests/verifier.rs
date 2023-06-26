@@ -143,15 +143,15 @@ fn test_verifier_err_incomplete_lddw() {
 
 #[test]
 fn test_verifier_err_invalid_reg_dst() {
-    // r11 is disabled when dynamic_stack_frames=false, and only sub and add are
-    // allowed when dynamic_stack_frames=true
-    for dynamic_stack_frames in [false, true] {
+    // r11 is disabled when capabilities.dynamic_stack_frames()=false, and only sub and add are
+    // allowed when capabilities.dynamic_stack_frames()=true
+    for enable_sbpf_v2 in [false, true] {
         let executable = assemble::<TestContextObject>(
             "
             mov r11, 1
             exit",
             Arc::new(BuiltinProgram::new_loader(Config {
-                dynamic_stack_frames,
+                enable_sbpf_v2,
                 ..Config::default()
             })),
         )
@@ -168,15 +168,15 @@ fn test_verifier_err_invalid_reg_dst() {
 
 #[test]
 fn test_verifier_err_invalid_reg_src() {
-    // r11 is disabled when dynamic_stack_frames=false, and only sub and add are
-    // allowed when dynamic_stack_frames=true
-    for dynamic_stack_frames in [false, true] {
+    // r11 is disabled when capabilities.dynamic_stack_frames()=false, and only sub and add are
+    // allowed when capabilities.dynamic_stack_frames()=true
+    for enable_sbpf_v2 in [false, true] {
         let executable = assemble::<TestContextObject>(
             "
             mov r0, r11
             exit",
             Arc::new(BuiltinProgram::new_loader(Config {
-                dynamic_stack_frames,
+                enable_sbpf_v2,
                 ..Config::default()
             })),
         )

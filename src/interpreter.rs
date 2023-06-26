@@ -144,7 +144,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             );
         }
 
-        if !config.dynamic_stack_frames {
+        if !self.vm.executable.get_capabilities().dynamic_stack_frames() {
             // With fixed frames we start the new frame at the next fixed offset
             let stack_frame_size =
                 config.stack_frame_size * if config.enable_stack_frame_gaps { 2 } else { 1 };
@@ -181,7 +181,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
         }
 
         match insn.opc {
-            _ if dst == STACK_PTR_REG && config.dynamic_stack_frames => {
+            _ if dst == STACK_PTR_REG && self.vm.executable.get_capabilities().dynamic_stack_frames() => {
                 // Let the stack overflow. For legitimate programs, this is a nearly
                 // impossible condition to hit since programs are metered and we already
                 // enforce a maximum call depth. For programs that intentionally mess
@@ -500,7 +500,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 self.reg[ebpf::FIRST_SCRATCH_REG
                     ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                     .copy_from_slice(&frame.caller_saved_registers);
-                if !config.dynamic_stack_frames {
+                if !self.vm.executable.get_capabilities().dynamic_stack_frames() {
                     let stack_frame_size =
                         config.stack_frame_size * if config.enable_stack_frame_gaps { 2 } else { 1 };
                     self.vm.env.stack_pointer -= stack_frame_size as u64;

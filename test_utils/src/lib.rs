@@ -173,7 +173,7 @@ pub fn create_memory_mapping<'a, V: Verifier, C: ContextObject>(
         MemoryRegion::new_writable_gapped(
             stack.as_slice_mut(),
             ebpf::MM_STACK_START,
-            if !config.dynamic_stack_frames && config.enable_stack_frame_gaps {
+            if !capabilities.dynamic_stack_frames() && config.enable_stack_frame_gaps {
                 config.stack_frame_size as u64
             } else {
                 0

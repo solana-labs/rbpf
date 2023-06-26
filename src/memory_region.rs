@@ -888,7 +888,7 @@ fn ensure_writable_region(region: &MemoryRegion, cow_cb: &Option<MemoryCowCallba
 /// Helper for map to generate errors
 fn generate_access_violation(
     config: &Config,
-    _capabilities: &ExecutableCapabilities,
+    capabilities: &ExecutableCapabilities,
     access_type: AccessType,
     vm_addr: u64,
     len: u64,
@@ -898,7 +898,7 @@ fn generate_access_violation(
         .saturating_sub(ebpf::MM_STACK_START as i64)
         .checked_div(config.stack_frame_size as i64)
         .unwrap_or(0);
-    if !config.dynamic_stack_frames
+    if !capabilities.dynamic_stack_frames()
         && (-1..(config.max_call_depth as i64).saturating_add(1)).contains(&stack_frame)
     {
         ProgramResult::Err(Box::new(EbpfError::StackAccessViolation(

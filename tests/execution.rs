@@ -2302,7 +2302,7 @@ fn test_string_stack() {
 #[test]
 fn test_err_fixed_stack_out_of_bound() {
     let config = Config {
-        dynamic_stack_frames: false,
+        enable_sbpf_v2: false,
         max_call_depth: 3,
         ..Config::default()
     };
@@ -2327,7 +2327,7 @@ fn test_err_fixed_stack_out_of_bound() {
 #[test]
 fn test_err_dynamic_stack_out_of_bound() {
     let config = Config {
-        dynamic_stack_frames: true,
+        enable_sbpf_v2: true,
         max_call_depth: 3,
         ..Config::default()
     };
@@ -2373,10 +2373,7 @@ fn test_err_dynamic_stack_out_of_bound() {
 
 #[test]
 fn test_err_dynamic_stack_ptr_overflow() {
-    let config = Config {
-        dynamic_stack_frames: true,
-        ..Config::default()
-    };
+    let config = Config::default();
 
     // See the comment in CallFrames::resize_stack() for the reason why it's
     // safe to let the stack pointer overflow
@@ -2410,10 +2407,7 @@ fn test_err_dynamic_stack_ptr_overflow() {
 
 #[test]
 fn test_dynamic_stack_frames_empty() {
-    let config = Config {
-        dynamic_stack_frames: true,
-        ..Config::default()
-    };
+    let config = Config::default();
 
     // Check that unless explicitly resized the stack doesn't grow
     test_interpreter_and_jit_asm!(
@@ -2433,10 +2427,7 @@ fn test_dynamic_stack_frames_empty() {
 
 #[test]
 fn test_dynamic_frame_ptr() {
-    let config = Config {
-        dynamic_stack_frames: true,
-        ..Config::default()
-    };
+    let config = Config::default();
 
     // Check that upon entering a function (foo) the frame pointer is advanced
     // to the top of the stack
@@ -2482,9 +2473,9 @@ fn test_entrypoint_exit() {
     // can't infer anything from the stack size so we track call depth
     // explicitly. Make sure exit still works with both fixed and dynamic
     // frames.
-    for dynamic_stack_frames in [false, true] {
+    for enable_sbpf_v2 in [false, true] {
         let config = Config {
-            dynamic_stack_frames,
+            enable_sbpf_v2,
             ..Config::default()
         };
 
@@ -2510,9 +2501,9 @@ fn test_entrypoint_exit() {
 
 #[test]
 fn test_stack_call_depth_tracking() {
-    for dynamic_stack_frames in [false, true] {
+    for enable_sbpf_v2 in [false, true] {
         let config = Config {
-            dynamic_stack_frames,
+            enable_sbpf_v2,
             max_call_depth: 2,
             ..Config::default()
         };

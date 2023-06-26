@@ -289,6 +289,11 @@ impl ExecutableCapabilities {
     pub fn enable_elf_vaddr(&self) -> bool {
         self != &ExecutableCapabilities::SBPFv1
     }
+
+    /// Use dynamic stack frame sizes
+    pub fn dynamic_stack_frames(&self) -> bool {
+        self != &ExecutableCapabilities::SBPFv1
+    }
 }
 
 /// Elf loader/relocator

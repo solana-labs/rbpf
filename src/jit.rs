@@ -392,7 +392,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
             let target_pc = (self.pc as isize + insn.off as isize + 1) as usize;
 
             match insn.opc {
-                _ if insn.dst == STACK_PTR_REG as u8 && self.config.dynamic_stack_frames => {
+                _ if insn.dst == STACK_PTR_REG as u8 && self.executable.get_capabilities().dynamic_stack_frames() => {
                     let stack_ptr_access = X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::StackPointer));
                     match insn.opc {
                         ebpf::SUB64_IMM => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, RBP, insn.imm, Some(stack_ptr_access))),
@@ -639,7 +639,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_MAP[FRAME_PTR_REG], 1, None));
                     self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], RBP, call_depth_access));
 
-                    if !self.config.dynamic_stack_frames {
+                    if !self.executable.get_capabilities().dynamic_stack_frames() {
                         let stack_pointer_access = X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::StackPointer));
                         let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
                         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, RBP, stack_frame_size, Some(stack_pointer_access))); // env.stack_pointer -= stack_frame_size;
@@ -1391,7 +1391,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
 
         // Setup the frame pointer for the new frame. What we do depends on whether we're using dynamic or fixed frames.
         let stack_pointer_access = X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::StackPointer));
-        if !self.config.dynamic_stack_frames {
+        if !self.executable.get_capabilities().dynamic_stack_frames() {
             // With fixed frames we start the new frame at the next fixed offset
             let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
             self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, stack_frame_size, Some(stack_pointer_access))); // env.stack_pointer += stack_frame_size;

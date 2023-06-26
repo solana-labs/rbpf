@@ -14,7 +14,6 @@ pub struct ConfigTemplate {
     sanitize_user_provided_values: bool,
     encrypt_environment_registers: bool,
     reject_callx_r10: bool,
-    dynamic_stack_frames: bool,
     optimize_rodata: bool,
 }
 
@@ -30,7 +29,6 @@ impl<'a> Arbitrary<'a> for ConfigTemplate {
             sanitize_user_provided_values: bools & (1 << 3) != 0,
             encrypt_environment_registers: bools & (1 << 4) != 0,
             reject_callx_r10: bools & (1 << 6) != 0,
-            dynamic_stack_frames: bools & (1 << 7) != 0,
             optimize_rodata: bools & (1 << 9) != 0,
         })
     }
@@ -55,7 +53,6 @@ impl From<ConfigTemplate> for Config {
                 sanitize_user_provided_values,
                 encrypt_environment_registers,
                 reject_callx_r10,
-                dynamic_stack_frames,
                 optimize_rodata,
             } => Config {
                 max_call_depth,
@@ -71,7 +68,6 @@ impl From<ConfigTemplate> for Config {
                     0
                 },
                 reject_callx_r10,
-                dynamic_stack_frames,
                 optimize_rodata,
                 ..Default::default()
             },
