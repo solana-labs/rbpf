@@ -76,8 +76,8 @@ fuzz_target!(|data: FuzzData| {
             None
         );
 
-        let (_interp_ins_count, interp_res) = interp_vm.execute_program(true);
-        let (_jit_ins_count, jit_res) = jit_vm.execute_program(false);
+        let (_interp_ins_count, interp_res) = interp_vm.execute_program(&executable, true);
+        let (_jit_ins_count, jit_res) = jit_vm.execute_program(&executable, false);
         let interp_res_str = format!("{:?}", interp_res);
         let jit_res_str = format!("{:?}", jit_res);
         if interp_res_str != jit_res_str {

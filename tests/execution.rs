@@ -65,7 +65,8 @@ macro_rules! test_interpreter_and_jit {
                 vec![mem_region],
                 None
             );
-            let (instruction_count_interpreter, result) = vm.execute_program(true);
+            let (instruction_count_interpreter, result) =
+                vm.execute_program(&verified_executable, true);
             assert_eq!(format!("{:?}", result), expected_result);
             if result.is_ok() {
                 assert_eq!(
@@ -96,7 +97,8 @@ macro_rules! test_interpreter_and_jit {
             match compilation_result {
                 Err(err) => assert_eq!(format!("{:?}", err), expected_result),
                 Ok(()) => {
-                    let (instruction_count_jit, result) = vm.execute_program(false);
+                    let (instruction_count_jit, result) =
+                        vm.execute_program(&verified_executable, false);
                     let tracer_jit = &vm.env.context_object_pointer;
                     assert_eq!(format!("{:?}", result), expected_result);
                     if !TestContextObject::compare_trace_log(&_tracer_interpreter, tracer_jit) {
@@ -3844,7 +3846,8 @@ fn execute_generated_program(prog: &[u8]) -> bool {
             vec![mem_region],
             None
         );
-        let (instruction_count_interpreter, result_interpreter) = vm.execute_program(true);
+        let (instruction_count_interpreter, result_interpreter) =
+            vm.execute_program(&verified_executable, true);
         let tracer_interpreter = vm.env.context_object_pointer.clone();
         (
             instruction_count_interpreter,
@@ -3864,7 +3867,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         vec![mem_region],
         None
     );
-    let (instruction_count_jit, result_jit) = vm.execute_program(false);
+    let (instruction_count_jit, result_jit) = vm.execute_program(&verified_executable, false);
     let tracer_jit = &vm.env.context_object_pointer;
     if format!("{result_interpreter:?}") != format!("{result_jit:?}")
         || !TestContextObject::compare_trace_log(&tracer_interpreter, tracer_jit)

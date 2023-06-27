@@ -167,7 +167,8 @@ fn main() {
     let memory_mapping = MemoryMapping::new(regions, config, sbpf_version).unwrap();
 
     let mut vm = EbpfVm::new(
-        &verified_executable,
+        verified_executable.get_config(),
+        verified_executable.get_sbpf_version(),
         &mut context_object,
         memory_mapping,
         stack_len,
@@ -207,7 +208,10 @@ fn main() {
     if matches.value_of("use").unwrap() == "debugger" {
         vm.debug_port = Some(matches.value_of("port").unwrap().parse::<u16>().unwrap());
     }
-    let (instruction_count, result) = vm.execute_program(matches.value_of("use").unwrap() != "jit");
+    let (instruction_count, result) = vm.execute_program(
+        &verified_executable,
+        matches.value_of("use").unwrap() != "jit",
+    );
     println!("Result: {result:?}");
     println!("Instruction Count: {instruction_count}");
     if matches.is_present("trace") {

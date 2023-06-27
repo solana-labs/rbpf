@@ -52,6 +52,6 @@ fuzz_target!(|data: DumbFuzzData| {
         None
     );
 
-    let (_interp_ins_count, interp_res) = interp_vm.execute_program(true);
+    let (_interp_ins_count, interp_res) = interp_vm.execute_program(&executable, true);
     drop(black_box(interp_res));
 });

@@ -13,8 +13,8 @@
 //! Interpreter for eBPF programs.
 
 use crate::{
-    ebpf,
-    ebpf::STACK_PTR_REG,
+    ebpf::{self, STACK_PTR_REG},
+    elf::Executable,
     error::EbpfError,
     verifier::Verifier,
     vm::{Config, ContextObject, EbpfVm, ProgramResult},
@@ -66,7 +66,8 @@ pub enum DebugState {
 
 /// State of an interpreter
 pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
-    pub(crate) vm: &'a mut EbpfVm<'b, V, C>,
+    pub(crate) vm: &'a mut EbpfVm<'b, C>,
+    pub(crate) executable: &'a Executable<V, C>,
     pub(crate) program: &'a [u8],
     pub(crate) program_vm_addr: u64,
     pub(crate) due_insn_count: u64,
@@ -84,10 +85,15 @@ pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
 
 impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Creates a new interpreter state
-    pub fn new(vm: &'a mut EbpfVm<'b, V, C>, registers: [u64; 12]) -> Self {
-        let (program_vm_addr, program) = vm.executable.get_text_bytes();
+    pub fn new(
+        vm: &'a mut EbpfVm<'b, C>,
+        executable: &'a Executable<V, C>,
+        registers: [u64; 12],
+    ) -> Self {
+        let (program_vm_addr, program) = executable.get_text_bytes();
         Self {
             vm,
+            executable,
             program,
             program_vm_addr,
             due_insn_count: 0,
@@ -122,7 +128,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Translate between the virtual machines' pc value and the pc value used by the debugger
     #[cfg(feature = "debugger")]
     pub fn get_dbg_pc(&self) -> u64 {
-        ((self.pc * ebpf::INSN_SIZE) as u64) + self.vm.executable.get_text_section_offset()
+        ((self.pc * ebpf::INSN_SIZE) as u64) + self.executable.get_text_section_offset()
     }
 
     fn push_frame(&mut self, config: &Config) -> bool {
@@ -144,7 +150,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             );
         }
 
-        if !self.vm.executable.get_sbpf_version().dynamic_stack_frames() {
+        if !self.executable.get_sbpf_version().dynamic_stack_frames() {
             // With fixed frames we start the new frame at the next fixed offset
             let stack_frame_size =
                 config.stack_frame_size * if config.enable_stack_frame_gaps { 2 } else { 1 };
@@ -160,7 +166,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     /// Returns false if the program terminated or threw an error.
     #[rustfmt::skip]
     pub fn step(&mut self) -> bool {
-        let config = &self.vm.executable.get_config();
+        let config = &self.executable.get_config();
 
         let mut instruction_width = 1;
         self.due_insn_count += 1;
@@ -181,7 +187,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
         }
 
         match insn.opc {
-            _ if dst == STACK_PTR_REG && self.vm.executable.get_sbpf_version().dynamic_stack_frames() => {
+            _ if dst == STACK_PTR_REG && self.executable.get_sbpf_version().dynamic_stack_frames() => {
                 // Let the stack overflow. For legitimate programs, this is a nearly
                 // impossible condition to hit since programs are metered and we already
                 // enforce a maximum call depth. For programs that intentionally mess
@@ -420,7 +426,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 if !self.check_pc(pc) {
                     return false;
                 }
-                if self.vm.executable.get_sbpf_version().static_syscalls() && self.vm.executable.lookup_internal_function(self.pc as u32).is_none() {
+                if self.executable.get_sbpf_version().static_syscalls() && self.executable.lookup_internal_function(self.pc as u32).is_none() {
                     self.due_insn_count += 1;
                     throw_error!(self, EbpfError::UnsupportedInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
@@ -430,14 +436,14 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             // changed after the program has been verified.
             ebpf::CALL_IMM   => {
                 let mut resolved = false;
-                let (external, internal) = if self.vm.executable.get_sbpf_version().static_syscalls() {
+                let (external, internal) = if self.executable.get_sbpf_version().static_syscalls() {
                     (insn.src == 0, insn.src != 0)
                 } else {
                     (true, true)
                 };
 
                 if external {
-                    if let Some((_function_name, function)) = self.vm.executable.get_loader().lookup_function(insn.imm as u32) {
+                    if let Some((_function_name, function)) = self.executable.get_loader().lookup_function(insn.imm as u32) {
                         resolved = true;
 
                         if config.enable_instruction_meter {
@@ -465,7 +471,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 }
 
                 if internal && !resolved {
-                    if let Some(target_pc) = self.vm.executable.lookup_internal_function(insn.imm as u32) {
+                    if let Some(target_pc) = self.executable.lookup_internal_function(insn.imm as u32) {
                         resolved = true;
 
                         // make BPF to BPF call
@@ -500,7 +506,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 self.reg[ebpf::FIRST_SCRATCH_REG
                     ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
                     .copy_from_slice(&frame.caller_saved_registers);
-                if !self.vm.executable.get_sbpf_version().dynamic_stack_frames() {
+                if !self.executable.get_sbpf_version().dynamic_stack_frames() {
                     let stack_frame_size =
                         config.stack_frame_size * if config.enable_stack_frame_gaps { 2 } else { 1 };
                     self.vm.env.stack_pointer -= stack_frame_size as u64;

@@ -77,8 +77,8 @@ fuzz_target!(|data: FuzzData| {
             None
         );
 
-        let (_interp_ins_count, interp_res) = interp_vm.execute_program(true);
-        let (_jit_ins_count, jit_res) = jit_vm.execute_program(false);
+        let (_interp_ins_count, interp_res) = interp_vm.execute_program(&executable, true);
+        let (_jit_ins_count, jit_res) = jit_vm.execute_program(&executable, false);
         if format!("{:?}", interp_res) != format!("{:?}", jit_res) {
             panic!("Expected {:?}, but got {:?}", interp_res, jit_res);
         }
