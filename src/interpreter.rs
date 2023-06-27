@@ -24,14 +24,14 @@ use std::convert::TryInto;
 /// Virtual memory operation helper.
 macro_rules! translate_memory_access {
     (_impl, $self:ident, $op:ident, $vm_addr:ident, $pc:ident, $T:ty, $($rest:expr),*) => {
-        match $self.vm.env.memory_mapping.$op::<$T>(
+        match $self.vm.memory_mapping.$op::<$T>(
             $($rest,)*
             $vm_addr,
             $pc + ebpf::ELF_INSN_DUMP_OFFSET,
         ) {
             ProgramResult::Ok(v) => v,
             ProgramResult::Err(err) => {
-                $self.vm.env.program_result = ProgramResult::Err(err);
+                $self.vm.program_result = ProgramResult::Err(err);
                 return false;
             },
         }
@@ -50,7 +50,7 @@ macro_rules! translate_memory_access {
 
 macro_rules! throw_error {
     ($self:expr, $err:expr) => {{
-        $self.vm.env.program_result = ProgramResult::Err(Box::new($err));
+        $self.vm.program_result = ProgramResult::Err(Box::new($err));
         return false;
     }};
 }
@@ -132,15 +132,15 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
     }
 
     fn push_frame(&mut self, config: &Config) -> bool {
-        let frame = &mut self.vm.env.call_frames[self.vm.env.call_depth as usize];
+        let frame = &mut self.vm.call_frames[self.vm.call_depth as usize];
         frame.caller_saved_registers.copy_from_slice(
             &self.reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
         );
         frame.frame_pointer = self.reg[ebpf::FRAME_PTR_REG];
         frame.target_pc = self.pc;
 
-        self.vm.env.call_depth += 1;
-        if self.vm.env.call_depth as usize == config.max_call_depth {
+        self.vm.call_depth += 1;
+        if self.vm.call_depth as usize == config.max_call_depth {
             throw_error!(
                 self,
                 EbpfError::CallDepthExceeded(
@@ -154,9 +154,9 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             // With fixed frames we start the new frame at the next fixed offset
             let stack_frame_size =
                 config.stack_frame_size * if config.enable_stack_frame_gaps { 2 } else { 1 };
-            self.vm.env.stack_pointer += stack_frame_size as u64;
+            self.vm.stack_pointer += stack_frame_size as u64;
         }
-        self.reg[ebpf::FRAME_PTR_REG] = self.vm.env.stack_pointer;
+        self.reg[ebpf::FRAME_PTR_REG] = self.vm.stack_pointer;
 
         true
     }
@@ -183,7 +183,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             let mut state = [0u64; 12];
             state[0..11].copy_from_slice(&self.reg);
             state[11] = pc as u64;
-            self.vm.env.context_object_pointer.trace(state);
+            self.vm.context_object_pointer.trace(state);
         }
 
         match insn.opc {
@@ -195,8 +195,8 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 // InvalidVirtualAddress(stack_ptr) once an invalid stack address is
                 // accessed.
                 match insn.opc {
-                    ebpf::SUB64_IMM => { self.vm.env.stack_pointer = self.vm.env.stack_pointer.overflowing_add(-insn.imm as u64).0; }
-                    ebpf::ADD64_IMM => { self.vm.env.stack_pointer = self.vm.env.stack_pointer.overflowing_add(insn.imm as u64).0; }
+                    ebpf::SUB64_IMM => { self.vm.stack_pointer = self.vm.stack_pointer.overflowing_add(-insn.imm as u64).0; }
+                    ebpf::ADD64_IMM => { self.vm.stack_pointer = self.vm.stack_pointer.overflowing_add(insn.imm as u64).0; }
                     _ => {
                         #[cfg(debug_assertions)]
                         unreachable!("unexpected insn on r11")
@@ -447,25 +447,25 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                         resolved = true;
 
                         if config.enable_instruction_meter {
-                            self.vm.env.context_object_pointer.consume(self.due_insn_count);
+                            self.vm.context_object_pointer.consume(self.due_insn_count);
                         }
                         self.due_insn_count = 0;
                         function(
-                            self.vm.env.context_object_pointer,
+                            self.vm.context_object_pointer,
                             self.reg[1],
                             self.reg[2],
                             self.reg[3],
                             self.reg[4],
                             self.reg[5],
-                            &mut self.vm.env.memory_mapping,
-                            &mut self.vm.env.program_result,
+                            &mut self.vm.memory_mapping,
+                            &mut self.vm.program_result,
                         );
-                        self.reg[0] = match &self.vm.env.program_result {
+                        self.reg[0] = match &self.vm.program_result {
                             ProgramResult::Ok(value) => *value,
                             ProgramResult::Err(_err) => return false,
                         };
                         if config.enable_instruction_meter {
-                            self.vm.env.previous_instruction_meter = self.vm.env.context_object_pointer.get_remaining();
+                            self.vm.previous_instruction_meter = self.vm.context_object_pointer.get_remaining();
                         }
                     }
                 }
@@ -491,16 +491,16 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             }
 
             ebpf::EXIT       => {
-                if self.vm.env.call_depth == 0 {
-                    if config.enable_instruction_meter && self.due_insn_count > self.vm.env.previous_instruction_meter {
+                if self.vm.call_depth == 0 {
+                    if config.enable_instruction_meter && self.due_insn_count > self.vm.previous_instruction_meter {
                         throw_error!(self, EbpfError::ExceededMaxInstructions(pc + ebpf::ELF_INSN_DUMP_OFFSET));
                     }
-                    self.vm.env.program_result = ProgramResult::Ok(self.reg[0]);
+                    self.vm.program_result = ProgramResult::Ok(self.reg[0]);
                     return false;
                 }
                 // Return from BPF to BPF call
-                self.vm.env.call_depth -= 1;
-                let frame = &self.vm.env.call_frames[self.vm.env.call_depth as usize];
+                self.vm.call_depth -= 1;
+                let frame = &self.vm.call_frames[self.vm.call_depth as usize];
                 self.pc = frame.target_pc;
                 self.reg[ebpf::FRAME_PTR_REG] = frame.frame_pointer;
                 self.reg[ebpf::FIRST_SCRATCH_REG
@@ -509,7 +509,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 if !self.executable.get_sbpf_version().dynamic_stack_frames() {
                     let stack_frame_size =
                         config.stack_frame_size * if config.enable_stack_frame_gaps { 2 } else { 1 };
-                    self.vm.env.stack_pointer -= stack_frame_size as u64;
+                    self.vm.stack_pointer -= stack_frame_size as u64;
                 }
                 if !self.check_pc(pc) {
                     return false;
@@ -518,7 +518,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             _ => throw_error!(self, EbpfError::UnsupportedInstruction(pc + ebpf::ELF_INSN_DUMP_OFFSET)),
         }
 
-        if config.enable_instruction_meter && self.due_insn_count >= self.vm.env.previous_instruction_meter {
+        if config.enable_instruction_meter && self.due_insn_count >= self.vm.previous_instruction_meter {
             // Use `pc + instruction_width` instead of `self.pc` here because jumps and calls don't continue at the end of this instruction
             throw_error!(self, EbpfError::ExceededMaxInstructions(pc + instruction_width + ebpf::ELF_INSN_DUMP_OFFSET));
         }

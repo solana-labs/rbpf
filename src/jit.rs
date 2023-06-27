@@ -22,7 +22,7 @@ use crate::{
     },
     memory_region::{AccessType, MemoryMapping},
     verifier::Verifier,
-    vm::{Config, ContextObject, ProgramResult, RuntimeEnvironment},
+    vm::{Config, ContextObject, EbpfVm, ProgramResult},
     x86::*,
 };
 
@@ -98,7 +98,7 @@ impl JitProgram {
     ) -> i64 {
         unsafe {
             let mut instruction_meter =
-                (env.previous_instruction_meter as i64).wrapping_add(registers[11] as i64);
+                (vm.previous_instruction_meter as i64).wrapping_add(registers[11] as i64);
             std::arch::asm!(
                 // RBP and RBX must be saved and restored manually in the current version of rustc and llvm.
                 "push rbx",
@@ -1562,6 +1562,7 @@ mod tests {
 
     #[test]
     fn test_runtime_environment_slots() {
+        let executable = create_mockup_executable(&[]);
         let mut context_object = TestContextObject::new(0);
         let env = EbpfVm::new(
             executable.get_config(),

@@ -76,7 +76,7 @@ macro_rules! test_interpreter_and_jit {
             }
             (
                 instruction_count_interpreter,
-                vm.env.context_object_pointer.clone(),
+                vm.context_object_pointer.clone(),
             )
         };
         #[cfg(all(not(windows), target_arch = "x86_64"))]
@@ -99,7 +99,7 @@ macro_rules! test_interpreter_and_jit {
                 Ok(()) => {
                     let (instruction_count_jit, result) =
                         vm.execute_program(&verified_executable, false);
-                    let tracer_jit = &vm.env.context_object_pointer;
+                    let tracer_jit = &vm.context_object_pointer;
                     assert_eq!(format!("{:?}", result), expected_result);
                     if !TestContextObject::compare_trace_log(&_tracer_interpreter, tracer_jit) {
                         let analysis = Analysis::from_executable(&verified_executable).unwrap();
@@ -3848,7 +3848,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         );
         let (instruction_count_interpreter, result_interpreter) =
             vm.execute_program(&verified_executable, true);
-        let tracer_interpreter = vm.env.context_object_pointer.clone();
+        let tracer_interpreter = vm.context_object_pointer.clone();
         (
             instruction_count_interpreter,
             tracer_interpreter,
@@ -3868,7 +3868,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         None
     );
     let (instruction_count_jit, result_jit) = vm.execute_program(&verified_executable, false);
-    let tracer_jit = &vm.env.context_object_pointer;
+    let tracer_jit = &vm.context_object_pointer;
     if format!("{result_interpreter:?}") != format!("{result_jit:?}")
         || !TestContextObject::compare_trace_log(&tracer_interpreter, tracer_jit)
     {

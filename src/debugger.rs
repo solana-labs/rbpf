@@ -74,8 +74,7 @@ pub fn execute<V: Verifier, C: ContextObject>(interpreter: &mut Interpreter<V, C
                     DebugState::Step => {
                         let mut stop_reason = if interpreter.step() {
                             SingleThreadStopReason::DoneStep
-                        } else if let ProgramResult::Ok(result) = &interpreter.vm.env.program_result
-                        {
+                        } else if let ProgramResult::Ok(result) = &interpreter.vm.program_result {
                             SingleThreadStopReason::Exited(*result as u8)
                         } else {
                             SingleThreadStopReason::Terminated(Signal::SIGSTOP)
@@ -96,8 +95,7 @@ pub fn execute<V: Verifier, C: ContextObject>(interpreter: &mut Interpreter<V, C
                                     .report_stop(interpreter, SingleThreadStopReason::SwBreak(()))
                                     .unwrap();
                             }
-                        } else if let ProgramResult::Ok(result) = &interpreter.vm.env.program_result
-                        {
+                        } else if let ProgramResult::Ok(result) = &interpreter.vm.program_result {
                             break dbg_inner
                                 .report_stop(
                                     interpreter,
@@ -159,7 +157,7 @@ fn get_host_ptr<V: Verifier, C: ContextObject>(
     if vm_addr < ebpf::MM_PROGRAM_START {
         vm_addr += ebpf::MM_PROGRAM_START;
     }
-    match interpreter.vm.env.memory_mapping.map(
+    match interpreter.vm.memory_mapping.map(
         AccessType::Load,
         vm_addr,
         std::mem::size_of::<u8>() as u64,
@@ -241,14 +239,9 @@ impl<'a, 'b, V: Verifier, C: ContextObject>
             }
             BpfRegId::Sp => buf.copy_from_slice(&self.reg[ebpf::FRAME_PTR_REG].to_le_bytes()),
             BpfRegId::Pc => buf.copy_from_slice(&self.get_dbg_pc().to_le_bytes()),
-            BpfRegId::InstructionCountRemaining => buf.copy_from_slice(
-                &self
-                    .vm
-                    .env
-                    .context_object_pointer
-                    .get_remaining()
-                    .to_le_bytes(),
-            ),
+            BpfRegId::InstructionCountRemaining => {
+                buf.copy_from_slice(&self.vm.context_object_pointer.get_remaining().to_le_bytes())
+            }
         }
         Ok(buf.len())
     }

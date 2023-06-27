@@ -220,12 +220,12 @@ fn main() {
         analysis
             .as_ref()
             .unwrap()
-            .disassemble_trace_log(&mut stdout.lock(), &vm.env.context_object_pointer.trace_log)
+            .disassemble_trace_log(&mut stdout.lock(), &vm.context_object_pointer.trace_log)
             .unwrap();
     }
     if matches.is_present("profile") {
         let dynamic_analysis = DynamicAnalysis::new(
-            &vm.env.context_object_pointer.trace_log,
+            &vm.context_object_pointer.trace_log,
             analysis.as_ref().unwrap(),
         );
         let mut file = File::create("profile.dot").unwrap();
