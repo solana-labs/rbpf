@@ -718,6 +718,13 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         };
 
         if sbpf_version.enable_elf_vaddr() {
+            if !config.optimize_rodata {
+                // When optimize_rodata=false, we allocate a vector and copy all
+                // rodata sections into it. In that case we can't allow virtual
+                // addresses or we'd potentially have to do huge allocations.
+                return Err(ElfError::UnsupportedSBPFVersion);
+            }
+
             // This is needed to avoid an overflow error in header.vm_range() as
             // used by relocate(). See https://github.com/m4b/goblin/pull/306.
             //
@@ -845,6 +852,8 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             // sh_offset for backwards compatibility
             if !invalid_offsets {
                 if sbpf_version.enable_elf_vaddr() {
+                    // This is enforced in validate()
+                    debug_assert!(config.optimize_rodata);
                     if section_addr < section_header.sh_offset() {
                         invalid_offsets = true;
                     } else {
@@ -1969,8 +1978,9 @@ mod test {
             (Some(b".dynamic"), &s2),
             (Some(b".rodata"), &s3),
         ];
+        // V2 requires optimize_rodata=true
         let ro_section =
-            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes)
+            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V1, sections, &elf_bytes)
                 .unwrap();
         let ro_region = get_ro_region(&ro_section, &elf_bytes);
         let owned_section = match &ro_section {
@@ -2069,7 +2079,7 @@ mod test {
         assert!(matches!(
             ElfExecutable::parse_ro_sections(
                 &config,
-                &SBPFVersion::V2,
+                &SBPFVersion::V1, // v2 requires optimize_rodata=true
                 sections,
                 &elf_bytes,
             ),

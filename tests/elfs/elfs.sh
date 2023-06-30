@@ -81,6 +81,10 @@ rm bss_section.o
 "$LLVM_DIR"ld.lld $LD_FLAGS -o rodata.so rodata.o
 rm rodata.o
 
+"$LLVM_DIR"clang $CC_FLAGS -mcpu=generic -o rodata.o -c rodata.c
+"$LLVM_DIR"ld.lld $LD_FLAGS -o rodata_sbpfv1.so rodata.o
+rm rodata.o
+
 "$LLVM_DIR"clang $CC_FLAGS -o rodata_high_vaddr.o -c rodata.c
 "$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --nmagic --section-start=.text=0x100000000 --section-start=.rodata=0x100000020 -o rodata_high_vaddr.so rodata_high_vaddr.o
 rm rodata_high_vaddr.o

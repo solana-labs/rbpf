@@ -3097,23 +3097,35 @@ fn test_load_elf_empty_rodata() {
 }
 
 #[test]
-fn test_load_elf_rodata() {
-    // checks that the program loads the correct rodata offset with both
-    // borrowed and owned rodata
-    for optimize_rodata in [false, true] {
-        let config = Config {
-            optimize_rodata,
-            ..Config::default()
-        };
-        test_interpreter_and_jit_elf!(
-            "tests/elfs/rodata.so",
-            config,
-            [],
-            (),
-            TestContextObject::new(3),
-            ProgramResult::Ok(42),
-        );
-    }
+fn test_load_elf_rodata_sbpfv2() {
+    let config = Config {
+        optimize_rodata: true,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/rodata.so",
+        config,
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(42),
+    );
+}
+
+#[test]
+fn test_load_elf_rodata_sbpfv1() {
+    let config = Config {
+        optimize_rodata: false,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/rodata_sbpfv1.so",
+        config,
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(42),
+    );
 }
 
 #[test]
