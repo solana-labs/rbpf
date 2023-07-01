@@ -4,8 +4,12 @@
 #https://github.com/solana-labs/llvm-builder/releases
 
 LLVM_DIR=../../../solana/sdk/sbf/dependencies/sbf-tools/llvm/bin/
-CC_FLAGS="-Werror -target sbf -mcpu=sbfv2 -O2 -fno-builtin -fPIC"
-LD_FLAGS="-z notext -shared --Bdynamic -entry entrypoint --script elf.ld"
+CC_FLAGS_COMMON="-Werror -target sbf -O2 -fno-builtin -fPIC"
+CC_FLAGS="$CC_FLAGS_COMMON -mcpu=sbfv2"
+CC_FLAGS_V1="$CC_FLAGS_COMMON -mcpu=generic"
+LD_FLAGS_COMMON="-z notext -shared --Bdynamic -entry entrypoint --script elf.ld"
+LD_FLAGS="$LD_FLAGS_COMMON --section-start=.text=0x100000000"
+LD_FLAGS_V1=$LD_FLAGS_COMMON
 
 "$LLVM_DIR"clang $CC_FLAGS -o noop.o -c noop.c
 "$LLVM_DIR"ld.lld $LD_FLAGS -o noop.so noop.o
@@ -33,33 +37,33 @@ rm multiple_file.o
 "$LLVM_DIR"ld.lld $LD_FLAGS -o relative_call.so relative_call.o
 rm relative_call.o
 
+"$LLVM_DIR"clang $CC_FLAGS_V1 -o reloc_64_64.o -c reloc_64_64.c
+"$LLVM_DIR"ld.lld $LD_FLAGS_V1 -o reloc_64_64_sbpfv1.so reloc_64_64.o
+rm reloc_64_64.o
+
 "$LLVM_DIR"clang $CC_FLAGS -o reloc_64_64.o -c reloc_64_64.c
 "$LLVM_DIR"ld.lld $LD_FLAGS -o reloc_64_64.so reloc_64_64.o
 rm reloc_64_64.o
-
-"$LLVM_DIR"clang $CC_FLAGS -o reloc_64_64_high_vaddr.o -c reloc_64_64.c
-"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --nmagic --section-start=.text=0x100000000 -o reloc_64_64_high_vaddr.so reloc_64_64_high_vaddr.o
-rm reloc_64_64_high_vaddr.o
 
 "$LLVM_DIR"clang $CC_FLAGS -o reloc_64_relative.o -c reloc_64_relative.c
 "$LLVM_DIR"ld.lld $LD_FLAGS -o reloc_64_relative.so reloc_64_relative.o
 rm reloc_64_relative.o
 
-"$LLVM_DIR"clang $CC_FLAGS -o reloc_64_relative_high_vaddr.o -c reloc_64_relative.c
-"$LLVM_DIR"ld.lld $LD_FLAGS --section-start=.text=0x100000000 -o reloc_64_relative_high_vaddr.so reloc_64_relative_high_vaddr.o
-rm reloc_64_relative_high_vaddr.o
+"$LLVM_DIR"clang $CC_FLAGS_V1 -o reloc_64_relative.o -c reloc_64_relative.c
+"$LLVM_DIR"ld.lld $LD_FLAGS_V1 -o reloc_64_relative_sbpfv1.so reloc_64_relative.o
+rm reloc_64_relative.o
 
-"$LLVM_DIR"clang $CC_FLAGS -o reloc_64_relative_data.o -c reloc_64_relative_data.c
-"$LLVM_DIR"ld.lld $LD_FLAGS -o reloc_64_relative_data.so reloc_64_relative_data.o
+"$LLVM_DIR"clang $CC_FLAGS_V1 -o reloc_64_relative_data.o -c reloc_64_relative_data.c
+"$LLVM_DIR"ld.lld $LD_FLAGS_V1 -o reloc_64_relative_data_sbpfv1.so reloc_64_relative_data.o
 rm reloc_64_relative_data.o
 
-"$LLVM_DIR"clang $CC_FLAGS -o reloc_64_relative_data_high_vaddr.o -c reloc_64_relative_data.c
-"$LLVM_DIR"ld.lld $LD_FLAGS --section-start=.text=0x100000000 -o reloc_64_relative_data_high_vaddr.so reloc_64_relative_data_high_vaddr.o
-rm reloc_64_relative_data_high_vaddr.o
+"$LLVM_DIR"clang $CC_FLAGS -o reloc_64_relative_data.o -c reloc_64_relative_data.c
+"$LLVM_DIR"ld.lld $LD_FLAGS --section-start=.text=0x100000000 -o reloc_64_relative_data.so reloc_64_relative_data.o
+rm reloc_64_relative_data.o
 
-"$LLVM_DIR"clang $CC_FLAGS -o reloc_64_relative_data_pre_sbfv2.o -c reloc_64_relative_data.c
-"$LLVM_DIR"ld.lld $LD_FLAGS -o reloc_64_relative_data_pre_sbfv2.so reloc_64_relative_data_pre_sbfv2.o
-rm reloc_64_relative_data_pre_sbfv2.o
+"$LLVM_DIR"clang $CC_FLAGS_V1 -o reloc_64_relative_data.o -c reloc_64_relative_data.c
+"$LLVM_DIR"ld.lld $LD_FLAGS_V1 -o reloc_64_relative_data_sbpfv1.so reloc_64_relative_data.o
+rm reloc_64_relative_data.o
 
 "$LLVM_DIR"clang $CC_FLAGS -o scratch_registers.o -c scratch_registers.c
 "$LLVM_DIR"ld.lld $LD_FLAGS -o scratch_registers.so scratch_registers.o
@@ -81,13 +85,9 @@ rm bss_section.o
 "$LLVM_DIR"ld.lld $LD_FLAGS -o rodata.so rodata.o
 rm rodata.o
 
-"$LLVM_DIR"clang $CC_FLAGS -mcpu=generic -o rodata.o -c rodata.c
-"$LLVM_DIR"ld.lld $LD_FLAGS -o rodata_sbpfv1.so rodata.o
+"$LLVM_DIR"clang $CC_FLAGS_V1 -mcpu=generic -o rodata.o -c rodata.c
+"$LLVM_DIR"ld.lld $LD_FLAGS_V1 -o rodata_sbpfv1.so rodata.o
 rm rodata.o
-
-"$LLVM_DIR"clang $CC_FLAGS -o rodata_high_vaddr.o -c rodata.c
-"$LLVM_DIR"ld.lld -z notext -shared --Bdynamic -entry entrypoint --nmagic --section-start=.text=0x100000000 --section-start=.rodata=0x100000020 -o rodata_high_vaddr.so rodata_high_vaddr.o
-rm rodata_high_vaddr.o
 
 "$LLVM_DIR"clang $CC_FLAGS -o syscall_static_unknown.o -c syscall_static_unknown.c
 "$LLVM_DIR"ld.lld $LD_FLAGS -o syscall_static_unknown.so syscall_static_unknown.o

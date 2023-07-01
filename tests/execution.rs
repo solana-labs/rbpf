@@ -3097,7 +3097,7 @@ fn test_load_elf_empty_rodata() {
 }
 
 #[test]
-fn test_load_elf_rodata_sbpfv2() {
+fn test_load_elf_rodata() {
     let config = Config {
         optimize_rodata: true,
         ..Config::default()
@@ -3122,17 +3122,6 @@ fn test_load_elf_rodata_sbpfv1() {
         "tests/elfs/rodata_sbpfv1.so",
         config,
         [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(42),
-    );
-}
-
-#[test]
-fn test_load_elf_rodata_high_vaddr() {
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/rodata_high_vaddr.so",
-        [1],
         (),
         TestContextObject::new(3),
         ProgramResult::Ok(42),
@@ -3442,7 +3431,7 @@ fn test_err_unresolved_elf() {
     file.read_to_end(&mut elf).unwrap();
     assert_error!(
         Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, Arc::new(loader)),
-        "UnresolvedSymbol(\"log_64\", 67, 304)"
+        "UnresolvedSymbol(\"log_64\", 550, 4168)"
     );
 }
 
@@ -3477,12 +3466,12 @@ fn test_syscall_unknown_static() {
 }
 
 #[test]
-fn test_reloc_64_64() {
+fn test_reloc_64_64_sbpfv1() {
     // Tests the correctness of R_BPF_64_64 relocations. The program returns the
     // address of the entrypoint.
     //   [ 1] .text             PROGBITS        00000000000000e8 0000e8 000018 00  AX  0   0  8
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_64.so",
+        "tests/elfs/reloc_64_64_sbpfv1.so",
         [],
         (),
         TestContextObject::new(2),
@@ -3491,11 +3480,12 @@ fn test_reloc_64_64() {
 }
 
 #[test]
-fn test_reloc_64_64_high_vaddr() {
+fn test_reloc_64_64() {
     // Same as test_reloc_64_64, but with .text already alinged to
     // MM_PROGRAM_START by the linker
+    //   [ 1] .text             PROGBITS        0000000100000000 001000 000018 00  AX  0   0  8
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_64_high_vaddr.so",
+        "tests/elfs/reloc_64_64.so",
         [],
         (),
         TestContextObject::new(2),
@@ -3504,13 +3494,13 @@ fn test_reloc_64_64_high_vaddr() {
 }
 
 #[test]
-fn test_reloc_64_relative() {
+fn test_reloc_64_relative_sbpfv1() {
     // Tests the correctness of R_BPF_64_RELATIVE relocations. The program
     // returns the address of the first .rodata byte.
     //   [ 1] .text             PROGBITS        00000000000000e8 0000e8 000018 00  AX  0   0  8
     //   [ 2] .rodata           PROGBITS        0000000000000100 000100 00000b 01 AMS  0   0  1
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_relative.so",
+        "tests/elfs/reloc_64_relative_sbpfv1.so",
         [],
         (),
         TestContextObject::new(2),
@@ -3519,13 +3509,13 @@ fn test_reloc_64_relative() {
 }
 
 #[test]
-fn test_reloc_64_relative_high_vaddr() {
+fn test_reloc_64_relative() {
     // Same as test_reloc_64_relative, but with .text placed already within
     // MM_PROGRAM_START by the linker
     // [ 1] .text             PROGBITS        0000000100000000 001000 000018 00  AX  0   0  8
     // [ 2] .rodata           PROGBITS        0000000100000018 001018 00000b 01 AMS  0   0  1
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_relative_high_vaddr.so",
+        "tests/elfs/reloc_64_relative.so",
         [],
         (),
         TestContextObject::new(2),
@@ -3534,7 +3524,7 @@ fn test_reloc_64_relative_high_vaddr() {
 }
 
 #[test]
-fn test_reloc_64_relative_data() {
+fn test_reloc_64_relative_data_sbfv1() {
     // Tests the correctness of R_BPF_64_RELATIVE relocations in sections other
     // than .text. The program returns the address of the first .rodata byte.
     // [ 1] .text             PROGBITS        00000000000000e8 0000e8 000020 00  AX  0   0  8
@@ -3543,7 +3533,7 @@ fn test_reloc_64_relative_data() {
     // 00000000000001f8 <FILE>:
     // 63:       08 01 00 00 00 00 00 00
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_relative_data.so",
+        "tests/elfs/reloc_64_relative_data_sbpfv1.so",
         [],
         (),
         TestContextObject::new(3),
@@ -3552,7 +3542,7 @@ fn test_reloc_64_relative_data() {
 }
 
 #[test]
-fn test_reloc_64_relative_data_high_vaddr() {
+fn test_reloc_64_relative_data() {
     // Same as test_reloc_64_relative_data, but with rodata already placed
     // within MM_PROGRAM_START by the linker
     // [ 1] .text             PROGBITS        0000000100000000 001000 000020 00  AX  0   0  8
@@ -3561,7 +3551,7 @@ fn test_reloc_64_relative_data_high_vaddr() {
     // 0000000100000110 <FILE>:
     // 536870946:      20 00 00 00 01 00 00 00
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_relative_data_high_vaddr.so",
+        "tests/elfs/reloc_64_relative_data.so",
         [],
         (),
         TestContextObject::new(3),
@@ -3570,7 +3560,7 @@ fn test_reloc_64_relative_data_high_vaddr() {
 }
 
 #[test]
-fn test_reloc_64_relative_data_pre_sbfv2() {
+fn test_reloc_64_relative_data_sbpfv1() {
     // Before https://github.com/solana-labs/llvm-project/pull/35, we used to
     // generate invalid R_BPF_64_RELATIVE relocations in sections other than
     // .text.
@@ -3585,7 +3575,7 @@ fn test_reloc_64_relative_data_pre_sbfv2() {
     // 00000000000001f8 <FILE>:
     // 63:       00 00 00 00 08 01 00 00
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_relative_data_pre_sbfv2.so",
+        "tests/elfs/reloc_64_relative_data_sbpfv1.so",
         [],
         (),
         TestContextObject::new(3),
