@@ -982,7 +982,7 @@ impl MappingCache {
 
 #[cfg(test)]
 mod test {
-    use std::{cell::RefCell, sync::Arc};
+    use std::{cell::RefCell, rc::Rc};
     use test_utils::assert_error;
 
     use super::*;
@@ -1728,9 +1728,9 @@ mod test {
                 ..Config::default()
             };
             let original = [11, 22];
-            let copied = Arc::new(RefCell::new(Vec::new()));
+            let copied = Rc::new(RefCell::new(Vec::new()));
 
-            let c = Arc::clone(&copied);
+            let c = Rc::clone(&copied);
             let m = MemoryMapping::new_with_cow(
                 vec![MemoryRegion::new_cow(&original, ebpf::MM_PROGRAM_START, 42)],
                 Box::new(move |_| {
@@ -1763,9 +1763,9 @@ mod test {
                 ..Config::default()
             };
             let original = [11, 22];
-            let copied = Arc::new(RefCell::new(Vec::new()));
+            let copied = Rc::new(RefCell::new(Vec::new()));
 
-            let c = Arc::clone(&copied);
+            let c = Rc::clone(&copied);
             let m = MemoryMapping::new_with_cow(
                 vec![MemoryRegion::new_cow(&original, ebpf::MM_PROGRAM_START, 42)],
                 Box::new(move |_| {
@@ -1803,9 +1803,9 @@ mod test {
             };
             let original1 = [11, 22];
             let original2 = [33, 44];
-            let copied = Arc::new(RefCell::new(Vec::new()));
+            let copied = Rc::new(RefCell::new(Vec::new()));
 
-            let c = Arc::clone(&copied);
+            let c = Rc::clone(&copied);
             let m = MemoryMapping::new_with_cow(
                 vec![
                     MemoryRegion::new_cow(&original1, ebpf::MM_PROGRAM_START, 42),

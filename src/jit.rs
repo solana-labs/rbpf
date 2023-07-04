@@ -50,7 +50,7 @@ impl JitProgram {
                 page_size,
                 pc_section: std::slice::from_raw_parts_mut(raw as *mut usize, pc),
                 text_section: std::slice::from_raw_parts_mut(
-                    (raw as *mut u8).add(pc_loc_table_size),
+                    raw.add(pc_loc_table_size),
                     over_allocated_code_size,
                 ),
             })
