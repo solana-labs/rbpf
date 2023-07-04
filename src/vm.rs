@@ -228,8 +228,6 @@ pub struct Config {
     pub external_internal_function_hash_collision: bool,
     /// Have the verifier reject "callx r10"
     pub reject_callx_r10: bool,
-    /// Avoid copying read only sections when possible
-    pub optimize_rodata: bool,
     /// Use the new ELF parser
     pub new_elf_parser: bool,
     /// Use aligned memory mapping
@@ -265,7 +263,6 @@ impl Default for Config {
                 >> PROGRAM_ENVIRONMENT_KEY_SHIFT,
             external_internal_function_hash_collision: true,
             reject_callx_r10: true,
-            optimize_rodata: true,
             new_elf_parser: true,
             aligned_memory_mapping: true,
             enable_sbpf_v1: true,

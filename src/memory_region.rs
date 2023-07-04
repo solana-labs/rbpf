@@ -122,7 +122,7 @@ impl MemoryRegion {
     /// Convert a virtual machine address into a host address
     pub fn vm_to_host(&self, vm_addr: u64, len: u64) -> ProgramResult {
         // This can happen if a region starts at an offset from the base region
-        // address, eg with rodata regions if config.optimize_rodata = true, see
+        // address, eg with rodata regions if sbpf_version.optimize_rodata()=true, see
         // Elf::get_ro_region.
         if vm_addr < self.vm_addr {
             return ProgramResult::Err(Box::new(EbpfError::InvalidVirtualAddress(vm_addr)));
