@@ -58,11 +58,7 @@ rm reloc_64_relative.o
 rm reloc_64_relative_data.o
 
 "$LLVM_DIR"clang $CC_FLAGS -o reloc_64_relative_data.o -c reloc_64_relative_data.c
-"$LLVM_DIR"ld.lld $LD_FLAGS --section-start=.text=0x100000000 -o reloc_64_relative_data.so reloc_64_relative_data.o
-rm reloc_64_relative_data.o
-
-"$LLVM_DIR"clang $CC_FLAGS_V1 -o reloc_64_relative_data.o -c reloc_64_relative_data.c
-"$LLVM_DIR"ld.lld $LD_FLAGS_V1 -o reloc_64_relative_data_sbpfv1.so reloc_64_relative_data.o
+"$LLVM_DIR"ld.lld $LD_FLAGS -o reloc_64_relative_data.so reloc_64_relative_data.o
 rm reloc_64_relative_data.o
 
 "$LLVM_DIR"clang $CC_FLAGS -o scratch_registers.o -c scratch_registers.c

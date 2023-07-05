@@ -1766,7 +1766,9 @@ mod test {
     fn new_section(sh_addr: u64, sh_size: u64) -> Elf64Shdr {
         Elf64Shdr {
             sh_addr,
-            sh_offset: sh_addr,
+            sh_offset: sh_addr
+                .checked_sub(ebpf::MM_PROGRAM_START)
+                .unwrap_or(sh_addr),
             sh_size,
             sh_name: 0,
             sh_type: 0,
@@ -1796,7 +1798,7 @@ mod test {
         assert!(matches!(
             ElfExecutable::parse_ro_sections(
                 &config,
-                &SBPFVersion::V2,
+                &SBPFVersion::V1,
                 sections,
                 &elf_bytes,
             ),
@@ -1823,7 +1825,7 @@ mod test {
         assert!(matches!(
             ElfExecutable::parse_ro_sections(
                 &config,
-                &SBPFVersion::V2,
+                &SBPFVersion::V1,
                 sections,
                 &elf_bytes,
             ),
@@ -1901,7 +1903,7 @@ mod test {
         let sections: [(Option<&[u8]>, &Elf64Shdr); 2] =
             [(Some(b".text"), &s1), (Some(b".rodata"), &s2)];
         assert_eq!(
-            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes,),
+            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes),
             Err(ElfError::ValueOutOfBounds)
         );
     }
@@ -1923,7 +1925,7 @@ mod test {
         let sections: [(Option<&[u8]>, &Elf64Shdr); 2] =
             [(Some(b".text"), &s1), (Some(b".rodata"), &s2)];
         assert_eq!(
-            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes,),
+            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes),
             Ok(Section::Borrowed(10, 100..120))
         );
     }
@@ -1944,7 +1946,7 @@ mod test {
             (Some(b".rodata"), &s3),
         ];
         let ro_section =
-            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes)
+            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V1, sections, &elf_bytes)
                 .unwrap();
         let ro_region = get_ro_region(&ro_section, &elf_bytes);
         let owned_section = match &ro_section {
@@ -2026,7 +2028,7 @@ mod test {
             (Some(b".rodata"), &s3),
         ];
         let ro_section =
-            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes)
+            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V1, sections, &elf_bytes)
                 .unwrap();
         let owned_section = match &ro_section {
             Section::Owned(_offset, data) => data.as_slice(),
@@ -2097,107 +2099,117 @@ mod test {
     fn test_borrowed_ro_sections() {
         let config = Config::default();
         let elf_bytes = [0u8; 512];
-
-        let s1 = new_section(0, 10);
-        let s2 = new_section(20, 10);
-        let s3 = new_section(40, 10);
-        let s4 = new_section(50, 10);
-
-        let sections: [(Option<&[u8]>, &Elf64Shdr); 4] = [
-            (Some(b".dynsym"), &s1),
-            (Some(b".text"), &s2),
-            (Some(b".rodata"), &s3),
-            (Some(b".dynamic"), &s4),
-        ];
-        assert_eq!(
-            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes,),
-            Ok(Section::Borrowed(20, 20..50))
-        );
+        for (vaddr_base, sbpf_version) in [
+            (0, SBPFVersion::V1),
+            (ebpf::MM_PROGRAM_START, SBPFVersion::V2),
+        ] {
+            let s1 = new_section(vaddr_base, 10);
+            let s2 = new_section(vaddr_base + 20, 10);
+            let s3 = new_section(vaddr_base + 40, 10);
+            let s4 = new_section(vaddr_base + 50, 10);
+            let sections: [(Option<&[u8]>, &Elf64Shdr); 4] = [
+                (Some(b".dynsym"), &s1),
+                (Some(b".text"), &s2),
+                (Some(b".rodata"), &s3),
+                (Some(b".dynamic"), &s4),
+            ];
+            assert_eq!(
+                ElfExecutable::parse_ro_sections(&config, &sbpf_version, sections, &elf_bytes),
+                Ok(Section::Borrowed(20, 20..50))
+            );
+        }
     }
 
     #[test]
     fn test_borrowed_ro_region_no_initial_gap() {
         let config = Config::default();
         let elf_bytes = [0u8; 512];
+        for (vaddr_base, sbpf_version) in [
+            (0, SBPFVersion::V1),
+            (ebpf::MM_PROGRAM_START, SBPFVersion::V2),
+        ] {
+            let s1 = new_section(vaddr_base, 10);
+            let s2 = new_section(vaddr_base + 10, 10);
+            let s3 = new_section(vaddr_base + 20, 10);
+            let sections: [(Option<&[u8]>, &Elf64Shdr); 3] = [
+                (Some(b".text"), &s1),
+                (Some(b".rodata"), &s2),
+                (Some(b".dynamic"), &s3),
+            ];
+            let ro_section =
+                ElfExecutable::parse_ro_sections(&config, &sbpf_version, sections, &elf_bytes)
+                    .unwrap();
+            let ro_region = get_ro_region(&ro_section, &elf_bytes);
 
-        let s1 = new_section(0, 10);
-        let s2 = new_section(10, 10);
-        let s3 = new_section(10, 10);
+            // s1 starts at sh_offset=0 so [0..s2.sh_offset + s2.sh_size]
+            // is the valid ro memory area
+            assert!(matches!(
+                ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s1.sh_offset, s2.sh_offset + s2.sh_size),
+                ProgramResult::Ok(ptr) if ptr == elf_bytes.as_ptr() as u64,
+            ));
 
-        let sections: [(Option<&[u8]>, &Elf64Shdr); 3] = [
-            (Some(b".text"), &s1),
-            (Some(b".rodata"), &s2),
-            (Some(b".dynamic"), &s3),
-        ];
-        let ro_section =
-            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes)
-                .unwrap();
-        let ro_region = get_ro_region(&ro_section, &elf_bytes);
-
-        // s1 starts at sh_addr=0 so [0..s2.sh_addr + s2.sh_size] is the valid
-        // ro memory area
-        assert!(matches!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START, s2.sh_addr + s2.sh_size),
-            ProgramResult::Ok(ptr) if ptr == elf_bytes.as_ptr() as u64,
-        ));
-
-        // one byte past the ro section is not mappable
-        assert_error!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size, 1),
-            "InvalidVirtualAddress({})",
-            ebpf::MM_PROGRAM_START + s2.sh_addr + s2.sh_size
-        );
+            // one byte past the ro section is not mappable
+            assert_error!(
+                ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_offset, 1),
+                "InvalidVirtualAddress({})",
+                ebpf::MM_PROGRAM_START + s3.sh_offset
+            );
+        }
     }
 
     #[test]
     fn test_borrowed_ro_region_initial_gap() {
         let config = Config::default();
         let elf_bytes = [0u8; 512];
-        let s1 = new_section(0, 10);
-        let s2 = new_section(10, 10);
-        let s3 = new_section(20, 10);
+        for (vaddr_base, sbpf_version) in [
+            (0, SBPFVersion::V1),
+            (ebpf::MM_PROGRAM_START, SBPFVersion::V2),
+        ] {
+            let s1 = new_section(vaddr_base, 10);
+            let s2 = new_section(vaddr_base + 10, 10);
+            let s3 = new_section(vaddr_base + 20, 10);
+            let sections: [(Option<&[u8]>, &Elf64Shdr); 3] = [
+                (Some(b".dynamic"), &s1),
+                (Some(b".text"), &s2),
+                (Some(b".rodata"), &s3),
+            ];
+            let ro_section =
+                ElfExecutable::parse_ro_sections(&config, &sbpf_version, sections, &elf_bytes)
+                    .unwrap();
+            let ro_region = get_ro_region(&ro_section, &elf_bytes);
 
-        let sections: [(Option<&[u8]>, &Elf64Shdr); 3] = [
-            (Some(b".dynamic"), &s1),
-            (Some(b".text"), &s2),
-            (Some(b".rodata"), &s3),
-        ];
-        let ro_section =
-            ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes)
-                .unwrap();
-        let ro_region = get_ro_region(&ro_section, &elf_bytes);
+            // s2 starts at sh_addr=10 so [0..10] is not mappable
 
-        // s2 starts at sh_addr=10 so [0..10] is not mappable
+            // the low bound of the initial gap is not mappable
+            assert_error!(
+                ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s1.sh_offset, 1),
+                "InvalidVirtualAddress({})",
+                ebpf::MM_PROGRAM_START + s1.sh_offset
+            );
 
-        // the low bound of the initial gap is not mappable
-        assert_error!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START, 1),
-            "InvalidVirtualAddress({})",
-            ebpf::MM_PROGRAM_START
-        );
+            // the hi bound of the initial gap is not mappable
+            assert_error!(
+                ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s2.sh_offset - 1, 1),
+                "InvalidVirtualAddress({})",
+                ebpf::MM_PROGRAM_START + s2.sh_offset - 1
+            );
 
-        // the hi bound of the initial gap is not mappable
-        assert_error!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s2.sh_addr - 1, 1),
-            "InvalidVirtualAddress({})",
-            ebpf::MM_PROGRAM_START + 9
-        );
+            // [s2.sh_offset..s3.sh_offset + s3.sh_size] is the valid ro memory area
+            assert!(matches!(
+                ro_region.vm_to_host(
+                    ebpf::MM_PROGRAM_START + s2.sh_offset,
+                    s3.sh_offset + s3.sh_size - s2.sh_offset
+                ),
+                ProgramResult::Ok(ptr) if ptr == elf_bytes[s2.sh_offset as usize..].as_ptr() as u64,
+            ));
 
-        // [s2.sh_addr..s3.sh_addr + s3.sh_size] is the valid ro memory area
-        assert!(matches!(
-            ro_region.vm_to_host(
-                ebpf::MM_PROGRAM_START + s2.sh_addr,
-                s3.sh_addr + s3.sh_size - s2.sh_addr
-            ),
-            ProgramResult::Ok(ptr) if ptr == elf_bytes[s2.sh_addr as usize..].as_ptr() as u64,
-        ));
-
-        // one byte past the ro section is not mappable
-        assert_error!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
-            "InvalidVirtualAddress({})",
-            ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
-        );
+            // one byte past the ro section is not mappable
+            assert_error!(
+                ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_offset + s3.sh_size, 1),
+                "InvalidVirtualAddress({})",
+                ebpf::MM_PROGRAM_START + s3.sh_offset + s3.sh_size
+            );
+        }
     }
 
     #[test]
