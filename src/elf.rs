@@ -290,11 +290,6 @@ impl SBPFVersion {
         self != &SBPFVersion::V1
     }
 
-    /// Avoid copying read only sections when possible
-    pub fn optimize_rodata(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
     /// Use dynamic stack frame sizes
     pub fn dynamic_stack_frames(&self) -> bool {
         self != &SBPFVersion::V1
@@ -723,7 +718,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         };
 
         if sbpf_version.enable_elf_vaddr() {
-            if !sbpf_version.optimize_rodata() {
+            if !config.optimize_rodata {
                 // When optimize_rodata=false, we allocate a vector and copy all
                 // rodata sections into it. In that case we can't allow virtual
                 // addresses or we'd potentially have to do huge allocations.
@@ -858,7 +853,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             if !invalid_offsets {
                 if sbpf_version.enable_elf_vaddr() {
                     // This is enforced in validate()
-                    debug_assert!(sbpf_version.optimize_rodata());
+                    debug_assert!(config.optimize_rodata);
                     if section_addr < section_header.sh_offset() {
                         invalid_offsets = true;
                     } else {
@@ -910,7 +905,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                 .saturating_add(1)
                 .saturating_sub(first_ro_section)
                 == n_ro_sections;
-        let ro_section = if sbpf_version.optimize_rodata() && can_borrow {
+        let ro_section = if config.optimize_rodata && can_borrow {
             // Read only sections are grouped together with no intermixed non-ro
             // sections. We can borrow.
 
@@ -937,7 +932,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             // Read only and other non-ro sections are mixed. Zero the non-ro
             // sections and and copy the ro ones at their intended offsets.
 
-            if sbpf_version.optimize_rodata() {
+            if config.optimize_rodata {
                 // The rodata region starts at MM_PROGRAM_START + offset,
                 // [MM_PROGRAM_START, MM_PROGRAM_START + offset) is not
                 // mappable. We only need to allocate highest_addr - lowest_addr
@@ -1967,7 +1962,10 @@ mod test {
 
     #[test]
     fn test_owned_ro_region_initial_gap_mappable() {
-        let config = Config::default();
+        let config = Config {
+            optimize_rodata: false,
+            ..Config::default()
+        };
         let elf_bytes = [0u8; 512];
 
         // the first section starts at a non-zero offset
@@ -1991,7 +1989,7 @@ mod test {
         };
 
         // [s1.sh_addr..s3.sh_addr + s3.sh_size] is where the readonly data is.
-        // But for backwards compatibility (sbpf_version.optimize_rodata()=false)
+        // But for backwards compatibility (config.optimize_rodata=false)
         // [0..s1.sh_addr] is mappable too (and zeroed).
         assert!(matches!(
             ro_region.vm_to_host(ebpf::MM_PROGRAM_START, s3.sh_addr + s3.sh_size),
@@ -2065,7 +2063,10 @@ mod test {
 
     #[test]
     fn test_borrowed_ro_sections_disabled() {
-        let config = Config::default();
+        let config = Config {
+            optimize_rodata: false,
+            ..Config::default()
+        };
         let elf_bytes = [0u8; 512];
 
         // s1 and s2 are contiguous, the rodata section can be borrowed from the
@@ -2078,7 +2079,7 @@ mod test {
         assert!(matches!(
             ElfExecutable::parse_ro_sections(
                 &config,
-                &SBPFVersion::V1,
+                &SBPFVersion::V1, // v2 requires optimize_rodata=true
                 sections,
                 &elf_bytes,
             ),
