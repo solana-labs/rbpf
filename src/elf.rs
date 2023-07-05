@@ -905,6 +905,9 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                 .saturating_add(1)
                 .saturating_sub(first_ro_section)
                 == n_ro_sections;
+        if sbpf_version.enable_elf_vaddr() && !can_borrow {
+            return Err(ElfError::ValueOutOfBounds);
+        }
         let ro_section = if config.optimize_rodata && can_borrow {
             // Read only sections are grouped together with no intermixed non-ro
             // sections. We can borrow.
@@ -924,6 +927,9 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                 // it now.
                 lowest_addr.saturating_sub(ebpf::MM_PROGRAM_START as usize)
             } else {
+                if sbpf_version.enable_elf_vaddr() {
+                    return Err(ElfError::ValueOutOfBounds);
+                }
                 lowest_addr
             };
 
