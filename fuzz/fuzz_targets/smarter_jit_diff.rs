@@ -5,13 +5,13 @@ use libfuzzer_sys::fuzz_target;
 use semantic_aware::*;
 use solana_rbpf::{
     ebpf,
-    elf::{Executable, SBPFVersion},
+    elf::{Executable, FunctionRegistry, SBPFVersion},
     insn_builder::IntoBytes,
     memory_region::MemoryRegion,
     static_analysis::Analysis,
     verifier::{RequisiteVerifier, TautologyVerifier, Verifier},
     vm::{
-        BuiltinProgram, ContextObject, FunctionRegistry, TestContextObject,
+        BuiltinProgram, ContextObject, TestContextObject,
     },
 };
 use test_utils::create_vm;

@@ -23,7 +23,7 @@ use crate::{
     error::EbpfError,
     memory_region::MemoryRegion,
     verifier::{TautologyVerifier, Verifier},
-    vm::{BuiltinProgram, Config, ContextObject, FunctionRegistry},
+    vm::{BuiltinProgram, Config, ContextObject},
 };
 
 #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
@@ -111,59 +111,6 @@ pub enum ElfError {
     /// Invalid program header
     #[error("Invalid ELF program header")]
     InvalidProgramHeader,
-}
-
-/// Generates the hash by which a symbol can be called
-pub fn hash_internal_function(pc: usize, name: &[u8]) -> u32 {
-    if name == b"entrypoint" {
-        ebpf::hash_symbol_name(b"entrypoint")
-    } else {
-        let mut key = [0u8; mem::size_of::<u64>()];
-        LittleEndian::write_u64(&mut key, pc as u64);
-        ebpf::hash_symbol_name(&key)
-    }
-}
-
-/// Register a symbol or throw ElfError::SymbolHashCollision
-pub fn register_internal_function<C: ContextObject>(
-    function_registry: &mut FunctionRegistry,
-    loader: &BuiltinProgram<C>,
-    sbpf_version: &SBPFVersion,
-    pc: usize,
-    name: &[u8],
-) -> Result<u32, ElfError> {
-    let config = loader.get_config();
-    let key = if sbpf_version.static_syscalls() {
-        // With static_syscalls normal function calls and syscalls are differentiated in the ISA.
-        // Thus, we don't need to hash them here anymore and collisions are gone as well.
-        pc as u32
-    } else {
-        let hash = hash_internal_function(pc, name);
-        if config.external_internal_function_hash_collision
-            && loader.lookup_function(hash).is_some()
-        {
-            return Err(ElfError::SymbolHashCollision(hash));
-        }
-        hash
-    };
-    match function_registry.entry(key) {
-        Entry::Vacant(entry) => {
-            entry.insert((
-                pc,
-                if config.enable_symbol_and_section_labels || name == b"entrypoint" {
-                    String::from_utf8_lossy(name).to_string()
-                } else {
-                    String::default()
-                },
-            ));
-        }
-        Entry::Occupied(entry) => {
-            if entry.get().0 != pc {
-                return Err(ElfError::SymbolHashCollision(key));
-            }
-        }
-    }
-    Ok(key)
 }
 
 // For more information on the BPF instruction set:
@@ -301,6 +248,140 @@ impl SBPFVersion {
     }
 }
 
+/// Holds the function symbols of an Executable
+#[derive(Debug, PartialEq)]
+pub struct FunctionRegistry<T> {
+    pub(crate) map: BTreeMap<u32, (Vec<u8>, T)>,
+}
+
+impl<T> Default for FunctionRegistry<T> {
+    fn default() -> Self {
+        Self {
+            map: BTreeMap::new(),
+        }
+    }
+}
+
+impl<T: Copy + PartialEq> FunctionRegistry<T> {
+    /// Register a symbol with an explicit key
+    pub fn register_function(
+        &mut self,
+        key: u32,
+        name: impl Into<Vec<u8>>,
+        value: T,
+    ) -> Result<(), ElfError> {
+        match self.map.entry(key) {
+            Entry::Vacant(entry) => {
+                entry.insert((name.into(), value));
+            }
+            Entry::Occupied(entry) => {
+                if entry.get().1 != value {
+                    return Err(ElfError::SymbolHashCollision(key));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Register a symbol with an implicit key
+    pub fn register_function_hashed(
+        &mut self,
+        name: impl Into<Vec<u8>>,
+        value: T,
+    ) -> Result<u32, ElfError> {
+        let name = name.into();
+        let key = ebpf::hash_symbol_name(name.as_slice());
+        self.register_function(key, name, value)?;
+        Ok(key)
+    }
+
+    /// Used for transitioning from SBPFv1 to SBPFv2
+    fn register_function_hashed_legacy<C: ContextObject>(
+        &mut self,
+        loader: &BuiltinProgram<C>,
+        hash_symbol_name: bool,
+        name: impl Into<Vec<u8>>,
+        value: T,
+    ) -> Result<u32, ElfError>
+    where
+        usize: From<T>,
+    {
+        let name = name.into();
+        let config = loader.get_config();
+        let key = if hash_symbol_name {
+            let hash = if name == b"entrypoint" {
+                ebpf::hash_symbol_name(b"entrypoint")
+            } else {
+                ebpf::hash_symbol_name(&usize::from(value).to_le_bytes())
+            };
+            if config.external_internal_function_hash_collision
+                && loader.lookup_function(hash).is_some()
+            {
+                return Err(ElfError::SymbolHashCollision(hash));
+            }
+            hash
+        } else {
+            usize::from(value) as u32
+        };
+        self.register_function(
+            key,
+            if config.enable_symbol_and_section_labels || name == b"entrypoint" {
+                name
+            } else {
+                Vec::default()
+            },
+            value,
+        )?;
+        Ok(key)
+    }
+
+    /// Unregister a symbol again
+    pub fn unregister_function(&mut self, key: u32) {
+        self.map.remove(&key);
+    }
+
+    /// Iterate over all keys
+    pub fn keys(&self) -> impl Iterator<Item = u32> + '_ {
+        self.map.keys().cloned()
+    }
+
+    /// Iterate over all entries
+    pub fn iter(&self) -> impl Iterator<Item = (u32, (&[u8], T))> + '_ {
+        self.map
+            .iter()
+            .map(|(key, (name, value))| (*key, (name.as_slice(), *value)))
+    }
+
+    /// Get a function by its key
+    pub fn lookup_by_key(&self, key: u32) -> Option<(&[u8], T)> {
+        // String::from_utf8_lossy(function_name).as_str()
+        self.map
+            .get(&key)
+            .map(|(function_name, value)| (function_name.as_slice(), *value))
+    }
+
+    /// Get a function by its name
+    pub fn lookup_by_name(&self, name: &[u8]) -> Option<(&[u8], T)> {
+        self.map
+            .values()
+            .find(|(function_name, _value)| function_name == name)
+            .map(|(function_name, value)| (function_name.as_slice(), *value))
+    }
+
+    /// Calculate memory size
+    pub fn mem_size(&self) -> usize {
+        mem::size_of::<Self>().saturating_add(self.map.iter().fold(
+            0,
+            |state: usize, (_, (name, value))| {
+                state.saturating_add(
+                    mem::size_of_val(value)
+                        .saturating_add(mem::size_of_val(name).saturating_add(name.capacity())),
+                )
+            },
+        ))
+    }
+}
+
 /// Elf loader/relocator
 #[derive(Debug, PartialEq)]
 pub struct Executable<V: Verifier, C: ContextObject> {
@@ -317,7 +398,7 @@ pub struct Executable<V: Verifier, C: ContextObject> {
     /// Address of the entry point
     entry_pc: usize,
     /// Call resolution map (hash, pc, name)
-    function_registry: FunctionRegistry,
+    function_registry: FunctionRegistry<usize>,
     /// Loader built-in program
     loader: Arc<BuiltinProgram<C>>,
     /// Compiled program and argument
@@ -382,11 +463,6 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         self.text_section_info.offset_range.start as u64
     }
 
-    /// Get a symbol's instruction offset
-    pub fn lookup_internal_function(&self, hash: u32) -> Option<usize> {
-        self.function_registry.get(&hash).map(|(pc, _name)| *pc)
-    }
-
     /// Get the loader built-in program
     pub fn get_loader(&self) -> &Arc<BuiltinProgram<C>> {
         &self.loader
@@ -419,8 +495,8 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         Ok(())
     }
 
-    /// Get normal functions (if debug symbols are not stripped)
-    pub fn get_function_registry(&self) -> &FunctionRegistry {
+    /// Get the function registry
+    pub fn get_function_registry(&self) -> &FunctionRegistry<usize> {
         &self.function_registry
     }
 
@@ -429,23 +505,19 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         text_bytes: &[u8],
         loader: Arc<BuiltinProgram<C>>,
         sbpf_version: SBPFVersion,
-        mut function_registry: FunctionRegistry,
+        mut function_registry: FunctionRegistry<usize>,
     ) -> Result<Self, ElfError> {
         let elf_bytes = AlignedMemory::from_slice(text_bytes);
         let config = loader.get_config();
         let enable_symbol_and_section_labels = config.enable_symbol_and_section_labels;
-        let entry_pc = if let Some((pc, _name)) = function_registry
-            .values()
-            .find(|(_pc, name)| name.as_bytes() == b"entrypoint")
-        {
-            *pc
+        let entry_pc = if let Some((_name, pc)) = function_registry.lookup_by_name(b"entrypoint") {
+            pc
         } else {
-            register_internal_function(
-                &mut function_registry,
+            function_registry.register_function_hashed_legacy(
                 &loader,
-                &sbpf_version,
+                !sbpf_version.static_syscalls(),
+                *b"entrypoint",
                 0,
-                b"entrypoint",
             )?;
             0
         };
@@ -559,14 +631,13 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         }
         let entry_pc = if let Some(entry_pc) = (offset as usize).checked_div(ebpf::INSN_SIZE) {
             if !sbpf_version.static_syscalls() {
-                function_registry.remove(&ebpf::hash_symbol_name(b"entrypoint"));
+                function_registry.unregister_function(ebpf::hash_symbol_name(b"entrypoint"));
             }
-            register_internal_function(
-                &mut function_registry,
+            function_registry.register_function_hashed_legacy(
                 &loader,
-                &sbpf_version,
+                !sbpf_version.static_syscalls(),
+                *b"entrypoint",
                 entry_pc,
-                b"entrypoint",
             )?;
             entry_pc
         } else {
@@ -611,15 +682,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             // text section info
             .saturating_add(self.text_section_info.mem_size())
             // bpf functions
-            .saturating_add(mem::size_of_val(&self.function_registry))
-            .saturating_add(self.function_registry
-            .iter()
-            .fold(0, |state: usize, (_, (val, name))| state
-                .saturating_add(mem::size_of_val(val)
-                .saturating_add(mem::size_of_val(&name)
-                .saturating_add(name.capacity())))))
-            // loader built-in program
-            .saturating_add(self.loader.mem_size());
+            .saturating_add(self.function_registry.mem_size());
 
         #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
         {
@@ -926,7 +989,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
 
     /// Relocates the ELF in-place
     fn relocate<'a, P: ElfParser<'a>>(
-        function_registry: &mut FunctionRegistry,
+        function_registry: &mut FunctionRegistry<usize>,
         loader: &BuiltinProgram<C>,
         elf: &'a P,
         elf_bytes: &mut [u8],
@@ -967,12 +1030,11 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                 } else {
                     String::default()
                 };
-                let key = register_internal_function(
-                    function_registry,
+                let key = function_registry.register_function_hashed_legacy(
                     loader,
-                    &sbpf_version,
-                    target_pc as usize,
+                    !sbpf_version.static_syscalls(),
                     name.as_bytes(),
+                    target_pc as usize,
                 )?;
                 let offset = i.saturating_mul(ebpf::INSN_SIZE).saturating_add(4);
                 let checked_slice = text_bytes
@@ -1210,12 +1272,11 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                             as usize)
                             .checked_div(ebpf::INSN_SIZE)
                             .unwrap_or_default();
-                        register_internal_function(
-                            function_registry,
+                        function_registry.register_function_hashed_legacy(
                             loader,
-                            &sbpf_version,
-                            target_pc,
+                            !sbpf_version.static_syscalls(),
                             name,
+                            target_pc,
                         )?
                     } else {
                         // Else it's a syscall
@@ -1261,12 +1322,11 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                 let name = elf
                     .symbol_name(symbol.st_name() as Elf64Word)
                     .ok_or_else(|| ElfError::UnknownSymbol(symbol.st_name() as usize))?;
-                register_internal_function(
-                    function_registry,
+                function_registry.register_function_hashed_legacy(
                     loader,
-                    &sbpf_version,
-                    target_pc,
+                    !sbpf_version.static_syscalls(),
                     name,
+                    target_pc,
                 )?;
             }
         }

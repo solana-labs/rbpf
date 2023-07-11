@@ -6,10 +6,10 @@ use libfuzzer_sys::fuzz_target;
 
 use solana_rbpf::{
     ebpf,
-    elf::{Executable, SBPFVersion},
+    elf::{Executable, FunctionRegistry, SBPFVersion},
     memory_region::MemoryRegion,
     verifier::{RequisiteVerifier, TautologyVerifier, Verifier},
-    vm::{BuiltinProgram, FunctionRegistry, TestContextObject},
+    vm::{BuiltinProgram, TestContextObject},
 };
 use test_utils::create_vm;
 

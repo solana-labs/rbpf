@@ -4,7 +4,7 @@
 use crate::disassembler::disassemble_instruction;
 use crate::{
     ebpf,
-    elf::{self, Executable},
+    elf::Executable,
     error::EbpfError,
     verifier::{TautologyVerifier, Verifier},
     vm::{ContextObject, DynamicAnalysis, TestContextObject},
@@ -153,8 +153,11 @@ impl<'a> Analysis<'a> {
     ) -> Result<Self, EbpfError> {
         let (_program_vm_addr, program) = executable.get_text_bytes();
         let mut functions = BTreeMap::new();
-        for (key, (pc, name)) in executable.get_function_registry().iter() {
-            functions.insert(*pc, (*key, name.clone()));
+        for (key, (function_name, pc)) in executable.get_function_registry().iter() {
+            functions.insert(
+                pc,
+                (key, String::from_utf8_lossy(function_name).to_string()),
+            );
         }
         debug_assert!(
             program.len() % ebpf::INSN_SIZE == 0,
@@ -236,8 +239,10 @@ impl<'a> Analysis<'a> {
                                 .or_insert_with(CfgNode::default);
                             cfg_edges.insert(insn.ptr, (insn.opc, Vec::new()));
                         }
-                    } else if let Some(target_pc) =
-                        self.executable.lookup_internal_function(insn.imm as u32)
+                    } else if let Some((_function_name, target_pc)) = self
+                        .executable
+                        .get_function_registry()
+                        .lookup_by_key(insn.imm as u32)
                     {
                         self.cfg_nodes
                             .entry(insn.ptr + 1)
@@ -844,7 +849,7 @@ impl<'a> Analysis<'a> {
             cfg_node.sources.push(self.super_root);
             self.functions.entry(*v).or_insert_with(|| {
                 let name = format!("function_{}", *v);
-                let hash = elf::hash_internal_function(*v, name.as_bytes());
+                let hash = ebpf::hash_symbol_name(name.as_bytes());
                 (hash, name)
             });
         }

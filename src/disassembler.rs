@@ -10,9 +10,9 @@
 
 use crate::{
     ebpf,
-    elf::SBPFVersion,
+    elf::{FunctionRegistry, SBPFVersion},
     static_analysis::CfgNode,
-    vm::{BuiltinProgram, ContextObject, FunctionRegistry},
+    vm::{BuiltinProgram, ContextObject},
 };
 use std::collections::BTreeMap;
 
@@ -123,7 +123,7 @@ fn jmp_reg_str(name: &str, insn: &ebpf::Insn, cfg_nodes: &BTreeMap<usize, CfgNod
 pub fn disassemble_instruction<C: ContextObject>(
     insn: &ebpf::Insn, 
     cfg_nodes: &BTreeMap<usize, CfgNode>,
-    function_registry: &FunctionRegistry,
+    function_registry: &FunctionRegistry<usize>,
     loader: &BuiltinProgram<C>,
     sbpf_version: &SBPFVersion,
 ) -> String {
@@ -254,17 +254,17 @@ pub fn disassemble_instruction<C: ContextObject>(
             let mut function_name = None;
             if sbpf_version.static_syscalls() {
                 if insn.src != 0 {
-                    function_name = Some(resolve_label(cfg_nodes, insn.imm as usize));
+                    function_name = Some(resolve_label(cfg_nodes, insn.imm as usize).to_string());
                 }
             } else {
-                function_name = function_registry.get(&(insn.imm as u32)).map(|(_, function_name)| function_name.as_str());
+                function_name = function_registry.lookup_by_key(insn.imm as u32).map(|(function_name, _)| String::from_utf8_lossy(function_name).to_string());
             }
             let function_name = if let Some(function_name) = function_name {
                 name = "call";
                 function_name
             } else {
                 name = "syscall";
-                loader.lookup_function(insn.imm as u32).map(|(function_name, _)| std::str::from_utf8(function_name).unwrap()).unwrap_or("[invalid]")
+                loader.lookup_function(insn.imm as u32).map(|(function_name, _)| String::from_utf8_lossy(function_name).to_string()).unwrap_or_else(|| "[invalid]".to_string())
             };
             desc = format!("{name} {function_name}");
         },

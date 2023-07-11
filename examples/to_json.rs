@@ -12,10 +12,10 @@ use std::path::PathBuf;
 
 extern crate solana_rbpf;
 use solana_rbpf::{
-    elf::{Executable, SBPFVersion},
+    elf::{Executable, FunctionRegistry, SBPFVersion},
     static_analysis::Analysis,
     verifier::TautologyVerifier,
-    vm::{BuiltinProgram, FunctionRegistry, TestContextObject},
+    vm::{BuiltinProgram, TestContextObject},
 };
 use std::sync::Arc;
 // Turn a program into a JSON string.

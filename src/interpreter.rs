@@ -426,7 +426,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 if !self.check_pc(pc) {
                     return false;
                 }
-                if self.executable.get_sbpf_version().static_syscalls() && self.executable.lookup_internal_function(self.pc as u32).is_none() {
+                if self.executable.get_sbpf_version().static_syscalls() && self.executable.get_function_registry().lookup_by_key(self.pc as u32).is_none() {
                     self.due_insn_count += 1;
                     throw_error!(self, EbpfError::UnsupportedInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET));
                 }
@@ -471,7 +471,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 }
 
                 if internal && !resolved {
-                    if let Some(target_pc) = self.executable.lookup_internal_function(insn.imm as u32) {
+                    if let Some((_function_name, target_pc)) = self.executable.get_function_registry().lookup_by_key(insn.imm as u32) {
                         resolved = true;
 
                         // make BPF to BPF call

@@ -25,8 +25,8 @@
 
 use crate::{
     ebpf,
-    elf::SBPFVersion,
-    vm::{Config, FunctionRegistry},
+    elf::{FunctionRegistry, SBPFVersion},
+    vm::Config,
 };
 use thiserror::Error;
 
@@ -100,7 +100,7 @@ pub trait Verifier {
         prog: &[u8],
         config: &Config,
         sbpf_version: &SBPFVersion,
-        function_registry: &FunctionRegistry,
+        function_registry: &FunctionRegistry<usize>,
     ) -> Result<(), VerifierError>;
 }
 
@@ -226,11 +226,11 @@ pub struct RequisiteVerifier {}
 impl Verifier for RequisiteVerifier {
     /// Check the program against the verifier's rules
     #[rustfmt::skip]
-    fn verify(prog: &[u8], config: &Config, sbpf_version: &SBPFVersion, function_registry: &FunctionRegistry) -> Result<(), VerifierError> {
+    fn verify(prog: &[u8], config: &Config, sbpf_version: &SBPFVersion, function_registry: &FunctionRegistry<usize>) -> Result<(), VerifierError> {
         check_prog_len(prog)?;
 
         let program_range = 0..prog.len() / ebpf::INSN_SIZE;
-        let mut function_iter = function_registry.keys().map(|insn_ptr| *insn_ptr as usize).peekable();
+        let mut function_iter = function_registry.keys().map(|insn_ptr| insn_ptr as usize).peekable();
         let mut function_range = program_range.start..program_range.end;
         let mut insn_ptr: usize = 0;
         while (insn_ptr + 1) * ebpf::INSN_SIZE <= prog.len() {
@@ -394,7 +394,7 @@ impl Verifier for TautologyVerifier {
         _prog: &[u8],
         _config: &Config,
         _sbpf_version: &SBPFVersion,
-        _function_registry: &FunctionRegistry,
+        _function_registry: &FunctionRegistry<usize>,
     ) -> std::result::Result<(), VerifierError> {
         Ok(())
     }

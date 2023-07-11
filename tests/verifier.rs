@@ -25,9 +25,9 @@ extern crate thiserror;
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
-    elf::{Executable, SBPFVersion},
+    elf::{Executable, FunctionRegistry, SBPFVersion},
     verifier::{RequisiteVerifier, TautologyVerifier, Verifier, VerifierError},
-    vm::{BuiltinProgram, Config, FunctionRegistry, TestContextObject},
+    vm::{BuiltinProgram, Config, TestContextObject},
 };
 use std::sync::Arc;
 use test_utils::create_vm;
@@ -46,7 +46,7 @@ impl Verifier for ContradictionVerifier {
         _prog: &[u8],
         _config: &Config,
         _sbpf_version: &SBPFVersion,
-        _function_registry: &FunctionRegistry,
+        _function_registry: &FunctionRegistry<usize>,
     ) -> std::result::Result<(), VerifierError> {
         Err(VerifierError::NoProgram)
     }

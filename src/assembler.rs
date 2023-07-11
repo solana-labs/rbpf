@@ -18,9 +18,9 @@ use crate::{
         Statement,
     },
     ebpf::{self, Insn},
-    elf::{register_internal_function, Executable, SBPFVersion},
+    elf::{Executable, FunctionRegistry, SBPFVersion},
     verifier::TautologyVerifier,
-    vm::{BuiltinProgram, ContextObject, FunctionRegistry},
+    vm::{BuiltinProgram, ContextObject},
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -244,14 +244,9 @@ pub fn assemble<C: ContextObject>(
         match statement {
             Statement::Label { name } => {
                 if name.starts_with("function_") || name == "entrypoint" {
-                    register_internal_function(
-                        &mut function_registry,
-                        &loader,
-                        &SBPFVersion::V2,
-                        insn_ptr,
-                        name.as_bytes(),
-                    )
-                    .map_err(|_| format!("Label hash collision {name}"))?;
+                    function_registry
+                        .register_function(insn_ptr as u32, name.as_bytes().to_vec(), insn_ptr)
+                        .map_err(|_| format!("Label hash collision {name}"))?;
                 }
                 labels.insert(name.as_str(), insn_ptr);
             }
@@ -298,14 +293,13 @@ pub fn assemble<C: ContextObject>(
                         (CallImm, [Integer(imm)]) => {
                             let target_pc = *imm + insn_ptr as i64 + 1;
                             let label = format!("function_{}", target_pc as usize);
-                            register_internal_function(
-                                &mut function_registry,
-                                &loader,
-                                &SBPFVersion::V2,
-                                target_pc as usize,
-                                label.as_bytes(),
-                            )
-                            .map_err(|_| format!("Label hash collision {name}"))?;
+                            function_registry
+                                .register_function(
+                                    target_pc as u32,
+                                    label.as_bytes().to_vec(),
+                                    target_pc as usize,
+                                )
+                                .map_err(|_| format!("Label hash collision {name}"))?;
                             insn(opc, 0, 1, 0, target_pc)
                         }
                         (CallReg, [Register(dst)]) => insn(opc, 0, 0, 0, *dst),

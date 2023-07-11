@@ -14,7 +14,7 @@
 
 use crate::{
     ebpf,
-    elf::{Executable, SBPFVersion},
+    elf::{Executable, FunctionRegistry, SBPFVersion},
     error::EbpfError,
     interpreter::Interpreter,
     memory_region::MemoryMapping,
@@ -93,9 +93,6 @@ impl<T, E> From<Result<T, E>> for StableResult<T, E> {
 
 /// Return value of programs and syscalls
 pub type ProgramResult = StableResult<u64, Box<dyn std::error::Error>>;
-
-/// Holds the function symbols of an Executable
-pub type FunctionRegistry = BTreeMap<u32, (usize, String)>;
 
 /// Syscall function without context
 pub type BuiltinFunction<C> =
@@ -286,7 +283,7 @@ impl<C: ContextObject> Executable<TautologyVerifier, C> {
         text_bytes: &[u8],
         loader: Arc<BuiltinProgram<C>>,
         sbpf_version: SBPFVersion,
-        function_registry: FunctionRegistry,
+        function_registry: FunctionRegistry<usize>,
     ) -> Result<Self, EbpfError> {
         Executable::new_from_text_bytes(text_bytes, loader, sbpf_version, function_registry)
             .map_err(EbpfError::ElfError)
@@ -401,10 +398,10 @@ pub struct CallFrame {
 /// use solana_rbpf::{
 ///     aligned_memory::AlignedMemory,
 ///     ebpf,
-///     elf::{Executable, SBPFVersion},
+///     elf::{Executable, FunctionRegistry, SBPFVersion},
 ///     memory_region::{MemoryMapping, MemoryRegion},
 ///     verifier::{TautologyVerifier, RequisiteVerifier},
-///     vm::{BuiltinProgram, Config, EbpfVm, FunctionRegistry, TestContextObject},
+///     vm::{BuiltinProgram, Config, EbpfVm, TestContextObject},
 /// };
 ///
 /// let prog = &[
