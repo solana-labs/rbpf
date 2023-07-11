@@ -33,10 +33,6 @@ rm unresolved_syscall.o
 rm entrypoint.o
 rm multiple_file.o
 
-"$LLVM_DIR"clang $CC_FLAGS -o relative_call.o -c relative_call.c
-"$LLVM_DIR"ld.lld $LD_FLAGS -o relative_call.so relative_call.o
-rm relative_call.o
-
 "$LLVM_DIR"clang $CC_FLAGS_V1 -o reloc_64_64.o -c reloc_64_64.c
 "$LLVM_DIR"ld.lld $LD_FLAGS_V1 -o reloc_64_64_sbpfv1.so reloc_64_64.o
 rm reloc_64_64.o

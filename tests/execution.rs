@@ -2592,13 +2592,13 @@ fn test_err_mem_access_out_of_bound() {
 #[test]
 fn test_relative_call() {
     test_interpreter_and_jit_elf!(
-        "tests/elfs/relative_call.so",
+        "tests/elfs/relative_call_sbpfv1.so",
         [1],
         (
             "log" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject::new(14),
-        ProgramResult::Ok(2),
+        TestContextObject::new(23),
+        ProgramResult::Ok(4),
     );
 }
 
