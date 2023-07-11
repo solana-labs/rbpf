@@ -632,56 +632,6 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
 
     // Functions exposed for tests
 
-    /// Fix-ups relative calls
-    pub fn fixup_relative_calls(
-        function_registry: &mut FunctionRegistry,
-        loader: &BuiltinProgram<C>,
-        sbpf_version: &SBPFVersion,
-        elf_bytes: &mut [u8],
-    ) -> Result<(), ElfError> {
-        let config = loader.get_config();
-        let instruction_count = elf_bytes
-            .len()
-            .checked_div(ebpf::INSN_SIZE)
-            .ok_or(ElfError::ValueOutOfBounds)?;
-        for i in 0..instruction_count {
-            let mut insn = ebpf::get_insn(elf_bytes, i);
-            if insn.opc == ebpf::CALL_IMM
-                && insn.imm != -1
-                && !(sbpf_version.static_syscalls() && insn.src == 0)
-            {
-                let target_pc = (i as isize)
-                    .saturating_add(1)
-                    .saturating_add(insn.imm as isize);
-                if target_pc < 0 || target_pc >= instruction_count as isize {
-                    return Err(ElfError::RelativeJumpOutOfBounds(
-                        i.saturating_add(ebpf::ELF_INSN_DUMP_OFFSET),
-                    ));
-                }
-                let name = if config.enable_symbol_and_section_labels {
-                    format!("function_{target_pc}")
-                } else {
-                    String::default()
-                };
-
-                let key = register_internal_function(
-                    function_registry,
-                    loader,
-                    sbpf_version,
-                    target_pc as usize,
-                    name.as_bytes(),
-                )?;
-                insn.imm = key as i64;
-                let offset = i.saturating_mul(ebpf::INSN_SIZE);
-                let checked_slice = elf_bytes
-                    .get_mut(offset..offset.saturating_add(ebpf::INSN_SIZE))
-                    .ok_or(ElfError::ValueOutOfBounds)?;
-                checked_slice.copy_from_slice(&insn.to_array());
-            }
-        }
-        Ok(())
-    }
-
     /// Validates the ELF
     pub fn validate<'a, P: ElfParser<'a>>(
         config: &Config,
@@ -990,16 +940,49 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         };
 
         // Fixup all program counter relative call instructions
-        Self::fixup_relative_calls(
-            function_registry,
-            loader,
-            &sbpf_version,
-            elf_bytes
-                .get_mut(text_section.file_range().unwrap_or_default())
-                .ok_or(ElfError::ValueOutOfBounds)?,
-        )?;
-
         let config = loader.get_config();
+        let text_bytes = elf_bytes
+            .get_mut(text_section.file_range().unwrap_or_default())
+            .ok_or(ElfError::ValueOutOfBounds)?;
+        let instruction_count = text_bytes
+            .len()
+            .checked_div(ebpf::INSN_SIZE)
+            .ok_or(ElfError::ValueOutOfBounds)?;
+        for i in 0..instruction_count {
+            let mut insn = ebpf::get_insn(text_bytes, i);
+            if insn.opc == ebpf::CALL_IMM
+                && insn.imm != -1
+                && !(sbpf_version.static_syscalls() && insn.src == 0)
+            {
+                let target_pc = (i as isize)
+                    .saturating_add(1)
+                    .saturating_add(insn.imm as isize);
+                if target_pc < 0 || target_pc >= instruction_count as isize {
+                    return Err(ElfError::RelativeJumpOutOfBounds(
+                        i.saturating_add(ebpf::ELF_INSN_DUMP_OFFSET),
+                    ));
+                }
+                let name = if config.enable_symbol_and_section_labels {
+                    format!("function_{target_pc}")
+                } else {
+                    String::default()
+                };
+                let key = register_internal_function(
+                    function_registry,
+                    loader,
+                    &sbpf_version,
+                    target_pc as usize,
+                    name.as_bytes(),
+                )?;
+                insn.imm = key as i64;
+                let offset = i.saturating_mul(ebpf::INSN_SIZE);
+                let checked_slice = text_bytes
+                    .get_mut(offset..offset.saturating_add(ebpf::INSN_SIZE))
+                    .ok_or(ElfError::ValueOutOfBounds)?;
+                checked_slice.copy_from_slice(&insn.to_array());
+            }
+        }
+
         let mut program_header: Option<&<P as ElfParser<'a>>::ProgramHeader> = None;
 
         // Fixup all the relocations in the relocation section if exists
