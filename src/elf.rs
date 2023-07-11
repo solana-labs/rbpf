@@ -949,7 +949,7 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             .checked_div(ebpf::INSN_SIZE)
             .ok_or(ElfError::ValueOutOfBounds)?;
         for i in 0..instruction_count {
-            let mut insn = ebpf::get_insn(text_bytes, i);
+            let insn = ebpf::get_insn(text_bytes, i);
             if insn.opc == ebpf::CALL_IMM
                 && insn.imm != -1
                 && !(sbpf_version.static_syscalls() && insn.src == 0)
@@ -974,12 +974,11 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                     target_pc as usize,
                     name.as_bytes(),
                 )?;
-                insn.imm = key as i64;
-                let offset = i.saturating_mul(ebpf::INSN_SIZE);
+                let offset = i.saturating_mul(ebpf::INSN_SIZE).saturating_add(4);
                 let checked_slice = text_bytes
-                    .get_mut(offset..offset.saturating_add(ebpf::INSN_SIZE))
+                    .get_mut(offset..offset.saturating_add(4))
                     .ok_or(ElfError::ValueOutOfBounds)?;
-                checked_slice.copy_from_slice(&insn.to_array());
+                LittleEndian::write_u32(checked_slice, key);
             }
         }
 
