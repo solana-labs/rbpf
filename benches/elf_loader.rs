@@ -12,7 +12,7 @@ extern crate test_utils;
 
 use solana_rbpf::{
     elf::Executable,
-    syscalls::bpf_syscall_u64,
+    syscalls,
     verifier::TautologyVerifier,
     vm::{BuiltinProgram, Config, TestContextObject},
 };
@@ -22,14 +22,14 @@ use test::Bencher;
 fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
     let mut loader = BuiltinProgram::new_loader(Config::default());
     loader
-        .register_function(b"log_64", bpf_syscall_u64)
+        .register_function(b"log", syscalls::bpf_syscall_string)
         .unwrap();
     Arc::new(loader)
 }
 
 #[bench]
-fn bench_load_elf(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/noro.so").unwrap();
+fn bench_load_sbpfv1(bencher: &mut Bencher) {
+    let mut file = File::open("tests/elfs/syscall_reloc_64_32.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let loader = loader();
@@ -39,19 +39,8 @@ fn bench_load_elf(bencher: &mut Bencher) {
 }
 
 #[bench]
-fn bench_load_elf_without_syscall(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/noro.so").unwrap();
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-    let loader = loader();
-    bencher.iter(|| {
-        Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, loader.clone()).unwrap()
-    });
-}
-
-#[bench]
-fn bench_load_elf_with_syscall(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/noro.so").unwrap();
+fn bench_load_sbpfv2(bencher: &mut Bencher) {
+    let mut file = File::open("tests/elfs/syscall_static.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let loader = loader();

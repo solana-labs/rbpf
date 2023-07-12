@@ -2592,37 +2592,38 @@ fn test_err_mem_access_out_of_bound() {
 #[test]
 fn test_relative_call() {
     test_interpreter_and_jit_elf!(
-        "tests/elfs/relative_call_sbpfv1.so",
+        "tests/elfs/relative_call.so",
         [1],
-        (
-            "log" => syscalls::bpf_syscall_string,
-        ),
-        TestContextObject::new(23),
-        ProgramResult::Ok(4),
+        (),
+        TestContextObject::new(18),
+        ProgramResult::Ok(3),
     );
 }
 
 #[test]
 fn test_bpf_to_bpf_scratch_registers() {
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/scratch_registers.so",
-        [1],
-        (
-            "log_64" => syscalls::bpf_syscall_u64,
-        ),
-        TestContextObject::new(40),
-        ProgramResult::Ok(112),
-    );
-}
-
-#[test]
-fn test_bpf_to_bpf_pass_stack_reference() {
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/pass_stack_reference.so",
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r6, 0x11
+        mov64 r7, 0x22
+        mov64 r8, 0x44
+        mov64 r9, 0x88
+        call function_foo
+        mov64 r0, r6
+        add64 r0, r7
+        add64 r0, r8
+        add64 r0, r9
+        exit
+        function_foo:
+        mov64 r6, 0x00
+        mov64 r7, 0x00
+        mov64 r8, 0x00
+        mov64 r9, 0x00
+        exit",
         [],
         (),
-        TestContextObject::new(37),
-        ProgramResult::Ok(42),
+        TestContextObject::new(15),
+        ProgramResult::Ok(0xFF),
     );
 }
 
@@ -2809,33 +2810,41 @@ fn test_err_dynamic_jmp_lddw() {
 
 #[test]
 fn test_bpf_to_bpf_depth() {
-    let config = Config::default();
-    for i in 0..config.max_call_depth {
-        test_interpreter_and_jit_elf!(
-            "tests/elfs/multiple_file.so",
-            config,
-            [i as u8],
-            (
-                "log" => syscalls::bpf_syscall_string,
-            ),
-            TestContextObject::new(if i == 0 { 4 } else { 3 + 10 * i as u64 }),
-            ProgramResult::Ok(0),
-        );
-    }
-}
-
-#[test]
-fn test_err_bpf_to_bpf_too_deep() {
-    let config = Config::default();
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/multiple_file.so",
-        config,
-        [config.max_call_depth as u8],
-        (
-            "log" => syscalls::bpf_syscall_string,
-        ),
-        TestContextObject::new(176),
-        ProgramResult::Err(Box::new(EbpfError::CallDepthExceeded(55, config.max_call_depth))),
+    test_interpreter_and_jit_asm!(
+        "
+        ldxb r1, [r1]
+        add64 r1, -2
+        call function_foo
+        exit
+        function_foo:
+        jeq r1, 0, +2
+        add64 r1, -1
+        call function_foo
+        exit",
+        [Config::default().max_call_depth as u8],
+        (),
+        TestContextObject::new(78),
+        ProgramResult::Ok(0),
+    );
+    // The instruction count is lower here because all the `exit`s never run
+    test_interpreter_and_jit_asm!(
+        "
+        ldxb r1, [r1]
+        add64 r1, -2
+        call function_foo
+        exit
+        function_foo:
+        jeq r1, 0, +2
+        add64 r1, -1
+        call function_foo
+        exit",
+        [Config::default().max_call_depth as u8 + 1],
+        (),
+        TestContextObject::new(60),
+        ProgramResult::Err(Box::new(EbpfError::CallDepthExceeded(
+            35,
+            Config::default().max_call_depth
+        ))),
     );
 }
 
@@ -3052,80 +3061,6 @@ fn test_nested_vm_syscall() {
         &mut result,
     );
     assert_error!(result, "CallDepthExceeded(33, 0)");
-}
-
-// Elf
-
-#[test]
-fn test_load_elf() {
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/noop.so",
-        [],
-        (
-            "log" => syscalls::bpf_syscall_string,
-            "log_64" => syscalls::bpf_syscall_u64,
-        ),
-        TestContextObject::new(11),
-        ProgramResult::Ok(0),
-    );
-}
-
-#[test]
-fn test_load_elf_empty_noro() {
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/noro.so",
-        [],
-        (
-            "log_64" => syscalls::bpf_syscall_u64,
-        ),
-        TestContextObject::new(8),
-        ProgramResult::Ok(0),
-    );
-}
-
-#[test]
-fn test_load_elf_empty_rodata() {
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/empty_rodata.so",
-        [],
-        (
-            "log_64" => syscalls::bpf_syscall_u64,
-        ),
-        TestContextObject::new(8),
-        ProgramResult::Ok(0),
-    );
-}
-
-#[test]
-fn test_load_elf_rodata() {
-    let config = Config {
-        optimize_rodata: true,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/rodata.so",
-        config,
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(42),
-    );
-}
-
-#[test]
-fn test_load_elf_rodata_sbpfv1() {
-    let config = Config {
-        optimize_rodata: false,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/rodata_sbpfv1.so",
-        config,
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(42),
-    );
 }
 
 // Instruction Meter Limit
@@ -3420,18 +3355,15 @@ fn test_err_call_unresolved() {
 }
 
 #[test]
-fn test_err_unresolved_elf() {
-    let mut loader = BuiltinProgram::new_loader(Config {
-        reject_broken_elfs: true,
-        ..Config::default()
-    });
-    test_interpreter_and_jit!(register, loader, "log" => syscalls::bpf_syscall_string);
-    let mut file = File::open("tests/elfs/unresolved_syscall.so").unwrap();
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-    assert_error!(
-        Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, Arc::new(loader)),
-        "UnresolvedSymbol(\"log_64\", 550, 4168)"
+fn test_syscall_reloc_64_32() {
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/syscall_reloc_64_32.so",
+        [],
+        (
+            "log" => syscalls::bpf_syscall_string,
+        ),
+        TestContextObject::new(5),
+        ProgramResult::Ok(0),
     );
 }
 
@@ -3449,19 +3381,28 @@ fn test_syscall_static() {
 }
 
 #[test]
-fn test_syscall_unknown_static() {
-    // Check that unknown static syscalls result in UnsupportedInstruction.
-    //
-    // See also elf::test::test_static_syscall_disabled for the corresponding
-    // check with config.syscalls_static=false.
+fn test_err_unresolved_syscall_reloc_64_32() {
+    let loader = BuiltinProgram::new_loader(Config {
+        reject_broken_elfs: true,
+        ..Config::default()
+    });
+    let mut file = File::open("tests/elfs/syscall_reloc_64_32.so").unwrap();
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+    assert_error!(
+        Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, Arc::new(loader)),
+        "UnresolvedSymbol(\"log\", 68, 312)"
+    );
+}
+
+#[test]
+fn test_err_unresolved_syscall_static() {
     test_interpreter_and_jit_elf!(
-        "tests/elfs/syscall_static_unknown.so",
+        "tests/elfs/syscall_static.so",
         [],
-        (
-            "log" => syscalls::bpf_syscall_string,
-        ),
-        TestContextObject::new(1),
-        ProgramResult::Err(Box::new(EbpfError::UnsupportedInstruction(29))),
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Err(Box::new(EbpfError::UnsupportedInstruction(32))),
     );
 }
 
@@ -3469,13 +3410,13 @@ fn test_syscall_unknown_static() {
 fn test_reloc_64_64_sbpfv1() {
     // Tests the correctness of R_BPF_64_64 relocations. The program returns the
     // address of the entrypoint.
-    //   [ 1] .text             PROGBITS        00000000000000e8 0000e8 000018 00  AX  0   0  8
+    //   [ 1] .text             PROGBITS        0000000000000120 000120 000018 00  AX  0   0  8
     test_interpreter_and_jit_elf!(
         "tests/elfs/reloc_64_64_sbpfv1.so",
         [],
         (),
         TestContextObject::new(2),
-        ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0xe8),
+        ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x120),
     );
 }
 
@@ -3497,14 +3438,14 @@ fn test_reloc_64_64() {
 fn test_reloc_64_relative_sbpfv1() {
     // Tests the correctness of R_BPF_64_RELATIVE relocations. The program
     // returns the address of the first .rodata byte.
-    //   [ 1] .text             PROGBITS        00000000000000e8 0000e8 000018 00  AX  0   0  8
-    //   [ 2] .rodata           PROGBITS        0000000000000100 000100 00000b 01 AMS  0   0  1
+    //   [ 1] .text             PROGBITS        0000000000000120 000120 000018 00  AX  0   0  8
+    //   [ 2] .rodata           PROGBITS        0000000000000138 000138 00000a 01 AMS  0   0  1
     test_interpreter_and_jit_elf!(
         "tests/elfs/reloc_64_relative_sbpfv1.so",
         [],
         (),
         TestContextObject::new(2),
-        ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x100),
+        ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x138),
     );
 }
 
@@ -3580,6 +3521,38 @@ fn test_reloc_64_relative_data_sbpfv1() {
         (),
         TestContextObject::new(3),
         ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x108),
+    );
+}
+
+#[test]
+fn test_load_elf_rodata() {
+    let config = Config {
+        optimize_rodata: true,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/rodata_section.so",
+        config,
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(42),
+    );
+}
+
+#[test]
+fn test_load_elf_rodata_sbpfv1() {
+    let config = Config {
+        optimize_rodata: false,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/rodata_section_sbpfv1.so",
+        config,
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(42),
     );
 }
 
@@ -3800,7 +3773,7 @@ fn test_struct_func_pointer() {
         "tests/elfs/struct_func_pointer.so",
         [],
         (),
-        TestContextObject::new(3),
+        TestContextObject::new(2),
         ProgramResult::Ok(0x102030405060708),
     );
 }

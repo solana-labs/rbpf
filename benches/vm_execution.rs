@@ -21,8 +21,8 @@ use test::Bencher;
 use test_utils::create_vm;
 
 #[bench]
-fn bench_init_interpreter_execution(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
+fn bench_init_interpreter_start(bencher: &mut Bencher) {
+    let mut file = File::open("tests/elfs/rodata_section.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(
@@ -50,8 +50,8 @@ fn bench_init_interpreter_execution(bencher: &mut Bencher) {
 
 #[cfg(not(windows))]
 #[bench]
-fn bench_init_jit_execution(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
+fn bench_init_jit_start(bencher: &mut Bencher) {
+    let mut file = File::open("tests/elfs/rodata_section.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(

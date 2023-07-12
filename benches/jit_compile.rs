@@ -20,7 +20,7 @@ use test_utils::create_vm;
 
 #[bench]
 fn bench_init_vm(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
+    let mut file = File::open("tests/elfs/relative_call.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(
@@ -47,7 +47,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
 #[cfg(not(windows))]
 #[bench]
 fn bench_jit_compile(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/pass_stack_reference.so").unwrap();
+    let mut file = File::open("tests/elfs/relative_call.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(

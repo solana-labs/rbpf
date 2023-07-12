@@ -1336,7 +1336,7 @@ mod test {
 
     #[test]
     fn test_validate() {
-        let elf_bytes = std::fs::read("tests/elfs/noop.so").unwrap();
+        let elf_bytes = std::fs::read("tests/elfs/relative_call.so").unwrap();
         let elf = NewParser::parse(&elf_bytes).unwrap();
         let mut header = elf.header().clone();
 
@@ -1414,7 +1414,7 @@ mod test {
 
     #[test]
     fn test_load() {
-        let mut file = File::open("tests/elfs/noop.so").expect("file open failed");
+        let mut file = File::open("tests/elfs/relative_call.so").expect("file open failed");
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
@@ -1423,7 +1423,8 @@ mod test {
 
     #[test]
     fn test_load_unaligned() {
-        let mut elf_bytes = std::fs::read("tests/elfs/noop.so").expect("failed to read elf file");
+        let mut elf_bytes =
+            std::fs::read("tests/elfs/relative_call.so").expect("failed to read elf file");
         // The default allocator allocates aligned memory. Move the ELF slice to
         // elf_bytes.as_ptr() + 1 to make it unaligned and test unaligned
         // parsing.
@@ -1435,7 +1436,7 @@ mod test {
     fn test_entrypoint() {
         let loader = loader();
 
-        let mut file = File::open("tests/elfs/noop.so").expect("file open failed");
+        let mut file = File::open("tests/elfs/syscall_static.so").expect("file open failed");
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
@@ -2047,7 +2048,7 @@ mod test {
     #[should_panic(expected = r#"validation failed: WritableSectionNotSupported(".data")"#)]
     fn test_writable_data_section() {
         let elf_bytes =
-            std::fs::read("tests/elfs/writable_data_section.so").expect("failed to read elf file");
+            std::fs::read("tests/elfs/data_section.so").expect("failed to read elf file");
         ElfExecutable::load(&elf_bytes, loader()).expect("validation failed");
     }
 
@@ -2068,20 +2069,20 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "validation failed: RelativeJumpOutOfBounds(43)")]
-    fn test_relative_call_oob_forward() {
+    #[should_panic(expected = "validation failed: RelativeJumpOutOfBounds(38)")]
+    fn test_relative_call_oob_backward() {
         let mut elf_bytes =
-            std::fs::read("tests/elfs/relative_call_sbpfv1.so").expect("failed to read elf file");
-        LittleEndian::write_i32(&mut elf_bytes[0x1074..0x1078], 11);
+            std::fs::read("tests/elfs/relative_call.so").expect("failed to read elf file");
+        LittleEndian::write_i32(&mut elf_bytes[0x104C..0x1050], -11i32);
         ElfExecutable::load(&elf_bytes, loader()).expect("validation failed");
     }
 
     #[test]
-    #[should_panic(expected = "validation failed: RelativeJumpOutOfBounds(43)")]
-    fn test_relative_call_oob_backward() {
+    #[should_panic(expected = "validation failed: RelativeJumpOutOfBounds(41)")]
+    fn test_relative_call_oob_forward() {
         let mut elf_bytes =
-            std::fs::read("tests/elfs/relative_call_sbpfv1.so").expect("failed to read elf file");
-        LittleEndian::write_i32(&mut elf_bytes[0x1074..0x1078], -16i32);
+            std::fs::read("tests/elfs/relative_call.so").expect("failed to read elf file");
+        LittleEndian::write_i32(&mut elf_bytes[0x1064..0x1068], 5);
         ElfExecutable::load(&elf_bytes, loader()).expect("validation failed");
     }
 }
