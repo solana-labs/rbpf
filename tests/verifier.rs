@@ -58,7 +58,7 @@ fn test_verifier_success() {
         "
         mov32 r0, 0xBEE
         exit",
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let verified_executable =
@@ -81,7 +81,7 @@ fn test_verifier_fail() {
         "
         mov32 r0, 0xBEE
         exit",
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let _verified_executable =
@@ -96,7 +96,7 @@ fn test_verifier_err_div_by_zero_imm() {
         mov32 r0, 1
         div32 r0, 0
         exit",
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let _verified_executable =
@@ -113,7 +113,7 @@ fn test_verifier_err_endian_size() {
     ];
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
         SBPFVersion::V2,
         FunctionRegistry::default(),
     )
@@ -132,7 +132,7 @@ fn test_verifier_err_incomplete_lddw() {
     ];
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
         SBPFVersion::V2,
         FunctionRegistry::default(),
     )
@@ -150,10 +150,13 @@ fn test_verifier_err_invalid_reg_dst() {
             "
             mov r11, 1
             exit",
-            Arc::new(BuiltinProgram::new_loader(Config {
-                enable_sbpf_v2,
-                ..Config::default()
-            })),
+            Arc::new(BuiltinProgram::new_loader(
+                Config {
+                    enable_sbpf_v2,
+                    ..Config::default()
+                },
+                FunctionRegistry::default(),
+            )),
         )
         .unwrap();
         let result = Executable::<RequisiteVerifier, TestContextObject>::verified(executable)
@@ -175,10 +178,13 @@ fn test_verifier_err_invalid_reg_src() {
             "
             mov r0, r11
             exit",
-            Arc::new(BuiltinProgram::new_loader(Config {
-                enable_sbpf_v2,
-                ..Config::default()
-            })),
+            Arc::new(BuiltinProgram::new_loader(
+                Config {
+                    enable_sbpf_v2,
+                    ..Config::default()
+                },
+                FunctionRegistry::default(),
+            )),
         )
         .unwrap();
         let result = Executable::<RequisiteVerifier, TestContextObject>::verified(executable)
@@ -198,10 +204,13 @@ fn test_verifier_resize_stack_ptr_success() {
         sub r11, 1
         add r11, 1
         exit",
-        Arc::new(BuiltinProgram::new_loader(Config {
-            enable_stack_frame_gaps: false,
-            ..Config::default()
-        })),
+        Arc::new(BuiltinProgram::new_loader(
+            Config {
+                enable_stack_frame_gaps: false,
+                ..Config::default()
+            },
+            FunctionRegistry::default(),
+        )),
     )
     .unwrap();
     let _verified_executable =
@@ -216,7 +225,7 @@ fn test_verifier_err_jmp_lddw() {
         ja +1
         lddw r0, 0x1122334455667788
         exit",
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let _verified_executable =
@@ -231,7 +240,7 @@ fn test_verifier_err_call_lddw() {
         call 1
         lddw r0, 0x1122334455667788
         exit",
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let _verified_executable =
@@ -246,7 +255,7 @@ fn test_verifier_err_function_fallthrough() {
         mov r0, r1
         function_foo:
         exit",
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let _verified_executable =
@@ -260,7 +269,7 @@ fn test_verifier_err_jmp_out() {
         "
         ja +2
         exit",
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let _verified_executable =
@@ -274,7 +283,7 @@ fn test_verifier_err_jmp_out_start() {
         "
         ja -2
         exit",
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let _verified_executable =
@@ -290,7 +299,7 @@ fn test_verifier_err_unknown_opcode() {
     ];
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
         SBPFVersion::V2,
         FunctionRegistry::default(),
     )
@@ -306,7 +315,7 @@ fn test_verifier_err_write_r10() {
         "
         mov r10, 1
         exit",
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let _verified_executable =
@@ -341,11 +350,8 @@ fn test_verifier_err_all_shift_overflows() {
 
     for (overflowing_instruction, expected) in testcases {
         let assembly = format!("\n{overflowing_instruction}\nexit");
-        let executable = assemble::<TestContextObject>(
-            &assembly,
-            Arc::new(BuiltinProgram::new_loader(Config::default())),
-        )
-        .unwrap();
+        let executable =
+            assemble::<TestContextObject>(&assembly, Arc::new(BuiltinProgram::new_mock())).unwrap();
         let result = Executable::<RequisiteVerifier, TestContextObject>::verified(executable)
             .map_err(|err| format!("Executable constructor {err:?}"));
         match expected {
@@ -375,10 +381,13 @@ fn test_sdiv_disabled() {
             let assembly = format!("\n{instruction}\nexit");
             let executable = assemble::<TestContextObject>(
                 &assembly,
-                Arc::new(BuiltinProgram::new_loader(Config {
-                    enable_sbpf_v2,
-                    ..Config::default()
-                })),
+                Arc::new(BuiltinProgram::new_loader(
+                    Config {
+                        enable_sbpf_v2,
+                        ..Config::default()
+                    },
+                    FunctionRegistry::default(),
+                )),
             )
             .unwrap();
             let result = Executable::<RequisiteVerifier, TestContextObject>::verified(executable)

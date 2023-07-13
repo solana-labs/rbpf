@@ -191,7 +191,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 ///     be16 r0
 ///     neg64 r2
 ///     exit",
-///     std::sync::Arc::new(BuiltinProgram::new_loader(Config::default())),
+///     std::sync::Arc::new(BuiltinProgram::new_mock()),
 /// ).unwrap();
 /// let program = executable.get_text_bytes().1;
 /// println!("{:?}", program);

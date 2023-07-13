@@ -9,6 +9,7 @@
 extern crate solana_rbpf;
 use solana_rbpf::{
     assembler::assemble,
+    elf::FunctionRegistry,
     static_analysis::Analysis,
     vm::{BuiltinProgram, Config, TestContextObject},
 };
@@ -18,10 +19,13 @@ use std::sync::Arc;
 macro_rules! disasm {
     ($src:expr) => {{
         let src = $src;
-        let loader = BuiltinProgram::new_loader(Config {
-            enable_symbol_and_section_labels: true,
-            ..Config::default()
-        });
+        let loader = BuiltinProgram::new_loader(
+            Config {
+                enable_symbol_and_section_labels: true,
+                ..Config::default()
+            },
+            FunctionRegistry::default(),
+        );
         let executable = assemble::<TestContextObject>(src, Arc::new(loader)).unwrap();
         let analysis = Analysis::from_executable(&executable).unwrap();
         let mut reasm = Vec::new();

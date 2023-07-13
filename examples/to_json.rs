@@ -30,7 +30,7 @@ use std::sync::Arc;
 fn to_json(program: &[u8]) -> String {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         program,
-        Arc::new(BuiltinProgram::default()),
+        Arc::new(BuiltinProgram::new_mock()),
         SBPFVersion::V2,
         FunctionRegistry::default(),
     )

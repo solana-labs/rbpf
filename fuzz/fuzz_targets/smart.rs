@@ -39,7 +39,7 @@ fuzz_target!(|data: FuzzData| {
     let mut mem = data.mem;
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog.into_bytes(),
-        std::sync::Arc::new(BuiltinProgram::new_loader(config)),
+        std::sync::Arc::new(BuiltinProgram::new_loader(config, FunctionRegistry::default())),
         SBPFVersion::V2,
         function_registry,
     )

@@ -3,7 +3,7 @@ use solana_rbpf::{
     aligned_memory::AlignedMemory,
     assembler::assemble,
     ebpf,
-    elf::Executable,
+    elf::{Executable, FunctionRegistry},
     memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
     verifier::{RequisiteVerifier, TautologyVerifier},
@@ -92,11 +92,15 @@ fn main() {
         )
         .get_matches();
 
-    let loader = Arc::new(BuiltinProgram::new_loader(Config {
-        enable_instruction_tracing: matches.is_present("trace") || matches.is_present("profile"),
-        enable_symbol_and_section_labels: true,
-        ..Config::default()
-    }));
+    let loader = Arc::new(BuiltinProgram::new_loader(
+        Config {
+            enable_instruction_tracing: matches.is_present("trace")
+                || matches.is_present("profile"),
+            enable_symbol_and_section_labels: true,
+            ..Config::default()
+        },
+        FunctionRegistry::default(),
+    ));
     let executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(Path::new(asm_file_name)).unwrap();

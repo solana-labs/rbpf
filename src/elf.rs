@@ -315,7 +315,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
                 ebpf::hash_symbol_name(&usize::from(value).to_le_bytes())
             };
             if config.external_internal_function_hash_collision
-                && loader.lookup_function(hash).is_some()
+                && loader.get_function_registry().lookup_by_key(hash).is_some()
             {
                 return Err(ElfError::SymbolHashCollision(hash));
             }
@@ -1283,7 +1283,9 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
                         let hash = *syscall_cache
                             .entry(symbol.st_name())
                             .or_insert_with(|| ebpf::hash_symbol_name(name));
-                        if config.reject_broken_elfs && loader.lookup_function(hash).is_none() {
+                        if config.reject_broken_elfs
+                            && loader.get_function_registry().lookup_by_key(hash).is_none()
+                        {
                             return Err(ElfError::UnresolvedSymbol(
                                 String::from_utf8_lossy(name).to_string(),
                                 r_offset
@@ -1376,7 +1378,7 @@ mod test {
         },
         fuzz::fuzz,
         syscalls,
-        vm::{ProgramResult, TestContextObject},
+        vm::{BuiltinFunction, ProgramResult, TestContextObject},
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
@@ -1384,14 +1386,18 @@ mod test {
     type ElfExecutable = Executable<TautologyVerifier, TestContextObject>;
 
     fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
-        let mut loader = BuiltinProgram::new_loader(Config::default());
-        loader
-            .register_function(b"log", syscalls::bpf_syscall_string)
+        let mut function_registry =
+            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+        function_registry
+            .register_function_hashed(*b"log", syscalls::bpf_syscall_string)
             .unwrap();
-        loader
-            .register_function(b"log_64", syscalls::bpf_syscall_u64)
+        function_registry
+            .register_function_hashed(*b"log_64", syscalls::bpf_syscall_u64)
             .unwrap();
-        Arc::new(loader)
+        Arc::new(BuiltinProgram::new_loader(
+            Config::default(),
+            function_registry,
+        ))
     }
 
     #[test]

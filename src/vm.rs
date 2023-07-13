@@ -22,12 +22,7 @@ use crate::{
     verifier::{TautologyVerifier, Verifier},
 };
 use rand::Rng;
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt::Debug,
-    mem,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, fmt::Debug, mem, sync::Arc};
 
 /// Same as `Result` but provides a stable memory layout
 #[derive(Debug)]
@@ -99,19 +94,36 @@ pub type BuiltinFunction<C> =
     fn(&mut C, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
 
 /// Represents the interface to a fixed functionality program
+#[derive(PartialEq)]
 pub struct BuiltinProgram<C: ContextObject> {
     /// Holds the Config if this is a loader program
     config: Option<Box<Config>>,
     /// Function pointers by symbol
-    functions: HashMap<u32, (&'static [u8], BuiltinFunction<C>)>,
+    functions: FunctionRegistry<BuiltinFunction<C>>,
 }
 
 impl<C: ContextObject> BuiltinProgram<C> {
     /// Constructs a loader built-in program
-    pub fn new_loader(config: Config) -> Self {
+    pub fn new_loader(config: Config, functions: FunctionRegistry<BuiltinFunction<C>>) -> Self {
         Self {
             config: Some(Box::new(config)),
-            functions: HashMap::new(),
+            functions,
+        }
+    }
+
+    /// Constructs a built-in program
+    pub fn new_builtin(functions: FunctionRegistry<BuiltinFunction<C>>) -> Self {
+        Self {
+            config: None,
+            functions,
+        }
+    }
+
+    /// Constructs a mock loader built-in program
+    pub fn new_mock() -> Self {
+        Self {
+            config: Some(Box::default()),
+            functions: FunctionRegistry::default(),
         }
     }
 
@@ -120,23 +132,9 @@ impl<C: ContextObject> BuiltinProgram<C> {
         self.config.as_ref().unwrap()
     }
 
-    /// Register a built-in function
-    pub fn register_function(
-        &mut self,
-        name: &'static [u8],
-        function: BuiltinFunction<C>,
-    ) -> Result<(), EbpfError> {
-        let key = ebpf::hash_symbol_name(name);
-        if self.functions.insert(key, (name, function)).is_some() {
-            Err(EbpfError::FunctionAlreadyRegistered(key as usize))
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Get a symbol's function pointer
-    pub fn lookup_function(&self, key: u32) -> Option<(&'static [u8], BuiltinFunction<C>)> {
-        self.functions.get(&key).cloned()
+    /// Get the function registry
+    pub fn get_function_registry(&self) -> &FunctionRegistry<BuiltinFunction<C>> {
+        &self.functions
     }
 
     /// Calculate memory size
@@ -147,43 +145,16 @@ impl<C: ContextObject> BuiltinProgram<C> {
             } else {
                 0
             }
-            + self.functions.capacity()
-                * mem::size_of::<(u32, (&'static [u8], BuiltinFunction<C>))>()
-    }
-}
-
-impl<C: ContextObject> Default for BuiltinProgram<C> {
-    fn default() -> Self {
-        Self {
-            config: None,
-            functions: HashMap::new(),
-        }
+            + self.functions.mem_size()
     }
 }
 
 impl<C: ContextObject> Debug for BuiltinProgram<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         writeln!(f, "{:?}", unsafe {
-            std::mem::transmute::<_, &HashMap<u32, *const u8>>(&self.functions)
+            std::mem::transmute::<_, &BTreeMap<u32, *const u8>>(&self.functions.map)
         })?;
         Ok(())
-    }
-}
-
-impl<C: ContextObject> PartialEq for BuiltinProgram<C> {
-    fn eq(&self, other: &Self) -> bool {
-        if self.config != other.config {
-            return false;
-        }
-        for ((a_key, a_function), (b_key, b_function)) in
-            self.functions.iter().zip(other.functions.iter())
-        {
-            if a_key != b_key || a_function as *const _ as usize != b_function as *const _ as usize
-            {
-                return false;
-            }
-        }
-        true
     }
 }
 
@@ -411,7 +382,7 @@ pub struct CallFrame {
 ///     0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd
 /// ];
 ///
-/// let loader = std::sync::Arc::new(BuiltinProgram::new_loader(Config::default()));
+/// let loader = std::sync::Arc::new(BuiltinProgram::new_mock());
 /// let function_registry = FunctionRegistry::default();
 /// let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(prog, loader, SBPFVersion::V2, function_registry).unwrap();
 /// let verified_executable = Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();

@@ -12,7 +12,7 @@ extern crate test;
 use solana_rbpf::{
     elf::Executable,
     verifier::{RequisiteVerifier, TautologyVerifier},
-    vm::{BuiltinProgram, Config, TestContextObject},
+    vm::{BuiltinProgram, TestContextObject},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;
@@ -25,7 +25,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(
         &elf,
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let verified_executable =
@@ -52,7 +52,7 @@ fn bench_jit_compile(bencher: &mut Bencher) {
     file.read_to_end(&mut elf).unwrap();
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(
         &elf,
-        Arc::new(BuiltinProgram::new_loader(Config::default())),
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     let mut verified_executable =

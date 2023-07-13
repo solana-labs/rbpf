@@ -31,7 +31,7 @@ fn main() {
         0x00, 0x00, 0x00, 0x00, 0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x95, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00,
     ];
-    let loader = Arc::new(BuiltinProgram::default());
+    let loader = Arc::new(BuiltinProgram::new_mock());
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         program,
         loader,

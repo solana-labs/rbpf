@@ -11,20 +11,23 @@ extern crate test;
 extern crate test_utils;
 
 use solana_rbpf::{
-    elf::Executable,
+    elf::{Executable, FunctionRegistry},
     syscalls,
     verifier::TautologyVerifier,
-    vm::{BuiltinProgram, Config, TestContextObject},
+    vm::{BuiltinFunction, BuiltinProgram, Config, TestContextObject},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;
 
 fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
-    let mut loader = BuiltinProgram::new_loader(Config::default());
-    loader
-        .register_function(b"log", syscalls::bpf_syscall_string)
+    let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+    function_registry
+        .register_function_hashed(*b"log", syscalls::bpf_syscall_string)
         .unwrap();
-    Arc::new(loader)
+    Arc::new(BuiltinProgram::new_loader(
+        Config::default(),
+        function_registry,
+    ))
 }
 
 #[bench]
