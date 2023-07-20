@@ -240,11 +240,6 @@ impl Verifier for RequisiteVerifier {
             if sbpf_version.static_syscalls() && function_iter.peek() == Some(&insn_ptr) {
                 function_range.start = function_iter.next().unwrap_or(0);
                 function_range.end = *function_iter.peek().unwrap_or(&program_range.end);
-                if insn.opc == 0 && !sbpf_version.disable_lddw() {
-                    return Err(VerifierError::InvalidFunction(
-                        function_range.start,
-                    ));
-                }
                 let insn = ebpf::get_insn(prog, function_range.end.saturating_sub(1));
                 match insn.opc {
                     ebpf::JA | ebpf::CALL_IMM | ebpf::CALL_REG | ebpf::EXIT => {},
@@ -255,6 +250,7 @@ impl Verifier for RequisiteVerifier {
             }
 
             match insn.opc {
+                ebpf::LD_UW_IMM if sbpf_version.disable_lddw() => {},
                 ebpf::LD_DW_IMM if !sbpf_version.disable_lddw() => {
                     check_load_dw(prog, insn_ptr)?;
                     insn_ptr += 1;

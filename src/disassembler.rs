@@ -140,6 +140,7 @@ pub fn disassemble_instruction<C: ContextObject>(
         ebpf::LD_IND_W   => { name = "ldindw";  desc = ldind_str(name, insn); },
         ebpf::LD_IND_DW  => { name = "ldinddw"; desc = ldind_str(name, insn); },
 
+        ebpf::LD_UW_IMM  => { name = "lduw"; desc = format!("{} r{:}, {:#x}", name, insn.dst, insn.imm); },
         ebpf::LD_DW_IMM  => { name = "lddw"; desc = format!("{} r{:}, {:#x}", name, insn.dst, insn.imm); },
 
         // BPF_LDX class

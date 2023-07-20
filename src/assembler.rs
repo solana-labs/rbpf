@@ -9,7 +9,7 @@
 
 use self::InstructionType::{
     AluBinary, AluUnary, CallImm, CallReg, Endian, JumpConditional, JumpUnconditional, LoadAbs,
-    LoadDwImm, LoadInd, LoadReg, NoOperand, StoreImm, StoreReg, Syscall,
+    LoadDwImm, LoadInd, LoadReg, LoadUwImm, NoOperand, StoreImm, StoreReg, Syscall,
 };
 use crate::{
     asm_parser::{
@@ -28,6 +28,7 @@ use std::{collections::HashMap, sync::Arc};
 enum InstructionType {
     AluBinary,
     AluUnary,
+    LoadUwImm,
     LoadDwImm,
     LoadAbs,
     LoadInd,
@@ -93,6 +94,7 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
         entry("syscall", Syscall, ebpf::CALL_IMM);
         entry("call", CallImm, ebpf::CALL_IMM);
         entry("callx", CallReg, ebpf::CALL_REG);
+        entry("lduw", LoadUwImm, ebpf::LD_UW_IMM);
         entry("lddw", LoadDwImm, ebpf::LD_DW_IMM);
 
         // AluUnary.
@@ -332,6 +334,7 @@ pub fn assemble<C: ContextObject>(
                             insn(opc, 0, 1, 0, target_pc as i64)
                         }
                         (Endian(size), [Register(dst)]) => insn(opc, *dst, 0, 0, size),
+                        (LoadUwImm, [Register(dst), Integer(imm)]) => insn(opc, *dst, 0, 0, *imm),
                         (LoadDwImm, [Register(dst), Integer(imm)]) => {
                             insn(opc, *dst, 0, 0, (*imm << 32) >> 32)
                         }

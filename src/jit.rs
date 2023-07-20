@@ -408,6 +408,9 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                     }
                 }
 
+                ebpf::LD_UW_IMM => {
+                    self.emit_sanitized_alu(OperandSize::S64, 0x09, 1, dst, (insn.imm as u64).wrapping_shl(32) as i64);
+                }
                 ebpf::LD_DW_IMM  => {
                     self.emit_validate_and_profile_instruction_count(true, Some(self.pc + 2));
                     self.pc += 1;

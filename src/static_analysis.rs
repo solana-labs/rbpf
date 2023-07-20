@@ -975,7 +975,7 @@ impl<'a> Analysis<'a> {
                             bind(&mut state, insn, false, DataResource::Register(insn.src));
                             bind(&mut state, insn, true, DataResource::Register(0));
                         }
-                        ebpf::LD_DW_IMM => {
+                        ebpf::LD_UW_IMM | ebpf::LD_DW_IMM => {
                             bind(&mut state, insn, true, DataResource::Register(insn.dst));
                         }
                         ebpf::LD_B_REG | ebpf::LD_H_REG | ebpf::LD_W_REG | ebpf::LD_DW_REG => {

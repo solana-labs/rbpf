@@ -204,6 +204,9 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
                 }
             }
 
+            ebpf::LD_UW_IMM if self.executable.get_sbpf_version().disable_lddw() => {
+                self.reg[dst] |= (insn.imm as u64).wrapping_shl(32);
+            }
             ebpf::LD_DW_IMM  => {
                 ebpf::augment_lddw_unchecked(self.program, &mut insn);
                 instruction_width = 2;
