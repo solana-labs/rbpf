@@ -104,7 +104,12 @@ impl MemoryRegion {
 
     /// Creates a new writable MemoryRegion from a mutable slice
     pub fn new_writable(slice: &mut [u8], vm_addr: u64) -> Self {
-        Self::new(slice, vm_addr, 0, MemoryState::Writable)
+        Self::new(
+            unsafe { std::mem::transmute::<&mut [u8], &[u8]>(slice) },
+            vm_addr,
+            0,
+            MemoryState::Writable,
+        )
     }
 
     /// Creates a new copy on write MemoryRegion.
@@ -116,7 +121,12 @@ impl MemoryRegion {
 
     /// Creates a new writable gapped MemoryRegion from a mutable slice
     pub fn new_writable_gapped(slice: &mut [u8], vm_addr: u64, vm_gap_size: u64) -> Self {
-        Self::new(slice, vm_addr, vm_gap_size, MemoryState::Writable)
+        Self::new(
+            unsafe { std::mem::transmute::<&mut [u8], &[u8]>(slice) },
+            vm_addr,
+            vm_gap_size,
+            MemoryState::Writable,
+        )
     }
 
     /// Convert a virtual machine address into a host address
