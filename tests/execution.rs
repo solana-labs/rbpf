@@ -1304,6 +1304,20 @@ fn test_err_instruction_count_lddw_capped() {
 // BPF_LD : Loads
 
 #[test]
+fn test_lduw() {
+    test_interpreter_and_jit_asm!(
+        "
+        lduw r0, 0x10203040
+        lduw r0, 0x01020304
+        exit",
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(0x1122334400000000),
+    );
+}
+
+#[test]
 fn test_ldxb() {
     test_interpreter_and_jit_asm!(
         "
