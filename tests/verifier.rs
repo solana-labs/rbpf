@@ -133,7 +133,7 @@ fn test_verifier_err_incomplete_lddw() {
     let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltinProgram::new_mock()),
-        SBPFVersion::V2,
+        SBPFVersion::V1,
         FunctionRegistry::default(),
     )
     .unwrap();

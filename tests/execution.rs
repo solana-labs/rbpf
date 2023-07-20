@@ -463,12 +463,13 @@ fn test_arsh32_high_shift() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 8
-        lddw r1, 0x100000001
+        mov32 r1, 0x00000001
+        lduw r1, 0x00000001
         arsh32 r0, r1
         exit",
         [],
         (),
-        TestContextObject::new(4),
+        TestContextObject::new(5),
         ProgramResult::Ok(0x4),
     );
 }
@@ -784,12 +785,13 @@ fn test_div32_high_divisor() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 12
-        lddw r1, 0x100000004
+        mov32 r1, 0x00000004
+        lduw r1, 0x00000001
         div32 r0, r1
         exit",
         [],
         (),
-        TestContextObject::new(4),
+        TestContextObject::new(5),
         ProgramResult::Ok(0x3),
     );
 }
@@ -798,12 +800,13 @@ fn test_div32_high_divisor() {
 fn test_div32_imm() {
     test_interpreter_and_jit_asm!(
         "
-        lddw r0, 0x10000000c
+        mov32 r0, 0x0000000c
+        lduw r0, 0x00000001
         div32 r0, 4
         exit",
         [],
         (),
-        TestContextObject::new(3),
+        TestContextObject::new(4),
         ProgramResult::Ok(0x3),
     );
 }
@@ -812,13 +815,14 @@ fn test_div32_imm() {
 fn test_div32_reg() {
     test_interpreter_and_jit_asm!(
         "
-        lddw r0, 0x10000000c
+        mov32 r0, 0x0000000c
+        lduw r0, 0x00000001
         mov r1, 4
         div32 r0, r1
         exit",
         [],
         (),
-        TestContextObject::new(4),
+        TestContextObject::new(5),
         ProgramResult::Ok(0x3),
     );
 }
@@ -827,12 +831,13 @@ fn test_div32_reg() {
 fn test_sdiv32_imm() {
     test_interpreter_and_jit_asm!(
         "
-        lddw r0, 0x180000000
+        mov32 r0, -0x80000000
+        lduw r0, 0x00000001
         sdiv32 r0, 4
         exit",
         [],
         (),
-        TestContextObject::new(3),
+        TestContextObject::new(4),
         ProgramResult::Ok(0xFFFFFFFFE0000000),
     );
 }
@@ -841,12 +846,13 @@ fn test_sdiv32_imm() {
 fn test_sdiv32_neg_imm() {
     test_interpreter_and_jit_asm!(
         "
-        lddw r0, 0x10000000c
+        mov32 r0, 0x0000000c
+        lduw r0, 0x00000001
         sdiv32 r0, -1
         exit",
         [],
         (),
-        TestContextObject::new(3),
+        TestContextObject::new(4),
         ProgramResult::Ok((-0xc_i64) as u64),
     );
 }
@@ -855,13 +861,14 @@ fn test_sdiv32_neg_imm() {
 fn test_sdiv32_reg() {
     test_interpreter_and_jit_asm!(
         "
-        lddw r0, 0x180000000
+        mov32 r0, -0x80000000
+        lduw r0, 0x00000001
         mov r1, 4
         sdiv32 r0, r1
         exit",
         [],
         (),
-        TestContextObject::new(4),
+        TestContextObject::new(5),
         ProgramResult::Ok(0xFFFFFFFFE0000000),
     );
 }
@@ -870,13 +877,14 @@ fn test_sdiv32_reg() {
 fn test_sdiv32_neg_reg() {
     test_interpreter_and_jit_asm!(
         "
-        lddw r0, 0x10000000c
+        mov32 r0, 0x0000000c
+        lduw r0, 0x00000001
         mov r1, -1
         sdiv32 r0, r1
         exit",
         [],
         (),
-        TestContextObject::new(4),
+        TestContextObject::new(5),
         ProgramResult::Ok((-0xc_i64) as u64),
     );
 }
@@ -1085,12 +1093,13 @@ fn test_mod32() {
 fn test_mod32_imm() {
     test_interpreter_and_jit_asm!(
         "
-        lddw r0, 0x100000003
+        mov32 r0, 0x00000003
+        lduw r0, 0x00000001
         mod32 r0, 3
         exit",
         [],
         (),
-        TestContextObject::new(3),
+        TestContextObject::new(4),
         ProgramResult::Ok(0x0),
     );
 }
@@ -1142,6 +1151,153 @@ fn test_err_mod_by_zero_reg() {
         (),
         TestContextObject::new(3),
         ProgramResult::Err(Box::new(EbpfError::DivideByZero(31))),
+    );
+}
+
+// LD_DW_IMM
+
+#[test]
+fn test_lddw() {
+    let config = Config {
+        enable_sbpf_v2: false,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_asm!(
+        "
+        lddw r0, 0x1122334455667788
+        exit",
+        config,
+        [],
+        (),
+        TestContextObject::new(2),
+        ProgramResult::Ok(0x1122334455667788),
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        lddw r0, 0x0000000080000000
+        exit",
+        config,
+        [],
+        (),
+        TestContextObject::new(2),
+        ProgramResult::Ok(0x80000000),
+    );
+}
+
+#[test]
+fn test_err_static_jmp_lddw() {
+    let config = Config {
+        enable_sbpf_v2: false,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 0
+        mov r1, 0
+        mov r2, 0
+        lddw r0, 0x1
+        ja +2
+        lddw r1, 0x1
+        lddw r2, 0x1
+        add r1, r2
+        add r0, r1
+        exit
+        ",
+        config,
+        [],
+        (),
+        TestContextObject::new(9),
+        ProgramResult::Ok(0x2),
+    );
+}
+
+#[test]
+fn test_err_dynamic_jmp_lddw() {
+    let config = Config {
+        enable_sbpf_v2: false,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r8, 0x1
+        lsh64 r8, 0x20
+        or64 r8, 0x28
+        callx r8
+        lddw r0, 0x1122334455667788
+        exit",
+        config,
+        [],
+        (),
+        TestContextObject::new(4),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(33))),
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r8, 0x1
+        lsh64 r8, 0x20
+        or64 r8, 0x28
+        callx r8
+        lddw r0, 0x1122334455667788
+        exit",
+        config,
+        [],
+        (),
+        TestContextObject::new(5),
+        ProgramResult::Err(Box::new(EbpfError::UnsupportedInstruction(34))),
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r1, 0x1
+        lsh64 r1, 0x20
+        or64 r1, 0x38
+        callx r1
+        mov r0, r0
+        mov r0, r0
+        lddw r0, 0x1122334455667788
+        exit
+        ",
+        config,
+        [],
+        (),
+        TestContextObject::new(5),
+        ProgramResult::Err(Box::new(EbpfError::UnsupportedInstruction(36))),
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        lddw r1, 0x100000038
+        callx r1
+        mov r0, r0
+        mov r0, r0
+        exit
+        lddw r0, 0x1122334455667788
+        exit
+        ",
+        config,
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Err(Box::new(EbpfError::UnsupportedInstruction(36))),
+    );
+}
+
+#[test]
+fn test_err_instruction_count_lddw_capped() {
+    let config = Config {
+        enable_sbpf_v2: false,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 0
+        lddw r1, 0x1
+        mov r2, 0
+        exit
+        ",
+        config,
+        [],
+        (),
+        TestContextObject::new(2),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(32))),
     );
 }
 
@@ -1452,28 +1608,6 @@ fn test_ldxw_all() {
         (),
         TestContextObject::new(31),
         ProgramResult::Ok(0x030f0f),
-    );
-}
-
-#[test]
-fn test_lddw() {
-    test_interpreter_and_jit_asm!(
-        "
-        lddw r0, 0x1122334455667788
-        exit",
-        [],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Ok(0x1122334455667788),
-    );
-    test_interpreter_and_jit_asm!(
-        "
-        lddw r0, 0x0000000080000000
-        exit",
-        [],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Ok(0x80000000),
     );
 }
 
@@ -2557,7 +2691,8 @@ fn test_stack_call_depth_tracking() {
 fn test_err_mem_access_out_of_bound() {
     let mem = [0; 512];
     let mut prog = [0; 32];
-    prog[0] = ebpf::LD_DW_IMM;
+    prog[0] = ebpf::MOV32_IMM;
+    prog[8] = ebpf::LD_UW_IMM;
     prog[16] = ebpf::ST_B_IMM;
     prog[24] = ebpf::EXIT;
     let loader = Arc::new(BuiltinProgram::new_mock());
@@ -2575,7 +2710,7 @@ fn test_err_mem_access_out_of_bound() {
         test_interpreter_and_jit!(
             executable,
             mem,
-            TestContextObject::new(2),
+            TestContextObject::new(3),
             ProgramResult::Err(Box::new(EbpfError::AccessViolation(
                 31,
                 AccessType::Store,
@@ -2715,96 +2850,6 @@ fn test_err_callx_oob_high() {
             32,
             0xffffffff00000000
         ))),
-    );
-}
-
-#[test]
-fn test_err_static_jmp_lddw() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0
-        mov r1, 0
-        mov r2, 0
-        lddw r0, 0x1
-        ja +2
-        lddw r1, 0x1
-        lddw r2, 0x1
-        add r1, r2
-        add r0, r1
-        exit
-        ",
-        [],
-        (),
-        TestContextObject::new(9),
-        ProgramResult::Ok(0x2),
-    );
-}
-
-#[test]
-fn test_err_dynamic_jmp_lddw() {
-    let config = Config {
-        enable_sbpf_v2: false,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r8, 0x1
-        lsh64 r8, 0x20
-        or64 r8, 0x28
-        callx r8
-        lddw r0, 0x1122334455667788
-        exit",
-        config,
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(33))),
-    );
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r8, 0x1
-        lsh64 r8, 0x20
-        or64 r8, 0x28
-        callx r8
-        lddw r0, 0x1122334455667788
-        exit",
-        [],
-        (),
-        TestContextObject::new(5),
-        ProgramResult::Err(Box::new(EbpfError::UnsupportedInstruction(34))),
-    );
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r1, 0x1
-        lsh64 r1, 0x20
-        or64 r1, 0x38
-        callx r1
-        mov r0, r0
-        mov r0, r0
-        lddw r0, 0x1122334455667788
-        exit
-        ",
-        config,
-        [],
-        (),
-        TestContextObject::new(5),
-        ProgramResult::Err(Box::new(EbpfError::UnsupportedInstruction(36))),
-    );
-    test_interpreter_and_jit_asm!(
-        "
-        lddw r1, 0x100000038
-        callx r1
-        mov r0, r0
-        mov r0, r0
-        exit
-        lddw r0, 0x1122334455667788
-        exit
-        ",
-        config,
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::UnsupportedInstruction(36))),
     );
 }
 
@@ -3162,22 +3207,6 @@ fn test_err_instruction_count_syscall_capped() {
 }
 
 #[test]
-fn test_err_instruction_count_lddw_capped() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0
-        lddw r1, 0x1
-        mov r2, 0
-        exit
-        ",
-        [],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(32))),
-    );
-}
-
-#[test]
 fn test_non_terminate_early() {
     test_interpreter_and_jit_asm!(
         "
@@ -3377,7 +3406,7 @@ fn test_syscall_static() {
         (
             "log" => syscalls::bpf_syscall_string,
         ),
-        TestContextObject::new(5),
+        TestContextObject::new(6),
         ProgramResult::Ok(0),
     );
 }
@@ -3406,7 +3435,7 @@ fn test_err_unresolved_syscall_static() {
         "tests/elfs/syscall_static.so",
         [],
         (),
-        TestContextObject::new(3),
+        TestContextObject::new(4),
         ProgramResult::Err(Box::new(EbpfError::UnsupportedInstruction(32))),
     );
 }
@@ -3434,7 +3463,7 @@ fn test_reloc_64_64() {
         "tests/elfs/reloc_64_64.so",
         [],
         (),
-        TestContextObject::new(2),
+        TestContextObject::new(3),
         ProgramResult::Ok(ebpf::MM_PROGRAM_START),
     );
 }
@@ -3464,7 +3493,7 @@ fn test_reloc_64_relative() {
         "tests/elfs/reloc_64_relative.so",
         [],
         (),
-        TestContextObject::new(2),
+        TestContextObject::new(3),
         ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x18),
     );
 }
@@ -3500,7 +3529,7 @@ fn test_reloc_64_relative_data() {
         "tests/elfs/reloc_64_relative_data.so",
         [],
         (),
-        TestContextObject::new(3),
+        TestContextObject::new(4),
         ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x20),
     );
 }
@@ -3540,7 +3569,7 @@ fn test_load_elf_rodata() {
         config,
         [],
         (),
-        TestContextObject::new(3),
+        TestContextObject::new(4),
         ProgramResult::Ok(42),
     );
 }
@@ -3778,7 +3807,7 @@ fn test_struct_func_pointer() {
         "tests/elfs/struct_func_pointer.so",
         [],
         (),
-        TestContextObject::new(2),
+        TestContextObject::new(3),
         ProgramResult::Ok(0x102030405060708),
     );
 }
