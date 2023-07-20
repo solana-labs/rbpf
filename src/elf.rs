@@ -220,6 +220,11 @@ pub enum SBPFVersion {
 }
 
 impl SBPFVersion {
+    /// Disable the only two slots long instruction: LD_DW_IMM
+    pub fn disable_lddw(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+
     /// Enable native signed division
     pub fn enable_sdiv(&self) -> bool {
         self != &SBPFVersion::V1

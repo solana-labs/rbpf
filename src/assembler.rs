@@ -9,7 +9,7 @@
 
 use self::InstructionType::{
     AluBinary, AluUnary, CallImm, CallReg, Endian, JumpConditional, JumpUnconditional, LoadAbs,
-    LoadImm, LoadInd, LoadReg, NoOperand, StoreImm, StoreReg, Syscall,
+    LoadDwImm, LoadInd, LoadReg, NoOperand, StoreImm, StoreReg, Syscall,
 };
 use crate::{
     asm_parser::{
@@ -28,7 +28,7 @@ use std::{collections::HashMap, sync::Arc};
 enum InstructionType {
     AluBinary,
     AluUnary,
-    LoadImm,
+    LoadDwImm,
     LoadAbs,
     LoadInd,
     LoadReg,
@@ -93,7 +93,7 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
         entry("syscall", Syscall, ebpf::CALL_IMM);
         entry("call", CallImm, ebpf::CALL_IMM);
         entry("callx", CallReg, ebpf::CALL_REG);
-        entry("lddw", LoadImm, ebpf::LD_DW_IMM);
+        entry("lddw", LoadDwImm, ebpf::LD_DW_IMM);
 
         // AluUnary.
         entry("neg", AluUnary, ebpf::NEG64);
@@ -332,7 +332,7 @@ pub fn assemble<C: ContextObject>(
                             insn(opc, 0, 1, 0, target_pc as i64)
                         }
                         (Endian(size), [Register(dst)]) => insn(opc, *dst, 0, 0, size),
-                        (LoadImm, [Register(dst), Integer(imm)]) => {
+                        (LoadDwImm, [Register(dst), Integer(imm)]) => {
                             insn(opc, *dst, 0, 0, (*imm << 32) >> 32)
                         }
                         _ => Err(format!("Unexpected operands: {operands:?}")),
@@ -340,7 +340,7 @@ pub fn assemble<C: ContextObject>(
                     insn.ptr = insn_ptr;
                     instructions.push(insn);
                     insn_ptr += 1;
-                    if let LoadImm = inst_type {
+                    if let LoadDwImm = inst_type {
                         if let Integer(imm) = operands[1] {
                             instructions.push(Insn {
                                 ptr: insn_ptr,
