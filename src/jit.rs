@@ -392,16 +392,9 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
             let target_pc = (self.pc as isize + insn.off as isize + 1) as usize;
 
             match insn.opc {
-                _ if insn.dst == STACK_PTR_REG as u8 && self.executable.get_sbpf_version().dynamic_stack_frames() => {
+                ebpf::ADD64_IMM if insn.dst == STACK_PTR_REG as u8 && self.executable.get_sbpf_version().dynamic_stack_frames() => {
                     let stack_ptr_access = X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::StackPointer));
-                    match insn.opc {
-                        ebpf::SUB64_IMM => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, RBP, insn.imm, Some(stack_ptr_access))),
-                        ebpf::ADD64_IMM => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, insn.imm, Some(stack_ptr_access))),
-                        _ => {
-                            #[cfg(debug_assertions)]
-                            unreachable!("unexpected insn on r11")
-                        }
-                    }
+                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, insn.imm, Some(stack_ptr_access)));
                 }
 
                 ebpf::LD_DW_IMM  => {

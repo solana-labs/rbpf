@@ -187,21 +187,14 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
         }
 
         match insn.opc {
-            _ if dst == STACK_PTR_REG && self.executable.get_sbpf_version().dynamic_stack_frames() => {
+            ebpf::ADD64_IMM if dst == STACK_PTR_REG && self.executable.get_sbpf_version().dynamic_stack_frames() => {
                 // Let the stack overflow. For legitimate programs, this is a nearly
                 // impossible condition to hit since programs are metered and we already
                 // enforce a maximum call depth. For programs that intentionally mess
                 // around with the stack pointer, MemoryRegion::map will return
                 // InvalidVirtualAddress(stack_ptr) once an invalid stack address is
                 // accessed.
-                match insn.opc {
-                    ebpf::SUB64_IMM => { self.vm.stack_pointer = self.vm.stack_pointer.overflowing_add(-insn.imm as u64).0; }
-                    ebpf::ADD64_IMM => { self.vm.stack_pointer = self.vm.stack_pointer.overflowing_add(insn.imm as u64).0; }
-                    _ => {
-                        #[cfg(debug_assertions)]
-                        unreachable!("unexpected insn on r11")
-                    }
-                }
+                self.vm.stack_pointer = self.vm.stack_pointer.overflowing_add(insn.imm as u64).0;
             }
 
             ebpf::LD_DW_IMM  => {

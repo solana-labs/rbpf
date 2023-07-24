@@ -2383,11 +2383,11 @@ fn test_err_dynamic_stack_ptr_overflow() {
     // stack_ptr -= stack_ptr + 1
     test_interpreter_and_jit_asm!(
         "
-        sub r11, 0x7FFFFFFF
-        sub r11, 0x7FFFFFFF
-        sub r11, 0x7FFFFFFF
-        sub r11, 0x7FFFFFFF
-        sub r11, 0x14005
+        add r11, -0x7FFFFFFF
+        add r11, -0x7FFFFFFF
+        add r11, -0x7FFFFFFF
+        add r11, -0x7FFFFFFF
+        add r11, -0x14005
         call function_foo
         exit
         function_foo:
@@ -2435,7 +2435,7 @@ fn test_dynamic_frame_ptr() {
     // to the top of the stack
     test_interpreter_and_jit_asm!(
         "
-        sub r11, 8
+        add r11, -8
         call function_foo
         exit
         function_foo:
@@ -2452,7 +2452,7 @@ fn test_dynamic_frame_ptr() {
     // is restored
     test_interpreter_and_jit_asm!(
         "
-        sub r11, 8
+        add r11, -8
         call function_foo
         mov r0, r10
         exit

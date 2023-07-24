@@ -259,7 +259,7 @@ fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
     jlt r6, 1024, -4
     exit
     function_foo:
-    sub r11, 4
+    add r11, -4
     stw [r10-4], 0x11223344
     mov r6, r1
     jeq r6, 0, +3

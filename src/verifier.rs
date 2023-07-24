@@ -182,12 +182,7 @@ fn check_registers(
 
     match (insn.dst, store) {
         (0..=9, _) | (10, true) => Ok(()),
-        (11, _)
-            if sbpf_version.dynamic_stack_frames()
-                && (insn.opc == ebpf::SUB64_IMM || insn.opc == ebpf::ADD64_IMM) =>
-        {
-            Ok(())
-        }
+        (11, _) if sbpf_version.dynamic_stack_frames() && insn.opc == ebpf::ADD64_IMM => Ok(()),
         (10, false) => Err(VerifierError::CannotWriteR10(adj_insn_ptr(insn_ptr))),
         (_, _) => Err(VerifierError::InvalidDestinationRegister(adj_insn_ptr(
             insn_ptr,

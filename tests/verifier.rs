@@ -201,7 +201,7 @@ fn test_verifier_err_invalid_reg_src() {
 fn test_verifier_resize_stack_ptr_success() {
     let executable = assemble::<TestContextObject>(
         "
-        sub r11, 1
+        add r11, -1
         add r11, 1
         exit",
         Arc::new(BuiltinProgram::new_loader(
