@@ -468,7 +468,14 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None)); // sign extend i32 to i64
                 },
                 ebpf::SUB32_IMM  => {
-                    self.emit_sanitized_alu(OperandSize::S32, 0x29, 5, dst, insn.imm);
+                    if self.executable.get_sbpf_version().swap_sub_reg_imm_operands() {
+                        self.emit_ins(X86Instruction::alu(OperandSize::S32, 0xf7, 3, dst, 0, None));
+                        if insn.imm != 0 {
+                            self.emit_sanitized_alu(OperandSize::S32, 0x01, 0, dst, insn.imm);
+                        }
+                    } else {
+                        self.emit_sanitized_alu(OperandSize::S32, 0x29, 5, dst, insn.imm);
+                    }
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None)); // sign extend i32 to i64
                 },
                 ebpf::SUB32_REG  => {
@@ -487,7 +494,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                 ebpf::LSH32_REG  => self.emit_shift(OperandSize::S32, 4, src, dst, None),
                 ebpf::RSH32_IMM  => self.emit_shift(OperandSize::S32, 5, R11, dst, Some(insn.imm)),
                 ebpf::RSH32_REG  => self.emit_shift(OperandSize::S32, 5, src, dst, None),
-                ebpf::NEG32      => self.emit_ins(X86Instruction::alu(OperandSize::S32, 0xf7, 3, dst, 0, None)),
+                ebpf::NEG32     if self.executable.get_sbpf_version().enable_neg() => self.emit_ins(X86Instruction::alu(OperandSize::S32, 0xf7, 3, dst, 0, None)),
                 ebpf::XOR32_IMM  => self.emit_sanitized_alu(OperandSize::S32, 0x31, 6, dst, insn.imm),
                 ebpf::XOR32_REG  => self.emit_ins(X86Instruction::alu(OperandSize::S32, 0x31, src, dst, 0, None)),
                 ebpf::MOV32_IMM  => {
@@ -531,7 +538,16 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                 // BPF_ALU64 class
                 ebpf::ADD64_IMM  => self.emit_sanitized_alu(OperandSize::S64, 0x01, 0, dst, insn.imm),
                 ebpf::ADD64_REG  => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, src, dst, 0, None)),
-                ebpf::SUB64_IMM  => self.emit_sanitized_alu(OperandSize::S64, 0x29, 5, dst, insn.imm),
+                ebpf::SUB64_IMM  => {
+                    if self.executable.get_sbpf_version().swap_sub_reg_imm_operands() {
+                        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0xf7, 3, dst, 0, None));
+                        if insn.imm != 0 {
+                            self.emit_sanitized_alu(OperandSize::S64, 0x01, 0, dst, insn.imm);
+                        }
+                    } else {
+                        self.emit_sanitized_alu(OperandSize::S64, 0x29, 5, dst, insn.imm);
+                    }
+                }
                 ebpf::SUB64_REG  => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, src, dst, 0, None)),
                 ebpf::MUL64_IMM | ebpf::DIV64_IMM | ebpf::SDIV64_IMM | ebpf::MOD64_IMM  =>
                     self.emit_muldivmod(insn.opc, dst, dst, Some(insn.imm)),
@@ -545,7 +561,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                 ebpf::LSH64_REG  => self.emit_shift(OperandSize::S64, 4, src, dst, None),
                 ebpf::RSH64_IMM  => self.emit_shift(OperandSize::S64, 5, R11, dst, Some(insn.imm)),
                 ebpf::RSH64_REG  => self.emit_shift(OperandSize::S64, 5, src, dst, None),
-                ebpf::NEG64      => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0xf7, 3, dst, 0, None)),
+                ebpf::NEG64     if self.executable.get_sbpf_version().enable_neg() => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0xf7, 3, dst, 0, None)),
                 ebpf::XOR64_IMM  => self.emit_sanitized_alu(OperandSize::S64, 0x31, 6, dst, insn.imm),
                 ebpf::XOR64_REG  => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x31, src, dst, 0, None)),
                 ebpf::MOV64_IMM  => {

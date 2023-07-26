@@ -163,7 +163,7 @@ static ADDRESS_TRANSLATION_STACK_CODE: &str = "
     and r1, 4095
     mov r3, r10
     sub r3, r1
-    sub r3, 1
+    add r3, -1
     ldxb r4, [r3]
     add r2, 1
     jlt r2, 0x10000, -8
@@ -234,7 +234,7 @@ fn bench_jit_vs_interpreter_call_depth_fixed(bencher: &mut Bencher) {
     jgt r6, 0, +1
     exit
     mov r1, r6
-    sub r1, 1
+    add r1, -1
     call function_foo
     exit",
         Config {
@@ -264,7 +264,7 @@ fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
     mov r6, r1
     jeq r6, 0, +3
     mov r1, r6
-    sub r1, 1
+    add r1, -1
     call function_foo
     add r11, 4
     exit",

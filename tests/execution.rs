@@ -253,11 +253,16 @@ fn test_add32() {
 
 #[test]
 fn test_neg32() {
+    let config = Config {
+        enable_sbpf_v2: false,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 2
         neg32 r0
         exit",
+        config,
         [],
         (),
         TestContextObject::new(3),
@@ -267,11 +272,16 @@ fn test_neg32() {
 
 #[test]
 fn test_neg64() {
+    let config = Config {
+        enable_sbpf_v2: false,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 2
         neg r0
         exit",
+        config,
         [],
         (),
         TestContextObject::new(3),
@@ -293,10 +303,10 @@ fn test_alu32_arithmetic() {
         mov32 r7, 7
         mov32 r8, 8
         mov32 r9, 9
-        add32 r0, 23
-        add32 r0, r7
         sub32 r0, 13
         sub32 r0, r1
+        add32 r0, 23
+        add32 r0, r7
         mul32 r0, 7
         mul32 r0, r3
         div32 r0, 2
@@ -305,7 +315,7 @@ fn test_alu32_arithmetic() {
         [],
         (),
         TestContextObject::new(19),
-        ProgramResult::Ok(0x2a),
+        ProgramResult::Ok(110),
     );
 }
 
@@ -323,10 +333,10 @@ fn test_alu64_arithmetic() {
         mov r7, 7
         mov r8, 8
         mov r9, 9
-        add r0, 23
-        add r0, r7
         sub r0, 13
         sub r0, r1
+        add r0, 23
+        add r0, r7
         mul r0, 7
         mul r0, r3
         div r0, 2
@@ -335,7 +345,7 @@ fn test_alu64_arithmetic() {
         [],
         (),
         TestContextObject::new(19),
-        ProgramResult::Ok(0x2a),
+        ProgramResult::Ok(110),
     );
 }
 
@@ -542,7 +552,7 @@ fn test_rhs32_imm() {
     test_interpreter_and_jit_asm!(
         "
         xor r0, r0
-        sub r0, 1
+        add r0, -1
         rsh32 r0, 8
         exit",
         [],
@@ -3366,7 +3376,7 @@ fn test_symbol_relocation() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, r10
-        sub64 r1, 0x1
+        add64 r1, -0x1
         mov64 r2, 0x1
         syscall bpf_syscall_string
         mov64 r0, 0x0

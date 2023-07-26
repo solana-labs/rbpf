@@ -220,6 +220,16 @@ pub enum SBPFVersion {
 }
 
 impl SBPFVersion {
+    /// Enable the negation instruction
+    pub fn enable_neg(&self) -> bool {
+        self == &SBPFVersion::V1
+    }
+
+    /// Swaps the reg and imm operands of the subtraction instruction
+    pub fn swap_sub_reg_imm_operands(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+
     /// Disable the only two slots long instruction: LD_DW_IMM
     pub fn disable_lddw(&self) -> bool {
         self != &SBPFVersion::V1
