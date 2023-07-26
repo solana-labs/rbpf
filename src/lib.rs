@@ -24,6 +24,8 @@ extern crate log;
 extern crate rand;
 extern crate thiserror;
 
+#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "aarch64"))]
+mod aarch64;
 pub mod aligned_memory;
 mod asm_parser;
 pub mod assembler;
