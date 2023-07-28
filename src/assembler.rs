@@ -304,7 +304,13 @@ pub fn assemble<C: ContextObject>(
                                 .map_err(|_| format!("Label hash collision {name}"))?;
                             insn(opc, 0, 1, 0, target_pc)
                         }
-                        (CallReg, [Register(dst)]) => insn(opc, 0, 0, 0, *dst),
+                        (CallReg, [Register(dst)]) => {
+                            if sbpf_version.callx_uses_src_reg() {
+                                insn(opc, 0, *dst, 0, 0)
+                            } else {
+                                insn(opc, 0, 0, 0, *dst)
+                            }
+                        }
                         (JumpConditional, [Register(dst), Register(src), Label(label)]) => insn(
                             opc | ebpf::BPF_X,
                             *dst,

@@ -230,6 +230,11 @@ impl SBPFVersion {
         self != &SBPFVersion::V1
     }
 
+    /// Use src reg instead of imm in callx
+    pub fn callx_uses_src_reg(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+
     /// Ensure that rodata sections don't exceed their maximum allowed size and
     /// overlap with the stack
     pub fn reject_rodata_stack_overlap(&self) -> bool {

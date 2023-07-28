@@ -203,13 +203,19 @@ fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize, imm_bits: u64) -> Result<
     Ok(())
 }
 
-/// Check that the imm is a valid register number
-fn check_imm_register(
+/// Check that callx has a valid register number
+fn check_callx_register(
     insn: &ebpf::Insn,
     insn_ptr: usize,
     config: &Config,
+    sbpf_version: &SBPFVersion,
 ) -> Result<(), VerifierError> {
-    if insn.imm < 0 || insn.imm > 10 || (insn.imm == 10 && config.reject_callx_r10) {
+    let reg = if sbpf_version.callx_uses_src_reg() {
+        insn.src as i64
+    } else {
+        insn.imm
+    };
+    if !(0..=10).contains(&reg) || (reg == 10 && config.reject_callx_r10) {
         return Err(VerifierError::InvalidRegister(adj_insn_ptr(insn_ptr)));
     }
     Ok(())
@@ -355,7 +361,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src != 0 => { check_jmp_offset(prog, insn_ptr, &program_range)?; },
                 ebpf::CALL_IMM   => {},
-                ebpf::CALL_REG   => { check_imm_register(&insn, insn_ptr, config)?; },
+                ebpf::CALL_REG   => { check_callx_register(&insn, insn_ptr, config, sbpf_version)?; },
                 ebpf::EXIT       => {},
 
                 _                => {

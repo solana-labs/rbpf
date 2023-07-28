@@ -621,7 +621,12 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                     }
                 },
                 ebpf::CALL_REG  => {
-                    self.emit_internal_call(Value::Register(REGISTER_MAP[insn.imm as usize]));
+                    let target_pc = if self.executable.get_sbpf_version().callx_uses_src_reg() {
+                        src
+                    } else {
+                        REGISTER_MAP[insn.imm as usize]
+                    };
+                    self.emit_internal_call(Value::Register(target_pc));
                 },
                 ebpf::EXIT      => {
                     let call_depth_access = X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::CallDepth));

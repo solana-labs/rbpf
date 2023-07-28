@@ -411,14 +411,18 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             ebpf::JSLE_REG   => if (self.reg[dst] as i64) <= self.reg[src] as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
 
             ebpf::CALL_REG   => {
-                let target_address = self.reg[insn.imm as usize];
+                let target_pc = if self.executable.get_sbpf_version().callx_uses_src_reg() {
+                    self.reg[src]
+                } else {
+                    self.reg[insn.imm as usize]
+                };
                 if !self.push_frame(config) {
                     return false;
                 }
-                if target_address < self.program_vm_addr {
-                    throw_error!(self, EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_address / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
+                if target_pc < self.program_vm_addr {
+                    throw_error!(self, EbpfError::CallOutsideTextSegment(pc + ebpf::ELF_INSN_DUMP_OFFSET, target_pc / ebpf::INSN_SIZE as u64 * ebpf::INSN_SIZE as u64));
                 }
-                self.pc = (target_address - self.program_vm_addr) as usize / ebpf::INSN_SIZE;
+                self.pc = (target_pc - self.program_vm_addr) as usize / ebpf::INSN_SIZE;
                 if !self.check_pc(pc) {
                     return false;
                 }
