@@ -316,7 +316,7 @@ impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
             ebpf::MOV32_REG  => self.reg[dst] = (self.reg[src] as u32) as u64,
             ebpf::ARSH32_IMM => self.reg[dst] = (self.reg[dst] as i32).wrapping_shr(insn.imm as u32)      as u64 & (u32::MAX as u64),
             ebpf::ARSH32_REG => self.reg[dst] = (self.reg[dst] as i32).wrapping_shr(self.reg[src] as u32) as u64 & (u32::MAX as u64),
-            ebpf::LE         => {
+            ebpf::LE if self.executable.get_sbpf_version().enable_le() => {
                 self.reg[dst] = match insn.imm {
                     16 => (self.reg[dst] as u16).to_le() as u64,
                     32 => (self.reg[dst] as u32).to_le() as u64,

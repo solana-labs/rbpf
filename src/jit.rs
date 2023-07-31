@@ -507,7 +507,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                 ebpf::MOV32_REG  => self.emit_ins(X86Instruction::mov(OperandSize::S32, src, dst)),
                 ebpf::ARSH32_IMM => self.emit_shift(OperandSize::S32, 7, R11, dst, Some(insn.imm)),
                 ebpf::ARSH32_REG => self.emit_shift(OperandSize::S32, 7, src, dst, None),
-                ebpf::LE         => {
+                ebpf::LE if self.executable.get_sbpf_version().enable_le() => {
                     match insn.imm {
                         16 => {
                             self.emit_ins(X86Instruction::alu(OperandSize::S32, 0x81, 4, dst, 0xffff, None)); // Mask to 16 bit

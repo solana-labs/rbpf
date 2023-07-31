@@ -649,25 +649,27 @@ fn test_be64() {
 
 #[test]
 fn test_le16() {
+    let config = Config {
+        enable_sbpf_v2: false,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         ldxh r0, [r1]
         le16 r0
         exit",
+        config,
         [0x22, 0x11],
         (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x1122),
     );
-}
-
-#[test]
-fn test_le16_high() {
     test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1]
         le16 r0
         exit",
+        config,
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
         TestContextObject::new(3),
@@ -677,25 +679,27 @@ fn test_le16_high() {
 
 #[test]
 fn test_le32() {
+    let config = Config {
+        enable_sbpf_v2: false,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         ldxw r0, [r1]
         le32 r0
         exit",
+        config,
         [0x44, 0x33, 0x22, 0x11],
         (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x11223344),
     );
-}
-
-#[test]
-fn test_le32_high() {
     test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1]
         le32 r0
         exit",
+        config,
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
         TestContextObject::new(3),
@@ -705,11 +709,16 @@ fn test_le32_high() {
 
 #[test]
 fn test_le64() {
+    let config = Config {
+        enable_sbpf_v2: false,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1]
         le64 r0
         exit",
+        config,
         [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
         (),
         TestContextObject::new(3),

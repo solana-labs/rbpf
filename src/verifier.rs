@@ -303,7 +303,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::MOV32_REG  => {},
                 ebpf::ARSH32_IMM => { check_imm_shift(&insn, insn_ptr, 32)?; },
                 ebpf::ARSH32_REG => {},
-                ebpf::LE         => { check_imm_endian(&insn, insn_ptr)?; },
+                ebpf::LE         if sbpf_version.enable_le() => { check_imm_endian(&insn, insn_ptr)?; },
                 ebpf::BE         => { check_imm_endian(&insn, insn_ptr)?; },
 
                 // BPF_ALU64 class

@@ -220,6 +220,11 @@ pub enum SBPFVersion {
 }
 
 impl SBPFVersion {
+    /// Enable the little-endian byte swap instructions
+    pub fn enable_le(&self) -> bool {
+        self == &SBPFVersion::V1
+    }
+
     /// Enable the negation instruction
     pub fn enable_neg(&self) -> bool {
         self == &SBPFVersion::V1
