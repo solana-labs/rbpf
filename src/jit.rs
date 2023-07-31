@@ -26,9 +26,15 @@ use crate::{
     x86::*,
 };
 
+/// Shift the RUNTIME_ENVIRONMENT_KEY by this many bits to the LSB
+///
+/// 3 bits for 8 Byte alignment, and 1 bit to have encoding space for the RuntimeEnvironment.
+const PROGRAM_ENVIRONMENT_KEY_SHIFT: u32 = 4;
 const MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH: usize = 4096;
 const MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION: usize = 110;
 const MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT: usize = 13;
+
+static RUNTIME_ENVIRONMENT_KEY: std::sync::OnceLock<i32> = std::sync::OnceLock::<i32>::new();
 
 pub struct JitProgram {
     /// OS page size in bytes and the alignment of the sections
@@ -92,7 +98,7 @@ impl JitProgram {
 
     pub fn invoke<C: ContextObject>(
         &self,
-        config: &Config,
+        _config: &Config,
         vm: &mut EbpfVm<C>,
         registers: [u64; 12],
     ) -> i64 {
@@ -122,7 +128,7 @@ impl JitProgram {
                 "pop rbp",
                 "pop rbx",
                 host_stack_pointer = in(reg) &mut vm.host_stack_pointer,
-                rbp = in(reg) (vm as *mut _ as *mut u64).offset(config.runtime_environment_key as isize),
+                rbp = in(reg) (vm as *mut _ as *mut u64).offset(*RUNTIME_ENVIRONMENT_KEY.get().unwrap() as isize),
                 rbx = in(reg) registers[ebpf::FRAME_PTR_REG],
                 inlateout("rdi") instruction_meter,
                 inlateout("r10") self.pc_section[registers[11] as usize] => _,
@@ -309,13 +315,14 @@ pub struct JitCompiler<'a, V: Verifier, C: ContextObject> {
     text_section_jumps: Vec<Jump>,
     anchors: [*const u8; ANCHOR_COUNT],
     offset_in_text_section: usize,
-    pc: usize,
-    last_instruction_meter_validation_pc: usize,
-    next_noop_insertion: u32,
     executable: &'a Executable<V, C>,
     program: &'a [u8],
     program_vm_addr: u64,
     config: &'a Config,
+    pc: usize,
+    last_instruction_meter_validation_pc: usize,
+    next_noop_insertion: u32,
+    runtime_environment_key: i32,
     diversification_rng: SmallRng,
     stopwatch_is_active: bool,
 }
@@ -348,20 +355,29 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
         if config.instruction_meter_checkpoint_distance != 0 {
             code_length_estimate += pc / config.instruction_meter_checkpoint_distance * MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT;
         }
-        
+
+        let runtime_environment_key = *RUNTIME_ENVIRONMENT_KEY.get_or_init(|| {
+            if config.encrypt_runtime_environment {
+                rand::thread_rng().gen::<i32>() >> PROGRAM_ENVIRONMENT_KEY_SHIFT
+            } else {
+                0
+            }
+        });
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).map_err(|_| EbpfError::JitNotCompiled)?;
+        
         Ok(Self {
             result: JitProgram::new(pc, code_length_estimate)?,
             text_section_jumps: vec![],
             anchors: [std::ptr::null(); ANCHOR_COUNT],
             offset_in_text_section: 0,
-            pc: 0,
-            last_instruction_meter_validation_pc: 0,
-            next_noop_insertion: if config.noop_instruction_rate == 0 { u32::MAX } else { diversification_rng.gen_range(0..config.noop_instruction_rate * 2) },
             executable,
             program_vm_addr,
             program,
             config,
+            pc: 0,
+            last_instruction_meter_validation_pc: 0,
+            next_noop_insertion: if config.noop_instruction_rate == 0 { u32::MAX } else { diversification_rng.gen_range(0..config.noop_instruction_rate * 2) },
+            runtime_environment_key,
             diversification_rng,
             stopwatch_is_active: false,
         })
@@ -713,7 +729,7 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
 
     #[inline]
     fn slot_on_environment_stack(&self, slot: RuntimeEnvironmentSlot) -> i32 {
-        8 * (slot as i32 - self.config.runtime_environment_key)
+        8 * (slot as i32 - self.runtime_environment_key)
     }
 
     #[inline]
