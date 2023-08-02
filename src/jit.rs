@@ -496,9 +496,9 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None)); // sign extend i32 to i64
                 },
                 ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::SDIV32_IMM | ebpf::MOD32_IMM  =>
-                    self.emit_muldivmod(insn.opc, dst, dst, Some(insn.imm)),
+                    self.emit_product_quotient_remainder(insn.opc, dst, dst, Some(insn.imm)),
                 ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::SDIV32_REG | ebpf::MOD32_REG  =>
-                    self.emit_muldivmod(insn.opc, src, dst, None),
+                    self.emit_product_quotient_remainder(insn.opc, src, dst, None),
                 ebpf::OR32_IMM   => self.emit_sanitized_alu(OperandSize::S32, 0x09, 1, dst, insn.imm),
                 ebpf::OR32_REG   => self.emit_ins(X86Instruction::alu(OperandSize::S32, 0x09, src, dst, 0, None)),
                 ebpf::AND32_IMM  => self.emit_sanitized_alu(OperandSize::S32, 0x21, 4, dst, insn.imm),
@@ -563,9 +563,9 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                 }
                 ebpf::SUB64_REG  => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, src, dst, 0, None)),
                 ebpf::MUL64_IMM | ebpf::DIV64_IMM | ebpf::SDIV64_IMM | ebpf::MOD64_IMM  =>
-                    self.emit_muldivmod(insn.opc, dst, dst, Some(insn.imm)),
+                    self.emit_product_quotient_remainder(insn.opc, dst, dst, Some(insn.imm)),
                 ebpf::MUL64_REG | ebpf::DIV64_REG | ebpf::SDIV64_REG | ebpf::MOD64_REG  =>
-                    self.emit_muldivmod(insn.opc, src, dst, None),
+                    self.emit_product_quotient_remainder(insn.opc, src, dst, None),
                 ebpf::OR64_IMM   => self.emit_sanitized_alu(OperandSize::S64, 0x09, 1, dst, insn.imm),
                 ebpf::OR64_REG   => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x09, src, dst, 0, None)),
                 ebpf::AND64_IMM  => self.emit_sanitized_alu(OperandSize::S64, 0x21, 4, dst, insn.imm),
@@ -1153,49 +1153,49 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
         }
     }
 
-    fn emit_muldivmod(&mut self, opc: u8, src: u8, dst: u8, imm: Option<i64>) {
-        let mul = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MUL32_IMM & ebpf::BPF_ALU_OP_MASK);
-        let div = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::DIV32_IMM & ebpf::BPF_ALU_OP_MASK);
-        let sdiv = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::SDIV32_IMM & ebpf::BPF_ALU_OP_MASK);
-        let modrm = (opc & ebpf::BPF_ALU_OP_MASK) == (ebpf::MOD32_IMM & ebpf::BPF_ALU_OP_MASK);
+    fn emit_product_quotient_remainder(&mut self, opc: u8, src: u8, dst: u8, imm: Option<i64>) {
+        //         LMUL UHMUL SHMUL UDIV SDIV UREM SREM
+        // ALU     F7/4 F7/4  F7/5  F7/6 F7/7 F7/6 F7/7
+        // src-in  R11  R11   R11   R11  R11  R11  R11
+        // dst-in  RAX  RAX   RAX   RAX  RAX  RAX  RAX
+        // dst-out RAX  RDX   RDX   RAX  RAX  RDX  RDX
+
+        let signed = (opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_SDIV;
+        let division = (opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL;
+        let alt_dst = (opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD;
         let size = if (opc & ebpf::BPF_CLS_MASK) == ebpf::BPF_ALU64 { OperandSize::S64 } else { OperandSize::S32 };
-    
-        if !mul && imm.is_none() {
-            // Save pc
-            self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
-            self.emit_ins(X86Instruction::test(size, src, src, None)); // src == 0
-            self.emit_ins(X86Instruction::conditional_jump_immediate(0x84, self.relative_to_anchor(ANCHOR_DIV_BY_ZERO, 6)));
-        }
-    
-        // sdiv overflows with MIN / -1. If we have an immediate and it's not -1, we
-        // don't need any checks.
-        if sdiv && imm.unwrap_or(-1) == -1 {
-            self.emit_ins(X86Instruction::load_immediate(size, R11, if let OperandSize::S64 = size { i64::MIN } else { i32::MIN as i64 }));
-            self.emit_ins(X86Instruction::cmp(size, dst, R11, None)); // dst == MIN
-    
+
+        if division {
+            // Prevent division by zero
             if imm.is_none() {
-                // The exception case is: dst == MIN && src == -1
-                // Via De Morgan's law becomes: !(dst != MIN || src != -1)
-                // Also, we know that src != 0 in here, so we can use it to set R11 to something not zero
-                self.emit_ins(X86Instruction::load_immediate(size, R11, 0)); // No XOR here because we need to keep the status flags
-                self.emit_ins(X86Instruction::cmov(size, 0x45, src, R11)); // if dst != MIN { r11 = src; }
-                self.emit_ins(X86Instruction::cmp_immediate(size, src, -1, None)); // src == -1
-                self.emit_ins(X86Instruction::cmov(size, 0x45, src, R11)); // if src != -1 { r11 = src; }
-                self.emit_ins(X86Instruction::test(size, R11, R11, None)); // r11 == 0
+                self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64)); // Save pc
+                self.emit_ins(X86Instruction::test(size, src, src, None)); // src == 0
+                self.emit_ins(X86Instruction::conditional_jump_immediate(0x84, self.relative_to_anchor(ANCHOR_DIV_BY_ZERO, 6)));
             }
-            
-            // MIN / -1, raise EbpfError::DivideOverflow(pc)
-            self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
-            self.emit_ins(X86Instruction::conditional_jump_immediate(0x84, self.relative_to_anchor(ANCHOR_DIV_OVERFLOW, 6)));
+
+            // Signed division overflows with MIN / -1.
+            // If we have an immediate and it's not -1, we can skip the following check.
+            if signed && imm.unwrap_or(-1) == -1 {
+                self.emit_ins(X86Instruction::load_immediate(size, R11, if let OperandSize::S64 = size { i64::MIN } else { i32::MIN as i64 }));
+                self.emit_ins(X86Instruction::cmp(size, dst, R11, None)); // dst == MIN
+
+                if imm.is_none() {
+                    // The exception case is: dst == MIN && src == -1
+                    // Via De Morgan's law becomes: !(dst != MIN || src != -1)
+                    // Also, we know that src != 0 in here, so we can use it to set R11 to something not zero
+                    self.emit_ins(X86Instruction::load_immediate(size, R11, 0)); // No XOR here because we need to keep the status flags
+                    self.emit_ins(X86Instruction::cmov(size, 0x45, src, R11)); // if dst != MIN { r11 = src; }
+                    self.emit_ins(X86Instruction::cmp_immediate(size, src, -1, None)); // src == -1
+                    self.emit_ins(X86Instruction::cmov(size, 0x45, src, R11)); // if src != -1 { r11 = src; }
+                    self.emit_ins(X86Instruction::test(size, R11, R11, None)); // r11 == 0
+                }
+
+                // MIN / -1, raise EbpfError::DivideOverflow(pc)
+                self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
+                self.emit_ins(X86Instruction::conditional_jump_immediate(0x84, self.relative_to_anchor(ANCHOR_DIV_OVERFLOW, 6)));
+            }
         }
-    
-        if dst != RAX {
-            self.emit_ins(X86Instruction::push(RAX, None));
-        }
-        if dst != RDX {
-            self.emit_ins(X86Instruction::push(RDX, None));
-        }
-    
+
         if let Some(imm) = imm {
             if self.should_sanitize_constant(imm) {
                 self.emit_sanitized_load_immediate(OperandSize::S64, R11, imm);
@@ -1205,34 +1205,35 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
         } else {
             self.emit_ins(X86Instruction::mov(OperandSize::S64, src, R11));
         }
-    
         if dst != RAX {
+            self.emit_ins(X86Instruction::push(RAX, None));
             self.emit_ins(X86Instruction::mov(OperandSize::S64, dst, RAX));
         }
-    
-        if div || modrm {
-            self.emit_ins(X86Instruction::alu(size, 0x31, RDX, RDX, 0, None)); // RDX = 0
-        } else if sdiv {
-            self.emit_ins(X86Instruction::dividend_sign_extension(size)); // (RAX, RDX) = RAX as i128
-        }
-    
-        self.emit_ins(X86Instruction::alu(size, 0xf7, if mul { 4 } else if sdiv { 7 } else { 6 }, R11, 0, None));
-    
         if dst != RDX {
-            if modrm {
+            self.emit_ins(X86Instruction::push(RDX, None));
+        }
+        if signed {
+            self.emit_ins(X86Instruction::sign_extend_rax_rdx(size));
+        } else if division {
+            self.emit_ins(X86Instruction::alu(size, 0x31, RDX, RDX, 0, None)); // RDX = 0
+        }
+
+        self.emit_ins(X86Instruction::alu(size, 0xf7, 0x4 | (division as u8) << 1 | signed as u8, R11, 0, None));
+
+        if dst != RDX {
+            if alt_dst {
                 self.emit_ins(X86Instruction::mov(OperandSize::S64, RDX, dst));
             }
             self.emit_ins(X86Instruction::pop(RDX));
         }
         if dst != RAX {
-            if !modrm {
+            if !alt_dst {
                 self.emit_ins(X86Instruction::mov(OperandSize::S64, RAX, dst));
             }
             self.emit_ins(X86Instruction::pop(RAX));
         }
-    
         if let OperandSize::S32 = size {
-            if mul || sdiv {
+            if signed {
                 self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None)); // sign extend i32 to i64
             }
         }
