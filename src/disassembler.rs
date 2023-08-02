@@ -85,16 +85,6 @@ fn st_reg_str(name: &str, insn: &ebpf::Insn) -> String {
 }
 
 #[inline]
-fn ldabs_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} {}", name, insn.imm)
-}
-
-#[inline]
-fn ldind_str(name: &str, insn: &ebpf::Insn) -> String {
-    format!("{} r{}, {}", name, insn.src, insn.imm)
-}
-
-#[inline]
 fn jmp_imm_str(name: &str, insn: &ebpf::Insn, cfg_nodes: &BTreeMap<usize, CfgNode>) -> String {
     let target_pc = (insn.ptr as isize + insn.off as isize + 1) as usize;
     format!(
@@ -131,15 +121,6 @@ pub fn disassemble_instruction<C: ContextObject>(
     let desc;
     match insn.opc {
         // BPF_LD class
-        ebpf::LD_ABS_B   => { name = "ldabsb";  desc = ldabs_str(name, insn); },
-        ebpf::LD_ABS_H   => { name = "ldabsh";  desc = ldabs_str(name, insn); },
-        ebpf::LD_ABS_W   => { name = "ldabsw";  desc = ldabs_str(name, insn); },
-        ebpf::LD_ABS_DW  => { name = "ldabsdw"; desc = ldabs_str(name, insn); },
-        ebpf::LD_IND_B   => { name = "ldindb";  desc = ldind_str(name, insn); },
-        ebpf::LD_IND_H   => { name = "ldindh";  desc = ldind_str(name, insn); },
-        ebpf::LD_IND_W   => { name = "ldindw";  desc = ldind_str(name, insn); },
-        ebpf::LD_IND_DW  => { name = "ldinddw"; desc = ldind_str(name, insn); },
-
         ebpf::LD_UW_IMM  => { name = "lduw"; desc = format!("{} r{:}, {:#x}", name, insn.dst, insn.imm); },
         ebpf::LD_DW_IMM  => { name = "lddw"; desc = format!("{} r{:}, {:#x}", name, insn.dst, insn.imm); },
 
@@ -160,8 +141,6 @@ pub fn disassemble_instruction<C: ContextObject>(
         ebpf::ST_H_REG   => { name = "stxh";      desc = st_reg_str(name, insn); },
         ebpf::ST_W_REG   => { name = "stxw";      desc = st_reg_str(name, insn); },
         ebpf::ST_DW_REG  => { name = "stxdw";     desc = st_reg_str(name, insn); },
-        ebpf::ST_W_XADD  => { name = "stxxaddw";  desc = st_reg_str(name, insn); },
-        ebpf::ST_DW_XADD => { name = "stxxadddw"; desc = st_reg_str(name, insn); },
 
         // BPF_ALU class
         ebpf::ADD32_IMM  => { name = "add32";  desc = alu_imm_str(name, insn);  },

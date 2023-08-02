@@ -136,18 +136,6 @@ fn test_lddw() {
     disasm!("entrypoint:\n    lddw r1, 0xff11ee22dd33cc44\n");
 }
 
-// Example for InstructionType::LoadAbs.
-#[test]
-fn test_ldabsw() {
-    disasm!("entrypoint:\n    ldabsw 1\n");
-}
-
-// Example for InstructionType::LoadInd.
-#[test]
-fn test_ldindw() {
-    disasm!("entrypoint:\n    ldindw r1, 2\n");
-}
-
 // Example for InstructionType::LoadReg.
 #[test]
 fn test_ldxdw() {
@@ -248,32 +236,6 @@ fn test_alu_unary() {
         "entrypoint:
     neg64 r1
     neg32 r1
-"
-    );
-}
-
-// Test all supported LoadAbs mnemonics.
-#[test]
-fn test_load_abs() {
-    disasm!(
-        "entrypoint:
-    ldabsw 1
-    ldabsh 1
-    ldabsb 1
-    ldabsdw 1
-"
-    );
-}
-
-// Test all supported LoadInd mnemonics.
-#[test]
-fn test_load_ind() {
-    disasm!(
-        "entrypoint:
-    ldindw r1, 2
-    ldindh r1, 2
-    ldindb r1, 2
-    ldinddw r1, 2
 "
     );
 }

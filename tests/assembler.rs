@@ -154,24 +154,6 @@ fn test_lddw() {
     );
 }
 
-// Example for InstructionType::LoadAbs.
-#[test]
-fn test_ldabsw() {
-    assert_eq!(
-        asm("ldabsw 1"),
-        Ok(vec![insn(0, ebpf::LD_ABS_W, 0, 0, 0, 1)])
-    );
-}
-
-// Example for InstructionType::LoadInd.
-#[test]
-fn test_ldindw() {
-    assert_eq!(
-        asm("ldindw r1, 2"),
-        Ok(vec![insn(0, ebpf::LD_IND_W, 0, 1, 0, 2)])
-    );
-}
-
 // Example for InstructionType::LoadReg.
 #[test]
 fn test_ldxdw() {

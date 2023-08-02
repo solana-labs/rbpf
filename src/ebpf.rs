@@ -105,8 +105,7 @@ pub const BPF_IND: u8 = 0x40;
 pub const BPF_MEM: u8 = 0x60;
 // [ 0x80 reserved ]
 // [ 0xa0 reserved ]
-/// BPF mode modifier: exclusive add.
-pub const BPF_XADD: u8 = 0xc0;
+// [ 0xc0 reserved ]
 
 // For arithmetic (BPF_ALU/BPF_ALU64) and jump (BPF_JMP) instructions:
 // +----------------+--------+--------+
@@ -187,23 +186,6 @@ pub const BPF_JSLE: u8 = 0xd0;
 // (Following operation names are not “official”, but may be proper to rbpf; Linux kernel only
 // combines above flags and does not attribute a name per operation.)
 
-/// BPF opcode: `ldabsb src, dst, imm`.
-pub const LD_ABS_B: u8 = BPF_LD | BPF_ABS | BPF_B;
-/// BPF opcode: `ldabsh src, dst, imm`.
-pub const LD_ABS_H: u8 = BPF_LD | BPF_ABS | BPF_H;
-/// BPF opcode: `ldabsw src, dst, imm`.
-pub const LD_ABS_W: u8 = BPF_LD | BPF_ABS | BPF_W;
-/// BPF opcode: `ldabsdw src, dst, imm`.
-pub const LD_ABS_DW: u8 = BPF_LD | BPF_ABS | BPF_DW;
-/// BPF opcode: `ldindb src, dst, imm`.
-pub const LD_IND_B: u8 = BPF_LD | BPF_IND | BPF_B;
-/// BPF opcode: `ldindh src, dst, imm`.
-pub const LD_IND_H: u8 = BPF_LD | BPF_IND | BPF_H;
-/// BPF opcode: `ldindw src, dst, imm`.
-pub const LD_IND_W: u8 = BPF_LD | BPF_IND | BPF_W;
-/// BPF opcode: `ldinddw src, dst, imm`.
-pub const LD_IND_DW: u8 = BPF_LD | BPF_IND | BPF_DW;
-
 /// BPF opcode: `lduw dst, imm` /// `dst |= imm << 32`.
 pub const LD_UW_IMM: u8 = BPF_LD | BPF_IMM | BPF_W;
 /// BPF opcode: `lddw dst, imm` /// `dst = imm`.
@@ -232,11 +214,6 @@ pub const ST_H_REG: u8 = BPF_STX | BPF_MEM | BPF_H;
 pub const ST_W_REG: u8 = BPF_STX | BPF_MEM | BPF_W;
 /// BPF opcode: `stxdw [dst + off], src` /// `(dst + offset) as u64 = src`.
 pub const ST_DW_REG: u8 = BPF_STX | BPF_MEM | BPF_DW;
-
-/// BPF opcode: `stxxaddw [dst + off], src`.
-pub const ST_W_XADD: u8 = BPF_STX | BPF_XADD | BPF_W;
-/// BPF opcode: `stxxadddw [dst + off], src`.
-pub const ST_DW_XADD: u8 = BPF_STX | BPF_XADD | BPF_DW;
 
 /// BPF opcode: `add32 dst, imm` /// `dst += imm`.
 pub const ADD32_IMM: u8 = BPF_ALU | BPF_K | BPF_ADD;

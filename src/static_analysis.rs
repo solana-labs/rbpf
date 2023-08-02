@@ -946,13 +946,6 @@ impl<'a> Analysis<'a> {
                 state.0 = *basic_block_start;
                 for insn in self.instructions[basic_block.instructions.clone()].iter() {
                     match insn.opc {
-                        ebpf::LD_ABS_B | ebpf::LD_ABS_H | ebpf::LD_ABS_W | ebpf::LD_ABS_DW => {
-                            bind(&mut state, insn, true, DataResource::Register(0));
-                        }
-                        ebpf::LD_IND_B | ebpf::LD_IND_H | ebpf::LD_IND_W | ebpf::LD_IND_DW => {
-                            bind(&mut state, insn, false, DataResource::Register(insn.src));
-                            bind(&mut state, insn, true, DataResource::Register(0));
-                        }
                         ebpf::LD_UW_IMM | ebpf::LD_DW_IMM => {
                             bind(&mut state, insn, true, DataResource::Register(insn.dst));
                         }
