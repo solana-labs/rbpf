@@ -338,7 +338,7 @@ impl DynamicAnalysis {
                 let counter = result
                     .edges
                     .entry(last_basic_block)
-                    .or_insert_with(BTreeMap::new)
+                    .or_default()
                     .entry(pc)
                     .or_insert(0);
                 *counter += 1;

@@ -221,7 +221,7 @@ impl<'a> Analysis<'a> {
     pub fn split_into_basic_blocks(&mut self, flatten_call_graph: bool) {
         self.cfg_nodes.insert(0, CfgNode::default());
         for pc in self.functions.keys() {
-            self.cfg_nodes.entry(*pc).or_insert_with(CfgNode::default);
+            self.cfg_nodes.entry(*pc).or_default();
         }
         let mut cfg_edges = BTreeMap::new();
         for insn in self.instructions.iter() {
@@ -235,9 +235,7 @@ impl<'a> Analysis<'a> {
                         .lookup_by_key(insn.imm as u32)
                     {
                         if function_name == b"abort" {
-                            self.cfg_nodes
-                                .entry(insn.ptr + 1)
-                                .or_insert_with(CfgNode::default);
+                            self.cfg_nodes.entry(insn.ptr + 1).or_default();
                             cfg_edges.insert(insn.ptr, (insn.opc, Vec::new()));
                         }
                     } else if let Some((_function_name, target_pc)) = self
@@ -245,12 +243,8 @@ impl<'a> Analysis<'a> {
                         .get_function_registry()
                         .lookup_by_key(insn.imm as u32)
                     {
-                        self.cfg_nodes
-                            .entry(insn.ptr + 1)
-                            .or_insert_with(CfgNode::default);
-                        self.cfg_nodes
-                            .entry(target_pc)
-                            .or_insert_with(CfgNode::default);
+                        self.cfg_nodes.entry(insn.ptr + 1).or_default();
+                        self.cfg_nodes.entry(target_pc).or_default();
                         let destinations = if flatten_call_graph {
                             vec![insn.ptr + 1, target_pc]
                         } else {
@@ -261,9 +255,7 @@ impl<'a> Analysis<'a> {
                 }
                 ebpf::CALL_REG => {
                     // Abnormal CFG edge
-                    self.cfg_nodes
-                        .entry(insn.ptr + 1)
-                        .or_insert_with(CfgNode::default);
+                    self.cfg_nodes.entry(insn.ptr + 1).or_default();
                     let destinations = if flatten_call_graph {
                         vec![insn.ptr + 1, self.super_root]
                     } else {
@@ -272,18 +264,12 @@ impl<'a> Analysis<'a> {
                     cfg_edges.insert(insn.ptr, (insn.opc, destinations));
                 }
                 ebpf::EXIT => {
-                    self.cfg_nodes
-                        .entry(insn.ptr + 1)
-                        .or_insert_with(CfgNode::default);
+                    self.cfg_nodes.entry(insn.ptr + 1).or_default();
                     cfg_edges.insert(insn.ptr, (insn.opc, Vec::new()));
                 }
                 ebpf::JA => {
-                    self.cfg_nodes
-                        .entry(insn.ptr + 1)
-                        .or_insert_with(CfgNode::default);
-                    self.cfg_nodes
-                        .entry(target_pc)
-                        .or_insert_with(CfgNode::default);
+                    self.cfg_nodes.entry(insn.ptr + 1).or_default();
+                    self.cfg_nodes.entry(target_pc).or_default();
                     cfg_edges.insert(insn.ptr, (insn.opc, vec![target_pc]));
                 }
                 ebpf::JEQ_IMM
@@ -308,12 +294,8 @@ impl<'a> Analysis<'a> {
                 | ebpf::JSGE_REG
                 | ebpf::JSLT_REG
                 | ebpf::JSLE_REG => {
-                    self.cfg_nodes
-                        .entry(insn.ptr + 1)
-                        .or_insert_with(CfgNode::default);
-                    self.cfg_nodes
-                        .entry(target_pc)
-                        .or_insert_with(CfgNode::default);
+                    self.cfg_nodes.entry(insn.ptr + 1).or_default();
+                    self.cfg_nodes.entry(target_pc).or_default();
                     cfg_edges.insert(insn.ptr, (insn.opc, vec![insn.ptr + 1, target_pc]));
                 }
                 _ => {}
@@ -946,16 +928,12 @@ impl<'a> Analysis<'a> {
                 DfgNode::PhiNode(state.0)
             };
             let destination = DfgNode::InstructionNode(insn.ptr);
-            state
-                .1
-                .entry(source.clone())
-                .or_insert_with(BTreeSet::new)
-                .insert(DfgEdge {
-                    source,
-                    destination,
-                    kind,
-                    resource: resource.clone(),
-                });
+            state.1.entry(source.clone()).or_default().insert(DfgEdge {
+                source,
+                destination,
+                kind,
+                resource: resource.clone(),
+            });
             if is_output {
                 state.2.insert(resource, insn.ptr);
             }
@@ -1163,7 +1141,7 @@ impl<'a> Analysis<'a> {
                         if self
                             .dfg_forward_edges
                             .entry(source.clone())
-                            .or_insert_with(BTreeSet::new)
+                            .or_default()
                             .insert(edge.clone())
                             && source_is_a_phi_node
                             && source != DfgNode::PhiNode(*basic_block_start)
@@ -1194,7 +1172,7 @@ impl<'a> Analysis<'a> {
             for dfg_edge in dfg_edges.iter() {
                 self.dfg_reverse_edges
                     .entry(dfg_edge.destination.clone())
-                    .or_insert_with(BTreeSet::new)
+                    .or_default()
                     .insert(dfg_edge.clone());
             }
         }
