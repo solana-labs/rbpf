@@ -151,6 +151,8 @@ pub const BPF_ARSH: u8 = 0xc0;
 pub const BPF_END: u8 = 0xd0;
 /// BPF ALU/ALU64 operation code: signed division.
 pub const BPF_SDIV: u8 = 0xe0;
+/// BPF ALU/ALU64 operation code: high or.
+pub const BPF_HOR: u8 = 0xf0;
 
 // Operation codes -- BPF_JMP class:
 /// BPF JMP operation code: jump.
@@ -186,8 +188,6 @@ pub const BPF_JSLE: u8 = 0xd0;
 // (Following operation names are not “official”, but may be proper to rbpf; Linux kernel only
 // combines above flags and does not attribute a name per operation.)
 
-/// BPF opcode: `lduw dst, imm` /// `dst |= imm << 32`.
-pub const LD_UW_IMM: u8 = BPF_LD | BPF_IMM | BPF_W;
 /// BPF opcode: `lddw dst, imm` /// `dst = imm`.
 pub const LD_DW_IMM: u8 = BPF_LD | BPF_IMM | BPF_DW;
 /// BPF opcode: `ldxb dst, [src + off]` /// `dst = (src + off) as u8`.
@@ -337,6 +337,8 @@ pub const ARSH64_REG: u8 = BPF_ALU64 | BPF_X | BPF_ARSH;
 pub const SDIV64_IMM: u8 = BPF_ALU64 | BPF_K | BPF_SDIV;
 /// BPF opcode: `sdiv64 dst, src` /// `dst s/= src`.
 pub const SDIV64_REG: u8 = BPF_ALU64 | BPF_X | BPF_SDIV;
+/// BPF opcode: `hor64 dst, imm` /// `dst |= imm << 32`.
+pub const HOR64_IMM: u8 = BPF_ALU64 | BPF_K | BPF_HOR;
 
 /// BPF opcode: `ja +off` /// `PC += off`.
 pub const JA: u8 = BPF_JMP | BPF_JA;

@@ -946,7 +946,7 @@ impl<'a> Analysis<'a> {
                 state.0 = *basic_block_start;
                 for insn in self.instructions[basic_block.instructions.clone()].iter() {
                     match insn.opc {
-                        ebpf::LD_UW_IMM | ebpf::LD_DW_IMM => {
+                        ebpf::LD_DW_IMM => {
                             bind(&mut state, insn, true, DataResource::Register(insn.dst));
                         }
                         ebpf::LD_B_REG | ebpf::LD_H_REG | ebpf::LD_W_REG | ebpf::LD_DW_REG => {
@@ -987,6 +987,7 @@ impl<'a> Analysis<'a> {
                         | ebpf::MOD64_IMM
                         | ebpf::XOR64_IMM
                         | ebpf::ARSH64_IMM
+                        | ebpf::HOR64_IMM
                         | ebpf::NEG32
                         | ebpf::NEG64
                         | ebpf::LE

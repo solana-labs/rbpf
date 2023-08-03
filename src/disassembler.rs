@@ -121,7 +121,6 @@ pub fn disassemble_instruction<C: ContextObject>(
     let desc;
     match insn.opc {
         // BPF_LD class
-        ebpf::LD_UW_IMM  => { name = "lduw"; desc = format!("{} r{:}, {:#x}", name, insn.dst, insn.imm); },
         ebpf::LD_DW_IMM  => { name = "lddw"; desc = format!("{} r{:}, {:#x}", name, insn.dst, insn.imm); },
 
         // BPF_LDX class
@@ -201,6 +200,7 @@ pub fn disassemble_instruction<C: ContextObject>(
         ebpf::MOV64_REG  => { name = "mov64";  desc = alu_reg_str(name, insn); },
         ebpf::ARSH64_IMM => { name = "arsh64"; desc = alu_imm_str(name, insn); },
         ebpf::ARSH64_REG => { name = "arsh64"; desc = alu_reg_str(name, insn); },
+        ebpf::HOR64_IMM  => { name = "hor64"; desc = alu_reg_str(name, insn); },
 
         // BPF_JMP class
         ebpf::JA         => {

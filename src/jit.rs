@@ -417,9 +417,6 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, RBP, insn.imm, Some(stack_ptr_access)));
                 }
 
-                ebpf::LD_UW_IMM => {
-                    self.emit_sanitized_alu(OperandSize::S64, 0x09, 1, dst, (insn.imm as u64).wrapping_shl(32) as i64);
-                }
                 ebpf::LD_DW_IMM  => {
                     self.emit_validate_and_profile_instruction_count(true, Some(self.pc + 2));
                     self.pc += 1;
@@ -590,6 +587,9 @@ impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
                 ebpf::MOV64_REG  => self.emit_ins(X86Instruction::mov(OperandSize::S64, src, dst)),
                 ebpf::ARSH64_IMM => self.emit_shift(OperandSize::S64, 7, R11, dst, Some(insn.imm)),
                 ebpf::ARSH64_REG => self.emit_shift(OperandSize::S64, 7, src, dst, None),
+                ebpf::HOR64_IMM => {
+                    self.emit_sanitized_alu(OperandSize::S64, 0x09, 1, dst, (insn.imm as u64).wrapping_shl(32) as i64);
+                }
 
                 // BPF_JMP class
                 ebpf::JA         => {

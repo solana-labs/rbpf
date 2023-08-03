@@ -474,7 +474,7 @@ fn test_arsh32_high_shift() {
         "
         mov r0, 8
         mov32 r1, 0x00000001
-        lduw r1, 0x00000001
+        hor64 r1, 0x00000001
         arsh32 r0, r1
         exit",
         [],
@@ -796,7 +796,7 @@ fn test_div32_high_divisor() {
         "
         mov r0, 12
         mov32 r1, 0x00000004
-        lduw r1, 0x00000001
+        hor64 r1, 0x00000001
         div32 r0, r1
         exit",
         [],
@@ -811,7 +811,7 @@ fn test_div32_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0x0000000c
-        lduw r0, 0x00000001
+        hor64 r0, 0x00000001
         div32 r0, 4
         exit",
         [],
@@ -826,7 +826,7 @@ fn test_div32_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0x0000000c
-        lduw r0, 0x00000001
+        hor64 r0, 0x00000001
         mov r1, 4
         div32 r0, r1
         exit",
@@ -842,7 +842,7 @@ fn test_sdiv32_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, -0x80000000
-        lduw r0, 0x00000001
+        hor64 r0, 0x00000001
         sdiv32 r0, 4
         exit",
         [],
@@ -857,7 +857,7 @@ fn test_sdiv32_neg_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0x0000000c
-        lduw r0, 0x00000001
+        hor64 r0, 0x00000001
         sdiv32 r0, -1
         exit",
         [],
@@ -872,7 +872,7 @@ fn test_sdiv32_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, -0x80000000
-        lduw r0, 0x00000001
+        hor64 r0, 0x00000001
         mov r1, 4
         sdiv32 r0, r1
         exit",
@@ -888,7 +888,7 @@ fn test_sdiv32_neg_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0x0000000c
-        lduw r0, 0x00000001
+        hor64 r0, 0x00000001
         mov r1, -1
         sdiv32 r0, r1
         exit",
@@ -1104,7 +1104,7 @@ fn test_mod32_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0x00000003
-        lduw r0, 0x00000001
+        hor64 r0, 0x00000001
         mod32 r0, 3
         exit",
         [],
@@ -1314,11 +1314,11 @@ fn test_err_instruction_count_lddw_capped() {
 // BPF_LD : Loads
 
 #[test]
-fn test_lduw() {
+fn test_hor64() {
     test_interpreter_and_jit_asm!(
         "
-        lduw r0, 0x10203040
-        lduw r0, 0x01020304
+        hor64 r0, 0x10203040
+        hor64 r0, 0x01020304
         exit",
         [],
         (),
@@ -2716,7 +2716,7 @@ fn test_err_mem_access_out_of_bound() {
     let mem = [0; 512];
     let mut prog = [0; 32];
     prog[0] = ebpf::MOV32_IMM;
-    prog[8] = ebpf::LD_UW_IMM;
+    prog[8] = ebpf::HOR64_IMM;
     prog[16] = ebpf::ST_B_IMM;
     prog[24] = ebpf::EXIT;
     let loader = Arc::new(BuiltinProgram::new_mock());
