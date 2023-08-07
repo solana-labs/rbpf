@@ -108,26 +108,82 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
         }
 
         // Product Quotient Remainder.
-        entry("lmul", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_LMUL);
-        entry("lmul64", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_LMUL);
+        entry(
+            "lmul",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_LMUL,
+        );
+        entry(
+            "lmul64",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_LMUL,
+        );
         entry("lmul32", AluBinary, ebpf::BPF_PQR | ebpf::BPF_LMUL);
-        entry("uhmul", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UHMUL);
-        entry("uhmul64", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UHMUL);
+        entry(
+            "uhmul",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UHMUL,
+        );
+        entry(
+            "uhmul64",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UHMUL,
+        );
         entry("uhmul32", AluBinary, ebpf::BPF_PQR | ebpf::BPF_UHMUL);
-        entry("shmul", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SHMUL);
-        entry("shmul64", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SHMUL);
+        entry(
+            "shmul",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SHMUL,
+        );
+        entry(
+            "shmul64",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SHMUL,
+        );
         entry("shmul32", AluBinary, ebpf::BPF_PQR | ebpf::BPF_SHMUL);
-        entry("udiv", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UDIV);
-        entry("udiv64", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UDIV);
+        entry(
+            "udiv",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UDIV,
+        );
+        entry(
+            "udiv64",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UDIV,
+        );
         entry("udiv32", AluBinary, ebpf::BPF_PQR | ebpf::BPF_UDIV);
-        entry("urem", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UREM);
-        entry("urem64", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UREM);
+        entry(
+            "urem",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UREM,
+        );
+        entry(
+            "urem64",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UREM,
+        );
         entry("urem32", AluBinary, ebpf::BPF_PQR | ebpf::BPF_UREM);
-        entry("sdiv", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SDIV);
-        entry("sdiv64", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SDIV);
+        entry(
+            "sdiv",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SDIV,
+        );
+        entry(
+            "sdiv64",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SDIV,
+        );
         entry("sdiv32", AluBinary, ebpf::BPF_PQR | ebpf::BPF_SDIV);
-        entry("srem", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SREM);
-        entry("srem64", AluBinary, ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SREM);
+        entry(
+            "srem",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SREM,
+        );
+        entry(
+            "srem64",
+            AluBinary,
+            ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SREM,
+        );
         entry("srem32", AluBinary, ebpf::BPF_PQR | ebpf::BPF_SREM);
 
         // LoadAbs, LoadInd, LoadReg, StoreImm, and StoreReg.
