@@ -239,8 +239,8 @@ impl SBPFVersion {
         self != &SBPFVersion::V1
     }
 
-    /// Enable native signed division
-    pub fn enable_sdiv(&self) -> bool {
+    /// Enable the BPF_PQR instruction class
+    pub fn enable_pqr(&self) -> bool {
         self != &SBPFVersion::V1
     }
 
