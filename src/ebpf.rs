@@ -61,7 +61,7 @@ pub const MM_INPUT_START: u64 = 0x400000000;
 // See also https://www.kernel.org/doc/Documentation/networking/filter.txt
 
 // Three least significant bits are operation class:
-/// BPF operation class: load from immediate.
+/// BPF operation class: load from immediate. [DEPRECATED]
 pub const BPF_LD: u8 = 0x00;
 /// BPF operation class: load from register.
 pub const BPF_LDX: u8 = 0x01;
@@ -73,7 +73,8 @@ pub const BPF_STX: u8 = 0x03;
 pub const BPF_ALU: u8 = 0x04;
 /// BPF operation class: jump.
 pub const BPF_JMP: u8 = 0x05;
-// [ class 6 unused, reserved for future use ]
+/// BPF operation class: product / quotient / remainder.
+pub const BPF_PQR: u8 = 0x06;
 /// BPF operation class: 64 bits arithmetic operation.
 pub const BPF_ALU64: u8 = 0x07;
 
@@ -125,9 +126,9 @@ pub const BPF_X: u8 = 0x08;
 pub const BPF_ADD: u8 = 0x00;
 /// BPF ALU/ALU64 operation code: subtraction.
 pub const BPF_SUB: u8 = 0x10;
-/// BPF ALU/ALU64 operation code: multiplication.
+/// BPF ALU/ALU64 operation code: multiplication. [DEPRECATED]
 pub const BPF_MUL: u8 = 0x20;
-/// BPF ALU/ALU64 operation code: division.
+/// BPF ALU/ALU64 operation code: division. [DEPRECATED]
 pub const BPF_DIV: u8 = 0x30;
 /// BPF ALU/ALU64 operation code: or.
 pub const BPF_OR: u8 = 0x40;
@@ -137,9 +138,9 @@ pub const BPF_AND: u8 = 0x50;
 pub const BPF_LSH: u8 = 0x60;
 /// BPF ALU/ALU64 operation code: right shift.
 pub const BPF_RSH: u8 = 0x70;
-/// BPF ALU/ALU64 operation code: negation.
+/// BPF ALU/ALU64 operation code: negation. [DEPRECATED]
 pub const BPF_NEG: u8 = 0x80;
-/// BPF ALU/ALU64 operation code: modulus.
+/// BPF ALU/ALU64 operation code: modulus. [DEPRECATED]
 pub const BPF_MOD: u8 = 0x90;
 /// BPF ALU/ALU64 operation code: exclusive or.
 pub const BPF_XOR: u8 = 0xa0;
@@ -149,10 +150,27 @@ pub const BPF_MOV: u8 = 0xb0;
 pub const BPF_ARSH: u8 = 0xc0;
 /// BPF ALU/ALU64 operation code: endianness conversion.
 pub const BPF_END: u8 = 0xd0;
-/// BPF ALU/ALU64 operation code: signed division.
-pub const BPF_SDIV: u8 = 0xe0;
 /// BPF ALU/ALU64 operation code: high or.
 pub const BPF_HOR: u8 = 0xf0;
+
+// Operation codes -- BPF_PQR class:
+//    7         6               5                               4       3          2-0
+// 0  Unsigned  Multiplication  Product Lower Half / Quotient   32 Bit  Immediate  PQR
+// 1  Signed    Division        Product Upper Half / Remainder  64 Bit  Register   PQR
+/// BPF PQR operation code: unsigned high multiplication.
+pub const BPF_UHMUL: u8 = 0x20;
+/// BPF PQR operation code: unsigned division quotient.
+pub const BPF_UDIV: u8 = 0x40;
+/// BPF PQR operation code: unsigned division remainder.
+pub const BPF_UREM: u8 = 0x60;
+/// BPF PQR operation code: low multiplication.
+pub const BPF_LMUL: u8 = 0x80;
+/// BPF PQR operation code: signed high multiplication.
+pub const BPF_SHMUL: u8 = 0xA0;
+/// BPF PQR operation code: signed division quotient.
+pub const BPF_SDIV: u8 = 0xC0;
+/// BPF PQR operation code: signed division remainder.
+pub const BPF_SREM: u8 = 0xE0;
 
 // Operation codes -- BPF_JMP class:
 /// BPF JMP operation code: jump.
@@ -188,7 +206,7 @@ pub const BPF_JSLE: u8 = 0xd0;
 // (Following operation names are not “official”, but may be proper to rbpf; Linux kernel only
 // combines above flags and does not attribute a name per operation.)
 
-/// BPF opcode: `lddw dst, imm` /// `dst = imm`.
+/// BPF opcode: `lddw dst, imm` /// `dst = imm`. [DEPRECATED]
 pub const LD_DW_IMM: u8 = BPF_LD | BPF_IMM | BPF_DW;
 /// BPF opcode: `ldxb dst, [src + off]` /// `dst = (src + off) as u8`.
 pub const LD_B_REG: u8 = BPF_LDX | BPF_MEM | BPF_B;
@@ -262,17 +280,38 @@ pub const MOV32_IMM: u8 = BPF_ALU | BPF_K | BPF_MOV;
 /// BPF opcode: `mov32 dst, src` /// `dst = src`.
 pub const MOV32_REG: u8 = BPF_ALU | BPF_X | BPF_MOV;
 /// BPF opcode: `arsh32 dst, imm` /// `dst >>= imm (arithmetic)`.
-///
-/// <https://en.wikipedia.org/wiki/Arithmetic_shift>
 pub const ARSH32_IMM: u8 = BPF_ALU | BPF_K | BPF_ARSH;
 /// BPF opcode: `arsh32 dst, src` /// `dst >>= src (arithmetic)`.
-///
-/// <https://en.wikipedia.org/wiki/Arithmetic_shift>
 pub const ARSH32_REG: u8 = BPF_ALU | BPF_X | BPF_ARSH;
-/// BPF opcode: `sdiv32 dst, imm` /// `dst s/= imm`.
-pub const SDIV32_IMM: u8 = BPF_ALU | BPF_K | BPF_SDIV;
-/// BPF opcode: `sdiv32 dst, src` /// `dst s/= src`.
-pub const SDIV32_REG: u8 = BPF_ALU | BPF_X | BPF_SDIV;
+
+/// BPF opcode: `lmul32 dst, imm` /// `dst *= (dst * imm) as u32`.
+pub const LMUL32_IMM: u8 = BPF_PQR | BPF_K | BPF_LMUL;
+/// BPF opcode: `lmul32 dst, src` /// `dst *= (dst * src) as u32`.
+pub const LMUL32_REG: u8 = BPF_PQR | BPF_X | BPF_LMUL;
+/// BPF opcode: `uhmul32 dst, imm` /// `dst = (dst * imm) as u64`.
+// pub const UHMUL32_IMM: u8 = BPF_PQR | BPF_K | BPF_UHMUL;
+/// BPF opcode: `uhmul32 dst, src` /// `dst = (dst * src) as u64`.
+// pub const UHMUL32_REG: u8 = BPF_PQR | BPF_X | BPF_UHMUL;
+/// BPF opcode: `udiv32 dst, imm` /// `dst /= imm`.
+pub const UDIV32_IMM: u8 = BPF_PQR | BPF_K | BPF_UDIV;
+/// BPF opcode: `udiv32 dst, src` /// `dst /= src`.
+pub const UDIV32_REG: u8 = BPF_PQR | BPF_X | BPF_UDIV;
+/// BPF opcode: `urem32 dst, imm` /// `dst %= imm`.
+pub const UREM32_IMM: u8 = BPF_PQR | BPF_K | BPF_UREM;
+/// BPF opcode: `urem32 dst, src` /// `dst %= src`.
+pub const UREM32_REG: u8 = BPF_PQR | BPF_X | BPF_UREM;
+/// BPF opcode: `shmul32 dst, imm` /// `dst = (dst * imm) as i64`.
+// pub const SHMUL32_IMM: u8 = BPF_PQR | BPF_K | BPF_SHMUL;
+/// BPF opcode: `shmul32 dst, src` /// `dst = (dst * src) as i64`.
+// pub const SHMUL32_REG: u8 = BPF_PQR | BPF_X | BPF_SHMUL;
+/// BPF opcode: `sdiv32 dst, imm` /// `dst /= imm`.
+pub const SDIV32_IMM: u8 = BPF_PQR | BPF_K | BPF_SDIV;
+/// BPF opcode: `sdiv32 dst, src` /// `dst /= src`.
+pub const SDIV32_REG: u8 = BPF_PQR | BPF_X | BPF_SDIV;
+/// BPF opcode: `srem32 dst, imm` /// `dst %= imm`.
+pub const SREM32_IMM: u8 = BPF_PQR | BPF_K | BPF_SREM;
+/// BPF opcode: `srem32 dst, src` /// `dst %= src`.
+pub const SREM32_REG: u8 = BPF_PQR | BPF_X | BPF_SREM;
 
 /// BPF opcode: `le dst` /// `dst = htole<imm>(dst), with imm in {16, 32, 64}`.
 pub const LE: u8 = BPF_ALU | BPF_K | BPF_END;
@@ -326,19 +365,40 @@ pub const MOV64_IMM: u8 = BPF_ALU64 | BPF_K | BPF_MOV;
 /// BPF opcode: `mov64 dst, src` /// `dst = src`.
 pub const MOV64_REG: u8 = BPF_ALU64 | BPF_X | BPF_MOV;
 /// BPF opcode: `arsh64 dst, imm` /// `dst >>= imm (arithmetic)`.
-///
-/// <https://en.wikipedia.org/wiki/Arithmetic_shift>
 pub const ARSH64_IMM: u8 = BPF_ALU64 | BPF_K | BPF_ARSH;
 /// BPF opcode: `arsh64 dst, src` /// `dst >>= src (arithmetic)`.
-///
-/// <https://en.wikipedia.org/wiki/Arithmetic_shift>
 pub const ARSH64_REG: u8 = BPF_ALU64 | BPF_X | BPF_ARSH;
-/// BPF opcode: `sdiv64 dst, imm` /// `dst s/= imm`.
-pub const SDIV64_IMM: u8 = BPF_ALU64 | BPF_K | BPF_SDIV;
-/// BPF opcode: `sdiv64 dst, src` /// `dst s/= src`.
-pub const SDIV64_REG: u8 = BPF_ALU64 | BPF_X | BPF_SDIV;
 /// BPF opcode: `hor64 dst, imm` /// `dst |= imm << 32`.
 pub const HOR64_IMM: u8 = BPF_ALU64 | BPF_K | BPF_HOR;
+
+/// BPF opcode: `lmul64 dst, imm` /// `dst = (dst * imm) as u64`.
+pub const LMUL64_IMM: u8 = BPF_PQR | BPF_B | BPF_K | BPF_LMUL;
+/// BPF opcode: `lmul64 dst, src` /// `dst = (dst * src) as u64`.
+pub const LMUL64_REG: u8 = BPF_PQR | BPF_B | BPF_X | BPF_LMUL;
+/// BPF opcode: `uhmul64 dst, imm` /// `dst = (dst * imm) >> 64`.
+pub const UHMUL64_IMM: u8 = BPF_PQR | BPF_B | BPF_K | BPF_UHMUL;
+/// BPF opcode: `uhmul64 dst, src` /// `dst = (dst * src) >> 64`.
+pub const UHMUL64_REG: u8 = BPF_PQR | BPF_B | BPF_X | BPF_UHMUL;
+/// BPF opcode: `udiv64 dst, imm` /// `dst /= imm`.
+pub const UDIV64_IMM: u8 = BPF_PQR | BPF_B | BPF_K | BPF_UDIV;
+/// BPF opcode: `udiv64 dst, src` /// `dst /= src`.
+pub const UDIV64_REG: u8 = BPF_PQR | BPF_B | BPF_X | BPF_UDIV;
+/// BPF opcode: `urem64 dst, imm` /// `dst %= imm`.
+pub const UREM64_IMM: u8 = BPF_PQR | BPF_B | BPF_K | BPF_UREM;
+/// BPF opcode: `urem64 dst, src` /// `dst %= src`.
+pub const UREM64_REG: u8 = BPF_PQR | BPF_B | BPF_X | BPF_UREM;
+/// BPF opcode: `shmul64 dst, imm` /// `dst = (dst * imm) >> 64`.
+pub const SHMUL64_IMM: u8 = BPF_PQR | BPF_B | BPF_K | BPF_SHMUL;
+/// BPF opcode: `shmul64 dst, src` /// `dst = (dst * src) >> 64`.
+pub const SHMUL64_REG: u8 = BPF_PQR | BPF_B | BPF_X | BPF_SHMUL;
+/// BPF opcode: `sdiv64 dst, imm` /// `dst /= imm`.
+pub const SDIV64_IMM: u8 = BPF_PQR | BPF_B | BPF_K | BPF_SDIV;
+/// BPF opcode: `sdiv64 dst, src` /// `dst /= src`.
+pub const SDIV64_REG: u8 = BPF_PQR | BPF_B | BPF_X | BPF_SDIV;
+/// BPF opcode: `srem64 dst, imm` /// `dst %= imm`.
+pub const SREM64_IMM: u8 = BPF_PQR | BPF_B | BPF_K | BPF_SREM;
+/// BPF opcode: `srem64 dst, src` /// `dst %= src`.
+pub const SREM64_REG: u8 = BPF_PQR | BPF_B | BPF_X | BPF_SREM;
 
 /// BPF opcode: `ja +off` /// `PC += off`.
 pub const JA: u8 = BPF_JMP | BPF_JA;
