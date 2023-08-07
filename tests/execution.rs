@@ -303,10 +303,10 @@ fn test_alu32_arithmetic() {
         sub32 r0, r1
         add32 r0, 23
         add32 r0, r7
-        mul32 r0, 7
-        mul32 r0, r3
-        div32 r0, 2
-        div32 r0, r4
+        lmul32 r0, 7
+        lmul32 r0, r3
+        udiv32 r0, 2
+        udiv32 r0, r4
         exit",
         [],
         (),
@@ -333,10 +333,10 @@ fn test_alu64_arithmetic() {
         sub r0, r1
         add r0, 23
         add r0, r7
-        mul r0, 7
-        mul r0, r3
-        div r0, 2
-        div r0, r4
+        lmul r0, 7
+        lmul r0, r3
+        udiv r0, 2
+        udiv r0, r4
         exit",
         [],
         (),
@@ -346,7 +346,7 @@ fn test_alu64_arithmetic() {
 }
 
 #[test]
-fn test_mul128() {
+fn test_lmul128() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, r1
@@ -354,30 +354,30 @@ fn test_mul128() {
         mov r3, 0
         mov r4, 20
         mov r5, 0
-        mul64 r3, r4
-        mul64 r5, r2
+        lmul64 r3, r4
+        lmul64 r5, r2
         add64 r5, r3
         mov64 r0, r2
         rsh64 r0, 0x20
         mov64 r3, r4
         rsh64 r3, 0x20
         mov64 r6, r3
-        mul64 r6, r0
+        lmul64 r6, r0
         add64 r5, r6
         lsh64 r4, 0x20
         rsh64 r4, 0x20
         mov64 r6, r4
-        mul64 r6, r0
+        lmul64 r6, r0
         lsh64 r2, 0x20
         rsh64 r2, 0x20
-        mul64 r4, r2
+        lmul64 r4, r2
         mov64 r0, r4
         rsh64 r0, 0x20
         add64 r0, r6
         mov64 r6, r0
         rsh64 r6, 0x20
         add64 r5, r6
-        mul64 r3, r2
+        lmul64 r3, r2
         lsh64 r0, 0x20
         rsh64 r0, 0x20
         add64 r0, r3
@@ -723,11 +723,11 @@ fn test_le64() {
 }
 
 #[test]
-fn test_mul32_imm() {
+fn test_lmul32_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 3
-        mul32 r0, 4
+        lmul32 r0, 4
         exit",
         [],
         (),
@@ -737,12 +737,12 @@ fn test_mul32_imm() {
 }
 
 #[test]
-fn test_mul32_reg() {
+fn test_lmul32_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 3
         mov r1, 4
-        mul32 r0, r1
+        lmul32 r0, r1
         exit",
         [],
         (),
@@ -752,12 +752,12 @@ fn test_mul32_reg() {
 }
 
 #[test]
-fn test_mul32_reg_overflow() {
+fn test_lmul32_reg_overflow() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 0x40000001
         mov r1, 4
-        mul32 r0, r1
+        lmul32 r0, r1
         exit",
         [],
         (),
@@ -767,11 +767,11 @@ fn test_mul32_reg_overflow() {
 }
 
 #[test]
-fn test_mul64_imm() {
+fn test_lmul64_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 0x40000001
-        mul r0, 4
+        lmul r0, 4
         exit",
         [],
         (),
@@ -781,12 +781,12 @@ fn test_mul64_imm() {
 }
 
 #[test]
-fn test_mul64_reg() {
+fn test_lmul64_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 0x40000001
         mov r1, 4
-        mul r0, r1
+        lmul r0, r1
         exit",
         [],
         (),
@@ -796,13 +796,43 @@ fn test_mul64_reg() {
 }
 
 #[test]
-fn test_div32_high_divisor() {
+fn test_uhmul64_imm() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 1
+        hor64 r0, 4
+        uhmul64 r0, -1
+        exit",
+        [],
+        (),
+        TestContextObject::new(4),
+        ProgramResult::Ok(0x400000000),
+    );
+}
+
+#[test]
+fn test_shmul64_imm() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, 1
+        hor64 r0, 4
+        shmul64 r0, -1
+        exit",
+        [],
+        (),
+        TestContextObject::new(4),
+        ProgramResult::Ok(0xFFFFFFFFFFFFFFFF),
+    );
+}
+
+#[test]
+fn test_udiv32_high_divisor() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 12
         mov32 r1, 0x00000004
         hor64 r1, 0x00000001
-        div32 r0, r1
+        udiv32 r0, r1
         exit",
         [],
         (),
@@ -812,12 +842,12 @@ fn test_div32_high_divisor() {
 }
 
 #[test]
-fn test_div32_imm() {
+fn test_udiv32_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0x0000000c
         hor64 r0, 0x00000001
-        div32 r0, 4
+        udiv32 r0, 4
         exit",
         [],
         (),
@@ -827,13 +857,13 @@ fn test_div32_imm() {
 }
 
 #[test]
-fn test_div32_reg() {
+fn test_udiv32_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0x0000000c
         hor64 r0, 0x00000001
         mov r1, 4
-        div32 r0, r1
+        udiv32 r0, r1
         exit",
         [],
         (),
@@ -905,12 +935,12 @@ fn test_sdiv32_neg_reg() {
 }
 
 #[test]
-fn test_div64_imm() {
+fn test_udiv64_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 0xc
         lsh r0, 32
-        div r0, 4
+        udiv r0, 4
         exit",
         [],
         (),
@@ -920,13 +950,13 @@ fn test_div64_imm() {
 }
 
 #[test]
-fn test_div64_reg() {
+fn test_udiv64_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 0xc
         lsh r0, 32
         mov r1, 4
-        div r0, r1
+        udiv r0, r1
         exit",
         [],
         (),
@@ -967,12 +997,12 @@ fn test_sdiv64_reg() {
 }
 
 #[test]
-fn test_err_div64_by_zero_reg() {
+fn test_err_udiv64_by_zero_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
-        div r0, r1
+        udiv r0, r1
         exit",
         [],
         (),
@@ -982,12 +1012,12 @@ fn test_err_div64_by_zero_reg() {
 }
 
 #[test]
-fn test_err_div32_by_zero_reg() {
+fn test_err_udiv32_by_zero_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
-        div32 r0, r1
+        udiv32 r0, r1
         exit",
         [],
         (),
@@ -1089,13 +1119,13 @@ fn test_err_sdiv32_overflow_reg() {
 }
 
 #[test]
-fn test_mod32() {
+fn test_urem32() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 5748
-        mod32 r0, 92
+        urem32 r0, 92
         mov32 r1, 13
-        mod32 r0, r1
+        urem32 r0, r1
         exit",
         [],
         (),
@@ -1105,12 +1135,12 @@ fn test_mod32() {
 }
 
 #[test]
-fn test_mod32_imm() {
+fn test_urem32_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 0x00000003
         hor64 r0, 0x00000001
-        mod32 r0, 3
+        urem32 r0, 3
         exit",
         [],
         (),
@@ -1120,7 +1150,7 @@ fn test_mod32_imm() {
 }
 
 #[test]
-fn test_mod64() {
+fn test_urem64() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, -1316649930
@@ -1129,8 +1159,8 @@ fn test_mod64() {
         mov32 r1, 0xdde263e
         lsh r1, 32
         or r1, 0x3cbef7f3
-        mod r0, r1
-        mod r0, 0x658f1778
+        urem r0, r1
+        urem r0, 0x658f1778
         exit",
         [],
         (),
@@ -1140,12 +1170,12 @@ fn test_mod64() {
 }
 
 #[test]
-fn test_err_mod64_by_zero_reg() {
+fn test_err_urem64_by_zero_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
-        mod r0, r1
+        urem r0, r1
         exit",
         [],
         (),
@@ -1155,12 +1185,12 @@ fn test_err_mod64_by_zero_reg() {
 }
 
 #[test]
-fn test_err_mod_by_zero_reg() {
+fn test_err_urem_by_zero_reg() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
         mov32 r1, 0
-        mod32 r0, r1
+        urem32 r0, r1
         exit",
         [],
         (),
@@ -3306,7 +3336,7 @@ fn test_err_capped_before_exception() {
         mov64 r2, 0x0
         add64 r0, 0x0
         add64 r0, 0x0
-        div64 r1, r2
+        udiv64 r1, r2
         add64 r0, 0x0
         exit",
         [],
@@ -3622,7 +3652,7 @@ fn test_load_elf_rodata_sbpfv1() {
 // Programs
 
 #[test]
-fn test_mul_loop() {
+fn test_lmul_loop() {
     test_interpreter_and_jit_asm!(
         "
         mov r0, 0x7
@@ -3631,7 +3661,7 @@ fn test_mul_loop() {
         rsh r1, 0x20
         jeq r1, 0x0, +4
         mov r0, 0x7
-        mul r0, 0x7
+        lmul r0, 0x7
         add r1, -1
         jne r1, 0x0, -3
         exit",
@@ -3655,8 +3685,8 @@ fn test_prime() {
         mov r0, 0x1
         jge r2, r1, +7
         mov r3, r1
-        div r3, r2
-        mul r3, r2
+        udiv r3, r2
+        lmul r3, r2
         mov r4, r1
         sub r4, r3
         mov r0, 0x0

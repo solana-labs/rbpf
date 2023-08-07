@@ -104,7 +104,7 @@ fn test_verifier_err_div_by_zero_imm() {
     let executable = assemble::<TestContextObject>(
         "
         mov32 r0, 1
-        div32 r0, 0
+        udiv32 r0, 0
         exit",
         Arc::new(BuiltinProgram::new_mock()),
     )
