@@ -722,481 +722,182 @@ fn test_le64() {
     );
 }
 
+// BPF_PQR : Product / Quotient / Remainder
+
 #[test]
-fn test_lmul32_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 3
-        lmul32 r0, 4
-        exit",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(0xc),
-    );
+fn test_pqr() {
+    let mut prog = [0; 48];
+    prog[0] = ebpf::MOV64_IMM;
+    prog[8] = ebpf::HOR64_IMM;
+    prog[16] = ebpf::MOV64_IMM;
+    prog[17] = 1; // dst = R1
+    prog[24] = ebpf::HOR64_IMM;
+    prog[25] = 1; // dst = R1
+    prog[33] = 16; // src = R1
+    prog[40] = ebpf::EXIT;
+    let loader = Arc::new(BuiltinProgram::new_mock());
+    for (opc, dst, src, expected_result) in [
+        (ebpf::UHMUL64_IMM, 13u64, 4u64, 0u64),
+        (ebpf::UDIV32_IMM, 13u64, 4u64, 3u64),
+        (ebpf::UDIV64_IMM, 13u64, 4u64, 3u64),
+        (ebpf::UREM32_IMM, 13u64, 4u64, 1u64),
+        (ebpf::UREM64_IMM, 13u64, 4u64, 1u64),
+        (ebpf::UHMUL64_IMM, 13u64, u64::MAX, 12u64),
+        (ebpf::UDIV32_IMM, 13u64, u64::MAX, 0u64),
+        (ebpf::UDIV64_IMM, 13u64, u64::MAX, 0u64),
+        (ebpf::UREM32_IMM, 13u64, u64::MAX, 13u64),
+        (ebpf::UREM64_IMM, 13u64, u64::MAX, 13u64),
+        (ebpf::UHMUL64_IMM, u64::MAX, 4u64, 3u64),
+        (ebpf::UDIV32_IMM, u64::MAX, 4u64, (u32::MAX / 4) as u64),
+        (ebpf::UDIV64_IMM, u64::MAX, 4u64, u64::MAX / 4),
+        (ebpf::UREM32_IMM, u64::MAX, 4u64, 3u64),
+        (ebpf::UREM64_IMM, u64::MAX, 4u64, 3u64),
+        (ebpf::UHMUL64_IMM, u64::MAX, u64::MAX, u64::MAX - 1),
+        (ebpf::UDIV32_IMM, u64::MAX, u64::MAX, 1u64),
+        (ebpf::UDIV64_IMM, u64::MAX, u64::MAX, 1u64),
+        (ebpf::UREM32_IMM, u64::MAX, u64::MAX, 0u64),
+        (ebpf::UREM64_IMM, u64::MAX, u64::MAX, 0u64),
+        (ebpf::LMUL32_IMM, 13i64 as u64, 4i32 as u64, 52i32 as u64),
+        (ebpf::LMUL64_IMM, 13i64 as u64, 4i64 as u64, 52i64 as u64),
+        (ebpf::SHMUL64_IMM, 13i64 as u64, 4i64 as u64, 0i64 as u64),
+        (ebpf::SDIV32_IMM, 13i64 as u64, 4i32 as u64, 3i32 as u64),
+        (ebpf::SDIV64_IMM, 13i64 as u64, 4i64 as u64, 3i64 as u64),
+        (ebpf::SREM32_IMM, 13i64 as u64, 4i32 as u64, 1i64 as u64),
+        (ebpf::SREM64_IMM, 13i64 as u64, 4i64 as u64, 1i64 as u64),
+        (ebpf::LMUL32_IMM, 13i64 as u64, -4i32 as u64, -52i32 as u64),
+        (ebpf::LMUL64_IMM, 13i64 as u64, -4i64 as u64, -52i64 as u64),
+        (ebpf::SHMUL64_IMM, 13i64 as u64, -4i64 as u64, -1i64 as u64),
+        (ebpf::SDIV32_IMM, 13i64 as u64, -4i32 as u64, -3i32 as u64),
+        (ebpf::SDIV64_IMM, 13i64 as u64, -4i64 as u64, -3i64 as u64),
+        (ebpf::SREM32_IMM, 13i64 as u64, -4i32 as u64, 1i64 as u64),
+        (ebpf::SREM64_IMM, 13i64 as u64, -4i64 as u64, 1i64 as u64),
+        (ebpf::LMUL32_IMM, -13i64 as u64, 4i32 as u64, -52i32 as u64),
+        (ebpf::LMUL64_IMM, -13i64 as u64, 4i64 as u64, -52i64 as u64),
+        (ebpf::SHMUL64_IMM, -13i64 as u64, 4i64 as u64, -1i64 as u64),
+        (ebpf::SDIV32_IMM, -13i64 as u64, 4i32 as u64, -3i32 as u64),
+        (ebpf::SDIV64_IMM, -13i64 as u64, 4i64 as u64, -3i64 as u64),
+        (ebpf::SREM32_IMM, -13i64 as u64, 4i32 as u64, -1i64 as u64),
+        (ebpf::SREM64_IMM, -13i64 as u64, 4i64 as u64, -1i64 as u64),
+        (ebpf::LMUL32_IMM, -13i64 as u64, -4i32 as u64, 52i32 as u64),
+        (ebpf::LMUL64_IMM, -13i64 as u64, -4i64 as u64, 52i64 as u64),
+        (ebpf::SHMUL64_IMM, -13i64 as u64, -4i64 as u64, 0i64 as u64),
+        (ebpf::SDIV32_IMM, -13i64 as u64, -4i32 as u64, 3i32 as u64),
+        (ebpf::SDIV64_IMM, -13i64 as u64, -4i64 as u64, 3i64 as u64),
+        (ebpf::SREM32_IMM, -13i64 as u64, -4i32 as u64, -1i64 as u64),
+        (ebpf::SREM64_IMM, -13i64 as u64, -4i64 as u64, -1i64 as u64),
+    ] {
+        LittleEndian::write_u32(&mut prog[4..], dst as u32);
+        LittleEndian::write_u32(&mut prog[12..], (dst >> 32) as u32);
+        LittleEndian::write_u32(&mut prog[20..], src as u32);
+        LittleEndian::write_u32(&mut prog[28..], (src >> 32) as u32);
+        LittleEndian::write_u32(&mut prog[36..], src as u32);
+        prog[32] = opc;
+        #[allow(unused_mut)]
+        let mut executable = Executable::<TestContextObject>::from_text_bytes(
+            &prog,
+            loader.clone(),
+            SBPFVersion::V2,
+            FunctionRegistry::default(),
+        )
+        .unwrap();
+        test_interpreter_and_jit!(
+            executable,
+            [],
+            TestContextObject::new(6),
+            ProgramResult::Ok(expected_result),
+        );
+        prog[32] |= ebpf::BPF_X;
+        #[allow(unused_mut)]
+        let mut executable = Executable::<TestContextObject>::from_text_bytes(
+            &prog,
+            loader.clone(),
+            SBPFVersion::V2,
+            FunctionRegistry::default(),
+        )
+        .unwrap();
+        test_interpreter_and_jit!(
+            executable,
+            [],
+            TestContextObject::new(6),
+            ProgramResult::Ok(expected_result),
+        );
+    }
 }
 
 #[test]
-fn test_lmul32_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 3
-        mov r1, 4
-        lmul32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0xc),
-    );
+fn test_err_divide_by_zero() {
+    let mut prog = [0; 24];
+    prog[0] = ebpf::MOV32_IMM;
+    prog[16] = ebpf::EXIT;
+    let loader = Arc::new(BuiltinProgram::new_mock());
+    for opc in [
+        ebpf::UDIV32_REG,
+        ebpf::UDIV64_REG,
+        ebpf::UREM32_REG,
+        ebpf::UREM64_REG,
+        ebpf::SDIV32_REG,
+        ebpf::SDIV64_REG,
+        ebpf::SREM32_REG,
+        ebpf::SREM64_REG,
+    ] {
+        prog[8] = opc;
+        #[allow(unused_mut)]
+        let mut executable = Executable::<TestContextObject>::from_text_bytes(
+            &prog,
+            loader.clone(),
+            SBPFVersion::V2,
+            FunctionRegistry::default(),
+        )
+        .unwrap();
+        test_interpreter_and_jit!(
+            executable,
+            [],
+            TestContextObject::new(2),
+            ProgramResult::Err(Box::new(EbpfError::DivideByZero(30))),
+        );
+    }
 }
 
 #[test]
-fn test_lmul32_reg_overflow() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0x40000001
-        mov r1, 4
-        lmul32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0x4),
-    );
-}
-
-#[test]
-fn test_lmul64_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0x40000001
-        lmul r0, 4
-        exit",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(0x100000004),
-    );
-}
-
-#[test]
-fn test_lmul64_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0x40000001
-        mov r1, 4
-        lmul r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0x100000004),
-    );
-}
-
-#[test]
-fn test_uhmul64_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 1
-        hor64 r0, 4
-        uhmul64 r0, -1
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0x400000000),
-    );
-}
-
-#[test]
-fn test_shmul64_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 1
-        hor64 r0, 4
-        shmul64 r0, -1
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0xFFFFFFFFFFFFFFFF),
-    );
-}
-
-#[test]
-fn test_udiv32_high_divisor() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 12
-        mov32 r1, 0x00000004
-        hor64 r1, 0x00000001
-        udiv32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(5),
-        ProgramResult::Ok(0x3),
-    );
-}
-
-#[test]
-fn test_udiv32_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 0x0000000c
-        hor64 r0, 0x00000001
-        udiv32 r0, 4
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0x3),
-    );
-}
-
-#[test]
-fn test_udiv32_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 0x0000000c
-        hor64 r0, 0x00000001
-        mov r1, 4
-        udiv32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(5),
-        ProgramResult::Ok(0x3),
-    );
-}
-
-#[test]
-fn test_sdiv32_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, -0x80000000
-        hor64 r0, 0x00000001
-        sdiv32 r0, 4
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0xFFFFFFFFE0000000),
-    );
-}
-
-#[test]
-fn test_sdiv32_neg_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 0x0000000c
-        hor64 r0, 0x00000001
-        sdiv32 r0, -1
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok((-0xc_i64) as u64),
-    );
-}
-
-#[test]
-fn test_sdiv32_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, -0x80000000
-        hor64 r0, 0x00000001
-        mov r1, 4
-        sdiv32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(5),
-        ProgramResult::Ok(0xFFFFFFFFE0000000),
-    );
-}
-
-#[test]
-fn test_sdiv32_neg_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 0x0000000c
-        hor64 r0, 0x00000001
-        mov r1, -1
-        sdiv32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(5),
-        ProgramResult::Ok((-0xc_i64) as u64),
-    );
-}
-
-#[test]
-fn test_udiv64_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0xc
-        lsh r0, 32
-        udiv r0, 4
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0x300000000),
-    );
-}
-
-#[test]
-fn test_udiv64_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0xc
-        lsh r0, 32
-        mov r1, 4
-        udiv r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(5),
-        ProgramResult::Ok(0x300000000),
-    );
-}
-
-#[test]
-fn test_sdiv64_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0xc
-        lsh r0, 32
-        sdiv r0, 4
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0x300000000),
-    );
-}
-
-#[test]
-fn test_sdiv64_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0xc
-        lsh r0, 32
-        mov r1, 4
-        sdiv r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(5),
-        ProgramResult::Ok(0x300000000),
-    );
-}
-
-#[test]
-fn test_err_udiv64_by_zero_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 1
-        mov32 r1, 0
-        udiv r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::DivideByZero(31))),
-    );
-}
-
-#[test]
-fn test_err_udiv32_by_zero_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 1
-        mov32 r1, 0
-        udiv32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::DivideByZero(31))),
-    );
-}
-
-#[test]
-fn test_err_sdiv64_by_zero_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 1
-        mov32 r1, 0
-        sdiv r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::DivideByZero(31))),
-    );
-}
-
-#[test]
-fn test_err_sdiv32_by_zero_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 1
-        mov32 r1, 0
-        sdiv32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::DivideByZero(31))),
-    );
-}
-
-#[test]
-fn test_err_sdiv64_overflow_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0x80
-        lsh r0, 56
-        sdiv r0, -1
-        exit",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::DivideOverflow(31))),
-    );
-}
-
-#[test]
-fn test_err_sdiv64_overflow_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0x80
-        lsh r0, 56
-        mov r1, -1
-        sdiv r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Err(Box::new(EbpfError::DivideOverflow(32))),
-    );
-}
-
-#[test]
-fn test_err_sdiv32_overflow_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0x80
-        lsh r0, 24
-        sdiv32 r0, -1
-        exit",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::DivideOverflow(31))),
-    );
-}
-
-#[test]
-fn test_err_sdiv32_overflow_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0x80
-        lsh r0, 24
-        mov r1, -1
-        sdiv32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Err(Box::new(EbpfError::DivideOverflow(32))),
-    );
-}
-
-#[test]
-fn test_urem32() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 5748
-        urem32 r0, 92
-        mov32 r1, 13
-        urem32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(5),
-        ProgramResult::Ok(0x5),
-    );
-}
-
-#[test]
-fn test_urem32_imm() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 0x00000003
-        hor64 r0, 0x00000001
-        urem32 r0, 3
-        exit",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0x0),
-    );
-}
-
-#[test]
-fn test_urem64() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, -1316649930
-        lsh r0, 32
-        or r0, 0x100dc5c8
-        mov32 r1, 0xdde263e
-        lsh r1, 32
-        or r1, 0x3cbef7f3
-        urem r0, r1
-        urem r0, 0x658f1778
-        exit",
-        [],
-        (),
-        TestContextObject::new(9),
-        ProgramResult::Ok(0x30ba5a04),
-    );
-}
-
-#[test]
-fn test_err_urem64_by_zero_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 1
-        mov32 r1, 0
-        urem r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::DivideByZero(31))),
-    );
-}
-
-#[test]
-fn test_err_urem_by_zero_reg() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r0, 1
-        mov32 r1, 0
-        urem32 r0, r1
-        exit",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::DivideByZero(31))),
-    );
+fn test_err_divide_overflow() {
+    let mut prog = [0; 40];
+    prog[0] = ebpf::MOV64_IMM;
+    LittleEndian::write_i32(&mut prog[4..], 1);
+    prog[8] = ebpf::LSH64_IMM;
+    prog[16] = ebpf::MOV64_IMM;
+    prog[17] = 1; // dst = R1
+    LittleEndian::write_i32(&mut prog[20..], -1);
+    prog[25] = 16; // src = R1
+    LittleEndian::write_i32(&mut prog[28..], -1);
+    prog[32] = ebpf::EXIT;
+    let loader = Arc::new(BuiltinProgram::new_mock());
+    for opc in [
+        ebpf::SDIV32_IMM,
+        ebpf::SDIV64_IMM,
+        ebpf::SREM32_IMM,
+        ebpf::SREM64_IMM,
+        ebpf::SDIV32_REG,
+        ebpf::SDIV64_REG,
+        ebpf::SREM32_REG,
+        ebpf::SREM64_REG,
+    ] {
+        prog[12] = if opc & ebpf::BPF_B != 0 { 63 } else { 31 };
+        prog[24] = opc;
+        #[allow(unused_mut)]
+        let mut executable = Executable::<TestContextObject>::from_text_bytes(
+            &prog,
+            loader.clone(),
+            SBPFVersion::V2,
+            FunctionRegistry::default(),
+        )
+        .unwrap();
+        test_interpreter_and_jit!(
+            executable,
+            [],
+            TestContextObject::new(4),
+            ProgramResult::Err(Box::new(EbpfError::DivideOverflow(32))),
+        );
+    }
 }
 
 // LD_DW_IMM
