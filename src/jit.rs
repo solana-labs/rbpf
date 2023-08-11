@@ -494,10 +494,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_ins(X86Instruction::alu(OperandSize::S32, 0x29, src, dst, 0, None));
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None)); // sign extend i32 to i64
                 },
-                ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::SDIV32_IMM | ebpf::MOD32_IMM  =>
-                    self.emit_product_quotient_remainder(insn.opc, dst, dst, Some(insn.imm)),
-                ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::SDIV32_REG | ebpf::MOD32_REG  =>
-                    self.emit_product_quotient_remainder(insn.opc, src, dst, None),
+                ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::MOD32_IMM if !self.executable.get_sbpf_version().enable_pqr() =>
+                    self.emit_product_quotient_remainder(OperandSize::S32, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD, (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL, false, dst, dst, Some(insn.imm)),
+                ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::MOD32_REG if !self.executable.get_sbpf_version().enable_pqr() =>
+                    self.emit_product_quotient_remainder(OperandSize::S32, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD, (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL, false, src, dst, None),
                 ebpf::OR32_IMM   => self.emit_sanitized_alu(OperandSize::S32, 0x09, 1, dst, insn.imm),
                 ebpf::OR32_REG   => self.emit_ins(X86Instruction::alu(OperandSize::S32, 0x09, src, dst, 0, None)),
                 ebpf::AND32_IMM  => self.emit_sanitized_alu(OperandSize::S32, 0x21, 4, dst, insn.imm),
@@ -561,10 +561,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     }
                 }
                 ebpf::SUB64_REG  => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, src, dst, 0, None)),
-                ebpf::MUL64_IMM | ebpf::DIV64_IMM | ebpf::SDIV64_IMM | ebpf::MOD64_IMM  =>
-                    self.emit_product_quotient_remainder(insn.opc, dst, dst, Some(insn.imm)),
-                ebpf::MUL64_REG | ebpf::DIV64_REG | ebpf::SDIV64_REG | ebpf::MOD64_REG  =>
-                    self.emit_product_quotient_remainder(insn.opc, src, dst, None),
+                ebpf::MUL64_IMM | ebpf::DIV64_IMM | ebpf::MOD64_IMM if !self.executable.get_sbpf_version().enable_pqr() =>
+                    self.emit_product_quotient_remainder(OperandSize::S64, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD, (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL, false, dst, dst, Some(insn.imm)),
+                ebpf::MUL64_REG | ebpf::DIV64_REG | ebpf::MOD64_REG if !self.executable.get_sbpf_version().enable_pqr() =>
+                    self.emit_product_quotient_remainder(OperandSize::S64, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD, (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL, false, src, dst, None),
                 ebpf::OR64_IMM   => self.emit_sanitized_alu(OperandSize::S64, 0x09, 1, dst, insn.imm),
                 ebpf::OR64_REG   => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x09, src, dst, 0, None)),
                 ebpf::AND64_IMM  => self.emit_sanitized_alu(OperandSize::S64, 0x21, 4, dst, insn.imm),
@@ -588,6 +588,32 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::ARSH64_REG => self.emit_shift(OperandSize::S64, 7, src, dst, None),
                 ebpf::HOR64_IMM => {
                     self.emit_sanitized_alu(OperandSize::S64, 0x09, 1, dst, (insn.imm as u64).wrapping_shl(32) as i64);
+                }
+
+                // BPF_PQR class
+                ebpf::LMUL32_IMM | ebpf::LMUL64_IMM | ebpf::UHMUL64_IMM | ebpf::SHMUL64_IMM |
+                ebpf::UDIV32_IMM | ebpf::UDIV64_IMM | ebpf::UREM32_IMM | ebpf::UREM64_IMM |
+                ebpf::SDIV32_IMM | ebpf::SDIV64_IMM | ebpf::SREM32_IMM | ebpf::SREM64_IMM
+                if self.executable.get_sbpf_version().enable_pqr() => {
+                    self.emit_product_quotient_remainder(
+                        if insn.opc & (1 << 4) != 0 { OperandSize::S64 } else { OperandSize::S32 },
+                        insn.opc & (1 << 5) != 0,
+                        insn.opc & (1 << 6) != 0,
+                        insn.opc & (1 << 7) != 0,
+                        dst, dst, Some(insn.imm),
+                    )
+                }
+                ebpf::LMUL32_REG | ebpf::LMUL64_REG | ebpf::UHMUL64_REG | ebpf::SHMUL64_REG |
+                ebpf::UDIV32_REG | ebpf::UDIV64_REG | ebpf::UREM32_REG | ebpf::UREM64_REG |
+                ebpf::SDIV32_REG | ebpf::SDIV64_REG | ebpf::SREM32_REG | ebpf::SREM64_REG
+                if self.executable.get_sbpf_version().enable_pqr() => {
+                    self.emit_product_quotient_remainder(
+                        if insn.opc & (1 << 4) != 0 { OperandSize::S64 } else { OperandSize::S32 },
+                        insn.opc & (1 << 5) != 0,
+                        insn.opc & (1 << 6) != 0,
+                        insn.opc & (1 << 7) != 0,
+                        src, dst, None,
+                    )
                 }
 
                 // BPF_JMP class
@@ -1161,17 +1187,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         }
     }
 
-    fn emit_product_quotient_remainder(&mut self, opc: u8, src: u8, dst: u8, imm: Option<i64>) {
+    #[allow(clippy::too_many_arguments)]
+    fn emit_product_quotient_remainder(&mut self, size: OperandSize, alt_dst: bool, division: bool, signed: bool, src: u8, dst: u8, imm: Option<i64>) {
         //         LMUL UHMUL SHMUL UDIV SDIV UREM SREM
         // ALU     F7/4 F7/4  F7/5  F7/6 F7/7 F7/6 F7/7
         // src-in  R11  R11   R11   R11  R11  R11  R11
         // dst-in  RAX  RAX   RAX   RAX  RAX  RAX  RAX
         // dst-out RAX  RDX   RDX   RAX  RAX  RDX  RDX
-
-        let signed = (opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MUL || (opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_SDIV;
-        let division = (opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL;
-        let alt_dst = (opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD;
-        let size = if (opc & ebpf::BPF_CLS_MASK) == ebpf::BPF_ALU64 { OperandSize::S64 } else { OperandSize::S32 };
 
         if division {
             // Prevent division by zero
