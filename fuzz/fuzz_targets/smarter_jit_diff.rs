@@ -9,7 +9,7 @@ use solana_rbpf::{
     insn_builder::IntoBytes,
     memory_region::MemoryRegion,
     static_analysis::Analysis,
-    verifier::{RequisiteVerifier, TautologyVerifier, Verifier},
+    verifier::{RequisiteVerifier, Verifier},
     vm::{
         BuiltinProgram, ContextObject, TestContextObject,
     },
@@ -28,7 +28,7 @@ struct FuzzData {
     mem: Vec<u8>,
 }
 
-fn dump_insns<V: Verifier, C: ContextObject>(verified_executable: &Executable<V, C>) {
+fn dump_insns<C: ContextObject>(verified_executable: &Executable<C>) {
     let analysis = Analysis::from_executable(verified_executable).unwrap();
     eprint!("Using the following disassembly");
     analysis.disassemble(&mut std::io::stderr().lock()).unwrap();
@@ -44,7 +44,7 @@ fuzz_target!(|data: FuzzData| {
     }
     let mut interp_mem = data.mem.clone();
     let mut jit_mem = data.mem;
-    let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
+    let mut executable = Executable::<TestContextObject>::from_text_bytes(
         prog.into_bytes(),
         std::sync::Arc::new(BuiltinProgram::new_loader(config, FunctionRegistry::default())),
         SBPFVersion::V2,

@@ -6,7 +6,6 @@ use crate::{
     ebpf,
     elf::Executable,
     error::EbpfError,
-    verifier::{TautologyVerifier, Verifier},
     vm::{ContextObject, DynamicAnalysis, TestContextObject},
 };
 use rustc_demangle::demangle;
@@ -127,7 +126,7 @@ impl Default for CfgNode {
 /// Result of the executable analysis
 pub struct Analysis<'a> {
     /// The program which is analyzed
-    executable: &'a Executable<TautologyVerifier, TestContextObject>,
+    executable: &'a Executable<TestContextObject>,
     /// Plain list of instructions as they occur in the executable
     pub instructions: Vec<ebpf::Insn>,
     /// Functions in the executable
@@ -148,8 +147,8 @@ pub struct Analysis<'a> {
 
 impl<'a> Analysis<'a> {
     /// Analyze an executable statically
-    pub fn from_executable<V: Verifier, C: ContextObject>(
-        executable: &'a Executable<V, C>,
+    pub fn from_executable<C: ContextObject>(
+        executable: &'a Executable<C>,
     ) -> Result<Self, EbpfError> {
         let (_program_vm_addr, program) = executable.get_text_bytes();
         let mut functions = BTreeMap::new();

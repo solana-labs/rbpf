@@ -22,7 +22,7 @@ use crate::{
     },
     error::EbpfError,
     memory_region::MemoryRegion,
-    verifier::{TautologyVerifier, Verifier},
+    verifier::Verifier,
     vm::{BuiltinProgram, Config, ContextObject},
 };
 
@@ -32,7 +32,6 @@ use byteorder::{ByteOrder, LittleEndian};
 use std::{
     collections::{btree_map::Entry, BTreeMap},
     fmt::Debug,
-    marker::PhantomData,
     mem,
     ops::Range,
     str,
@@ -409,9 +408,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
 
 /// Elf loader/relocator
 #[derive(Debug, PartialEq)]
-pub struct Executable<V: Verifier, C: ContextObject> {
-    /// Verifier that verified this program
-    _verifier: PhantomData<V>,
+pub struct Executable<C: ContextObject> {
     /// Loaded and executable elf
     elf_bytes: AlignedMemory<{ HOST_ALIGN }>,
     /// Required SBPF capabilities
@@ -431,7 +428,7 @@ pub struct Executable<V: Verifier, C: ContextObject> {
     compiled_program: Option<JitProgram>,
 }
 
-impl<V: Verifier, C: ContextObject> Executable<V, C> {
+impl<C: ContextObject> Executable<C> {
     /// Get the configuration settings
     pub fn get_config(&self) -> &Config {
         self.loader.get_config()
@@ -500,22 +497,20 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
     }
 
     /// Verify the executable
-    pub fn verified(executable: Executable<TautologyVerifier, C>) -> Result<Self, EbpfError> {
+    pub fn verified<V: Verifier>(executable: Executable<C>) -> Result<Self, EbpfError> {
         <V as Verifier>::verify(
             executable.get_text_bytes().1,
             executable.get_config(),
             executable.get_sbpf_version(),
             executable.get_function_registry(),
         )?;
-        Ok(unsafe {
-            std::mem::transmute::<Executable<TautologyVerifier, C>, Executable<V, C>>(executable)
-        })
+        Ok(executable)
     }
 
     /// JIT compile the executable
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     pub fn jit_compile(&mut self) -> Result<(), crate::error::EbpfError> {
-        let jit = JitCompiler::<V, C>::new(self)?;
+        let jit = JitCompiler::<C>::new(self)?;
         self.compiled_program = Some(jit.compile()?);
         Ok(())
     }
@@ -547,7 +542,6 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
             0
         };
         Ok(Self {
-            _verifier: PhantomData,
             elf_bytes,
             sbpf_version,
             ro_section: Section::Borrowed(0, 0..text_bytes.len()),
@@ -678,7 +672,6 @@ impl<V: Verifier, C: ContextObject> Executable<V, C> {
         )?;
 
         Ok(Self {
-            _verifier: PhantomData,
             elf_bytes,
             sbpf_version,
             ro_section,
@@ -1408,7 +1401,7 @@ mod test {
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
     use test_utils::assert_error;
-    type ElfExecutable = Executable<TautologyVerifier, TestContextObject>;
+    type ElfExecutable = Executable<TestContextObject>;
 
     fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
         let mut function_registry =
@@ -1533,7 +1526,7 @@ mod test {
             .expect("failed to read elf file");
         let elf = ElfExecutable::load(&elf_bytes, loader.clone()).expect("validation failed");
         let parsed_elf = NewParser::parse(&elf_bytes).unwrap();
-        let executable: &Executable<TautologyVerifier, TestContextObject> = &elf;
+        let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(0, executable.get_entrypoint_instruction_offset());
 
         let write_header = |header: Elf64Ehdr| unsafe {
@@ -1548,7 +1541,7 @@ mod test {
         header.e_entry += 8;
         let elf_bytes = write_header(header.clone());
         let elf = ElfExecutable::load(&elf_bytes, loader.clone()).expect("validation failed");
-        let executable: &Executable<TautologyVerifier, TestContextObject> = &elf;
+        let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(1, executable.get_entrypoint_instruction_offset());
 
         header.e_entry = 1;
@@ -1575,7 +1568,7 @@ mod test {
         header.e_entry = initial_e_entry;
         let elf_bytes = write_header(header);
         let elf = ElfExecutable::load(&elf_bytes, loader).expect("validation failed");
-        let executable: &Executable<TautologyVerifier, TestContextObject> = &elf;
+        let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(0, executable.get_entrypoint_instruction_offset());
     }
 

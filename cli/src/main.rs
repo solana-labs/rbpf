@@ -6,7 +6,7 @@ use solana_rbpf::{
     elf::{Executable, FunctionRegistry},
     memory_region::{MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
-    verifier::{RequisiteVerifier, TautologyVerifier},
+    verifier::RequisiteVerifier,
     vm::{BuiltinProgram, Config, DynamicAnalysis, EbpfVm, TestContextObject},
 };
 use std::{fs::File, io::Read, path::Path, sync::Arc};
@@ -112,7 +112,7 @@ fn main() {
             let mut file = File::open(Path::new(matches.value_of("elf").unwrap())).unwrap();
             let mut elf = Vec::new();
             file.read_to_end(&mut elf).unwrap();
-            Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, loader)
+            Executable::<TestContextObject>::from_elf(&elf, loader)
                 .map_err(|err| format!("Executable constructor failed: {err:?}"))
         }
     }
@@ -120,7 +120,7 @@ fn main() {
 
     #[allow(unused_mut)]
     let verified_executable =
-        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
+        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
 
     let mut mem = match matches.value_of("input").unwrap().parse::<usize>() {
         Ok(allocate) => vec![0u8; allocate],

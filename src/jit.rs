@@ -21,7 +21,6 @@ use crate::{
         allocate_pages, free_pages, get_system_page_size, protect_pages, round_to_page_size,
     },
     memory_region::{AccessType, MemoryMapping},
-    verifier::Verifier,
     vm::{Config, ContextObject, EbpfVm, ProgramResult},
     x86::*,
 };
@@ -310,12 +309,12 @@ enum RuntimeEnvironmentSlot {
     and undo again can be anything, so we just set it to zero.
 */
 
-pub struct JitCompiler<'a, V: Verifier, C: ContextObject> {
+pub struct JitCompiler<'a, C: ContextObject> {
     result: JitProgram,
     text_section_jumps: Vec<Jump>,
     anchors: [*const u8; ANCHOR_COUNT],
     offset_in_text_section: usize,
-    executable: &'a Executable<V, C>,
+    executable: &'a Executable<C>,
     program: &'a [u8],
     program_vm_addr: u64,
     config: &'a Config,
@@ -328,9 +327,9 @@ pub struct JitCompiler<'a, V: Verifier, C: ContextObject> {
 }
 
 #[rustfmt::skip]
-impl<'a, V: Verifier, C: ContextObject> JitCompiler<'a, V, C> {
+impl<'a, C: ContextObject> JitCompiler<'a, C> {
     /// Constructs a new compiler and allocates memory for the compilation output
-    pub fn new(executable: &'a Executable<V, C>) -> Result<Self, EbpfError> {
+    pub fn new(executable: &'a Executable<C>) -> Result<Self, EbpfError> {
         let config = executable.get_config();
         let (program_vm_addr, program) = executable.get_text_bytes();
 
@@ -1603,7 +1602,6 @@ mod tests {
     use crate::{
         elf::{FunctionRegistry, SBPFVersion},
         syscalls,
-        verifier::TautologyVerifier,
         vm::{BuiltinFunction, BuiltinProgram, TestContextObject},
     };
     use byteorder::{ByteOrder, LittleEndian};
@@ -1644,9 +1642,7 @@ mod tests {
         check_slot!(env, memory_mapping, MemoryMapping);
     }
 
-    fn create_mockup_executable(
-        program: &[u8],
-    ) -> Executable<TautologyVerifier, TestContextObject> {
+    fn create_mockup_executable(program: &[u8]) -> Executable<TestContextObject> {
         let mut function_registry =
             FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry
@@ -1663,7 +1659,7 @@ mod tests {
         function_registry
             .register_function(8, *b"function_foo", 8)
             .unwrap();
-        Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
+        Executable::<TestContextObject>::from_text_bytes(
             program,
             Arc::new(loader),
             SBPFVersion::V2,
@@ -1680,8 +1676,7 @@ mod tests {
         let empty_program_machine_code_length = {
             prog[0] = ebpf::EXIT;
             let mut executable = create_mockup_executable(&prog[0..ebpf::INSN_SIZE]);
-            Executable::<TautologyVerifier, TestContextObject>::jit_compile(&mut executable)
-                .unwrap();
+            Executable::<TestContextObject>::jit_compile(&mut executable).unwrap();
             executable
                 .get_compiled_program()
                 .unwrap()
@@ -1708,8 +1703,7 @@ mod tests {
                 LittleEndian::write_u32(&mut prog[pc * ebpf::INSN_SIZE + 4..], immediate);
             }
             let mut executable = create_mockup_executable(&prog);
-            let result =
-                Executable::<TautologyVerifier, TestContextObject>::jit_compile(&mut executable);
+            let result = Executable::<TestContextObject>::jit_compile(&mut executable);
             if result.is_err() {
                 assert!(matches!(
                     result.unwrap_err(),

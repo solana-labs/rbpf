@@ -13,7 +13,7 @@ use solana_rbpf::{
     ebpf,
     elf::{Executable, FunctionRegistry},
     memory_region::MemoryRegion,
-    verifier::{RequisiteVerifier, TautologyVerifier},
+    verifier::RequisiteVerifier,
     vm::{BuiltinProgram, Config, TestContextObject},
 };
 use std::{fs::File, io::Read, sync::Arc};
@@ -25,13 +25,11 @@ fn bench_init_interpreter_start(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/rodata_section.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(
-        &elf,
-        Arc::new(BuiltinProgram::new_mock()),
-    )
-    .unwrap();
+    let executable =
+        Executable::<TestContextObject>::from_elf(&elf, Arc::new(BuiltinProgram::new_mock()))
+            .unwrap();
     let verified_executable =
-        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
+        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
     let mut context_object = TestContextObject::default();
     create_vm!(
         vm,
@@ -54,13 +52,11 @@ fn bench_init_jit_start(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/rodata_section.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(
-        &elf,
-        Arc::new(BuiltinProgram::new_mock()),
-    )
-    .unwrap();
+    let executable =
+        Executable::<TestContextObject>::from_elf(&elf, Arc::new(BuiltinProgram::new_mock()))
+            .unwrap();
     let mut verified_executable =
-        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
+        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
     verified_executable.jit_compile().unwrap();
     let mut context_object = TestContextObject::default();
     create_vm!(
@@ -95,7 +91,7 @@ fn bench_jit_vs_interpreter(
     )
     .unwrap();
     let mut verified_executable =
-        Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
+        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
     verified_executable.jit_compile().unwrap();
     let mut context_object = TestContextObject::default();
     let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);

@@ -23,7 +23,7 @@ use solana_rbpf::{
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     static_analysis::Analysis,
     syscalls,
-    verifier::{RequisiteVerifier, TautologyVerifier},
+    verifier::RequisiteVerifier,
     vm::{
         BuiltinFunction, BuiltinProgram, Config, ContextObject, ProgramResult, TestContextObject,
     },
@@ -51,7 +51,7 @@ macro_rules! test_interpreter_and_jit {
         }
         #[allow(unused_mut)]
         let mut verified_executable =
-            Executable::<RequisiteVerifier, _>::verified($executable).unwrap();
+            Executable::<_>::verified::<RequisiteVerifier>($executable).unwrap();
         let (instruction_count_interpreter, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
@@ -161,7 +161,7 @@ macro_rules! test_interpreter_and_jit_elf {
             let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
             $(test_interpreter_and_jit!(register, function_registry, $location => $syscall_function);)*
             let loader = Arc::new(BuiltinProgram::new_loader($config, function_registry));
-            let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, loader).unwrap();
+            let mut executable = Executable::<TestContextObject>::from_elf(&elf, loader).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $expected_result);
         }
     };
@@ -2733,7 +2733,7 @@ fn test_err_mem_access_out_of_bound() {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
         LittleEndian::write_u32(&mut prog[12..], (address >> 32) as u32);
         #[allow(unused_mut)]
-        let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
+        let mut executable = Executable::<TestContextObject>::from_text_bytes(
             &prog,
             loader.clone(),
             SBPFVersion::V2,
@@ -3457,7 +3457,7 @@ fn test_err_unresolved_syscall_reloc_64_32() {
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     assert_error!(
-        Executable::<TautologyVerifier, TestContextObject>::from_elf(&elf, Arc::new(loader)),
+        Executable::<TestContextObject>::from_elf(&elf, Arc::new(loader)),
         "UnresolvedSymbol(\"log\", 68, 312)"
     );
 }
@@ -3851,7 +3851,7 @@ fn test_struct_func_pointer() {
 fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;
-    let executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
+    let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltinProgram::new_loader(
             Config {
@@ -3869,7 +3869,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
         return false;
     };
     let verified_executable =
-        Executable::<RequisiteVerifier, TestContextObject>::verified(executable);
+        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable);
     let mut verified_executable = if let Ok(verified_executable) = verified_executable {
         verified_executable
     } else {

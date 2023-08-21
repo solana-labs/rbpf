@@ -19,7 +19,6 @@ use crate::{
     },
     ebpf::{self, Insn},
     elf::{Executable, FunctionRegistry, SBPFVersion},
-    verifier::TautologyVerifier,
     vm::{BuiltinProgram, ContextObject},
 };
 use std::{collections::HashMap, sync::Arc};
@@ -218,7 +217,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 pub fn assemble<C: ContextObject>(
     src: &str,
     loader: Arc<BuiltinProgram<C>>,
-) -> Result<Executable<TautologyVerifier, C>, String> {
+) -> Result<Executable<C>, String> {
     let sbpf_version = if loader.get_config().enable_sbpf_v2 {
         SBPFVersion::V2
     } else {
@@ -366,11 +365,6 @@ pub fn assemble<C: ContextObject>(
         .iter()
         .flat_map(|insn| insn.to_vec())
         .collect::<Vec<_>>();
-    Executable::<TautologyVerifier, C>::from_text_bytes(
-        &program,
-        loader,
-        sbpf_version,
-        function_registry,
-    )
-    .map_err(|err| format!("Executable constructor {err:?}"))
+    Executable::<C>::from_text_bytes(&program, loader, sbpf_version, function_registry)
+        .map_err(|err| format!("Executable constructor {err:?}"))
 }

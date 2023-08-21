@@ -8,7 +8,7 @@ use solana_rbpf::{
     elf::{Executable, FunctionRegistry, SBPFVersion},
     insn_builder::{Arch, Instruction, IntoBytes},
     memory_region::MemoryRegion,
-    verifier::{RequisiteVerifier, TautologyVerifier, Verifier},
+    verifier::{RequisiteVerifier, Verifier},
     vm::{BuiltinProgram, TestContextObject},
 };
 use test_utils::create_vm;
@@ -45,7 +45,7 @@ fuzz_target!(|data: FuzzData| {
     }
     let mut interp_mem = data.mem.clone();
     let mut jit_mem = data.mem;
-    let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(
+    let mut executable = Executable::<TestContextObject>::from_text_bytes(
         prog.into_bytes(),
         std::sync::Arc::new(BuiltinProgram::new_loader(config, FunctionRegistry::default())),
         SBPFVersion::V2,

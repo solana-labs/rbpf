@@ -19,7 +19,6 @@ use crate::{
     interpreter::Interpreter,
     memory_region::MemoryMapping,
     static_analysis::{Analysis, TraceLogEntry},
-    verifier::{TautologyVerifier, Verifier},
 };
 use std::{collections::BTreeMap, fmt::Debug, mem, sync::Arc};
 
@@ -234,7 +233,7 @@ impl Default for Config {
 }
 
 /// Static constructors for Executable
-impl<C: ContextObject> Executable<TautologyVerifier, C> {
+impl<C: ContextObject> Executable<C> {
     /// Creates an executable from an ELF file
     pub fn from_elf(elf_bytes: &[u8], loader: Arc<BuiltinProgram<C>>) -> Result<Self, EbpfError> {
         let executable = Executable::load(elf_bytes, loader)?;
@@ -362,7 +361,7 @@ pub struct CallFrame {
 ///     ebpf,
 ///     elf::{Executable, FunctionRegistry, SBPFVersion},
 ///     memory_region::{MemoryMapping, MemoryRegion},
-///     verifier::{TautologyVerifier, RequisiteVerifier},
+///     verifier::{RequisiteVerifier},
 ///     vm::{BuiltinProgram, Config, EbpfVm, TestContextObject},
 /// };
 ///
@@ -375,8 +374,8 @@ pub struct CallFrame {
 ///
 /// let loader = std::sync::Arc::new(BuiltinProgram::new_mock());
 /// let function_registry = FunctionRegistry::default();
-/// let mut executable = Executable::<TautologyVerifier, TestContextObject>::from_text_bytes(prog, loader, SBPFVersion::V2, function_registry).unwrap();
-/// let verified_executable = Executable::<RequisiteVerifier, TestContextObject>::verified(executable).unwrap();
+/// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, loader, SBPFVersion::V2, function_registry).unwrap();
+/// let verified_executable = Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
 /// let mut context_object = TestContextObject::new(1);
 /// let config = verified_executable.get_config();
 /// let sbpf_version = verified_executable.get_sbpf_version();
@@ -477,9 +476,9 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
     /// Execute the program
     ///
     /// If interpreted = `false` then the JIT compiled executable is used.
-    pub fn execute_program<V: Verifier>(
+    pub fn execute_program(
         &mut self,
-        executable: &Executable<V, C>,
+        executable: &Executable<C>,
         interpreted: bool,
     ) -> (u64, ProgramResult) {
         let mut registers = [0u64; 12];

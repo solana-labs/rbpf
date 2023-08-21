@@ -16,7 +16,6 @@ use crate::{
     ebpf::{self, STACK_PTR_REG},
     elf::Executable,
     error::EbpfError,
-    verifier::Verifier,
     vm::{Config, ContextObject, EbpfVm, ProgramResult},
 };
 use std::convert::TryInto;
@@ -65,9 +64,9 @@ pub enum DebugState {
 }
 
 /// State of an interpreter
-pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
+pub struct Interpreter<'a, 'b, C: ContextObject> {
     pub(crate) vm: &'a mut EbpfVm<'b, C>,
-    pub(crate) executable: &'a Executable<V, C>,
+    pub(crate) executable: &'a Executable<C>,
     pub(crate) program: &'a [u8],
     pub(crate) program_vm_addr: u64,
     pub(crate) due_insn_count: u64,
@@ -83,11 +82,11 @@ pub struct Interpreter<'a, 'b, V: Verifier, C: ContextObject> {
     pub(crate) breakpoints: Vec<u64>,
 }
 
-impl<'a, 'b, V: Verifier, C: ContextObject> Interpreter<'a, 'b, V, C> {
+impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
     /// Creates a new interpreter state
     pub fn new(
         vm: &'a mut EbpfVm<'b, C>,
-        executable: &'a Executable<V, C>,
+        executable: &'a Executable<C>,
         registers: [u64; 12],
     ) -> Self {
         let (program_vm_addr, program) = executable.get_text_bytes();

@@ -14,7 +14,6 @@ use solana_rbpf::{
     elf::Executable,
     error::EbpfError,
     memory_region::{MemoryCowCallback, MemoryMapping, MemoryRegion},
-    verifier::Verifier,
     vm::ContextObject,
 };
 
@@ -159,8 +158,8 @@ pub const TCP_SACK_NOMATCH: [u8; 66] = [
     0x9e, 0x27, //
 ];
 
-pub fn create_memory_mapping<'a, V: Verifier, C: ContextObject>(
-    executable: &'a Executable<V, C>,
+pub fn create_memory_mapping<'a, C: ContextObject>(
+    executable: &'a Executable<C>,
     stack: &'a mut AlignedMemory<{ HOST_ALIGN }>,
     heap: &'a mut AlignedMemory<{ HOST_ALIGN }>,
     additional_regions: Vec<MemoryRegion>,
