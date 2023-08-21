@@ -26,7 +26,7 @@ use solana_rbpf::{
     assembler::assemble,
     ebpf,
     elf::{Executable, FunctionRegistry, SBPFVersion},
-    verifier::{RequisiteVerifier, TautologyVerifier, Verifier, VerifierError},
+    verifier::{RequisiteVerifier, Verifier, VerifierError},
     vm::{BuiltinProgram, Config, TestContextObject},
 };
 use std::sync::Arc;
@@ -38,6 +38,18 @@ use thiserror::Error;
 pub enum VerifierTestError {
     #[error("{0}")]
     Rejected(String),
+}
+
+struct TautologyVerifier {}
+impl Verifier for TautologyVerifier {
+    fn verify(
+        _prog: &[u8],
+        _config: &Config,
+        _sbpf_version: &SBPFVersion,
+        _function_registry: &FunctionRegistry<usize>,
+    ) -> std::result::Result<(), VerifierError> {
+        Ok(())
+    }
 }
 
 struct ContradictionVerifier {}

@@ -382,17 +382,3 @@ impl Verifier for RequisiteVerifier {
         Ok(())
     }
 }
-
-/// Passes all inputs. Used to mark executables as unverified.
-#[derive(Debug)]
-pub struct TautologyVerifier {}
-impl Verifier for TautologyVerifier {
-    fn verify(
-        _prog: &[u8],
-        _config: &Config,
-        _sbpf_version: &SBPFVersion,
-        _function_registry: &FunctionRegistry<usize>,
-    ) -> std::result::Result<(), VerifierError> {
-        Ok(())
-    }
-}
