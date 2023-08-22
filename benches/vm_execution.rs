@@ -28,12 +28,11 @@ fn bench_init_interpreter_start(bencher: &mut Bencher) {
     let executable =
         Executable::<TestContextObject>::from_elf(&elf, Arc::new(BuiltinProgram::new_mock()))
             .unwrap();
-    let verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
     let mut context_object = TestContextObject::default();
     create_vm!(
         vm,
-        &verified_executable,
+        &executable,
         &mut context_object,
         stack,
         heap,
@@ -42,7 +41,7 @@ fn bench_init_interpreter_start(bencher: &mut Bencher) {
     );
     bencher.iter(|| {
         vm.context_object_pointer.remaining = 37;
-        vm.execute_program(&verified_executable, true).1.unwrap()
+        vm.execute_program(&executable, true).1.unwrap()
     });
 }
 
@@ -52,16 +51,15 @@ fn bench_init_jit_start(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/rodata_section.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let executable =
+    let mut executable =
         Executable::<TestContextObject>::from_elf(&elf, Arc::new(BuiltinProgram::new_mock()))
             .unwrap();
-    let mut verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
-    verified_executable.jit_compile().unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
+    executable.jit_compile().unwrap();
     let mut context_object = TestContextObject::default();
     create_vm!(
         vm,
-        &verified_executable,
+        &executable,
         &mut context_object,
         stack,
         heap,
@@ -70,7 +68,7 @@ fn bench_init_jit_start(bencher: &mut Bencher) {
     );
     bencher.iter(|| {
         vm.context_object_pointer.remaining = 37;
-        vm.execute_program(&verified_executable, false).1.unwrap()
+        vm.execute_program(&executable, false).1.unwrap()
     });
 }
 
@@ -82,7 +80,7 @@ fn bench_jit_vs_interpreter(
     instruction_meter: u64,
     mem: &mut [u8],
 ) {
-    let executable = solana_rbpf::assembler::assemble::<TestContextObject>(
+    let mut executable = solana_rbpf::assembler::assemble::<TestContextObject>(
         assembly,
         Arc::new(BuiltinProgram::new_loader(
             config,
@@ -90,14 +88,13 @@ fn bench_jit_vs_interpreter(
         )),
     )
     .unwrap();
-    let mut verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
-    verified_executable.jit_compile().unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
+    executable.jit_compile().unwrap();
     let mut context_object = TestContextObject::default();
     let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
     create_vm!(
         vm,
-        &verified_executable,
+        &executable,
         &mut context_object,
         stack,
         heap,
@@ -108,8 +105,7 @@ fn bench_jit_vs_interpreter(
         .bench(|bencher| {
             bencher.iter(|| {
                 vm.context_object_pointer.remaining = instruction_meter;
-                let (instruction_count_interpreter, result) =
-                    vm.execute_program(&verified_executable, true);
+                let (instruction_count_interpreter, result) = vm.execute_program(&executable, true);
                 assert!(result.is_ok(), "{:?}", result);
                 assert_eq!(instruction_count_interpreter, instruction_meter);
             });
@@ -121,8 +117,7 @@ fn bench_jit_vs_interpreter(
         .bench(|bencher| {
             bencher.iter(|| {
                 vm.context_object_pointer.remaining = instruction_meter;
-                let (instruction_count_jit, result) =
-                    vm.execute_program(&verified_executable, false);
+                let (instruction_count_jit, result) = vm.execute_program(&executable, false);
                 assert!(result.is_ok(), "{:?}", result);
                 assert_eq!(instruction_count_jit, instruction_meter);
             });

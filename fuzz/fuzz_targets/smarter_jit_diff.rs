@@ -28,8 +28,8 @@ struct FuzzData {
     mem: Vec<u8>,
 }
 
-fn dump_insns<C: ContextObject>(verified_executable: &Executable<C>) {
-    let analysis = Analysis::from_executable(verified_executable).unwrap();
+fn dump_insns<C: ContextObject>(executable: &Executable<C>) {
+    let analysis = Analysis::from_executable(executable).unwrap();
     eprint!("Using the following disassembly");
     analysis.disassemble(&mut std::io::stderr().lock()).unwrap();
 }

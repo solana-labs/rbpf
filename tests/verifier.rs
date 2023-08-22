@@ -30,7 +30,7 @@ use solana_rbpf::{
     vm::{BuiltinProgram, Config, TestContextObject},
 };
 use std::sync::Arc;
-use test_utils::create_vm;
+use test_utils::{assert_error, create_vm};
 use thiserror::Error;
 
 /// Error definitions
@@ -73,11 +73,10 @@ fn test_verifier_success() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    let verified_executable =
-        Executable::<TestContextObject>::verified::<TautologyVerifier>(executable).unwrap();
+    executable.verify::<TautologyVerifier>().unwrap();
     create_vm!(
         _vm,
-        &verified_executable,
+        &executable,
         &mut TestContextObject::default(),
         stack,
         heap,
@@ -96,8 +95,7 @@ fn test_verifier_fail() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<ContradictionVerifier>(executable).unwrap();
+    executable.verify::<ContradictionVerifier>().unwrap();
 }
 
 #[test]
@@ -111,8 +109,7 @@ fn test_verifier_err_div_by_zero_imm() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -130,8 +127,7 @@ fn test_verifier_err_endian_size() {
         FunctionRegistry::default(),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -149,8 +145,7 @@ fn test_verifier_err_incomplete_lddw() {
         FunctionRegistry::default(),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -171,13 +166,8 @@ fn test_verifier_err_invalid_reg_dst() {
             )),
         )
         .unwrap();
-        let result = Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable)
-            .map_err(|err| format!("Executable constructor {err:?}"));
-
-        assert_eq!(
-            result.unwrap_err(),
-            "Executable constructor VerifierError(InvalidDestinationRegister(29))"
-        );
+        let result = executable.verify::<RequisiteVerifier>();
+        assert_error!(result, "VerifierError(InvalidDestinationRegister(29))");
     }
 }
 
@@ -199,13 +189,8 @@ fn test_verifier_err_invalid_reg_src() {
             )),
         )
         .unwrap();
-        let result = Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable)
-            .map_err(|err| format!("Executable constructor {err:?}"));
-
-        assert_eq!(
-            result.unwrap_err(),
-            "Executable constructor VerifierError(InvalidSourceRegister(29))"
-        );
+        let result = executable.verify::<RequisiteVerifier>();
+        assert_error!(result, "VerifierError(InvalidSourceRegister(29))");
     }
 }
 
@@ -225,8 +210,7 @@ fn test_verifier_resize_stack_ptr_success() {
         )),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -240,8 +224,7 @@ fn test_verifier_err_jmp_lddw() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -255,8 +238,7 @@ fn test_verifier_err_call_lddw() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -270,8 +252,7 @@ fn test_verifier_err_function_fallthrough() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -284,8 +265,7 @@ fn test_verifier_err_jmp_out() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -298,8 +278,7 @@ fn test_verifier_err_jmp_out_start() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -316,8 +295,7 @@ fn test_verifier_err_unknown_opcode() {
         FunctionRegistry::default(),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -330,8 +308,7 @@ fn test_verifier_err_write_r10() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    let _verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 }
 
 #[test]
@@ -364,17 +341,10 @@ fn test_verifier_err_all_shift_overflows() {
         let assembly = format!("\n{overflowing_instruction}\nexit");
         let executable =
             assemble::<TestContextObject>(&assembly, Arc::new(BuiltinProgram::new_mock())).unwrap();
-        let result = Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable)
-            .map_err(|err| format!("Executable constructor {err:?}"));
+        let result = executable.verify::<RequisiteVerifier>();
         match expected {
             Ok(()) => assert!(result.is_ok()),
-            Err(overflow_msg) => match result {
-                Err(err) => assert_eq!(
-                    err,
-                    format!("Executable constructor VerifierError({overflow_msg})"),
-                ),
-                _ => panic!("Expected error"),
-            },
+            Err(overflow_msg) => assert_error!(result, "VerifierError({overflow_msg})"),
         }
     }
 }
@@ -402,18 +372,15 @@ fn test_sdiv_disabled() {
                 )),
             )
             .unwrap();
-            let result = Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable)
-                .map_err(|err| format!("Executable constructor {err:?}"));
+            let result = executable.verify::<RequisiteVerifier>();
             if enable_sbpf_v2 {
                 assert!(result.is_ok());
             } else {
-                assert_eq!(
-                    result.unwrap_err(),
-                    format!(
-                        "Executable constructor VerifierError(UnknownOpCode({}, {}))",
-                        opc,
-                        ebpf::ELF_INSN_DUMP_OFFSET
-                    ),
+                assert_error!(
+                    result,
+                    "VerifierError(UnknownOpCode({}, {}))",
+                    opc,
+                    ebpf::ELF_INSN_DUMP_OFFSET
                 );
             }
         }

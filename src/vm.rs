@@ -375,17 +375,17 @@ pub struct CallFrame {
 /// let loader = std::sync::Arc::new(BuiltinProgram::new_mock());
 /// let function_registry = FunctionRegistry::default();
 /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, loader, SBPFVersion::V2, function_registry).unwrap();
-/// let verified_executable = Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+/// executable.verify::<RequisiteVerifier>().unwrap();
 /// let mut context_object = TestContextObject::new(1);
-/// let config = verified_executable.get_config();
-/// let sbpf_version = verified_executable.get_sbpf_version();
+/// let config = executable.get_config();
+/// let sbpf_version = executable.get_sbpf_version();
 ///
 /// let mut stack = AlignedMemory::<{ebpf::HOST_ALIGN}>::zero_filled(config.stack_size());
 /// let stack_len = stack.len();
 /// let mut heap = AlignedMemory::<{ebpf::HOST_ALIGN}>::with_capacity(0);
 ///
 /// let regions: Vec<MemoryRegion> = vec![
-///     verified_executable.get_ro_region(),
+///     executable.get_ro_region(),
 ///     MemoryRegion::new_writable(
 ///         stack.as_slice_mut(),
 ///         ebpf::MM_STACK_START,
@@ -398,7 +398,7 @@ pub struct CallFrame {
 ///
 /// let mut vm = EbpfVm::new(config, sbpf_version, &mut context_object, memory_mapping, stack_len);
 ///
-/// let (instruction_count, result) = vm.execute_program(&verified_executable, true);
+/// let (instruction_count, result) = vm.execute_program(&executable, true);
 /// assert_eq!(instruction_count, 1);
 /// assert_eq!(result.unwrap(), 0);
 /// ```

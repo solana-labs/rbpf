@@ -497,14 +497,14 @@ impl<C: ContextObject> Executable<C> {
     }
 
     /// Verify the executable
-    pub fn verified<V: Verifier>(executable: Executable<C>) -> Result<Self, EbpfError> {
+    pub fn verify<V: Verifier>(&self) -> Result<(), EbpfError> {
         <V as Verifier>::verify(
-            executable.get_text_bytes().1,
-            executable.get_config(),
-            executable.get_sbpf_version(),
-            executable.get_function_registry(),
+            self.get_text_bytes().1,
+            self.get_config(),
+            self.get_sbpf_version(),
+            self.get_function_registry(),
         )?;
-        Ok(executable)
+        Ok(())
     }
 
     /// JIT compile the executable

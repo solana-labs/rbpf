@@ -101,7 +101,8 @@ fn main() {
         },
         FunctionRegistry::default(),
     ));
-    let executable = match matches.value_of("assembler") {
+    #[allow(unused_mut)]
+    let mut executable = match matches.value_of("assembler") {
         Some(asm_file_name) => {
             let mut file = File::open(Path::new(asm_file_name)).unwrap();
             let mut source = Vec::new();
@@ -118,9 +119,7 @@ fn main() {
     }
     .unwrap();
 
-    #[allow(unused_mut)]
-    let verified_executable =
-        Executable::<TestContextObject>::verified::<RequisiteVerifier>(executable).unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
 
     let mut mem = match matches.value_of("input").unwrap().parse::<usize>() {
         Ok(allocate) => vec![0u8; allocate],
@@ -133,7 +132,7 @@ fn main() {
     };
     #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
     if matches.value_of("use") == Some("jit") {
-        verified_executable.jit_compile().unwrap();
+        executable.jit_compile().unwrap();
     }
     let mut context_object = TestContextObject::new(
         matches
@@ -142,8 +141,8 @@ fn main() {
             .parse::<u64>()
             .unwrap(),
     );
-    let config = verified_executable.get_config();
-    let sbpf_version = verified_executable.get_sbpf_version();
+    let config = executable.get_config();
+    let sbpf_version = executable.get_sbpf_version();
     let mut stack = AlignedMemory::<{ ebpf::HOST_ALIGN }>::zero_filled(config.stack_size());
     let stack_len = stack.len();
     let mut heap = AlignedMemory::<{ ebpf::HOST_ALIGN }>::zero_filled(
@@ -154,7 +153,7 @@ fn main() {
             .unwrap(),
     );
     let regions: Vec<MemoryRegion> = vec![
-        verified_executable.get_ro_region(),
+        executable.get_ro_region(),
         MemoryRegion::new_writable_gapped(
             stack.as_slice_mut(),
             ebpf::MM_STACK_START,
@@ -171,8 +170,8 @@ fn main() {
     let memory_mapping = MemoryMapping::new(regions, config, sbpf_version).unwrap();
 
     let mut vm = EbpfVm::new(
-        verified_executable.get_config(),
-        verified_executable.get_sbpf_version(),
+        executable.get_config(),
+        executable.get_sbpf_version(),
         &mut context_object,
         memory_mapping,
         stack_len,
@@ -183,7 +182,7 @@ fn main() {
         || matches.is_present("trace")
         || matches.is_present("profile")
     {
-        Some(Analysis::from_executable(&verified_executable).unwrap())
+        Some(Analysis::from_executable(&executable).unwrap())
     } else {
         None
     };
@@ -212,10 +211,8 @@ fn main() {
     if matches.value_of("use").unwrap() == "debugger" {
         vm.debug_port = Some(matches.value_of("port").unwrap().parse::<u16>().unwrap());
     }
-    let (instruction_count, result) = vm.execute_program(
-        &verified_executable,
-        matches.value_of("use").unwrap() != "jit",
-    );
+    let (instruction_count, result) =
+        vm.execute_program(&executable, matches.value_of("use").unwrap() != "jit");
     println!("Result: {result:?}");
     println!("Instruction Count: {instruction_count}");
     if matches.is_present("trace") {
