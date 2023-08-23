@@ -3748,6 +3748,17 @@ fn test_mul() {
         TestContextObject::new(4),
         ProgramResult::Ok(0x100000004),
     );
+    test_interpreter_and_jit_asm!(
+        "
+        mov r0, -1
+        mul32 r0, 4
+        exit",
+        config,
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(0xFFFFFFFFFFFFFFFC),
+    );
 }
 
 #[test]
