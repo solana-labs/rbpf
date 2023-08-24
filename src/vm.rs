@@ -92,7 +92,7 @@ pub type BuiltinFunction<C> =
     fn(&mut C, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
 
 /// Represents the interface to a fixed functionality program
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct BuiltinProgram<C: ContextObject> {
     /// Holds the Config if this is a loader program
     config: Option<Box<Config>>,
