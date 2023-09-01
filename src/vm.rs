@@ -156,7 +156,11 @@ impl<C: ContextObject> BuiltinProgram<C> {
 impl<C: ContextObject> Debug for BuiltinProgram<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         writeln!(f, "{:?}", unsafe {
-            std::mem::transmute::<_, &BTreeMap<u32, *const u8>>(&self.functions.map)
+            // `derive(Debug)` does not know that `C: ContextObject` does not need to implement `Debug`
+            std::mem::transmute::<
+                &FunctionRegistry<BuiltinFunction<C>>,
+                &FunctionRegistry<BuiltinFunction<*const ()>>,
+            >(&self.functions)
         })?;
         Ok(())
     }
