@@ -1331,6 +1331,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.set_anchor(ANCHOR_ALLOCATE_EXCEPTION);
         unsafe fn allocate_error(result: &mut ProgramResult) -> *mut EbpfError {
             let err_ptr = std::alloc::alloc(std::alloc::Layout::new::<EbpfError>()) as *mut EbpfError;
+            assert!(!err_ptr.is_null(), "std::alloc::alloc() failed");
             *result = ProgramResult::Err(Box::from_raw(err_ptr));
             err_ptr
         }
