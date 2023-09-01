@@ -92,12 +92,18 @@ pub type BuiltinFunction<C> =
     fn(&mut C, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
 
 /// Represents the interface to a fixed functionality program
-#[derive(PartialEq, Eq)]
+#[derive(Eq)]
 pub struct BuiltinProgram<C: ContextObject> {
     /// Holds the Config if this is a loader program
     config: Option<Box<Config>>,
     /// Function pointers by symbol
     functions: FunctionRegistry<BuiltinFunction<C>>,
+}
+
+impl<C: ContextObject> PartialEq for BuiltinProgram<C> {
+    fn eq(&self, other: &Self) -> bool {
+        self.config.eq(&other.config) && self.functions.eq(&other.functions)
+    }
 }
 
 impl<C: ContextObject> BuiltinProgram<C> {
@@ -262,7 +268,7 @@ pub trait ContextObject {
 }
 
 /// Simple instruction meter for testing
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 pub struct TestContextObject {
     /// Contains the register state at every instruction in order of execution
     pub trace_log: Vec<TraceLogEntry>,
@@ -543,6 +549,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::syscalls;
 
     #[test]
     fn test_program_result_is_stable() {
@@ -550,5 +557,35 @@ mod tests {
         assert_eq!(unsafe { *(&ok as *const _ as *const u64) }, 0);
         let err = ProgramResult::Err(Box::new(EbpfError::JitNotCompiled));
         assert_eq!(unsafe { *(&err as *const _ as *const u64) }, 1);
+    }
+
+    #[test]
+    fn test_builtin_program_eq() {
+        let mut function_registry_a =
+            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+        function_registry_a
+            .register_function_hashed(*b"log", syscalls::bpf_syscall_string)
+            .unwrap();
+        function_registry_a
+            .register_function_hashed(*b"log_64", syscalls::bpf_syscall_u64)
+            .unwrap();
+        let mut function_registry_b =
+            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+        function_registry_b
+            .register_function_hashed(*b"log_64", syscalls::bpf_syscall_u64)
+            .unwrap();
+        function_registry_b
+            .register_function_hashed(*b"log", syscalls::bpf_syscall_string)
+            .unwrap();
+        let mut function_registry_c =
+            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+        function_registry_c
+            .register_function_hashed(*b"log_64", syscalls::bpf_syscall_u64)
+            .unwrap();
+        let builtin_program_a = BuiltinProgram::new_loader(Config::default(), function_registry_a);
+        let builtin_program_b = BuiltinProgram::new_loader(Config::default(), function_registry_b);
+        assert_eq!(builtin_program_a, builtin_program_b);
+        let builtin_program_c = BuiltinProgram::new_loader(Config::default(), function_registry_c);
+        assert_ne!(builtin_program_a, builtin_program_c);
     }
 }
