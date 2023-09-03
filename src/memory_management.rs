@@ -102,7 +102,7 @@ pub unsafe fn allocate_pages(size_in_bytes: usize) -> Result<*mut u8, EbpfError>
         size_in_bytes,
         libc::PROT_READ | libc::PROT_WRITE,
         libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-        0,
+        -1,
         0,
     );
     #[cfg(target_os = "windows")]
