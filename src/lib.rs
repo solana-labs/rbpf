@@ -24,8 +24,6 @@ extern crate log;
 extern crate rand;
 extern crate thiserror;
 
-#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "aarch64"))]
-mod aarch64;
 pub mod aligned_memory;
 mod asm_parser;
 pub mod assembler;
@@ -40,11 +38,7 @@ pub mod error;
 pub mod fuzz;
 pub mod insn_builder;
 pub mod interpreter;
-#[cfg(all(
-    feature = "jit",
-    not(target_os = "windows"),
-    any(target_arch = "aarch64", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 mod jit;
 #[cfg(feature = "jit")]
 mod memory_management;
