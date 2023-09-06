@@ -1,7 +1,19 @@
-#![allow(clippy::integer_arithmetic)]
+#![allow(clippy::arithmetic_side_effects)]
 #![allow(clippy::upper_case_acronyms)]
-#![allow(clippy::needless_update)]
-use crate::jit::{emit, JitCompilerCore, OperandSize};
+#![allow(dead_code)]
+use crate::{
+    jit::{JitCompiler, OperandSize},
+    vm::ContextObject,
+};
+
+macro_rules! exclude_operand_sizes {
+    ($size:expr, $($to_exclude:path)|+ $(,)?) => {
+        debug_assert!(match $size {
+            $($to_exclude)|+ => false,
+            _ => true,
+        });
+    }
+}
 
 pub const X0: u8 = 0;
 pub const X1: u8 = 1;
@@ -100,7 +112,7 @@ pub enum ARM64MemoryOperand {
 }
 
 // Instructions are broken up based on the encoding scheme used
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub enum ARM64Instruction {
     LogicalRegister(ARM64InstructionLogicalShiftedRegister),
     AddSubRegister(ARM64InstructionLogicalShiftedRegister),
@@ -119,7 +131,7 @@ pub enum ARM64Instruction {
     RET,
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct ARM64InstructionLogicalShiftedRegister {
     pub size: OperandSize,
     pub opcode: u8,            // 2 bits
@@ -146,7 +158,7 @@ impl Default for ARM64InstructionLogicalShiftedRegister {
     }
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct ARM64InstructionDataProcessing {
     pub size: OperandSize,
     pub opcode: u8, // 6 bits
@@ -171,7 +183,7 @@ impl Default for ARM64InstructionDataProcessing {
     }
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct ARM64InstructionAddSubImm {
     pub size: OperandSize,
     pub opcode: u8,     // 1 bit
@@ -196,7 +208,7 @@ impl Default for ARM64InstructionAddSubImm {
     }
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct ARM64InstructionLogicalImm {
     pub size: OperandSize,
     pub opcode: u8, // 2 bits
@@ -221,7 +233,7 @@ impl Default for ARM64InstructionLogicalImm {
     }
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct ARM64InstructionWideImm {
     pub size: OperandSize,
     pub opcode: u8, // 2 bits
@@ -242,26 +254,26 @@ impl Default for ARM64InstructionWideImm {
     }
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct ARM64InstructionConditonalBranch {
     pub cond: u8,   // 4 bits
     pub imm19: i32, // offset from current instruction, divided by 4
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct ARM64InstructionImm26 {
     pub opcode: u8, // 6 bits
     pub imm26: i32, // offset from current instruction, divided by 4
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct ARM64InstructionBLR {
     pub target: u8, // 5 bit target register
 }
 
 // Load
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct ARM64InstructionLoadStore {
     pub size: OperandSize,
     pub data: u8, // Rt, 5 bits
@@ -281,7 +293,7 @@ impl Default for ARM64InstructionLoadStore {
 }
 
 impl ARM64Instruction {
-    pub fn emit(&self, jit: &mut JitCompilerCore) {
+    pub fn emit<C: ContextObject>(&self, jit: &mut JitCompiler<C>) {
         let mut ins: u32 = 0;
 
         match self {
@@ -484,7 +496,7 @@ impl ARM64Instruction {
             }
         }
 
-        emit::<u32>(jit, ins);
+        jit.emit::<u32>(ins);
     }
 
     /// Move source to destination
@@ -564,7 +576,6 @@ impl ARM64Instruction {
             imms: imm.imms,
             dest: SP_XZR, // discard result
             src: source,
-            ..ARM64InstructionLogicalImm::default()
         })
     }
 
@@ -697,7 +708,6 @@ impl ARM64Instruction {
                 imms: 7,
                 dest: destination,
                 src: source,
-                ..ARM64InstructionLogicalImm::default()
             }),
             // SXTH
             OperandSize::S16 => Self::BitfieldImm(ARM64InstructionLogicalImm {
@@ -708,7 +718,6 @@ impl ARM64Instruction {
                 imms: 15,
                 dest: destination,
                 src: source,
-                ..ARM64InstructionLogicalImm::default()
             }),
             // SXTW
             OperandSize::S32 => Self::BitfieldImm(ARM64InstructionLogicalImm {
@@ -719,7 +728,6 @@ impl ARM64Instruction {
                 imms: 31,
                 dest: destination,
                 src: source,
-                ..ARM64InstructionLogicalImm::default()
             }),
             OperandSize::S0 | OperandSize::S64 => {
                 panic!("zero_extend is only valid on S8, S16, and S32")
@@ -738,7 +746,6 @@ impl ARM64Instruction {
             imms: 63 - shift_imm,
             dest: destination,
             src: source,
-            ..ARM64InstructionLogicalImm::default()
         })
     }
 
@@ -765,7 +772,6 @@ impl ARM64Instruction {
             imms: 0b111111,
             dest: destination,
             src: source,
-            ..ARM64InstructionLogicalImm::default()
         })
     }
 
@@ -891,8 +897,7 @@ impl ARM64Instruction {
     /// Load data from [source + offset]
     #[must_use]
     pub fn load(size: OperandSize, source: u8, indirect: ARM64MemoryOperand, data: u8) -> Self {
-        debug_assert_ne!(size, OperandSize::S0);
-        debug_assert_ne!(size, OperandSize::S0);
+        exclude_operand_sizes!(size, OperandSize::S0);
         match indirect {
             ARM64MemoryOperand::OffsetPreIndex(_) | ARM64MemoryOperand::OffsetPostIndex(_) => {
                 // in arm64, loads with writeback to the base register cannot also use this
@@ -911,7 +916,7 @@ impl ARM64Instruction {
 
     #[must_use]
     pub fn store(size: OperandSize, data: u8, source: u8, indirect: ARM64MemoryOperand) -> Self {
-        debug_assert_ne!(size, OperandSize::S0);
+        exclude_operand_sizes!(size, OperandSize::S0);
         match indirect {
             ARM64MemoryOperand::OffsetPreIndex(_) | ARM64MemoryOperand::OffsetPostIndex(_) => {
                 // in arm64, loads with writeback to the base register cannot also use this
@@ -981,7 +986,6 @@ impl ARM64Instruction {
             src2,
             src3,
             o0: 1,
-            ..ARM64InstructionDataProcessing::default()
         })
     }
 

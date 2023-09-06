@@ -4,6 +4,15 @@ use crate::{
     vm::ContextObject,
 };
 
+macro_rules! exclude_operand_sizes {
+    ($size:expr, $($to_exclude:path)|+ $(,)?) => {
+        debug_assert!(match $size {
+            $($to_exclude)|+ => false,
+            _ => true,
+        });
+    }
+}
+
 pub const RAX: u8 = 0;
 pub const RCX: u8 = 1;
 pub const RDX: u8 = 2;
@@ -26,16 +35,6 @@ pub const R15: u8 = 15;
 pub const ARGUMENT_REGISTERS: [u8; 6] = [RDI, RSI, RDX, RCX, R8, R9];
 pub const CALLER_SAVED_REGISTERS: [u8; 9] = [RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11];
 pub const CALLEE_SAVED_REGISTERS: [u8; 6] = [RBP, RBX, R12, R13, R14, R15];
-
-macro_rules! exclude_operand_sizes {
-    ($size:expr, $($to_exclude:path)|+ $(,)?) => {
-        #[cfg(debug_assertions)]
-        match $size {
-            $($to_exclude)|+ => return Self::DEFAULT,
-            _ => {},
-        }
-    }
-}
 
 struct X86Rex {
     w: bool,
