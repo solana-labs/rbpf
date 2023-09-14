@@ -1279,9 +1279,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
     fn emit_result_is_err(&mut self, destination: u8) {
         let ok = ProgramResult::Ok(0);
-        let err_kind = unsafe { *(&ok as *const _ as *const u64).add(1) };
+        let ok_discriminant = ok.discriminant();
         self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, destination, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
-        self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, destination, err_kind as i64, Some(X86IndirectAccess::Offset(0))));
+        self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, destination, ok_discriminant as i64, Some(X86IndirectAccess::Offset(0))));
     }
 
     fn emit_subroutines(&mut self) {

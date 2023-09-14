@@ -64,6 +64,18 @@ impl<T: Debug, E: Debug> StableResult<T, E> {
             Self::Err(error) => error,
         }
     }
+
+    #[cfg_attr(
+        any(
+            not(feature = "jit"),
+            target_os = "windows",
+            not(target_arch = "x86_64")
+        ),
+        allow(dead_code)
+    )]
+    pub(crate) fn discriminant(&self) -> u64 {
+        unsafe { *(self as *const _ as *const u64) }
+    }
 }
 
 impl<T, E> From<StableResult<T, E>> for Result<T, E> {
@@ -558,9 +570,9 @@ mod tests {
     #[test]
     fn test_program_result_is_stable() {
         let ok = ProgramResult::Ok(42);
-        assert_eq!(unsafe { *(&ok as *const _ as *const u64) }, 0);
+        assert_eq!(ok.discriminant(), 0);
         let err = ProgramResult::Err(Box::new(EbpfError::JitNotCompiled));
-        assert_eq!(unsafe { *(&err as *const _ as *const u64) }, 1);
+        assert_eq!(err.discriminant(), 1);
     }
 
     #[test]
