@@ -1708,19 +1708,24 @@ mod tests {
         assert!(empty_program_machine_code_length <= MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH);
 
         for mut opcode in 0x00..=0xFF {
-            let immediate = match opcode {
-                0x85 | 0x8D => 8,
+            let (registers, immediate) = match opcode {
+                0x85 | 0x8D => (0x88, 8),
                 0x86 => {
                     // Put external function calls on a separate loop iteration
                     opcode = 0x85;
-                    0x91020CDD
+                    (0x00, 0x91020CDD)
                 }
-                0xD4 | 0xDC => 16,
-                _ => 0xFFFFFFFF,
+                0x87 => {
+                    // Put invalid function calls on a separate loop iteration
+                    opcode = 0x85;
+                    (0x88, 0x91020CDD)
+                }
+                0xD4 | 0xDC => (0x88, 16),
+                _ => (0x88, 0xFFFFFFFF),
             };
             for pc in 0..INSTRUCTION_COUNT {
                 prog[pc * ebpf::INSN_SIZE] = opcode;
-                prog[pc * ebpf::INSN_SIZE + 1] = 0x88;
+                prog[pc * ebpf::INSN_SIZE + 1] = registers;
                 prog[pc * ebpf::INSN_SIZE + 2] = 0xFF;
                 prog[pc * ebpf::INSN_SIZE + 3] = 0xFF;
                 LittleEndian::write_u32(&mut prog[pc * ebpf::INSN_SIZE + 4..], immediate);
