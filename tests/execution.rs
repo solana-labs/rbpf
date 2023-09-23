@@ -2630,8 +2630,9 @@ fn test_tight_infinite_recursion_callx() {
         "
         mov64 r8, 0x1
         lsh64 r8, 0x20
-        or64 r8, 0x20
+        or64 r8, 0x28
         call function_foo
+        exit
         function_foo:
         mov64 r3, 0x41414141
         callx r8
@@ -2639,7 +2640,7 @@ fn test_tight_infinite_recursion_callx() {
         [],
         (),
         TestContextObject::new(8),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(35))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(36))),
     );
 }
 
@@ -2665,7 +2666,7 @@ fn test_err_instruction_count_syscall_capped() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
-        call 0
+        syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
         [72, 101, 108, 108, 111],
@@ -2778,22 +2779,24 @@ fn test_err_exit_capped() {
         "
         mov64 r1, 0x1
         lsh64 r1, 0x20
-        or64 r1, 0x20
+        or64 r1, 0x28
         callx r1
+        exit
         function_foo:
         exit
         ",
         [],
         (),
         TestContextObject::new(5),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(34))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(35))),
     );
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x1
         lsh64 r1, 0x20
-        or64 r1, 0x20
+        or64 r1, 0x28
         callx r1
+        exit
         function_foo:
         mov r0, r0
         exit
@@ -2801,18 +2804,19 @@ fn test_err_exit_capped() {
         [],
         (),
         TestContextObject::new(6),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(35))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(36))),
     );
     test_interpreter_and_jit_asm!(
         "
-        call 0
+        call 1
+        exit
         mov r0, r0
         exit
         ",
         [],
         (),
         TestContextObject::new(3),
-        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(32))),
+        ProgramResult::Err(Box::new(EbpfError::ExceededMaxInstructions(33))),
     );
 }
 
