@@ -64,13 +64,11 @@ macro_rules! test_interpreter_and_jit {
                 None
             );
             let (instruction_count_interpreter, result) = vm.execute_program(&$executable, true);
-            assert_eq!(format!("{:?}", result), expected_result);
-            if result.is_ok() {
-                assert_eq!(
-                    instruction_count_interpreter, expected_instruction_count,
-                    "Instruction meter did not consume expected amount",
-                );
-            }
+            assert_eq!(
+                format!("{:?}", result),
+                expected_result,
+                "Unexpected result for Interpreter"
+            );
             (
                 instruction_count_interpreter,
                 vm.context_object_pointer.clone(),
@@ -92,11 +90,14 @@ macro_rules! test_interpreter_and_jit {
                 None
             );
             match compilation_result {
-                Err(err) => assert_eq!(format!("{:?}", err), expected_result),
+                Err(err) => assert_eq!(
+                    format!("{:?}", err),
+                    expected_result,
+                    "Unexpected result for JIT compilation"
+                ),
                 Ok(()) => {
                     let (instruction_count_jit, result) = vm.execute_program(&$executable, false);
                     let tracer_jit = &vm.context_object_pointer;
-                    assert_eq!(format!("{:?}", result), expected_result);
                     if !TestContextObject::compare_trace_log(&_tracer_interpreter, tracer_jit) {
                         let analysis = Analysis::from_executable(&$executable).unwrap();
                         let stdout = std::io::stdout();
@@ -112,6 +113,11 @@ macro_rules! test_interpreter_and_jit {
                         panic!();
                     }
                     assert_eq!(
+                        format!("{:?}", result),
+                        expected_result,
+                        "Unexpected result for JIT"
+                    );
+                    assert_eq!(
                         instruction_count_interpreter, instruction_count_jit,
                         "Interpreter and JIT instruction meter diverged",
                     );
@@ -119,7 +125,10 @@ macro_rules! test_interpreter_and_jit {
             }
         }
         if $executable.get_config().enable_instruction_meter {
-            assert_eq!(instruction_count_interpreter, expected_instruction_count);
+            assert_eq!(
+                instruction_count_interpreter, expected_instruction_count,
+                "Instruction meter did not consume expected amount"
+            );
         }
     };
 }
