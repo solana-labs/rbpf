@@ -27,7 +27,6 @@ use crate::{
 use crate::jit::{JitCompiler, JitProgram};
 use byteorder::{ByteOrder, LittleEndian};
 use std::{
-    borrow::Cow,
     collections::{btree_map::Entry, BTreeMap},
     fmt::Debug,
     mem,
@@ -1075,12 +1074,7 @@ impl<C: ContextObject> Executable<C> {
         let mut program_header: Option<&Elf64Phdr> = None;
 
         // Fixup all the relocations in the relocation section if exists
-        for relocation in elf
-            .dynamic_relocations_table()
-            .unwrap_or(&[])
-            .iter()
-            .map(Cow::Borrowed)
-        {
+        for relocation in elf.dynamic_relocations_table().unwrap_or(&[]).iter() {
             let mut r_offset = relocation.r_offset as usize;
 
             // When sbpf_version.enable_elf_vaddr()=true, we allow section.sh_addr !=
@@ -1347,14 +1341,7 @@ impl<C: ContextObject> Executable<C> {
 
         if config.enable_symbol_and_section_labels {
             // Register all known function names from the symbol table
-            for symbol in elf
-                .symbol_table()
-                .ok()
-                .flatten()
-                .unwrap_or(&[])
-                .iter()
-                .map(Cow::Borrowed)
-            {
+            for symbol in elf.symbol_table().ok().flatten().unwrap_or(&[]).iter() {
                 if symbol.st_info & 0xEF != 0x02 {
                     continue;
                 }
