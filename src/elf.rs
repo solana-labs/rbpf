@@ -17,7 +17,6 @@ use crate::{
         types::{Elf64Phdr, Elf64Shdr, Elf64Word},
         Elf64, ElfParserError,
     },
-    elf_parser_glue::NewParser,
     error::EbpfError,
     memory_region::MemoryRegion,
     verifier::Verifier,
@@ -608,17 +607,17 @@ impl<C: ContextObject> Executable<C> {
             aligned = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
             aligned.as_slice()
         };
-        Self::load_with_parser(&NewParser::parse(bytes)?, bytes, loader)
+        Self::load_with_parser(&Elf64::parse(bytes)?, bytes, loader)
     }
 
-    fn load_with_parser<'a>(
-        elf: &'a NewParser,
+    fn load_with_parser(
+        elf: &Elf64,
         bytes: &[u8],
         loader: Arc<BuiltinProgram<C>>,
     ) -> Result<Self, ElfError> {
         let mut elf_bytes = AlignedMemory::from_slice(bytes);
         let config = loader.get_config();
-        let header = elf.elf.file_header();
+        let header = elf.file_header();
         let sbpf_version = if header.e_flags == EF_SBPF_V2 {
             SBPFVersion::V2
         } else {
@@ -628,11 +627,10 @@ impl<C: ContextObject> Executable<C> {
         Self::validate(config, elf, elf_bytes.as_slice())?;
 
         // calculate the text section info
-        let text_section = get_section(&elf.elf, b".text")?;
+        let text_section = get_section(elf, b".text")?;
         let text_section_info = SectionInfo {
             name: if config.enable_symbol_and_section_labels {
-                elf.elf
-                    .section_name(text_section.sh_name)
+                elf.section_name(text_section.sh_name)
                     .ok()
                     .and_then(|name| std::str::from_utf8(name).ok())
                     .unwrap_or(".text")
@@ -694,10 +692,9 @@ impl<C: ContextObject> Executable<C> {
         let ro_section = Self::parse_ro_sections(
             config,
             &sbpf_version,
-            elf.elf
-                .section_header_table()
+            elf.section_header_table()
                 .iter()
-                .map(|s| (elf.elf.section_name(s.sh_name).ok(), s)),
+                .map(|s| (elf.section_name(s.sh_name).ok(), s)),
             elf_bytes.as_slice(),
         )?;
 
@@ -744,12 +741,8 @@ impl<C: ContextObject> Executable<C> {
     // Functions exposed for tests
 
     /// Validates the ELF
-    pub fn validate<'a>(
-        config: &Config,
-        elf: &'a NewParser,
-        elf_bytes: &[u8],
-    ) -> Result<(), ElfError> {
-        let header = elf.elf.file_header();
+    pub fn validate(config: &Config, elf: &Elf64, elf_bytes: &[u8]) -> Result<(), ElfError> {
+        let header = elf.file_header();
         if header.e_ident.ei_class != ELFCLASS64 {
             return Err(ElfError::WrongClass);
         }
@@ -791,17 +784,16 @@ impl<C: ContextObject> Executable<C> {
             //
             // program_headers() returns an ExactSizeIterator so count doesn't
             // actually iterate again.
-            if elf.elf.program_header_table().iter().count() >= 10 {
+            if elf.program_header_table().iter().count() >= 10 {
                 return Err(ElfError::InvalidProgramHeader);
             }
         }
 
         let num_text_sections =
-            elf.elf
-                .section_header_table()
+            elf.section_header_table()
                 .iter()
                 .fold(0, |count: usize, section_header| {
-                    if let Ok(this_name) = elf.elf.section_name(section_header.sh_name) {
+                    if let Ok(this_name) = elf.section_name(section_header.sh_name) {
                         if this_name == b".text" {
                             return count.saturating_add(1);
                         }
@@ -812,8 +804,8 @@ impl<C: ContextObject> Executable<C> {
             return Err(ElfError::NotOneTextSection);
         }
 
-        for section_header in elf.elf.section_header_table().iter() {
-            if let Ok(name) = elf.elf.section_name(section_header.sh_name) {
+        for section_header in elf.section_header_table().iter() {
+            if let Ok(name) = elf.section_name(section_header.sh_name) {
                 if name.starts_with(b".bss")
                     || (section_header.is_writable()
                         && (name.starts_with(b".data") && !name.starts_with(b".data.rel")))
@@ -825,7 +817,7 @@ impl<C: ContextObject> Executable<C> {
             }
         }
 
-        for section_header in elf.elf.section_header_table().iter() {
+        for section_header in elf.section_header_table().iter() {
             let start = section_header.sh_offset as usize;
             let end = section_header
                 .sh_offset
@@ -835,7 +827,7 @@ impl<C: ContextObject> Executable<C> {
                 .get(start..end)
                 .ok_or(ElfError::ValueOutOfBounds)?;
         }
-        let text_section = get_section(&elf.elf, b".text")?;
+        let text_section = get_section(elf, b".text")?;
         if !text_section.vm_range().contains(&header.e_entry) {
             return Err(ElfError::EntrypointOutOfBounds);
         }
@@ -1024,15 +1016,15 @@ impl<C: ContextObject> Executable<C> {
     }
 
     /// Relocates the ELF in-place
-    fn relocate<'a>(
+    fn relocate(
         function_registry: &mut FunctionRegistry<usize>,
         loader: &BuiltinProgram<C>,
-        elf: &'a NewParser,
+        elf: &Elf64,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
         let mut syscall_cache = BTreeMap::new();
-        let text_section = get_section(&elf.elf, b".text")?;
-        let sbpf_version = if elf.elf.file_header().e_flags == EF_SBPF_V2 {
+        let text_section = get_section(elf, b".text")?;
+        let sbpf_version = if elf.file_header().e_flags == EF_SBPF_V2 {
             SBPFVersion::V2
         } else {
             SBPFVersion::V1
@@ -1084,7 +1076,6 @@ impl<C: ContextObject> Executable<C> {
 
         // Fixup all the relocations in the relocation section if exists
         for relocation in elf
-            .elf
             .dynamic_relocations_table()
             .unwrap_or(&[])
             .iter()
@@ -1100,7 +1091,6 @@ impl<C: ContextObject> Executable<C> {
                     Some(header) if header.vm_range().contains(&(r_offset as u64)) => {}
                     _ => {
                         program_header = elf
-                            .elf
                             .program_header_table()
                             .iter()
                             .find(|header| header.vm_range().contains(&(r_offset as u64)))
@@ -1134,7 +1124,6 @@ impl<C: ContextObject> Executable<C> {
                     let refd_addr = LittleEndian::read_u32(checked_slice) as u64;
 
                     let symbol = elf
-                        .elf
                         .dynamic_symbol_table()
                         .and_then(|table| table.get(relocation.r_sym() as usize).cloned())
                         .ok_or_else(|| ElfError::UnknownSymbol(relocation.r_sym() as usize))?;
@@ -1302,13 +1291,11 @@ impl<C: ContextObject> Executable<C> {
                     let imm_offset = r_offset.saturating_add(BYTE_OFFSET_IMMEDIATE);
 
                     let symbol = elf
-                        .elf
                         .dynamic_symbol_table()
                         .and_then(|table| table.get(relocation.r_sym() as usize).cloned())
                         .ok_or_else(|| ElfError::UnknownSymbol(relocation.r_sym() as usize))?;
 
                     let name = elf
-                        .elf
                         .dynamic_symbol_name(symbol.st_name as Elf64Word)
                         .map_err(|_| ElfError::UnknownSymbol(symbol.st_name as usize))?;
 
@@ -1361,7 +1348,6 @@ impl<C: ContextObject> Executable<C> {
         if config.enable_symbol_and_section_labels {
             // Register all known function names from the symbol table
             for symbol in elf
-                .elf
                 .symbol_table()
                 .ok()
                 .flatten()
@@ -1379,7 +1365,6 @@ impl<C: ContextObject> Executable<C> {
                     .checked_div(ebpf::INSN_SIZE)
                     .unwrap_or_default();
                 let name = elf
-                    .elf
                     .symbol_name(symbol.st_name as Elf64Word)
                     .map_err(|_| ElfError::UnknownSymbol(symbol.st_name as usize))?;
                 function_registry.register_function_hashed_legacy(
@@ -1461,8 +1446,8 @@ mod test {
     #[test]
     fn test_validate() {
         let elf_bytes = std::fs::read("tests/elfs/relative_call.so").unwrap();
-        let elf = NewParser::parse(&elf_bytes).unwrap();
-        let mut header = elf.elf.file_header().clone();
+        let elf = Elf64::parse(&elf_bytes).unwrap();
+        let mut header = elf.file_header().clone();
 
         let config = Config::default();
 
@@ -1477,46 +1462,46 @@ mod test {
         header.e_ident.ei_class = ELFCLASS32;
         let bytes = write_header(header.clone());
         // the new parser rejects anything other than ELFCLASS64 directly
-        NewParser::parse(&bytes).expect_err("allowed bad class");
+        Elf64::parse(&bytes).expect_err("allowed bad class");
 
         header.e_ident.ei_class = ELFCLASS64;
         let bytes = write_header(header.clone());
-        ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
+        ElfExecutable::validate(&config, &Elf64::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
 
         header.e_ident.ei_data = ELFDATA2MSB;
         let bytes = write_header(header.clone());
         // the new parser only supports little endian
-        NewParser::parse(&bytes).expect_err("allowed big endian");
+        Elf64::parse(&bytes).expect_err("allowed big endian");
 
         header.e_ident.ei_data = ELFDATA2LSB;
         let bytes = write_header(header.clone());
-        ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
+        ElfExecutable::validate(&config, &Elf64::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
 
         header.e_ident.ei_osabi = 1;
         let bytes = write_header(header.clone());
-        ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
+        ElfExecutable::validate(&config, &Elf64::parse(&bytes).unwrap(), &elf_bytes)
             .expect_err("allowed wrong abi");
 
         header.e_ident.ei_osabi = ELFOSABI_NONE;
         let bytes = write_header(header.clone());
-        ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
+        ElfExecutable::validate(&config, &Elf64::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
 
         header.e_machine = 42;
         let bytes = write_header(header.clone());
-        ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
+        ElfExecutable::validate(&config, &Elf64::parse(&bytes).unwrap(), &elf_bytes)
             .expect_err("allowed wrong machine");
 
         header.e_machine = EM_BPF;
         let bytes = write_header(header.clone());
-        ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
+        ElfExecutable::validate(&config, &Elf64::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
 
         header.e_type = ET_REL;
         let bytes = write_header(header);
-        ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
+        ElfExecutable::validate(&config, &Elf64::parse(&bytes).unwrap(), &elf_bytes)
             .expect_err("allowed wrong type");
     }
 
@@ -1549,7 +1534,7 @@ mod test {
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
         let elf = ElfExecutable::load(&elf_bytes, loader.clone()).expect("validation failed");
-        let parsed_elf = NewParser::parse(&elf_bytes).unwrap();
+        let parsed_elf = Elf64::parse(&elf_bytes).unwrap();
         let executable: &Executable<TestContextObject> = &elf;
         assert_eq!(0, executable.get_entrypoint_instruction_offset());
 
@@ -1559,7 +1544,7 @@ mod test {
             bytes
         };
 
-        let mut header = parsed_elf.elf.file_header().clone();
+        let mut header = parsed_elf.file_header().clone();
         let initial_e_entry = header.e_entry;
 
         header.e_entry += 8;
@@ -1616,7 +1601,7 @@ mod test {
         let mut elf_bytes = Vec::new();
         file.read_to_end(&mut elf_bytes)
             .expect("failed to read elf file");
-        let parsed_elf = NewParser::parse(&elf_bytes).unwrap();
+        let parsed_elf = Elf64::parse(&elf_bytes).unwrap();
 
         // focus on elf header, small typically 64 bytes
         println!("mangle elf header");
@@ -1624,7 +1609,7 @@ mod test {
             &elf_bytes,
             1_000_000,
             100,
-            0..parsed_elf.elf.file_header().e_ehsize as usize,
+            0..parsed_elf.file_header().e_ehsize as usize,
             0..255,
             |bytes: &mut [u8]| {
                 let _ = ElfExecutable::load(bytes, loader.clone());
@@ -1637,7 +1622,7 @@ mod test {
             &elf_bytes,
             1_000_000,
             100,
-            parsed_elf.elf.file_header().e_shoff as usize..elf_bytes.len(),
+            parsed_elf.file_header().e_shoff as usize..elf_bytes.len(),
             0..255,
             |bytes: &mut [u8]| {
                 let _ = ElfExecutable::load(bytes, loader.clone());
