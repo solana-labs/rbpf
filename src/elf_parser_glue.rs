@@ -1,15 +1,5 @@
 //! Internal ELF parser abstraction.
-use std::{borrow::Cow, convert::TryInto, iter, ops::Range, slice};
-
-use goblin::{
-    elf::{Elf, Header, ProgramHeader, Reloc, SectionHeader, Sym},
-    elf64::{
-        header::{EI_ABIVERSION, EI_CLASS, EI_DATA, EI_OSABI, EI_VERSION},
-        reloc::RelocIterator,
-        sym::SymIterator,
-    },
-    error::Error as GoblinError,
-};
+use std::{borrow::Cow, iter, ops::Range, slice};
 
 use crate::{
     elf::ElfError,
@@ -17,11 +7,10 @@ use crate::{
         consts::{SHF_ALLOC, SHF_WRITE, SHT_NOBITS, STT_FUNC},
         types::{
             Elf64Addr, Elf64Ehdr, Elf64Off, Elf64Phdr, Elf64Rel, Elf64Shdr, Elf64Sym, Elf64Word,
-            Elf64Xword, ElfIdent,
+            Elf64Xword,
         },
         Elf64, ElfParserError,
     },
-    error::EbpfError,
 };
 
 /// The common trait implemented by LegacyParser and NewParser.
@@ -173,193 +162,6 @@ pub trait ElfRelocation: Clone {
 
     /// Returns the symbol index.
     fn r_sym(&self) -> Elf64Word;
-}
-
-/// The Goblin based ELF parser.
-pub struct GoblinParser<'a> {
-    elf: Elf<'a>,
-    header: Elf64Ehdr,
-}
-
-impl<'a> ElfParser<'a> for GoblinParser<'a> {
-    type ProgramHeader = ProgramHeader;
-    type ProgramHeaders = slice::Iter<'a, ProgramHeader>;
-
-    type SectionHeader = SectionHeader;
-    type SectionHeaders = slice::Iter<'a, SectionHeader>;
-
-    type Symbol = Sym;
-    type Symbols = iter::Map<SymIterator<'a>, fn(Self::Symbol) -> Cow<'a, Self::Symbol>>;
-
-    type Relocation = Reloc;
-    type Relocations =
-        iter::Map<RelocIterator<'a>, fn(Self::Relocation) -> Cow<'a, Self::Relocation>>;
-
-    fn parse(data: &'a [u8]) -> Result<GoblinParser<'a>, ElfError> {
-        let elf = Elf::parse(data)?;
-        Ok(Self {
-            header: elf.header.into(),
-            elf,
-        })
-    }
-
-    fn header(&self) -> &Elf64Ehdr {
-        &self.header
-    }
-
-    fn program_headers(&'a self) -> Self::ProgramHeaders {
-        self.elf.program_headers.iter()
-    }
-
-    fn section_headers(&'a self) -> Self::SectionHeaders {
-        self.elf.section_headers.iter()
-    }
-
-    fn section(&self, name: &[u8]) -> Result<Self::SectionHeader, ElfError> {
-        match self.elf.section_headers.iter().find(|section_header| {
-            if let Some(this_name) = self.section_name(section_header.sh_name as Elf64Word) {
-                return this_name == name;
-            }
-            false
-        }) {
-            Some(section) => Ok(section.clone()),
-            None => Err(ElfError::SectionNotFound(
-                std::str::from_utf8(name)
-                    .unwrap_or("UTF-8 error")
-                    .to_string(),
-            )),
-        }
-    }
-
-    fn section_name(&self, sh_name: Elf64Word) -> Option<&[u8]> {
-        self.elf
-            .shdr_strtab
-            .get_at(sh_name as usize)
-            .map(|name| name.as_bytes())
-    }
-
-    fn symbols(&'a self) -> Self::Symbols {
-        self.elf.syms.iter().map(Cow::Owned)
-    }
-
-    fn symbol_name(&self, st_name: Elf64Word) -> Option<&[u8]> {
-        self.elf
-            .strtab
-            .get_at(st_name as usize)
-            .map(|name| name.as_bytes())
-    }
-
-    fn dynamic_symbol(&self, index: Elf64Word) -> Option<Self::Symbol> {
-        self.elf.dynsyms.get(index as usize)
-    }
-
-    fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Option<&[u8]> {
-        self.elf
-            .dynstrtab
-            .get_at(st_name as usize)
-            .map(|name| name.as_bytes())
-    }
-
-    fn dynamic_relocations(&self) -> Self::Relocations {
-        self.elf.dynrels.iter().map(Cow::Owned)
-    }
-}
-
-impl From<Header> for Elf64Ehdr {
-    fn from(h: Header) -> Self {
-        Elf64Ehdr {
-            e_ident: ElfIdent {
-                ei_mag: h.e_ident[0..4].try_into().unwrap(),
-                ei_class: h.e_ident[EI_CLASS],
-                ei_data: h.e_ident[EI_DATA],
-                ei_version: h.e_ident[EI_VERSION],
-                ei_osabi: h.e_ident[EI_OSABI],
-                ei_abiversion: h.e_ident[EI_ABIVERSION],
-                ei_pad: [0u8; 7],
-            },
-            e_type: h.e_type,
-            e_machine: h.e_machine,
-            e_version: h.e_version,
-            e_entry: h.e_entry,
-            e_phoff: h.e_phoff,
-            e_shoff: h.e_shoff,
-            e_flags: h.e_flags,
-            e_ehsize: h.e_ehsize,
-            e_phentsize: h.e_phentsize,
-            e_phnum: h.e_phnum,
-            e_shentsize: h.e_shentsize,
-            e_shnum: h.e_shnum,
-            e_shstrndx: h.e_shstrndx,
-        }
-    }
-}
-
-impl ElfProgramHeader for ProgramHeader {
-    fn p_vaddr(&self) -> Elf64Addr {
-        self.p_vaddr
-    }
-
-    fn p_memsz(&self) -> Elf64Xword {
-        self.p_memsz
-    }
-
-    fn p_offset(&self) -> Elf64Off {
-        self.p_offset
-    }
-}
-
-impl ElfSectionHeader for SectionHeader {
-    fn sh_name(&self) -> Elf64Word {
-        self.sh_name as _
-    }
-
-    fn sh_flags(&self) -> Elf64Xword {
-        self.sh_flags
-    }
-
-    fn sh_addr(&self) -> Elf64Addr {
-        self.sh_addr
-    }
-
-    fn sh_offset(&self) -> Elf64Off {
-        self.sh_offset
-    }
-
-    fn sh_size(&self) -> Elf64Xword {
-        self.sh_size
-    }
-
-    fn sh_type(&self) -> Elf64Word {
-        self.sh_type
-    }
-}
-
-impl ElfSymbol for Sym {
-    fn st_name(&self) -> Elf64Word {
-        self.st_name as _
-    }
-
-    fn st_info(&self) -> u8 {
-        self.st_info
-    }
-
-    fn st_value(&self) -> Elf64Addr {
-        self.st_value
-    }
-}
-
-impl ElfRelocation for Reloc {
-    fn r_offset(&self) -> Elf64Addr {
-        self.r_offset
-    }
-
-    fn r_type(&self) -> Elf64Word {
-        self.r_type
-    }
-
-    fn r_sym(&self) -> Elf64Word {
-        self.r_sym as Elf64Word
-    }
 }
 
 /// The new ELF parser.
@@ -540,26 +342,5 @@ impl From<ElfParserError> for ElfError {
             ElfParserError::InvalidProgramHeader => ElfError::InvalidProgramHeader,
             ElfParserError::OutOfBounds => ElfError::ValueOutOfBounds,
         }
-    }
-}
-
-impl From<GoblinError> for ElfError {
-    fn from(error: GoblinError) -> Self {
-        match error {
-            GoblinError::Malformed(string) => Self::FailedToParse(format!("malformed: {string}")),
-            GoblinError::BadMagic(magic) => Self::FailedToParse(format!("bad magic: {magic:#x}")),
-            GoblinError::Scroll(error) => Self::FailedToParse(format!("read-write: {error}")),
-            GoblinError::IO(error) => Self::FailedToParse(format!("io: {error}")),
-            GoblinError::BufferTooShort(n, error) => {
-                Self::FailedToParse(format!("buffer too short {n} {error}"))
-            }
-            _ => Self::FailedToParse("cause unkown".to_string()),
-        }
-    }
-}
-
-impl From<GoblinError> for EbpfError {
-    fn from(error: GoblinError) -> Self {
-        ElfError::from(error).into()
     }
 }

@@ -17,8 +17,7 @@ use crate::{
         types::Elf64Word,
     },
     elf_parser_glue::{
-        ElfParser, ElfProgramHeader, ElfRelocation, ElfSectionHeader, ElfSymbol, GoblinParser,
-        NewParser,
+        ElfParser, ElfProgramHeader, ElfRelocation, ElfSectionHeader, ElfSymbol, NewParser,
     },
     error::EbpfError,
     memory_region::MemoryRegion,
@@ -564,21 +563,17 @@ impl<C: ContextObject> Executable<C> {
 
     /// Fully loads an ELF, including validation and relocation
     pub fn load(bytes: &[u8], loader: Arc<BuiltinProgram<C>>) -> Result<Self, ElfError> {
-        if loader.get_config().new_elf_parser {
-            // The new parser creates references from the input byte slice, so
-            // it must be properly aligned. We assume that HOST_ALIGN is a
-            // multiple of the ELF "natural" alignment. See test_load_unaligned.
-            let aligned;
-            let bytes = if is_memory_aligned(bytes.as_ptr() as usize, HOST_ALIGN) {
-                bytes
-            } else {
-                aligned = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
-                aligned.as_slice()
-            };
-            Self::load_with_parser(&NewParser::parse(bytes)?, bytes, loader)
+        // The new parser creates references from the input byte slice, so
+        // it must be properly aligned. We assume that HOST_ALIGN is a
+        // multiple of the ELF "natural" alignment. See test_load_unaligned.
+        let aligned;
+        let bytes = if is_memory_aligned(bytes.as_ptr() as usize, HOST_ALIGN) {
+            bytes
         } else {
-            Self::load_with_parser(&GoblinParser::parse(bytes)?, bytes, loader)
-        }
+            aligned = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
+            aligned.as_slice()
+        };
+        Self::load_with_parser(&NewParser::parse(bytes)?, bytes, loader)
     }
 
     fn load_with_parser<'a, P: ElfParser<'a>>(
@@ -729,7 +724,7 @@ impl<C: ContextObject> Executable<C> {
         if header.e_ident.ei_osabi != ELFOSABI_NONE {
             return Err(ElfError::WrongAbi);
         }
-        if header.e_machine != EM_BPF && (!config.new_elf_parser || header.e_machine != EM_SBPF) {
+        if header.e_machine != EM_BPF && header.e_machine != EM_SBPF {
             return Err(ElfError::WrongMachine);
         }
         if header.e_type != ET_DYN {
@@ -754,19 +749,6 @@ impl<C: ContextObject> Executable<C> {
                 // rodata sections into it. In that case we can't allow virtual
                 // addresses or we'd potentially have to do huge allocations.
                 return Err(ElfError::UnsupportedSBPFVersion);
-            }
-
-            // This is needed to avoid an overflow error in header.vm_range() as
-            // used by relocate(). See https://github.com/m4b/goblin/pull/306.
-            //
-            // Once we bump to a version of goblin that includes the fix, this
-            // check can be removed, and relocate() will still return
-            // ValueOutOfBounds on malformed program headers.
-            if elf
-                .program_headers()
-                .any(|header| header.p_vaddr().checked_add(header.p_memsz()).is_none())
-            {
-                return Err(ElfError::InvalidProgramHeader);
             }
 
             // The toolchain currently emits up to 4 program headers. 10 is a
@@ -1438,14 +1420,10 @@ mod test {
         let bytes = write_header(header.clone());
         // the new parser rejects anything other than ELFCLASS64 directly
         NewParser::parse(&bytes).expect_err("allowed bad class");
-        ElfExecutable::validate(&config, &GoblinParser::parse(&bytes).unwrap(), &elf_bytes)
-            .expect_err("allowed bad class");
 
         header.e_ident.ei_class = ELFCLASS64;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
-            .expect("validation failed");
-        ElfExecutable::validate(&config, &GoblinParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
 
         header.e_ident.ei_data = ELFDATA2MSB;
@@ -1457,42 +1435,30 @@ mod test {
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
-        ElfExecutable::validate(&config, &GoblinParser::parse(&bytes).unwrap(), &elf_bytes)
-            .expect("validation failed");
 
         header.e_ident.ei_osabi = 1;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
-            .expect_err("allowed wrong abi");
-        ElfExecutable::validate(&config, &GoblinParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect_err("allowed wrong abi");
 
         header.e_ident.ei_osabi = ELFOSABI_NONE;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
-        ElfExecutable::validate(&config, &GoblinParser::parse(&bytes).unwrap(), &elf_bytes)
-            .expect("validation failed");
 
         header.e_machine = 42;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
-            .expect_err("allowed wrong machine");
-        ElfExecutable::validate(&config, &GoblinParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect_err("allowed wrong machine");
 
         header.e_machine = EM_BPF;
         let bytes = write_header(header.clone());
         ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect("validation failed");
-        ElfExecutable::validate(&config, &GoblinParser::parse(&bytes).unwrap(), &elf_bytes)
-            .expect("validation failed");
 
         header.e_type = ET_REL;
         let bytes = write_header(header);
         ElfExecutable::validate(&config, &NewParser::parse(&bytes).unwrap(), &elf_bytes)
-            .expect_err("allowed wrong type");
-        ElfExecutable::validate(&config, &GoblinParser::parse(&bytes).unwrap(), &elf_bytes)
             .expect_err("allowed wrong type");
     }
 
