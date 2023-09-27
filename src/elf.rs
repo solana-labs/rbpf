@@ -14,11 +14,9 @@ use crate::{
             ELFCLASS64, ELFDATA2LSB, ELFOSABI_NONE, EM_BPF, EM_SBPF, ET_DYN, R_X86_64_32,
             R_X86_64_64, R_X86_64_NONE, R_X86_64_RELATIVE,
         },
-        types::Elf64Word,
+        types::{Elf64Phdr, Elf64Shdr, Elf64Word},
     },
-    elf_parser_glue::{
-        ElfParser, ElfProgramHeader, ElfRelocation, ElfSectionHeader, ElfSymbol, NewParser,
-    },
+    elf_parser_glue::NewParser,
     error::EbpfError,
     memory_region::MemoryRegion,
     verifier::Verifier,
@@ -576,8 +574,8 @@ impl<C: ContextObject> Executable<C> {
         Self::load_with_parser(&NewParser::parse(bytes)?, bytes, loader)
     }
 
-    fn load_with_parser<'a, P: ElfParser<'a>>(
-        elf: &'a P,
+    fn load_with_parser<'a>(
+        elf: &'a NewParser,
         bytes: &[u8],
         loader: Arc<BuiltinProgram<C>>,
     ) -> Result<Self, ElfError> {
@@ -709,9 +707,9 @@ impl<C: ContextObject> Executable<C> {
     // Functions exposed for tests
 
     /// Validates the ELF
-    pub fn validate<'a, P: ElfParser<'a>>(
+    pub fn validate<'a>(
         config: &Config,
-        elf: &'a P,
+        elf: &'a NewParser,
         elf_bytes: &[u8],
     ) -> Result<(), ElfError> {
         let header = elf.header();
@@ -808,8 +806,7 @@ impl<C: ContextObject> Executable<C> {
 
     pub(crate) fn parse_ro_sections<
         'a,
-        T: ElfSectionHeader + 'a,
-        S: IntoIterator<Item = (Option<&'a [u8]>, &'a T)>,
+        S: IntoIterator<Item = (Option<&'a [u8]>, &'a Elf64Shdr)>,
     >(
         config: &Config,
         sbpf_version: &SBPFVersion,
@@ -988,10 +985,10 @@ impl<C: ContextObject> Executable<C> {
     }
 
     /// Relocates the ELF in-place
-    fn relocate<'a, P: ElfParser<'a>>(
+    fn relocate<'a>(
         function_registry: &mut FunctionRegistry<usize>,
         loader: &BuiltinProgram<C>,
-        elf: &'a P,
+        elf: &'a NewParser,
         elf_bytes: &mut [u8],
     ) -> Result<(), ElfError> {
         let mut syscall_cache = BTreeMap::new();
@@ -1044,7 +1041,7 @@ impl<C: ContextObject> Executable<C> {
             }
         }
 
-        let mut program_header: Option<&<P as ElfParser<'a>>::ProgramHeader> = None;
+        let mut program_header: Option<&Elf64Phdr> = None;
 
         // Fixup all the relocations in the relocation section if exists
         for relocation in elf.dynamic_relocations() {
