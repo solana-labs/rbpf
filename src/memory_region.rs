@@ -135,7 +135,7 @@ impl MemoryRegion {
         // address, eg with rodata regions if config.optimize_rodata = true, see
         // Elf::get_ro_region.
         if vm_addr < self.vm_addr {
-            return ProgramResult::Err(Box::new(EbpfError::InvalidVirtualAddress(vm_addr)));
+            return ProgramResult::Err(EbpfError::InvalidVirtualAddress(vm_addr));
         }
 
         let begin_offset = vm_addr.saturating_sub(self.vm_addr);
@@ -152,7 +152,7 @@ impl MemoryRegion {
                 return ProgramResult::Ok(self.host_addr.get().saturating_add(gapped_offset));
             }
         }
-        ProgramResult::Err(Box::new(EbpfError::InvalidVirtualAddress(vm_addr)))
+        ProgramResult::Err(EbpfError::InvalidVirtualAddress(vm_addr))
     }
 }
 
@@ -533,7 +533,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         &self,
         access_type: AccessType,
         vm_addr: u64,
-    ) -> Result<&MemoryRegion, Box<dyn std::error::Error>> {
+    ) -> Result<&MemoryRegion, EbpfError> {
         // Safety:
         // &mut references to the mapping cache are only created internally from methods that do not
         // invoke each other. UnalignedMemoryMapping is !Sync, so the cache reference below is
@@ -710,7 +710,7 @@ impl<'a> AlignedMemoryMapping<'a> {
         &self,
         access_type: AccessType,
         vm_addr: u64,
-    ) -> Result<&MemoryRegion, Box<dyn std::error::Error>> {
+    ) -> Result<&MemoryRegion, EbpfError> {
         let index = vm_addr
             .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
             .unwrap_or(0) as usize;
@@ -850,9 +850,9 @@ impl<'a> MemoryMapping<'a> {
         &self,
         access_type: AccessType,
         vm_addr: u64,
-    ) -> Result<&MemoryRegion, Box<dyn std::error::Error>> {
+    ) -> Result<&MemoryRegion, EbpfError> {
         match self {
-            MemoryMapping::Identity => Err(Box::new(EbpfError::InvalidMemoryRegion(0))),
+            MemoryMapping::Identity => Err(EbpfError::InvalidMemoryRegion(0)),
             MemoryMapping::Aligned(m) => m.region(access_type, vm_addr),
             MemoryMapping::Unaligned(m) => m.region(access_type, vm_addr),
         }
@@ -911,13 +911,13 @@ fn generate_access_violation(
     if !sbpf_version.dynamic_stack_frames()
         && (-1..(config.max_call_depth as i64).saturating_add(1)).contains(&stack_frame)
     {
-        ProgramResult::Err(Box::new(EbpfError::StackAccessViolation(
+        ProgramResult::Err(EbpfError::StackAccessViolation(
             pc,
             access_type,
             vm_addr,
             len,
             stack_frame,
-        )))
+        ))
     } else {
         let region_name = match vm_addr & (!ebpf::MM_PROGRAM_START.saturating_sub(1)) {
             ebpf::MM_PROGRAM_START => "program",
@@ -926,13 +926,13 @@ fn generate_access_violation(
             ebpf::MM_INPUT_START => "input",
             _ => "unknown",
         };
-        ProgramResult::Err(Box::new(EbpfError::AccessViolation(
+        ProgramResult::Err(EbpfError::AccessViolation(
             pc,
             access_type,
             vm_addr,
             len,
             region_name,
-        )))
+        ))
     }
 }
 

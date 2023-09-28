@@ -98,7 +98,7 @@ impl<T, E> From<Result<T, E>> for StableResult<T, E> {
 }
 
 /// Return value of programs and syscalls
-pub type ProgramResult = StableResult<u64, Box<dyn std::error::Error>>;
+pub type ProgramResult = StableResult<u64, EbpfError>;
 
 /// VM configuration settings
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -457,7 +457,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
             {
                 let compiled_program = match executable
                     .get_compiled_program()
-                    .ok_or_else(|| Box::new(EbpfError::JitNotCompiled))
+                    .ok_or_else(|| EbpfError::JitNotCompiled)
                 {
                     Ok(compiled_program) => compiled_program,
                     Err(error) => return (0, ProgramResult::Err(error)),
@@ -470,7 +470,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
             }
             #[cfg(not(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64")))]
             {
-                return (0, ProgramResult::Err(Box::new(EbpfError::JitNotCompiled)));
+                return (0, ProgramResult::Err(EbpfError::JitNotCompiled));
             }
         };
         let instruction_count = if config.enable_instruction_meter {
@@ -494,7 +494,7 @@ mod tests {
     fn test_program_result_is_stable() {
         let ok = ProgramResult::Ok(42);
         assert_eq!(ok.discriminant(), 0);
-        let err = ProgramResult::Err(Box::new(EbpfError::JitNotCompiled));
+        let err = ProgramResult::Err(EbpfError::JitNotCompiled);
         assert_eq!(err.discriminant(), 1);
     }
 

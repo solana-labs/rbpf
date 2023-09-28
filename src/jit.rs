@@ -183,21 +183,20 @@ impl PartialEq for JitProgram {
 const ANCHOR_TRACE: usize = 0;
 const ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS: usize = 1;
 const ANCHOR_EPILOGUE: usize = 2;
-const ANCHOR_ALLOCATE_EXCEPTION: usize = 3;
-const ANCHOR_THROW_EXCEPTION_UNCHECKED: usize = 4;
-const ANCHOR_EXIT: usize = 5;
-const ANCHOR_THROW_EXCEPTION: usize = 6;
-const ANCHOR_ACCESS_VIOLATION: usize = 7;
-const ANCHOR_CALL_DEPTH_EXCEEDED: usize = 8;
-const ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT: usize = 9;
-const ANCHOR_DIV_BY_ZERO: usize = 10;
-const ANCHOR_DIV_OVERFLOW: usize = 11;
-const ANCHOR_CALL_UNSUPPORTED_INSTRUCTION: usize = 12;
-const ANCHOR_EXTERNAL_FUNCTION_CALL: usize = 13;
-const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE: usize = 14;
-const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG: usize = 15;
-const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 23;
-const ANCHOR_COUNT: usize = 32; // Update me when adding or removing anchors
+const ANCHOR_THROW_EXCEPTION_UNCHECKED: usize = 3;
+const ANCHOR_EXIT: usize = 4;
+const ANCHOR_THROW_EXCEPTION: usize = 5;
+const ANCHOR_ACCESS_VIOLATION: usize = 6;
+const ANCHOR_CALL_DEPTH_EXCEEDED: usize = 7;
+const ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT: usize = 8;
+const ANCHOR_DIV_BY_ZERO: usize = 9;
+const ANCHOR_DIV_OVERFLOW: usize = 10;
+const ANCHOR_CALL_UNSUPPORTED_INSTRUCTION: usize = 11;
+const ANCHOR_EXTERNAL_FUNCTION_CALL: usize = 12;
+const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE: usize = 13;
+const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG: usize = 14;
+const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 22;
+const ANCHOR_COUNT: usize = 31; // Update me when adding or removing anchors
 
 const REGISTER_MAP: [u8; 11] = [
     CALLER_SAVED_REGISTERS[0],
@@ -257,7 +256,7 @@ enum RuntimeEnvironmentSlot {
     StopwatchNumerator = 5,
     StopwatchDenominator = 6,
     ProgramResult = 7,
-    MemoryMapping = 10,
+    MemoryMapping = 15,
 }
 
 /* Explaination of the Instruction Meter
@@ -1285,8 +1284,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     }
 
     fn emit_set_exception_kind(&mut self, err: EbpfError) {
-        self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ALLOCATE_EXCEPTION, 5)));
         let err_kind = unsafe { *(&err as *const _ as *const u64) };
+        let err_discriminant = ProgramResult::Err(err).discriminant();
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult) + std::mem::size_of::<u64>() as i32))));
+        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(-(std::mem::size_of::<u64>() as i32)), err_discriminant as i64)); // result.discriminant = err_discriminant;
         self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset(0), err_kind as i64)); // err.kind = err_kind;
     }
 
@@ -1340,20 +1341,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, RSP, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::HostStackPointer))));
         self.emit_ins(X86Instruction::return_near());
 
-        // Routine for allocating errors
-        self.set_anchor(ANCHOR_ALLOCATE_EXCEPTION);
-        unsafe fn allocate_error(result: *mut ProgramResult) -> *mut EbpfError {
-            let err_ptr = std::alloc::alloc(std::alloc::Layout::new::<EbpfError>()) as *mut EbpfError;
-            assert!(!err_ptr.is_null(), "std::alloc::alloc() failed");
-            result.write(ProgramResult::Err(Box::from_raw(err_ptr)));
-            err_ptr
-        }
-        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult)))));
-        self.emit_rust_call(Value::Constant64(allocate_error as usize as i64, false), &[
-            Argument { index: 0, value: Value::Register(R10) },
-        ], Some(R10));
-        self.emit_ins(X86Instruction::return_near());
-
         // Handler for EbpfError::ExceededMaxInstructions
         self.set_anchor(ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS);
         self.emit_set_exception_kind(EbpfError::ExceededMaxInstructions(0));
@@ -1362,6 +1349,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Epilogue for errors
         self.set_anchor(ANCHOR_THROW_EXCEPTION_UNCHECKED);
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult) + std::mem::size_of::<u64>() as i32))));
         self.emit_ins(X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32))); // result.pc = self.pc;
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, R10, ebpf::ELF_INSN_DUMP_OFFSET as i64, Some(X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32)))); // result.pc += ebpf::ELF_INSN_DUMP_OFFSET;
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));

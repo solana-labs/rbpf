@@ -49,7 +49,7 @@ macro_rules! translate_memory_access {
 
 macro_rules! throw_error {
     ($self:expr, $err:expr) => {{
-        $self.vm.program_result = ProgramResult::Err(Box::new($err));
+        $self.vm.program_result = ProgramResult::Err($err);
         return false;
     }};
     (DivideByZero; $self:expr, $pc:expr, $src:expr, $ty:ty) => {

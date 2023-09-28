@@ -23,6 +23,7 @@ use gdbstub::target::ext::section_offsets::Offsets;
 
 use crate::{
     ebpf,
+    error::EbpfError,
     interpreter::{DebugState, Interpreter},
     memory_region::AccessType,
     vm::{ContextObject, ProgramResult},
@@ -152,7 +153,7 @@ fn get_host_ptr<C: ContextObject>(
     interpreter: &mut Interpreter<C>,
     mut vm_addr: u64,
     pc: usize,
-) -> Result<*mut u8, Box<dyn std::error::Error>> {
+) -> Result<*mut u8, EbpfError> {
     if vm_addr < ebpf::MM_PROGRAM_START {
         vm_addr += ebpf::MM_PROGRAM_START;
     }
