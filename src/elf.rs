@@ -19,21 +19,15 @@ use crate::{
     },
     error::EbpfError,
     memory_region::MemoryRegion,
+    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
     verifier::Verifier,
-    vm::{BuiltinProgram, Config, ContextObject},
+    vm::{Config, ContextObject},
 };
 
 #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 use crate::jit::{JitCompiler, JitProgram};
 use byteorder::{ByteOrder, LittleEndian};
-use std::{
-    collections::{btree_map::Entry, BTreeMap},
-    fmt::Debug,
-    mem,
-    ops::Range,
-    str,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, fmt::Debug, mem, ops::Range, str, sync::Arc};
 
 /// Error definitions
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -237,205 +231,6 @@ pub(crate) enum Section {
     /// second field an be used to index the input ELF buffer to retrieve the
     /// section data.
     Borrowed(usize, Range<usize>),
-}
-
-/// Defines a set of sbpf_version of an executable
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum SBPFVersion {
-    /// The legacy format
-    V1,
-    /// The current format
-    V2,
-    /// The future format with BTF support
-    V3,
-}
-
-impl SBPFVersion {
-    /// Enable the little-endian byte swap instructions
-    pub fn enable_le(&self) -> bool {
-        self == &SBPFVersion::V1
-    }
-
-    /// Enable the negation instruction
-    pub fn enable_neg(&self) -> bool {
-        self == &SBPFVersion::V1
-    }
-
-    /// Swaps the reg and imm operands of the subtraction instruction
-    pub fn swap_sub_reg_imm_operands(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Disable the only two slots long instruction: LD_DW_IMM
-    pub fn disable_lddw(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Enable the BPF_PQR instruction class
-    pub fn enable_pqr(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Use src reg instead of imm in callx
-    pub fn callx_uses_src_reg(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Ensure that rodata sections don't exceed their maximum allowed size and
-    /// overlap with the stack
-    pub fn reject_rodata_stack_overlap(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Allow sh_addr != sh_offset in elf sections. Used in V2 to align
-    /// section vaddrs to MM_PROGRAM_START.
-    pub fn enable_elf_vaddr(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Use dynamic stack frame sizes
-    pub fn dynamic_stack_frames(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Support syscalls via pseudo calls (insn.src = 0)
-    pub fn static_syscalls(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-}
-
-/// Holds the function symbols of an Executable
-#[derive(Debug, PartialEq, Eq)]
-pub struct FunctionRegistry<T> {
-    pub(crate) map: BTreeMap<u32, (Vec<u8>, T)>,
-}
-
-impl<T> Default for FunctionRegistry<T> {
-    fn default() -> Self {
-        Self {
-            map: BTreeMap::new(),
-        }
-    }
-}
-
-impl<T: Copy + PartialEq> FunctionRegistry<T> {
-    /// Register a symbol with an explicit key
-    pub fn register_function(
-        &mut self,
-        key: u32,
-        name: impl Into<Vec<u8>>,
-        value: T,
-    ) -> Result<(), ElfError> {
-        match self.map.entry(key) {
-            Entry::Vacant(entry) => {
-                entry.insert((name.into(), value));
-            }
-            Entry::Occupied(entry) => {
-                if entry.get().1 != value {
-                    return Err(ElfError::SymbolHashCollision(key));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Register a symbol with an implicit key
-    pub fn register_function_hashed(
-        &mut self,
-        name: impl Into<Vec<u8>>,
-        value: T,
-    ) -> Result<u32, ElfError> {
-        let name = name.into();
-        let key = ebpf::hash_symbol_name(name.as_slice());
-        self.register_function(key, name, value)?;
-        Ok(key)
-    }
-
-    /// Used for transitioning from SBPFv1 to SBPFv2
-    fn register_function_hashed_legacy<C: ContextObject>(
-        &mut self,
-        loader: &BuiltinProgram<C>,
-        hash_symbol_name: bool,
-        name: impl Into<Vec<u8>>,
-        value: T,
-    ) -> Result<u32, ElfError>
-    where
-        usize: From<T>,
-    {
-        let name = name.into();
-        let config = loader.get_config();
-        let key = if hash_symbol_name {
-            let hash = if name == b"entrypoint" {
-                ebpf::hash_symbol_name(b"entrypoint")
-            } else {
-                ebpf::hash_symbol_name(&usize::from(value).to_le_bytes())
-            };
-            if config.external_internal_function_hash_collision
-                && loader.get_function_registry().lookup_by_key(hash).is_some()
-            {
-                return Err(ElfError::SymbolHashCollision(hash));
-            }
-            hash
-        } else {
-            usize::from(value) as u32
-        };
-        self.register_function(
-            key,
-            if config.enable_symbol_and_section_labels || name == b"entrypoint" {
-                name
-            } else {
-                Vec::default()
-            },
-            value,
-        )?;
-        Ok(key)
-    }
-
-    /// Unregister a symbol again
-    pub fn unregister_function(&mut self, key: u32) {
-        self.map.remove(&key);
-    }
-
-    /// Iterate over all keys
-    pub fn keys(&self) -> impl Iterator<Item = u32> + '_ {
-        self.map.keys().cloned()
-    }
-
-    /// Iterate over all entries
-    pub fn iter(&self) -> impl Iterator<Item = (u32, (&[u8], T))> + '_ {
-        self.map
-            .iter()
-            .map(|(key, (name, value))| (*key, (name.as_slice(), *value)))
-    }
-
-    /// Get a function by its key
-    pub fn lookup_by_key(&self, key: u32) -> Option<(&[u8], T)> {
-        // String::from_utf8_lossy(function_name).as_str()
-        self.map
-            .get(&key)
-            .map(|(function_name, value)| (function_name.as_slice(), *value))
-    }
-
-    /// Get a function by its name
-    pub fn lookup_by_name(&self, name: &[u8]) -> Option<(&[u8], T)> {
-        self.map
-            .values()
-            .find(|(function_name, _value)| function_name == name)
-            .map(|(function_name, value)| (function_name.as_slice(), *value))
-    }
-
-    /// Calculate memory size
-    pub fn mem_size(&self) -> usize {
-        mem::size_of::<Self>().saturating_add(self.map.iter().fold(
-            0,
-            |state: usize, (_, (name, value))| {
-                state.saturating_add(
-                    mem::size_of_val(value)
-                        .saturating_add(mem::size_of_val(name).saturating_add(name.capacity())),
-                )
-            },
-        ))
-    }
 }
 
 /// Elf loader/relocator
@@ -1407,8 +1202,9 @@ mod test {
             types::{Elf64Ehdr, Elf64Shdr},
         },
         fuzz::fuzz,
+        program::BuiltinFunction,
         syscalls,
-        vm::{BuiltinFunction, ProgramResult, TestContextObject},
+        vm::{ProgramResult, TestContextObject},
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};

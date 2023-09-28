@@ -6,10 +6,11 @@ use libfuzzer_sys::fuzz_target;
 
 use solana_rbpf::{
     ebpf,
-    elf::{Executable, FunctionRegistry, SBPFVersion},
+    elf::Executable,
     memory_region::MemoryRegion,
+    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
     verifier::{RequisiteVerifier, Verifier},
-    vm::{BuiltinProgram, TestContextObject},
+    vm::TestContextObject,
 };
 use test_utils::create_vm;
 
@@ -35,7 +36,10 @@ fuzz_target!(|data: DumbFuzzData| {
     let mut mem = data.mem;
     let executable = Executable::<TestContextObject>::from_text_bytes(
         &prog,
-        std::sync::Arc::new(BuiltinProgram::new_loader(config, FunctionRegistry::default())),
+        std::sync::Arc::new(BuiltinProgram::new_loader(
+            config,
+            FunctionRegistry::default(),
+        )),
         SBPFVersion::V2,
         function_registry,
     )

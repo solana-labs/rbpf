@@ -11,9 +11,10 @@ extern crate test;
 extern crate test_utils;
 
 use solana_rbpf::{
-    elf::{Executable, FunctionRegistry},
+    elf::Executable,
+    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry},
     syscalls,
-    vm::{BuiltinFunction, BuiltinProgram, Config, TestContextObject},
+    vm::{Config, TestContextObject},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;

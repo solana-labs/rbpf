@@ -6,9 +6,10 @@
 
 extern crate solana_rbpf;
 use solana_rbpf::{
-    elf::{Executable, FunctionRegistry, SBPFVersion},
+    elf::Executable,
+    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
     static_analysis::Analysis,
-    vm::{BuiltinProgram, TestContextObject},
+    vm::TestContextObject,
 };
 use std::sync::Arc;
 

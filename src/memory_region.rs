@@ -3,8 +3,8 @@
 use crate::{
     aligned_memory::Pod,
     ebpf,
-    elf::SBPFVersion,
     error::EbpfError,
+    program::SBPFVersion,
     vm::{Config, ProgramResult},
 };
 use std::{

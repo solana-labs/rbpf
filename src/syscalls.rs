@@ -56,7 +56,7 @@ pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{elf::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_trace_printf, vm::{Config, ProgramResult, TestContextObject}};
+/// use solana_rbpf::{program::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_trace_printf, vm::{Config, ProgramResult, TestContextObject}};
 ///
 /// let mut result = ProgramResult::Ok(0);
 /// let config = Config::default();
@@ -119,7 +119,7 @@ pub fn bpf_trace_printf(
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{elf::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_gather_bytes, vm::{Config, ProgramResult, TestContextObject}};
+/// use solana_rbpf::{program::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_gather_bytes, vm::{Config, ProgramResult, TestContextObject}};
 ///
 /// let mut result = ProgramResult::Ok(0);
 /// let config = Config::default();
@@ -153,7 +153,7 @@ pub fn bpf_gather_bytes(
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{elf::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_mem_frob, vm::{Config, ProgramResult, TestContextObject}};
+/// use solana_rbpf::{program::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_mem_frob, vm::{Config, ProgramResult, TestContextObject}};
 ///
 /// let mut val = &mut [0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
 /// let val_va = 0x100000000;
@@ -194,7 +194,7 @@ pub fn bpf_mem_frob(
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{elf::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_str_cmp, vm::{Config, ProgramResult, TestContextObject}};
+/// use solana_rbpf::{program::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_str_cmp, vm::{Config, ProgramResult, TestContextObject}};
 ///
 /// let foo = "This is a string.";
 /// let bar = "This is another sting.";

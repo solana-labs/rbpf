@@ -25,9 +25,10 @@ extern crate thiserror;
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
-    elf::{Executable, FunctionRegistry, SBPFVersion},
+    elf::Executable,
+    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
     verifier::{RequisiteVerifier, Verifier, VerifierError},
-    vm::{BuiltinProgram, Config, TestContextObject},
+    vm::{Config, TestContextObject},
 };
 use std::sync::Arc;
 use test_utils::{assert_error, create_vm};

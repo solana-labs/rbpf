@@ -12,10 +12,10 @@ extern crate test;
 
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use solana_rbpf::{
-    elf::SBPFVersion,
     memory_region::{
         AccessType, AlignedMemoryMapping, MemoryRegion, MemoryState, UnalignedMemoryMapping,
     },
+    program::SBPFVersion,
     vm::Config,
 };
 use test::Bencher;

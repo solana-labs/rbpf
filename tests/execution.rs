@@ -18,15 +18,14 @@ use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
-    elf::{Executable, FunctionRegistry, SBPFVersion},
+    elf::Executable,
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
+    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
     static_analysis::Analysis,
     syscalls,
     verifier::RequisiteVerifier,
-    vm::{
-        BuiltinFunction, BuiltinProgram, Config, ContextObject, ProgramResult, TestContextObject,
-    },
+    vm::{Config, ContextObject, ProgramResult, TestContextObject},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test_utils::{

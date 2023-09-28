@@ -8,11 +8,7 @@
 extern crate solana_rbpf;
 extern crate test_utils;
 
-use solana_rbpf::{
-    assembler::assemble,
-    ebpf,
-    vm::{BuiltinProgram, TestContextObject},
-};
+use solana_rbpf::{assembler::assemble, ebpf, program::BuiltinProgram, vm::TestContextObject};
 use std::sync::Arc;
 use test_utils::{TCP_SACK_ASM, TCP_SACK_BIN};
 

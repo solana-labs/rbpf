@@ -42,6 +42,7 @@ mod jit;
 #[cfg(feature = "jit")]
 mod memory_management;
 pub mod memory_region;
+pub mod program;
 pub mod static_analysis;
 pub mod syscalls;
 pub mod verifier;

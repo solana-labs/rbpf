@@ -9,9 +9,9 @@
 extern crate solana_rbpf;
 use solana_rbpf::{
     assembler::assemble,
-    elf::FunctionRegistry,
+    program::{BuiltinProgram, FunctionRegistry},
     static_analysis::Analysis,
-    vm::{BuiltinProgram, Config, TestContextObject},
+    vm::{Config, TestContextObject},
 };
 use std::sync::Arc;
 

@@ -14,13 +14,14 @@
 
 use crate::{
     ebpf,
-    elf::{Executable, FunctionRegistry, SBPFVersion},
+    elf::Executable,
     error::EbpfError,
     interpreter::Interpreter,
     memory_region::MemoryMapping,
+    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
     static_analysis::{Analysis, TraceLogEntry},
 };
-use std::{collections::BTreeMap, fmt::Debug, mem, sync::Arc};
+use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
 /// Same as `Result` but provides a stable memory layout
 #[derive(Debug)]
@@ -98,85 +99,6 @@ impl<T, E> From<Result<T, E>> for StableResult<T, E> {
 
 /// Return value of programs and syscalls
 pub type ProgramResult = StableResult<u64, Box<dyn std::error::Error>>;
-
-/// Syscall function without context
-pub type BuiltinFunction<C> =
-    fn(&mut C, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
-
-/// Represents the interface to a fixed functionality program
-#[derive(Eq)]
-pub struct BuiltinProgram<C: ContextObject> {
-    /// Holds the Config if this is a loader program
-    config: Option<Box<Config>>,
-    /// Function pointers by symbol
-    functions: FunctionRegistry<BuiltinFunction<C>>,
-}
-
-impl<C: ContextObject> PartialEq for BuiltinProgram<C> {
-    fn eq(&self, other: &Self) -> bool {
-        self.config.eq(&other.config) && self.functions.eq(&other.functions)
-    }
-}
-
-impl<C: ContextObject> BuiltinProgram<C> {
-    /// Constructs a loader built-in program
-    pub fn new_loader(config: Config, functions: FunctionRegistry<BuiltinFunction<C>>) -> Self {
-        Self {
-            config: Some(Box::new(config)),
-            functions,
-        }
-    }
-
-    /// Constructs a built-in program
-    pub fn new_builtin(functions: FunctionRegistry<BuiltinFunction<C>>) -> Self {
-        Self {
-            config: None,
-            functions,
-        }
-    }
-
-    /// Constructs a mock loader built-in program
-    pub fn new_mock() -> Self {
-        Self {
-            config: Some(Box::default()),
-            functions: FunctionRegistry::default(),
-        }
-    }
-
-    /// Get the configuration settings assuming this is a loader program
-    pub fn get_config(&self) -> &Config {
-        self.config.as_ref().unwrap()
-    }
-
-    /// Get the function registry
-    pub fn get_function_registry(&self) -> &FunctionRegistry<BuiltinFunction<C>> {
-        &self.functions
-    }
-
-    /// Calculate memory size
-    pub fn mem_size(&self) -> usize {
-        mem::size_of::<Self>()
-            + if self.config.is_some() {
-                mem::size_of::<Config>()
-            } else {
-                0
-            }
-            + self.functions.mem_size()
-    }
-}
-
-impl<C: ContextObject> Debug for BuiltinProgram<C> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        writeln!(f, "{:?}", unsafe {
-            // `derive(Debug)` does not know that `C: ContextObject` does not need to implement `Debug`
-            std::mem::transmute::<
-                &FunctionRegistry<BuiltinFunction<C>>,
-                &FunctionRegistry<BuiltinFunction<*const ()>>,
-            >(&self.functions)
-        })?;
-        Ok(())
-    }
-}
 
 /// VM configuration settings
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -378,10 +300,11 @@ pub struct CallFrame {
 /// use solana_rbpf::{
 ///     aligned_memory::AlignedMemory,
 ///     ebpf,
-///     elf::{Executable, FunctionRegistry, SBPFVersion},
+///     elf::Executable,
 ///     memory_region::{MemoryMapping, MemoryRegion},
-///     verifier::{RequisiteVerifier},
-///     vm::{BuiltinProgram, Config, EbpfVm, TestContextObject},
+///     program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
+///     verifier::RequisiteVerifier,
+///     vm::{Config, EbpfVm, TestContextObject},
 /// };
 ///
 /// let prog = &[
@@ -562,7 +485,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::syscalls;
+    use crate::{program::BuiltinFunction, syscalls};
 
     #[test]
     fn test_program_result_is_stable() {

@@ -25,7 +25,7 @@
 
 use crate::{
     ebpf,
-    elf::{FunctionRegistry, SBPFVersion},
+    program::{FunctionRegistry, SBPFVersion},
     vm::Config,
 };
 use thiserror::Error;

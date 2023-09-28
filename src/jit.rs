@@ -1636,9 +1636,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 mod tests {
     use super::*;
     use crate::{
-        elf::{FunctionRegistry, SBPFVersion},
+        program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
         syscalls,
-        vm::{BuiltinFunction, BuiltinProgram, TestContextObject},
+        vm::TestContextObject,
     };
     use byteorder::{ByteOrder, LittleEndian};
     use std::sync::Arc;

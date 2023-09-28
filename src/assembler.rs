@@ -18,8 +18,9 @@ use crate::{
         Statement,
     },
     ebpf::{self, Insn},
-    elf::{Executable, FunctionRegistry, SBPFVersion},
-    vm::{BuiltinProgram, ContextObject},
+    elf::Executable,
+    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
+    vm::ContextObject,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -258,7 +259,7 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
 /// # Examples
 ///
 /// ```
-/// use solana_rbpf::{assembler::assemble, vm::{Config, TestContextObject, BuiltinProgram}};
+/// use solana_rbpf::{assembler::assemble, program::BuiltinProgram, vm::{Config, TestContextObject}};
 /// let executable = assemble::<TestContextObject>(
 ///    "add64 r1, 0x605
 ///     mov64 r2, 0x32

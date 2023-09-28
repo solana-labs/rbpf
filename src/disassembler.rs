@@ -10,9 +10,9 @@
 
 use crate::{
     ebpf,
-    elf::{FunctionRegistry, SBPFVersion},
+    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
     static_analysis::CfgNode,
-    vm::{BuiltinProgram, ContextObject},
+    vm::ContextObject,
 };
 use std::collections::BTreeMap;
 

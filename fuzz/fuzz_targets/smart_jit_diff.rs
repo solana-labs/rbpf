@@ -5,11 +5,12 @@ use libfuzzer_sys::fuzz_target;
 use grammar_aware::*;
 use solana_rbpf::{
     ebpf,
-    elf::{Executable, FunctionRegistry, SBPFVersion},
+    elf::Executable,
     insn_builder::{Arch, Instruction, IntoBytes},
     memory_region::MemoryRegion,
+    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
     verifier::{RequisiteVerifier, Verifier},
-    vm::{BuiltinProgram, TestContextObject},
+    vm::TestContextObject,
 };
 use test_utils::create_vm;
 
@@ -39,7 +40,14 @@ fuzz_target!(|data: FuzzData| {
         .push();
     let config = data.template.into();
     let function_registry = FunctionRegistry::default();
-    if RequisiteVerifier::verify(prog.into_bytes(), &config, &SBPFVersion::V2, &function_registry).is_err() {
+    if RequisiteVerifier::verify(
+        prog.into_bytes(),
+        &config,
+        &SBPFVersion::V2,
+        &function_registry,
+    )
+    .is_err()
+    {
         // verify please
         return;
     }
@@ -47,7 +55,10 @@ fuzz_target!(|data: FuzzData| {
     let mut jit_mem = data.mem;
     let mut executable = Executable::<TestContextObject>::from_text_bytes(
         prog.into_bytes(),
-        std::sync::Arc::new(BuiltinProgram::new_loader(config, FunctionRegistry::default())),
+        std::sync::Arc::new(BuiltinProgram::new_loader(
+            config,
+            FunctionRegistry::default(),
+        )),
         SBPFVersion::V2,
         function_registry,
     )

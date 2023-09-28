@@ -3,11 +3,12 @@ use solana_rbpf::{
     aligned_memory::AlignedMemory,
     assembler::assemble,
     ebpf,
-    elf::{Executable, FunctionRegistry},
+    elf::Executable,
     memory_region::{MemoryMapping, MemoryRegion},
+    program::{BuiltinProgram, FunctionRegistry},
     static_analysis::Analysis,
     verifier::RequisiteVerifier,
-    vm::{BuiltinProgram, Config, DynamicAnalysis, EbpfVm, TestContextObject},
+    vm::{Config, DynamicAnalysis, EbpfVm, TestContextObject},
 };
 use std::{fs::File, io::Read, path::Path, sync::Arc};
 

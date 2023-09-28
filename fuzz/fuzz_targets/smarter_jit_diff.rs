@@ -5,14 +5,13 @@ use libfuzzer_sys::fuzz_target;
 use semantic_aware::*;
 use solana_rbpf::{
     ebpf,
-    elf::{Executable, FunctionRegistry, SBPFVersion},
+    elf::Executable,
     insn_builder::IntoBytes,
     memory_region::MemoryRegion,
+    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
     static_analysis::Analysis,
     verifier::{RequisiteVerifier, Verifier},
-    vm::{
-        BuiltinProgram, ContextObject, TestContextObject,
-    },
+    vm::{ContextObject, TestContextObject},
 };
 use test_utils::create_vm;
 
@@ -38,7 +37,14 @@ fuzz_target!(|data: FuzzData| {
     let prog = make_program(&data.prog);
     let config = data.template.into();
     let function_registry = FunctionRegistry::default();
-    if RequisiteVerifier::verify(prog.into_bytes(), &config, &SBPFVersion::V2, &function_registry).is_err() {
+    if RequisiteVerifier::verify(
+        prog.into_bytes(),
+        &config,
+        &SBPFVersion::V2,
+        &function_registry,
+    )
+    .is_err()
+    {
         // verify please
         return;
     }
@@ -46,7 +52,10 @@ fuzz_target!(|data: FuzzData| {
     let mut jit_mem = data.mem;
     let mut executable = Executable::<TestContextObject>::from_text_bytes(
         prog.into_bytes(),
-        std::sync::Arc::new(BuiltinProgram::new_loader(config, FunctionRegistry::default())),
+        std::sync::Arc::new(BuiltinProgram::new_loader(
+            config,
+            FunctionRegistry::default(),
+        )),
         SBPFVersion::V2,
         function_registry,
     )
@@ -82,8 +91,9 @@ fuzz_target!(|data: FuzzData| {
         let jit_res_str = format!("{:?}", jit_res);
         if interp_res_str != jit_res_str {
             // spot check: there's a meaningless bug where ExceededMaxInstructions is different due to jump calculations
-            if interp_res_str.contains("ExceededMaxInstructions") &&
-                jit_res_str.contains("ExceededMaxInstructions") {
+            if interp_res_str.contains("ExceededMaxInstructions")
+                && jit_res_str.contains("ExceededMaxInstructions")
+            {
                 return;
             }
             eprintln!("{:#?}", &data.prog);
