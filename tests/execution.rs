@@ -133,12 +133,14 @@ macro_rules! test_interpreter_and_jit {
 }
 
 macro_rules! test_interpreter_and_jit_asm {
-    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
+    ($source:tt, $config:expr, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
         #[allow(unused_mut)]
         {
+            let mut config = $config;
+            config.enable_instruction_tracing = true;
             let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
             $(test_interpreter_and_jit!(register, function_registry, $location => $syscall_function);)*
-            let loader = Arc::new(BuiltinProgram::new_loader($config, function_registry));
+            let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
             let mut executable = assemble($source, loader).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $expected_result);
         }
@@ -146,11 +148,7 @@ macro_rules! test_interpreter_and_jit_asm {
     ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
         #[allow(unused_mut)]
         {
-            let config = Config {
-                enable_instruction_tracing: true,
-                ..Config::default()
-            };
-            test_interpreter_and_jit_asm!($source, config, $mem, ($($location => $syscall_function),*), $context_object, $expected_result);
+            test_interpreter_and_jit_asm!($source, Config::default(), $mem, ($($location => $syscall_function),*), $context_object, $expected_result);
         }
     };
 }
