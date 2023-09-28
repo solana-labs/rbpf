@@ -49,7 +49,7 @@ macro_rules! test_interpreter_and_jit {
             context_object.remaining = INSTRUCTION_METER_BUDGET;
         }
         $executable.verify::<RequisiteVerifier>().unwrap();
-        let (instruction_count_interpreter, _tracer_interpreter) = {
+        let (instruction_count_interpreter, interpreter_final_pc, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
             let mut context_object = context_object.clone();
@@ -70,6 +70,7 @@ macro_rules! test_interpreter_and_jit {
             );
             (
                 instruction_count_interpreter,
+                vm.registers[11],
                 vm.context_object_pointer.clone(),
             )
         };
@@ -119,6 +120,10 @@ macro_rules! test_interpreter_and_jit {
                     assert_eq!(
                         instruction_count_interpreter, instruction_count_jit,
                         "Interpreter and JIT instruction meter diverged",
+                    );
+                    assert_eq!(
+                        interpreter_final_pc, vm.registers[11],
+                        "Interpreter and JIT instruction final PC diverged",
                     );
                 }
             }
