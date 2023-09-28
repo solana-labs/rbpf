@@ -292,7 +292,7 @@ pub struct CallFrame {
     /// The callers frame pointer
     pub frame_pointer: u64,
     /// The target_pc of the exit instruction which returns back to the caller
-    pub target_pc: usize,
+    pub target_pc: u64,
 }
 
 /// A virtual machine to run eBPF programs.

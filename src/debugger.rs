@@ -181,7 +181,7 @@ impl<'a, 'b, C: ContextObject> SingleThreadBase for Interpreter<'a, 'b, C> {
             self.reg[i] = regs.r[i];
         }
         self.reg[ebpf::FRAME_PTR_REG] = regs.sp;
-        self.pc = regs.pc as usize;
+        self.reg[11] = regs.pc;
         Ok(())
     }
 
@@ -252,7 +252,7 @@ impl<'a, 'b, C: ContextObject> target::ext::base::single_register_access::Single
         match reg_id {
             BpfRegId::Gpr(i) => self.reg[i as usize] = r,
             BpfRegId::Sp => self.reg[ebpf::FRAME_PTR_REG] = r,
-            BpfRegId::Pc => self.pc = r as usize,
+            BpfRegId::Pc => self.reg[11] = r,
             BpfRegId::InstructionCountRemaining => (),
         }
         Ok(())
