@@ -528,7 +528,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                         }
                         64 => {}
                         _ => {
-                            return Err(EbpfError::InvalidInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                            return Err(EbpfError::InvalidInstruction);
                         }
                     }
                 },
@@ -541,7 +541,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                         32 => self.emit_ins(X86Instruction::bswap(OperandSize::S32, dst)),
                         64 => self.emit_ins(X86Instruction::bswap(OperandSize::S64, dst)),
                         _ => {
-                            return Err(EbpfError::InvalidInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET));
+                            return Err(EbpfError::InvalidInstruction);
                         }
                     }
                 },
@@ -711,7 +711,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_ins(X86Instruction::return_near());
                 },
 
-                _               => return Err(EbpfError::UnsupportedInstruction(self.pc + ebpf::ELF_INSN_DUMP_OFFSET)),
+                _               => return Err(EbpfError::UnsupportedInstruction),
             }
 
             self.pc += 1;
@@ -722,8 +722,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             return Err(EbpfError::ExhaustedTextSegment(self.pc));
         }        
         self.emit_validate_and_profile_instruction_count(true, Some(self.pc + 2));
-        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
-        self.emit_set_exception_kind(EbpfError::ExecutionOverrun(0));
+        self.emit_set_exception_kind(EbpfError::ExecutionOverrun);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         self.resolve_jumps();
@@ -1232,7 +1231,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_ins(X86Instruction::test(size, R11, R11, None)); // r11 == 0
                 }
 
-                // MIN / -1, raise EbpfError::DivideOverflow(pc)
+                // MIN / -1, raise EbpfError::DivideOverflow
                 self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, R11, self.pc as i64));
                 self.emit_ins(X86Instruction::conditional_jump_immediate(0x84, self.relative_to_anchor(ANCHOR_DIV_OVERFLOW, 6)));
             }
@@ -1343,15 +1342,12 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Handler for EbpfError::ExceededMaxInstructions
         self.set_anchor(ANCHOR_CALL_EXCEEDED_MAX_INSTRUCTIONS);
-        self.emit_set_exception_kind(EbpfError::ExceededMaxInstructions(0));
+        self.emit_set_exception_kind(EbpfError::ExceededMaxInstructions);
         self.emit_ins(X86Instruction::mov(OperandSize::S64, ARGUMENT_REGISTERS[0], R11)); // R11 = instruction_meter;
         // Fall through
 
         // Epilogue for errors
         self.set_anchor(ANCHOR_THROW_EXCEPTION_UNCHECKED);
-        self.emit_ins(X86Instruction::lea(OperandSize::S64, RBP, R10, Some(X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult) + std::mem::size_of::<u64>() as i32))));
-        self.emit_ins(X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32))); // result.pc = self.pc;
-        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, R10, ebpf::ELF_INSN_DUMP_OFFSET as i64, Some(X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32)))); // result.pc += ebpf::ELF_INSN_DUMP_OFFSET;
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
 
         // Quit gracefully
@@ -1370,29 +1366,28 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Handler for EbpfError::AccessViolation
         self.set_anchor(ANCHOR_ACCESS_VIOLATION);
-        self.emit_ins(X86Instruction::load(OperandSize::S64, RBP, R10, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::ProgramResult) + std::mem::size_of::<u64>() as i32))); // err = *env.result.err;
+        self.emit_ins(X86Instruction::store(OperandSize::S64, R11, R10, X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32 * 2))); // result.pc = self.pc;
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, R10, ebpf::ELF_INSN_DUMP_OFFSET as i64, Some(X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32 * 2)))); // result.pc += ebpf::ELF_INSN_DUMP_OFFSET;
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Handler for EbpfError::CallDepthExceeded
         self.set_anchor(ANCHOR_CALL_DEPTH_EXCEEDED);
-        self.emit_set_exception_kind(EbpfError::CallDepthExceeded(0, 0));
-        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * 2) as i32), self.config.max_call_depth as i64)); // depth = jit.config.max_call_depth;
+        self.emit_set_exception_kind(EbpfError::CallDepthExceeded);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Handler for EbpfError::CallOutsideTextSegment
         self.set_anchor(ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT);
-        self.emit_set_exception_kind(EbpfError::CallOutsideTextSegment(0, 0));
-        self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], R10, X86IndirectAccess::Offset((std::mem::size_of::<u64>() * 2) as i32))); // target_address = RAX;
+        self.emit_set_exception_kind(EbpfError::CallOutsideTextSegment);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Handler for EbpfError::DivideByZero
         self.set_anchor(ANCHOR_DIV_BY_ZERO);
-        self.emit_set_exception_kind(EbpfError::DivideByZero(0));
+        self.emit_set_exception_kind(EbpfError::DivideByZero);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Handler for EbpfError::DivideOverflow
         self.set_anchor(ANCHOR_DIV_OVERFLOW);
-        self.emit_set_exception_kind(EbpfError::DivideOverflow(0));
+        self.emit_set_exception_kind(EbpfError::DivideOverflow);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Handler for EbpfError::UnsupportedInstruction
@@ -1400,7 +1395,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         if self.config.enable_instruction_tracing {
             self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_TRACE, 5)));
         }
-        self.emit_set_exception_kind(EbpfError::UnsupportedInstruction(0));
+        self.emit_set_exception_kind(EbpfError::UnsupportedInstruction);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
         // Routine for external functions
@@ -1736,7 +1731,7 @@ mod tests {
             if result.is_err() {
                 assert!(matches!(
                     result.unwrap_err(),
-                    EbpfError::UnsupportedInstruction(_)
+                    EbpfError::UnsupportedInstruction
                 ));
                 continue;
             }

@@ -33,28 +33,26 @@ pub enum EbpfError {
     #[error("function #{0} was already registered")]
     FunctionAlreadyRegistered(usize),
     /// Exceeded max BPF to BPF call depth
-    #[error("exceeded max BPF to BPF call depth of {1} at BPF instruction #{0}")]
-    CallDepthExceeded(usize, usize),
+    #[error("exceeded max BPF to BPF call depth")]
+    CallDepthExceeded,
     /// Attempt to exit from root call frame
     #[error("attempted to exit root call frame")]
     ExitRootCallFrame,
     /// Divide by zero"
-    #[error("divide by zero at BPF instruction {0}")]
-    DivideByZero(usize),
+    #[error("divide by zero at BPF instruction")]
+    DivideByZero,
     /// Divide overflow
-    #[error("division overflow at BPF instruction {0}")]
-    DivideOverflow(usize),
+    #[error("division overflow at BPF instruction")]
+    DivideOverflow,
     /// Exceeded max instructions allowed
-    #[error("attempted to execute past the end of the text segment at BPF instruction #{0}")]
-    ExecutionOverrun(usize),
+    #[error("attempted to execute past the end of the text segment at BPF instruction")]
+    ExecutionOverrun,
     /// Attempt to call to an address outside the text segment
-    #[error(
-        "callx at BPF instruction {0} attempted to call outside of the text segment to addr 0x{1:x}"
-    )]
-    CallOutsideTextSegment(usize, u64),
+    #[error("callx attempted to call outside of the text segment")]
+    CallOutsideTextSegment,
     /// Exceeded max instructions allowed
-    #[error("exceeded CUs meter at BPF instruction #{0}")]
-    ExceededMaxInstructions(usize),
+    #[error("exceeded CUs meter at BPF instruction")]
+    ExceededMaxInstructions,
     /// Program has not been JIT-compiled
     #[error("program has not been JIT-compiled")]
     JitNotCompiled,
@@ -75,11 +73,11 @@ pub enum EbpfError {
     )]
     StackAccessViolation(usize, AccessType, u64, u64, i64),
     /// Invalid instruction
-    #[error("invalid BPF instruction at {0}")]
-    InvalidInstruction(usize),
+    #[error("invalid BPF instruction")]
+    InvalidInstruction,
     /// Unsupported instruction
-    #[error("unsupported BPF instruction at {0}")]
-    UnsupportedInstruction(usize),
+    #[error("unsupported BPF instruction")]
+    UnsupportedInstruction,
     /// Compilation is too big to fit
     #[error("Compilation exhausted text segment at BPF instruction {0}")]
     ExhaustedTextSegment(usize),
