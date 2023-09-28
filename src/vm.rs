@@ -371,6 +371,8 @@ pub struct EbpfVm<'a, C: ContextObject> {
     pub stopwatch_numerator: u64,
     /// Number of times the stop watch was used
     pub stopwatch_denominator: u64,
+    /// Registers inlined
+    pub registers: [u64; 12],
     /// ProgramResult inlined
     pub program_result: ProgramResult,
     /// MemoryMapping inlined
@@ -410,6 +412,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
             previous_instruction_meter: 0,
             stopwatch_numerator: 0,
             stopwatch_denominator: 0,
+            registers: [0u64; 12],
             program_result: ProgramResult::Ok(0),
             memory_mapping,
             call_frames: vec![CallFrame::default(); config.max_call_depth],
@@ -426,11 +429,10 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
         executable: &Executable<C>,
         interpreted: bool,
     ) -> (u64, ProgramResult) {
-        let mut registers = [0u64; 12];
         // R1 points to beginning of input memory, R10 to the stack of the first frame, R11 is the pc (hidden)
-        registers[1] = ebpf::MM_INPUT_START;
-        registers[ebpf::FRAME_PTR_REG] = self.stack_pointer;
-        registers[11] = executable.get_entrypoint_instruction_offset() as u64;
+        self.registers[1] = ebpf::MM_INPUT_START;
+        self.registers[ebpf::FRAME_PTR_REG] = self.stack_pointer;
+        self.registers[11] = executable.get_entrypoint_instruction_offset() as u64;
         let config = executable.get_config();
         let initial_insn_count = if config.enable_instruction_meter {
             self.context_object_pointer.get_remaining()
@@ -442,7 +444,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
         let due_insn_count = if interpreted {
             #[cfg(feature = "debugger")]
             let debug_port = self.debug_port.clone();
-            let mut interpreter = Interpreter::new(self, executable, registers);
+            let mut interpreter = Interpreter::new(self, executable, self.registers);
             #[cfg(feature = "debugger")]
             if let Some(debug_port) = debug_port {
                 crate::debugger::execute(&mut interpreter, debug_port);
@@ -463,7 +465,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
                     Err(error) => return (0, ProgramResult::Err(error)),
                 };
                 let instruction_meter_final =
-                    compiled_program.invoke(config, self, registers).max(0) as u64;
+                    compiled_program.invoke(config, self, self.registers).max(0) as u64;
                 self.context_object_pointer
                     .get_remaining()
                     .saturating_sub(instruction_meter_final)

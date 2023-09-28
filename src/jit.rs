@@ -254,8 +254,9 @@ enum RuntimeEnvironmentSlot {
     PreviousInstructionMeter = 4,
     StopwatchNumerator = 5,
     StopwatchDenominator = 6,
-    ProgramResult = 7,
-    MemoryMapping = 15,
+    Registers = 7,
+    ProgramResult = 19,
+    MemoryMapping = 27,
 }
 
 /* Explaination of the Instruction Meter
@@ -1347,6 +1348,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Epilogue for errors
         self.set_anchor(ANCHOR_THROW_EXCEPTION_UNCHECKED);
+        self.emit_ins(X86Instruction::store(OperandSize::S64, R11, RBP, X86IndirectAccess::Offset(self.slot_on_environment_stack(RuntimeEnvironmentSlot::Registers) + 11 * std::mem::size_of::<u64>() as i32))); // registers[11] = pc;
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
 
         // Quit gracefully
@@ -1649,6 +1651,7 @@ mod tests {
         check_slot!(env, previous_instruction_meter, PreviousInstructionMeter);
         check_slot!(env, stopwatch_numerator, StopwatchNumerator);
         check_slot!(env, stopwatch_denominator, StopwatchDenominator);
+        check_slot!(env, registers, Registers);
         check_slot!(env, program_result, ProgramResult);
         check_slot!(env, memory_mapping, MemoryMapping);
     }

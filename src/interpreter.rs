@@ -29,8 +29,7 @@ macro_rules! translate_memory_access {
         ) {
             ProgramResult::Ok(v) => v,
             ProgramResult::Err(err) => {
-                $self.vm.program_result = ProgramResult::Err(err);
-                return false;
+                throw_error!($self, err);
             },
         }
     };
@@ -48,6 +47,7 @@ macro_rules! translate_memory_access {
 
 macro_rules! throw_error {
     ($self:expr, $err:expr) => {{
+        $self.vm.registers[11] = $self.pc as u64;
         $self.vm.program_result = ProgramResult::Err($err);
         return false;
     }};
@@ -59,6 +59,20 @@ macro_rules! throw_error {
     (DivideOverflow; $self:expr, $src:expr, $dst:expr, $ty:ty) => {
         if $dst as $ty == <$ty>::MIN && $src as $ty == -1 {
             throw_error!($self, EbpfError::DivideOverflow);
+        }
+    };
+}
+
+macro_rules! check_pc {
+    ($self:expr, $next_pc:ident, $target_pc:expr) => {
+        if $target_pc
+            .checked_mul(ebpf::INSN_SIZE)
+            .and_then(|offset| $self.program.get(offset..offset + ebpf::INSN_SIZE))
+            .is_some()
+        {
+            $next_pc = $target_pc;
+        } else {
+            throw_error!($self, EbpfError::CallOutsideTextSegment);
         }
     };
 }
@@ -114,19 +128,6 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
         }
     }
 
-    fn check_pc(&mut self) -> bool {
-        if self
-            .pc
-            .checked_mul(ebpf::INSN_SIZE)
-            .and_then(|offset| self.program.get(offset..offset + ebpf::INSN_SIZE))
-            .is_some()
-        {
-            true
-        } else {
-            throw_error!(self, EbpfError::CallOutsideTextSegment);
-        }
-    }
-
     /// Translate between the virtual machines' pc value and the pc value used by the debugger
     #[cfg(feature = "debugger")]
     pub fn get_dbg_pc(&self) -> u64 {
@@ -139,7 +140,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
             &self.reg[ebpf::FIRST_SCRATCH_REG..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS],
         );
         frame.frame_pointer = self.reg[ebpf::FRAME_PTR_REG];
-        frame.target_pc = self.pc;
+        frame.target_pc = self.pc + 1;
 
         self.vm.call_depth += 1;
         if self.vm.call_depth as usize == config.max_call_depth {
@@ -165,19 +166,18 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
         let config = &self.executable.get_config();
 
         self.due_insn_count += 1;
-        let pc = self.pc;
-        self.pc += 1;
-        if self.pc * ebpf::INSN_SIZE > self.program.len() {
+        let mut next_pc = self.pc + 1;
+        if next_pc * ebpf::INSN_SIZE > self.program.len() {
             throw_error!(self, EbpfError::ExecutionOverrun);
         }
-        let mut insn = ebpf::get_insn_unchecked(self.program, pc);
+        let mut insn = ebpf::get_insn_unchecked(self.program, self.pc);
         let dst = insn.dst as usize;
         let src = insn.src as usize;
 
         if config.enable_instruction_tracing {
             let mut state = [0u64; 12];
             state[0..11].copy_from_slice(&self.reg);
-            state[11] = pc as u64;
+            state[11] = self.pc as u64;
             self.vm.context_object_pointer.trace(state);
         }
 
@@ -194,8 +194,9 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
 
             ebpf::LD_DW_IMM  => {
                 ebpf::augment_lddw_unchecked(self.program, &mut insn);
-                self.pc += 1;
                 self.reg[dst] = insn.imm as u64;
+                self.pc += 1;
+                next_pc += 1;
             },
 
             // BPF_LDX class
@@ -424,29 +425,29 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
             },
 
             // BPF_JMP class
-            ebpf::JA         =>                                                   { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JEQ_IMM    => if  self.reg[dst] == insn.imm as u64              { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JEQ_REG    => if  self.reg[dst] == self.reg[src]                { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JGT_IMM    => if  self.reg[dst] >  insn.imm as u64              { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JGT_REG    => if  self.reg[dst] >  self.reg[src]                { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JGE_IMM    => if  self.reg[dst] >= insn.imm as u64              { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JGE_REG    => if  self.reg[dst] >= self.reg[src]                { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JLT_IMM    => if  self.reg[dst] <  insn.imm as u64              { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JLT_REG    => if  self.reg[dst] <  self.reg[src]                { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JLE_IMM    => if  self.reg[dst] <= insn.imm as u64              { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JLE_REG    => if  self.reg[dst] <= self.reg[src]                { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSET_IMM   => if  self.reg[dst] &  insn.imm as u64 != 0         { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSET_REG   => if  self.reg[dst] &  self.reg[src] != 0           { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JNE_IMM    => if  self.reg[dst] != insn.imm as u64              { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JNE_REG    => if  self.reg[dst] != self.reg[src]                { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSGT_IMM   => if (self.reg[dst] as i64) >  insn.imm             { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSGT_REG   => if (self.reg[dst] as i64) >  self.reg[src] as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSGE_IMM   => if (self.reg[dst] as i64) >= insn.imm             { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSGE_REG   => if (self.reg[dst] as i64) >= self.reg[src] as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSLT_IMM   => if (self.reg[dst] as i64) <  insn.imm             { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSLT_REG   => if (self.reg[dst] as i64) <  self.reg[src] as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSLE_IMM   => if (self.reg[dst] as i64) <= insn.imm             { self.pc = (self.pc as isize + insn.off as isize) as usize; },
-            ebpf::JSLE_REG   => if (self.reg[dst] as i64) <= self.reg[src] as i64 { self.pc = (self.pc as isize + insn.off as isize) as usize; },
+            ebpf::JA         =>                                                   { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JEQ_IMM    => if  self.reg[dst] == insn.imm as u64              { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JEQ_REG    => if  self.reg[dst] == self.reg[src]                { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JGT_IMM    => if  self.reg[dst] >  insn.imm as u64              { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JGT_REG    => if  self.reg[dst] >  self.reg[src]                { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JGE_IMM    => if  self.reg[dst] >= insn.imm as u64              { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JGE_REG    => if  self.reg[dst] >= self.reg[src]                { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JLT_IMM    => if  self.reg[dst] <  insn.imm as u64              { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JLT_REG    => if  self.reg[dst] <  self.reg[src]                { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JLE_IMM    => if  self.reg[dst] <= insn.imm as u64              { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JLE_REG    => if  self.reg[dst] <= self.reg[src]                { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JSET_IMM   => if  self.reg[dst] &  insn.imm as u64 != 0         { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JSET_REG   => if  self.reg[dst] &  self.reg[src] != 0           { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JNE_IMM    => if  self.reg[dst] != insn.imm as u64              { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JNE_REG    => if  self.reg[dst] != self.reg[src]                { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JSGT_IMM   => if (self.reg[dst] as i64) >  insn.imm             { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JSGT_REG   => if (self.reg[dst] as i64) >  self.reg[src] as i64 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JSGE_IMM   => if (self.reg[dst] as i64) >= insn.imm             { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JSGE_REG   => if (self.reg[dst] as i64) >= self.reg[src] as i64 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JSLT_IMM   => if (self.reg[dst] as i64) <  insn.imm             { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JSLT_REG   => if (self.reg[dst] as i64) <  self.reg[src] as i64 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JSLE_IMM   => if (self.reg[dst] as i64) <= insn.imm             { next_pc = (next_pc as isize + insn.off as isize) as usize; },
+            ebpf::JSLE_REG   => if (self.reg[dst] as i64) <= self.reg[src] as i64 { next_pc = (next_pc as isize + insn.off as isize) as usize; },
 
             ebpf::CALL_REG   => {
                 let target_pc = if self.executable.get_sbpf_version().callx_uses_src_reg() {
@@ -460,12 +461,10 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 if target_pc < self.program_vm_addr {
                     throw_error!(self, EbpfError::CallOutsideTextSegment);
                 }
-                self.pc = (target_pc - self.program_vm_addr) as usize / ebpf::INSN_SIZE;
-                if !self.check_pc() {
-                    return false;
-                }
-                if self.executable.get_sbpf_version().static_syscalls() && self.executable.get_function_registry().lookup_by_key(self.pc as u32).is_none() {
+                check_pc!(self, next_pc, (target_pc - self.program_vm_addr) as usize / ebpf::INSN_SIZE);
+                if self.executable.get_sbpf_version().static_syscalls() && self.executable.get_function_registry().lookup_by_key(next_pc as u32).is_none() {
                     self.due_insn_count += 1;
+                    self.pc = next_pc;
                     throw_error!(self, EbpfError::UnsupportedInstruction);
                 }
             },
@@ -516,10 +515,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                         if !self.push_frame(config) {
                             return false;
                         }
-                        self.pc = target_pc;
-                        if !self.check_pc() {
-                            return false;
-                        }
+                        check_pc!(self, next_pc, target_pc);
                     }
                 }
 
@@ -539,7 +535,6 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 // Return from BPF to BPF call
                 self.vm.call_depth -= 1;
                 let frame = &self.vm.call_frames[self.vm.call_depth as usize];
-                self.pc = frame.target_pc;
                 self.reg[ebpf::FRAME_PTR_REG] = frame.frame_pointer;
                 self.reg[ebpf::FIRST_SCRATCH_REG
                     ..ebpf::FIRST_SCRATCH_REG + ebpf::SCRATCH_REGS]
@@ -549,17 +544,17 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                         config.stack_frame_size * if config.enable_stack_frame_gaps { 2 } else { 1 };
                     self.vm.stack_pointer -= stack_frame_size as u64;
                 }
-                if !self.check_pc() {
-                    return false;
-                }
+                check_pc!(self, next_pc, frame.target_pc);
             }
             _ => throw_error!(self, EbpfError::UnsupportedInstruction),
         }
 
         if config.enable_instruction_meter && self.due_insn_count >= self.vm.previous_instruction_meter {
+            self.pc += 1;
             throw_error!(self, EbpfError::ExceededMaxInstructions);
         }
 
+        self.pc = next_pc;
         true
     }
 }
