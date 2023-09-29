@@ -63,15 +63,11 @@ pub enum EbpfError {
     #[error("Invalid memory region at index {0}")]
     InvalidMemoryRegion(usize),
     /// Access violation (general)
-    #[error(
-        "Access violation in {4} section at address {2:#x} of size {3:?} at BPF instruction #{0}"
-    )]
-    AccessViolation(usize, AccessType, u64, u64, &'static str),
+    #[error("Access violation in {3} section at address {1:#x} of size {2:?}")]
+    AccessViolation(AccessType, u64, u64, &'static str),
     /// Access violation (stack specific)
-    #[error(
-        "Access violation in stack frame {4} at address {2:#x} of size {3:?} at BPF instruction #{0}"
-    )]
-    StackAccessViolation(usize, AccessType, u64, u64, i64),
+    #[error("Access violation in stack frame {3} at address {1:#x} of size {2:?}")]
+    StackAccessViolation(AccessType, u64, u64, i64),
     /// Invalid instruction
     #[error("invalid BPF instruction")]
     InvalidInstruction,

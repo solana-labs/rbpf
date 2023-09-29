@@ -81,7 +81,6 @@ macro_rules! bench_gapped_randomized_access_with_1024_entries {
                                 AccessType::Load,
                                 0x100000000 + (prng.gen::<u64>() % frame_count * (frame_size * 2)),
                                 1,
-                                0,
                             )
                             .is_ok());
                     });
@@ -119,7 +118,6 @@ macro_rules! bench_randomized_access_with_0001_entry {
                     AccessType::Load,
                     0x100000000 + (prng.gen::<u64>() % content.len() as u64),
                     1,
-                    0,
                 );
             });
         }
@@ -153,7 +151,6 @@ macro_rules! bench_randomized_access_with_n_entries {
                     AccessType::Load,
                     0x100000000 + (prng.gen::<u64>() % end_address),
                     1,
-                    0,
                 );
             });
         }
@@ -199,7 +196,7 @@ macro_rules! bench_randomized_mapping_with_n_entries {
             let config = Config::default();
             let memory_mapping = $mem::new(memory_regions, &config, &SBPFVersion::V2).unwrap();
             bencher.iter(|| {
-                let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1, 0);
+                let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1);
             });
         }
     };
@@ -248,7 +245,7 @@ macro_rules! bench_mapping_with_n_entries {
             let config = Config::default();
             let memory_mapping = $mem::new(memory_regions, &config, &SBPFVersion::V2).unwrap();
             bencher.iter(|| {
-                let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1, 0);
+                let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1);
             });
         }
     };
@@ -310,13 +307,13 @@ fn do_bench_mapping_operation(bencher: &mut Bencher, op: MemoryOperation, vm_add
 
     match op {
         MemoryOperation::Map => bencher.iter(|| {
-            let _ = memory_mapping.map(AccessType::Load, vm_addr, 8, 0).unwrap();
+            let _ = memory_mapping.map(AccessType::Load, vm_addr, 8).unwrap();
         }),
         MemoryOperation::Load => bencher.iter(|| {
-            let _ = memory_mapping.load::<u64>(vm_addr, 0).unwrap();
+            let _ = memory_mapping.load::<u64>(vm_addr).unwrap();
         }),
         MemoryOperation::Store(val) => bencher.iter(|| {
-            let _ = memory_mapping.store(val, vm_addr, 0).unwrap();
+            let _ = memory_mapping.store(val, vm_addr).unwrap();
         }),
     }
 }

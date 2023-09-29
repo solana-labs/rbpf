@@ -892,7 +892,6 @@ fn test_err_ldxdw_oob() {
         (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::AccessViolation(
-            29,
             AccessType::Load,
             0x400000006,
             8,
@@ -911,7 +910,6 @@ fn test_err_ldxdw_nomem() {
         (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::AccessViolation(
-            29,
             AccessType::Load,
             0x400000006,
             8,
@@ -1959,7 +1957,6 @@ fn test_err_dynamic_stack_out_of_bound() {
         (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::AccessViolation(
-            29,
             AccessType::Store,
             ebpf::MM_STACK_START - 1,
             1,
@@ -1977,7 +1974,6 @@ fn test_err_dynamic_stack_out_of_bound() {
         (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::AccessViolation(
-            29,
             AccessType::Store,
             ebpf::MM_STACK_START + config.stack_size() as u64,
             1,
@@ -2011,7 +2007,6 @@ fn test_err_dynamic_stack_ptr_overflow() {
         (),
         TestContextObject::new(7),
         ProgramResult::Err(EbpfError::AccessViolation(
-            36,
             AccessType::Store,
             u64::MAX,
             1,
@@ -2188,7 +2183,6 @@ fn test_err_mem_access_out_of_bound() {
             mem,
             TestContextObject::new(3),
             ProgramResult::Err(EbpfError::AccessViolation(
-                31,
                 AccessType::Store,
                 address,
                 1,
@@ -2418,7 +2412,7 @@ fn test_err_syscall_string() {
             "bpf_syscall_string" => syscalls::bpf_syscall_string,
         ),
         TestContextObject::new(2),
-        ProgramResult::Err(EbpfError::AccessViolation(0, AccessType::Load, 0, 0, "unknown")),
+        ProgramResult::Err(EbpfError::AccessViolation(AccessType::Load, 0, 0, "unknown")),
     );
 }
 
@@ -3413,7 +3407,6 @@ fn test_err_fixed_stack_out_of_bound() {
         (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::AccessViolation(
-            29,
             AccessType::Store,
             0x1FFFFD000,
             1,

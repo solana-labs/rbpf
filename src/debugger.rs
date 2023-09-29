@@ -152,7 +152,6 @@ impl<'a, 'b, C: ContextObject> Target for Interpreter<'a, 'b, C> {
 fn get_host_ptr<C: ContextObject>(
     interpreter: &mut Interpreter<C>,
     mut vm_addr: u64,
-    pc: usize,
 ) -> Result<*mut u8, EbpfError> {
     if vm_addr < ebpf::MM_PROGRAM_START {
         vm_addr += ebpf::MM_PROGRAM_START;
@@ -161,7 +160,6 @@ fn get_host_ptr<C: ContextObject>(
         AccessType::Load,
         vm_addr,
         std::mem::size_of::<u8>() as u64,
-        pc + ebpf::ELF_INSN_DUMP_OFFSET,
     ) {
         ProgramResult::Ok(host_addr) => Ok(host_addr as *mut u8),
         ProgramResult::Err(err) => Err(err),
@@ -197,7 +195,7 @@ impl<'a, 'b, C: ContextObject> SingleThreadBase for Interpreter<'a, 'b, C> {
 
     fn read_addrs(&mut self, start_addr: u64, data: &mut [u8]) -> TargetResult<(), Self> {
         for (vm_addr, val) in (start_addr..).zip(data.iter_mut()) {
-            let host_ptr = match get_host_ptr(self, vm_addr, self.pc) {
+            let host_ptr = match get_host_ptr(self, vm_addr) {
                 Ok(host_ptr) => host_ptr,
                 // The debugger is sometimes requesting more data than we have access to, just skip these
                 _ => continue,

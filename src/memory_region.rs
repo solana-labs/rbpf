@@ -330,7 +330,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
     }
 
     /// Given a list of regions translate from virtual machine to host address
-    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64, pc: usize) -> ProgramResult {
+    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64) -> ProgramResult {
         // Safety:
         // &mut references to the mapping cache are only created internally from methods that do not
         // invoke each other. UnalignedMemoryMapping is !Sync, so the cache reference below is
@@ -346,7 +346,6 @@ impl<'a> UnalignedMemoryMapping<'a> {
                     access_type,
                     vm_addr,
                     len,
-                    pc,
                 )
             }
         };
@@ -357,21 +356,14 @@ impl<'a> UnalignedMemoryMapping<'a> {
             }
         }
 
-        generate_access_violation(
-            self.config,
-            self.sbpf_version,
-            access_type,
-            vm_addr,
-            len,
-            pc,
-        )
+        generate_access_violation(self.config, self.sbpf_version, access_type, vm_addr, len)
     }
 
     /// Loads `size_of::<T>()` bytes from the given address.
     ///
     /// See [MemoryMapping::load].
     #[inline(always)]
-    pub fn load<T: Pod + Into<u64>>(&self, mut vm_addr: u64, pc: usize) -> ProgramResult {
+    pub fn load<T: Pod + Into<u64>>(&self, mut vm_addr: u64) -> ProgramResult {
         let mut len = mem::size_of::<T>() as u64;
         debug_assert!(len <= mem::size_of::<u64>() as u64);
 
@@ -399,7 +391,6 @@ impl<'a> UnalignedMemoryMapping<'a> {
                     AccessType::Load,
                     vm_addr,
                     len,
-                    pc,
                 )
             }
         };
@@ -443,7 +434,6 @@ impl<'a> UnalignedMemoryMapping<'a> {
             AccessType::Load,
             initial_vm_addr,
             initial_len,
-            pc,
         )
     }
 
@@ -451,7 +441,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
     ///
     /// See [MemoryMapping::store].
     #[inline]
-    pub fn store<T: Pod>(&self, value: T, mut vm_addr: u64, pc: usize) -> ProgramResult {
+    pub fn store<T: Pod>(&self, value: T, mut vm_addr: u64) -> ProgramResult {
         let mut len = mem::size_of::<T>() as u64;
 
         // Safety:
@@ -481,7 +471,6 @@ impl<'a> UnalignedMemoryMapping<'a> {
                     AccessType::Store,
                     vm_addr,
                     len,
-                    pc,
                 )
             }
         };
@@ -524,7 +513,6 @@ impl<'a> UnalignedMemoryMapping<'a> {
             AccessType::Store,
             initial_vm_addr,
             initial_len,
-            pc,
         )
     }
 
@@ -547,7 +535,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
             }
         }
         Err(
-            generate_access_violation(self.config, self.sbpf_version, access_type, vm_addr, 0, 0)
+            generate_access_violation(self.config, self.sbpf_version, access_type, vm_addr, 0)
                 .unwrap_err(),
         )
     }
@@ -647,7 +635,7 @@ impl<'a> AlignedMemoryMapping<'a> {
     }
 
     /// Given a list of regions translate from virtual machine to host address
-    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64, pc: usize) -> ProgramResult {
+    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64) -> ProgramResult {
         let index = vm_addr
             .checked_shr(ebpf::VIRTUAL_ADDRESS_BITS as u32)
             .unwrap_or(0) as usize;
@@ -659,23 +647,16 @@ impl<'a> AlignedMemoryMapping<'a> {
                 }
             }
         }
-        generate_access_violation(
-            self.config,
-            self.sbpf_version,
-            access_type,
-            vm_addr,
-            len,
-            pc,
-        )
+        generate_access_violation(self.config, self.sbpf_version, access_type, vm_addr, len)
     }
 
     /// Loads `size_of::<T>()` bytes from the given address.
     ///
     /// See [MemoryMapping::load].
     #[inline]
-    pub fn load<T: Pod + Into<u64>>(&self, vm_addr: u64, pc: usize) -> ProgramResult {
+    pub fn load<T: Pod + Into<u64>>(&self, vm_addr: u64) -> ProgramResult {
         let len = mem::size_of::<T>() as u64;
-        match self.map(AccessType::Load, vm_addr, len, pc) {
+        match self.map(AccessType::Load, vm_addr, len) {
             ProgramResult::Ok(host_addr) => {
                 ProgramResult::Ok(unsafe { ptr::read_unaligned::<T>(host_addr as *const _) }.into())
             }
@@ -687,11 +668,11 @@ impl<'a> AlignedMemoryMapping<'a> {
     ///
     /// See [MemoryMapping::store].
     #[inline]
-    pub fn store<T: Pod>(&self, value: T, vm_addr: u64, pc: usize) -> ProgramResult {
+    pub fn store<T: Pod>(&self, value: T, vm_addr: u64) -> ProgramResult {
         let len = mem::size_of::<T>() as u64;
         debug_assert!(len <= mem::size_of::<u64>() as u64);
 
-        match self.map(AccessType::Store, vm_addr, len, pc) {
+        match self.map(AccessType::Store, vm_addr, len) {
             ProgramResult::Ok(host_addr) => {
                 // Safety:
                 // map succeeded so we can write at least `len` bytes
@@ -723,7 +704,7 @@ impl<'a> AlignedMemoryMapping<'a> {
             }
         }
         Err(
-            generate_access_violation(self.config, self.sbpf_version, access_type, vm_addr, 0, 0)
+            generate_access_violation(self.config, self.sbpf_version, access_type, vm_addr, 0)
                 .unwrap_err(),
         )
     }
@@ -808,11 +789,11 @@ impl<'a> MemoryMapping<'a> {
     }
 
     /// Map virtual memory to host memory.
-    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64, pc: usize) -> ProgramResult {
+    pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64) -> ProgramResult {
         match self {
             MemoryMapping::Identity => ProgramResult::Ok(vm_addr),
-            MemoryMapping::Aligned(m) => m.map(access_type, vm_addr, len, pc),
-            MemoryMapping::Unaligned(m) => m.map(access_type, vm_addr, len, pc),
+            MemoryMapping::Aligned(m) => m.map(access_type, vm_addr, len),
+            MemoryMapping::Unaligned(m) => m.map(access_type, vm_addr, len),
         }
     }
 
@@ -820,13 +801,13 @@ impl<'a> MemoryMapping<'a> {
     ///
     /// Works across memory region boundaries.
     #[inline]
-    pub fn load<T: Pod + Into<u64>>(&self, vm_addr: u64, pc: usize) -> ProgramResult {
+    pub fn load<T: Pod + Into<u64>>(&self, vm_addr: u64) -> ProgramResult {
         match self {
             MemoryMapping::Identity => unsafe {
                 ProgramResult::Ok(ptr::read_unaligned(vm_addr as *const T).into())
             },
-            MemoryMapping::Aligned(m) => m.load::<T>(vm_addr, pc),
-            MemoryMapping::Unaligned(m) => m.load::<T>(vm_addr, pc),
+            MemoryMapping::Aligned(m) => m.load::<T>(vm_addr),
+            MemoryMapping::Unaligned(m) => m.load::<T>(vm_addr),
         }
     }
 
@@ -834,14 +815,14 @@ impl<'a> MemoryMapping<'a> {
     ///
     /// Works across memory region boundaries if `len` does not fit within a single region.
     #[inline]
-    pub fn store<T: Pod>(&self, value: T, vm_addr: u64, pc: usize) -> ProgramResult {
+    pub fn store<T: Pod>(&self, value: T, vm_addr: u64) -> ProgramResult {
         match self {
             MemoryMapping::Identity => unsafe {
                 ptr::write_unaligned(vm_addr as *mut T, value);
                 ProgramResult::Ok(0)
             },
-            MemoryMapping::Aligned(m) => m.store(value, vm_addr, pc),
-            MemoryMapping::Unaligned(m) => m.store(value, vm_addr, pc),
+            MemoryMapping::Aligned(m) => m.store(value, vm_addr),
+            MemoryMapping::Unaligned(m) => m.store(value, vm_addr),
         }
     }
 
@@ -902,7 +883,6 @@ fn generate_access_violation(
     access_type: AccessType,
     vm_addr: u64,
     len: u64,
-    pc: usize,
 ) -> ProgramResult {
     let stack_frame = (vm_addr as i64)
         .saturating_sub(ebpf::MM_STACK_START as i64)
@@ -912,7 +892,6 @@ fn generate_access_violation(
         && (-1..(config.max_call_depth as i64).saturating_add(1)).contains(&stack_frame)
     {
         ProgramResult::Err(EbpfError::StackAccessViolation(
-            pc,
             access_type,
             vm_addr,
             len,
@@ -927,7 +906,6 @@ fn generate_access_violation(
             _ => "unknown",
         };
         ProgramResult::Err(EbpfError::AccessViolation(
-            pc,
             access_type,
             vm_addr,
             len,
@@ -1060,13 +1038,13 @@ mod test {
         let config = Config::default();
         let m = UnalignedMemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
         assert_error!(
-            m.map(AccessType::Load, ebpf::MM_INPUT_START, 8, 0),
+            m.map(AccessType::Load, ebpf::MM_INPUT_START, 8),
             "AccessViolation"
         );
 
         let m = AlignedMemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
         assert_error!(
-            m.map(AccessType::Load, ebpf::MM_INPUT_START, 8, 0),
+            m.map(AccessType::Load, ebpf::MM_INPUT_START, 8),
             "AccessViolation"
         );
     }
@@ -1091,15 +1069,12 @@ mod test {
             for frame in 0..4 {
                 let address = ebpf::MM_STACK_START + frame * 4;
                 assert!(m.region(AccessType::Load, address).is_ok());
-                assert!(m.map(AccessType::Load, address, 2, 0).is_ok());
-                assert_error!(
-                    m.map(AccessType::Load, address + 2, 2, 0),
-                    "AccessViolation"
-                );
-                assert_eq!(m.load::<u16>(address, 0).unwrap(), 0xFFFF);
-                assert_error!(m.load::<u16>(address + 2, 0), "AccessViolation");
-                assert!(m.store::<u16>(0xFFFF, address, 0).is_ok());
-                assert_error!(m.store::<u16>(0xFFFF, address + 2, 0), "AccessViolation");
+                assert!(m.map(AccessType::Load, address, 2).is_ok());
+                assert_error!(m.map(AccessType::Load, address + 2, 2), "AccessViolation");
+                assert_eq!(m.load::<u16>(address).unwrap(), 0xFFFF);
+                assert_error!(m.load::<u16>(address + 2), "AccessViolation");
+                assert!(m.store::<u16>(0xFFFF, address).is_ok());
+                assert_error!(m.store::<u16>(0xFFFF, address + 2), "AccessViolation");
             }
         }
     }
@@ -1157,18 +1132,17 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            m.map(AccessType::Load, ebpf::MM_INPUT_START, 1, 0).unwrap(),
+            m.map(AccessType::Load, ebpf::MM_INPUT_START, 1).unwrap(),
             mem1.as_ptr() as u64
         );
 
         assert_eq!(
-            m.map(AccessType::Store, ebpf::MM_INPUT_START, 1, 0)
-                .unwrap(),
+            m.map(AccessType::Store, ebpf::MM_INPUT_START, 1).unwrap(),
             mem1.as_ptr() as u64
         );
 
         assert_error!(
-            m.map(AccessType::Load, ebpf::MM_INPUT_START, 2, 0),
+            m.map(AccessType::Load, ebpf::MM_INPUT_START, 2),
             "AccessViolation"
         );
 
@@ -1177,7 +1151,6 @@ mod test {
                 AccessType::Load,
                 ebpf::MM_INPUT_START + mem1.len() as u64,
                 1,
-                0,
             )
             .unwrap(),
             mem2.as_ptr() as u64
@@ -1188,7 +1161,6 @@ mod test {
                 AccessType::Load,
                 ebpf::MM_INPUT_START + (mem1.len() + mem2.len()) as u64,
                 1,
-                0,
             )
             .unwrap(),
             mem3.as_ptr() as u64
@@ -1199,7 +1171,6 @@ mod test {
                 AccessType::Load,
                 ebpf::MM_INPUT_START + (mem1.len() + mem2.len() + mem3.len()) as u64,
                 1,
-                0,
             )
             .unwrap(),
             mem4.as_ptr() as u64
@@ -1210,7 +1181,6 @@ mod test {
                 AccessType::Load,
                 ebpf::MM_INPUT_START + (mem1.len() + mem2.len() + mem3.len() + mem4.len()) as u64,
                 1,
-                0,
             ),
             "AccessViolation"
         );
@@ -1369,19 +1339,16 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START, 0).unwrap(), 0x2211);
-        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START, 0).unwrap(), 0x44332211);
+        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START).unwrap(), 0x2211);
+        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START).unwrap(), 0x44332211);
         assert_eq!(
-            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
+            m.load::<u64>(ebpf::MM_INPUT_START).unwrap(),
             0x8877665544332211
         );
-        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START + 1, 0).unwrap(), 0x3322);
+        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START + 1).unwrap(), 0x3322);
+        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START + 1).unwrap(), 0x55443322);
         assert_eq!(
-            m.load::<u32>(ebpf::MM_INPUT_START + 1, 0).unwrap(),
-            0x55443322
-        );
-        assert_eq!(
-            m.load::<u64>(ebpf::MM_INPUT_START + 1, 0).unwrap(),
+            m.load::<u64>(ebpf::MM_INPUT_START + 1).unwrap(),
             0x9988776655443322
         );
     }
@@ -1413,16 +1380,16 @@ mod test {
             &SBPFVersion::V2,
         )
         .unwrap();
-        m.store(0x1122u16, ebpf::MM_INPUT_START, 0).unwrap();
-        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START, 0).unwrap(), 0x1122);
+        m.store(0x1122u16, ebpf::MM_INPUT_START).unwrap();
+        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START).unwrap(), 0x1122);
 
-        m.store(0x33445566u32, ebpf::MM_INPUT_START, 0).unwrap();
-        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START, 0).unwrap(), 0x33445566);
+        m.store(0x33445566u32, ebpf::MM_INPUT_START).unwrap();
+        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START).unwrap(), 0x33445566);
 
-        m.store(0x778899AABBCCDDEEu64, ebpf::MM_INPUT_START, 0)
+        m.store(0x778899AABBCCDDEEu64, ebpf::MM_INPUT_START)
             .unwrap();
         assert_eq!(
-            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
+            m.load::<u64>(ebpf::MM_INPUT_START).unwrap(),
             0x778899AABBCCDDEE
         );
     }
@@ -1441,20 +1408,20 @@ mod test {
         )
         .unwrap();
 
-        m.store(0x1122334455667788u64, ebpf::MM_INPUT_START, 0)
+        m.store(0x1122334455667788u64, ebpf::MM_INPUT_START)
             .unwrap();
         assert_eq!(
-            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
+            m.load::<u64>(ebpf::MM_INPUT_START).unwrap(),
             0x1122334455667788
         );
-        m.store(0x22334455u32, ebpf::MM_INPUT_START, 0).unwrap();
-        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START, 0).unwrap(), 0x22334455);
+        m.store(0x22334455u32, ebpf::MM_INPUT_START).unwrap();
+        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START).unwrap(), 0x22334455);
 
-        m.store(0x3344u16, ebpf::MM_INPUT_START, 0).unwrap();
-        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START, 0).unwrap(), 0x3344);
+        m.store(0x3344u16, ebpf::MM_INPUT_START).unwrap();
+        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START).unwrap(), 0x3344);
 
-        m.store(0x55u8, ebpf::MM_INPUT_START, 0).unwrap();
-        assert_eq!(m.load::<u8>(ebpf::MM_INPUT_START, 0).unwrap(), 0x55);
+        m.store(0x55u8, ebpf::MM_INPUT_START).unwrap();
+        assert_eq!(m.load::<u8>(ebpf::MM_INPUT_START).unwrap(), 0x55);
     }
 
     #[test]
@@ -1475,20 +1442,17 @@ mod test {
         )
         .unwrap();
 
-        m.store(0x1122334455667788u64, ebpf::MM_INPUT_START, 0)
+        m.store(0x1122334455667788u64, ebpf::MM_INPUT_START)
             .unwrap();
         assert_eq!(
-            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
+            m.load::<u64>(ebpf::MM_INPUT_START).unwrap(),
             0x1122334455667788
         );
-        m.store(0xAABBCCDDu32, ebpf::MM_INPUT_START + 4, 0).unwrap();
-        assert_eq!(
-            m.load::<u32>(ebpf::MM_INPUT_START + 4, 0).unwrap(),
-            0xAABBCCDD
-        );
+        m.store(0xAABBCCDDu32, ebpf::MM_INPUT_START + 4).unwrap();
+        assert_eq!(m.load::<u32>(ebpf::MM_INPUT_START + 4).unwrap(), 0xAABBCCDD);
 
-        m.store(0xEEFFu16, ebpf::MM_INPUT_START + 6, 0).unwrap();
-        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START + 6, 0).unwrap(), 0xEEFF);
+        m.store(0xEEFFu16, ebpf::MM_INPUT_START + 6).unwrap();
+        assert_eq!(m.load::<u16>(ebpf::MM_INPUT_START + 6).unwrap(), 0xEEFF);
     }
 
     #[test]
@@ -1505,21 +1469,12 @@ mod test {
             &SBPFVersion::V2,
         )
         .unwrap();
-        m.store(0x11u8, ebpf::MM_INPUT_START, 0).unwrap();
-        assert_error!(
-            m.store(0x11u8, ebpf::MM_INPUT_START - 1, 0),
-            "AccessViolation"
-        );
-        assert_error!(
-            m.store(0x11u8, ebpf::MM_INPUT_START + 1, 0),
-            "AccessViolation"
-        );
+        m.store(0x11u8, ebpf::MM_INPUT_START).unwrap();
+        assert_error!(m.store(0x11u8, ebpf::MM_INPUT_START - 1), "AccessViolation");
+        assert_error!(m.store(0x11u8, ebpf::MM_INPUT_START + 1), "AccessViolation");
         // this gets us line coverage for the case where we're completely
         // outside the address space (the case above is just on the edge)
-        assert_error!(
-            m.store(0x11u8, ebpf::MM_INPUT_START + 2, 0),
-            "AccessViolation"
-        );
+        assert_error!(m.store(0x11u8, ebpf::MM_INPUT_START + 2), "AccessViolation");
 
         let mut mem1 = vec![0xFF; 4];
         let mut mem2 = vec![0xDD; 4];
@@ -1532,14 +1487,14 @@ mod test {
             &SBPFVersion::V2,
         )
         .unwrap();
-        m.store(0x1122334455667788u64, ebpf::MM_INPUT_START, 0)
+        m.store(0x1122334455667788u64, ebpf::MM_INPUT_START)
             .unwrap();
         assert_eq!(
-            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
+            m.load::<u64>(ebpf::MM_INPUT_START).unwrap(),
             0x1122334455667788u64
         );
         assert_error!(
-            m.store(0x1122334455667788u64, ebpf::MM_INPUT_START + 1, 0),
+            m.store(0x1122334455667788u64, ebpf::MM_INPUT_START + 1),
             "AccessViolation"
         );
     }
@@ -1558,10 +1513,10 @@ mod test {
             &SBPFVersion::V2,
         )
         .unwrap();
-        assert_eq!(m.load::<u8>(ebpf::MM_INPUT_START, 0).unwrap(), 0xff);
-        assert_error!(m.load::<u8>(ebpf::MM_INPUT_START - 1, 0), "AccessViolation");
-        assert_error!(m.load::<u8>(ebpf::MM_INPUT_START + 1, 0), "AccessViolation");
-        assert_error!(m.load::<u8>(ebpf::MM_INPUT_START + 2, 0), "AccessViolation");
+        assert_eq!(m.load::<u8>(ebpf::MM_INPUT_START).unwrap(), 0xff);
+        assert_error!(m.load::<u8>(ebpf::MM_INPUT_START - 1), "AccessViolation");
+        assert_error!(m.load::<u8>(ebpf::MM_INPUT_START + 1), "AccessViolation");
+        assert_error!(m.load::<u8>(ebpf::MM_INPUT_START + 2), "AccessViolation");
 
         let mem1 = vec![0xFF; 4];
         let mem2 = vec![0xDD; 4];
@@ -1575,13 +1530,10 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            m.load::<u64>(ebpf::MM_INPUT_START, 0).unwrap(),
+            m.load::<u64>(ebpf::MM_INPUT_START).unwrap(),
             0xDDDDDDDDFFFFFFFF
         );
-        assert_error!(
-            m.load::<u64>(ebpf::MM_INPUT_START + 1, 0),
-            "AccessViolation"
-        );
+        assert_error!(m.load::<u64>(ebpf::MM_INPUT_START + 1), "AccessViolation");
     }
 
     #[test]
@@ -1602,7 +1554,7 @@ mod test {
             &SBPFVersion::V2,
         )
         .unwrap();
-        m.store(0x11223344, ebpf::MM_INPUT_START, 0).unwrap();
+        m.store(0x11223344, ebpf::MM_INPUT_START).unwrap();
     }
 
     #[test]
@@ -1622,7 +1574,7 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            m.map(AccessType::Load, ebpf::MM_INPUT_START, 1, 0).unwrap(),
+            m.map(AccessType::Load, ebpf::MM_INPUT_START, 1).unwrap(),
             mem1.as_ptr() as u64
         );
 
@@ -1631,7 +1583,6 @@ mod test {
                 AccessType::Load,
                 ebpf::MM_INPUT_START + mem1.len() as u64,
                 1,
-                0,
             )
             .unwrap(),
             mem2.as_ptr() as u64
@@ -1672,7 +1623,6 @@ mod test {
                 AccessType::Load,
                 ebpf::MM_INPUT_START + mem1.len() as u64,
                 1,
-                0,
             )
             .unwrap(),
             mem3.as_ptr() as u64
@@ -1696,7 +1646,7 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            m.map(AccessType::Load, ebpf::MM_STACK_START, 1, 0).unwrap(),
+            m.map(AccessType::Load, ebpf::MM_STACK_START, 1).unwrap(),
             mem2.as_ptr() as u64
         );
 
@@ -1725,7 +1675,7 @@ mod test {
             .unwrap();
 
         assert_eq!(
-            m.map(AccessType::Load, ebpf::MM_STACK_START, 1, 0).unwrap(),
+            m.map(AccessType::Load, ebpf::MM_STACK_START, 1).unwrap(),
             mem3.as_ptr() as u64
         );
     }
@@ -1753,13 +1703,11 @@ mod test {
             .unwrap();
 
             assert_eq!(
-                m.map(AccessType::Load, ebpf::MM_PROGRAM_START, 1, 0)
-                    .unwrap(),
+                m.map(AccessType::Load, ebpf::MM_PROGRAM_START, 1).unwrap(),
                 original.as_ptr() as u64
             );
             assert_eq!(
-                m.map(AccessType::Store, ebpf::MM_PROGRAM_START, 1, 0)
-                    .unwrap(),
+                m.map(AccessType::Store, ebpf::MM_PROGRAM_START, 1).unwrap(),
                 copied.borrow().as_ptr() as u64
             );
         }
@@ -1788,19 +1736,18 @@ mod test {
             .unwrap();
 
             assert_eq!(
-                m.map(AccessType::Load, ebpf::MM_PROGRAM_START, 1, 0)
-                    .unwrap(),
+                m.map(AccessType::Load, ebpf::MM_PROGRAM_START, 1).unwrap(),
                 original.as_ptr() as u64
             );
 
-            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START, 0).unwrap(), 11);
-            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START + 1, 0).unwrap(), 22);
+            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START).unwrap(), 11);
+            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START + 1).unwrap(), 22);
             assert!(copied.borrow().is_empty());
 
-            m.store(33u8, ebpf::MM_PROGRAM_START, 0).unwrap();
+            m.store(33u8, ebpf::MM_PROGRAM_START).unwrap();
             assert_eq!(original[0], 11);
-            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START, 0).unwrap(), 33);
-            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START + 1, 0).unwrap(), 22);
+            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START).unwrap(), 33);
+            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START + 1).unwrap(), 22);
         }
     }
 
@@ -1833,9 +1780,9 @@ mod test {
             )
             .unwrap();
 
-            m.store(55u8, ebpf::MM_PROGRAM_START, 0).unwrap();
+            m.store(55u8, ebpf::MM_PROGRAM_START).unwrap();
             assert_eq!(original1[0], 11);
-            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START, 0).unwrap(), 55);
+            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START).unwrap(), 55);
         }
     }
 
@@ -1853,8 +1800,7 @@ mod test {
         )
         .unwrap();
 
-        m.map(AccessType::Store, ebpf::MM_PROGRAM_START, 1, 0)
-            .unwrap();
+        m.map(AccessType::Store, ebpf::MM_PROGRAM_START, 1).unwrap();
     }
 
     #[test]
@@ -1871,6 +1817,6 @@ mod test {
         )
         .unwrap();
 
-        m.store(33u8, ebpf::MM_PROGRAM_START, 0).unwrap();
+        m.store(33u8, ebpf::MM_PROGRAM_START).unwrap();
     }
 }
