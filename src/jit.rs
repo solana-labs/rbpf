@@ -910,12 +910,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         }
     }
 
-    fn emit_rust_call(&mut self, dst: Value, arguments: &[Argument], result_reg: Option<u8>) {
+    fn emit_rust_call(&mut self, target: Value, arguments: &[Argument], result_reg: Option<u8>) {
         let mut saved_registers = CALLER_SAVED_REGISTERS.to_vec();
         if let Some(reg) = result_reg {
-            let dst = saved_registers.iter().position(|x| *x == reg);
-            debug_assert!(dst.is_some());
-            if let Some(dst) = dst {
+            if let Some(dst) = saved_registers.iter().position(|x| *x == reg) {
                 saved_registers.remove(dst);
             }
         }
@@ -941,7 +939,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         for argument in arguments {
             let is_stack_argument = argument.index >= ARGUMENT_REGISTERS.len();
             let dst = if is_stack_argument {
-                REGISTER_SCRATCH
+                u8::MAX // Never used
             } else {
                 ARGUMENT_REGISTERS[argument.index]
             };
@@ -987,7 +985,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             }
         }
     
-        match dst {
+        match target {
             Value::Register(reg) => {
                 self.emit_ins(X86Instruction::call_reg(reg, None));
             },
