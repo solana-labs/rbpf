@@ -22,7 +22,7 @@ use test::Bencher;
 fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
     let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
     function_registry
-        .register_function_hashed(*b"log", syscalls::bpf_syscall_string)
+        .register_function_hashed(*b"log", syscalls::SyscallString::vm)
         .unwrap();
     Arc::new(BuiltinProgram::new_loader(
         Config::default(),

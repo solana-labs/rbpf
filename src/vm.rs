@@ -505,23 +505,23 @@ mod tests {
         let mut function_registry_a =
             FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry_a
-            .register_function_hashed(*b"log", syscalls::bpf_syscall_string)
+            .register_function_hashed(*b"log", syscalls::SyscallString::vm)
             .unwrap();
         function_registry_a
-            .register_function_hashed(*b"log_64", syscalls::bpf_syscall_u64)
+            .register_function_hashed(*b"log_64", syscalls::SyscallU64::vm)
             .unwrap();
         let mut function_registry_b =
             FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry_b
-            .register_function_hashed(*b"log_64", syscalls::bpf_syscall_u64)
+            .register_function_hashed(*b"log_64", syscalls::SyscallU64::vm)
             .unwrap();
         function_registry_b
-            .register_function_hashed(*b"log", syscalls::bpf_syscall_string)
+            .register_function_hashed(*b"log", syscalls::SyscallString::vm)
             .unwrap();
         let mut function_registry_c =
             FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry_c
-            .register_function_hashed(*b"log_64", syscalls::bpf_syscall_u64)
+            .register_function_hashed(*b"log_64", syscalls::SyscallU64::vm)
             .unwrap();
         let builtin_program_a = BuiltinProgram::new_loader(Config::default(), function_registry_a);
         let builtin_program_b = BuiltinProgram::new_loader(Config::default(), function_registry_b);

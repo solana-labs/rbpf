@@ -287,3 +287,33 @@ impl<C: ContextObject> std::fmt::Debug for BuiltinProgram<C> {
         Ok(())
     }
 }
+
+/// Generates an adapter for a BuiltinFunction between the Rust and the VM interface
+#[macro_export]
+macro_rules! declare_builtin_function {
+    ($(#[$attr:meta])* $name:ident, $rust:item) => {
+        $(#[$attr])*
+        pub struct $name {}
+        impl $name {
+            /// Rust interface
+            $rust
+            /// VM interface
+            #[allow(clippy::too_many_arguments)]
+            pub fn vm(
+                context_object: &mut TestContextObject,
+                arg_a: u64,
+                arg_b: u64,
+                arg_c: u64,
+                arg_d: u64,
+                arg_e: u64,
+                memory_mapping: &mut $crate::memory_region::MemoryMapping,
+                program_result: &mut $crate::vm::ProgramResult,
+            ) {
+                let converted_result: $crate::vm::ProgramResult = Self::rust(
+                    context_object, arg_a, arg_b, arg_c, arg_d, arg_e, memory_mapping,
+                ).into();
+                *program_result = converted_result;
+            }
+        }
+    };
+}

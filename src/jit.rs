@@ -1660,7 +1660,7 @@ mod tests {
         let mut function_registry =
             FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry
-            .register_function_hashed(*b"gather_bytes", syscalls::bpf_gather_bytes)
+            .register_function_hashed(*b"gather_bytes", syscalls::SyscallGatherBytes::vm)
             .unwrap();
         let loader = BuiltinProgram::new_loader(
             Config {

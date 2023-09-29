@@ -22,269 +22,174 @@
 //! respect this convention.
 
 use crate::{
+    declare_builtin_function,
+    error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
-    vm::{ProgramResult, TestContextObject},
+    vm::TestContextObject,
 };
 use std::{slice::from_raw_parts, str::from_utf8};
 
-/// Error handling for syscall methods
-macro_rules! question_mark {
-    ( $value:expr, $result:ident ) => {{
-        let value = $value;
-        match value {
-            ProgramResult::Err(err) => {
-                *$result = ProgramResult::Err(err.into());
-                return;
+declare_builtin_function!(
+    /// Prints its **last three** arguments to standard output. The **first two** arguments are
+    /// **unused**. Returns the number of bytes written.
+    SyscallTracePrintf,
+    fn rust(
+        _context_object: &mut TestContextObject,
+        _arg1: u64,
+        _arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        _memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, EbpfError> {
+        println!("bpf_trace_printf: {arg3:#x}, {arg4:#x}, {arg5:#x}");
+        let size_arg = |x| {
+            if x == 0 {
+                1
+            } else {
+                (x as f64).log(16.0).floor() as u64 + 1
             }
-            ProgramResult::Ok(value) => value,
-        }
-    }};
-}
-
-// bpf_trace_printk()
-
-/// Index of syscall `bpf_trace_printk()`, equivalent to `bpf_trace_printf`, in Linux kernel, see
-/// <https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/bpf.h>.
-pub const BPF_TRACE_PRINTK_IDX: u32 = 6;
-
-/// Prints its **last three** arguments to standard output. The **first two** arguments are
-/// **unused**. Returns the number of bytes written.
-///
-/// By ignoring the first two arguments, it creates a syscall that will have a behavior similar to
-/// the one of the equivalent syscall `bpf_trace_printk()` from Linux kernel.
-///
-/// # Examples
-///
-/// ```
-/// use solana_rbpf::{program::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_trace_printf, vm::{Config, ProgramResult, TestContextObject}};
-///
-/// let mut result = ProgramResult::Ok(0);
-/// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
-/// bpf_trace_printf(&mut TestContextObject::default(), 0, 0, 1, 15, 32, &mut memory_mapping, &mut result);
-/// assert_eq!(result.unwrap() as usize, "bpf_trace_printf: 0x1, 0xf, 0x20\n".len());
-/// ```
-///
-/// This will print `bpf_trace_printf: 0x1, 0xf, 0x20`.
-///
-/// The eBPF code needed to perform the call in this example would be nearly identical to the code
-/// obtained by compiling the following code from C to eBPF with clang:
-///
-/// ```c
-/// #include <linux/bpf.h>
-/// #include "path/to/linux/samples/bpf/bpf_syscalls.h"
-///
-/// int main(struct __sk_buff *skb)
-/// {
-///     // Only %d %u %x %ld %lu %lx %lld %llu %llx %p %s conversion specifiers allowed.
-///     // See <https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/kernel/trace/bpf_trace.c>.
-///     char *fmt = "bpf_trace_printk %llx, %llx, %llx\n";
-///     return bpf_trace_printk(fmt, sizeof(fmt), 1, 15, 32);
-/// }
-/// ```
-///
-/// This would equally print the three numbers in `/sys/kernel/debug/tracing` file each time the
-/// program is run.
-pub fn bpf_trace_printf(
-    _context_object: &mut TestContextObject,
-    _arg1: u64,
-    _arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    _memory_mapping: &mut MemoryMapping,
-    result: &mut ProgramResult,
-) {
-    println!("bpf_trace_printf: {arg3:#x}, {arg4:#x}, {arg5:#x}");
-    let size_arg = |x| {
-        if x == 0 {
-            1
-        } else {
-            (x as f64).log(16.0).floor() as u64 + 1
-        }
-    };
-    *result = ProgramResult::Ok(
-        "bpf_trace_printf: 0x, 0x, 0x\n".len() as u64
+        };
+        Ok("bpf_trace_printf: 0x, 0x, 0x\n".len() as u64
             + size_arg(arg3)
             + size_arg(arg4)
-            + size_arg(arg5),
-    );
-}
+            + size_arg(arg5))
+    }
+);
 
-// syscalls coming from uBPF <https://github.com/iovisor/ubpf/blob/master/vm/test.c>
-
-/// The idea is to assemble five bytes into a single `u64`. For compatibility with the syscalls API,
-/// each argument must be a `u64`.
-///
-/// # Examples
-///
-/// ```
-/// use solana_rbpf::{program::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_gather_bytes, vm::{Config, ProgramResult, TestContextObject}};
-///
-/// let mut result = ProgramResult::Ok(0);
-/// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
-/// bpf_gather_bytes(&mut TestContextObject::default(), 0x11, 0x22, 0x33, 0x44, 0x55, &mut memory_mapping, &mut result);
-/// assert_eq!(result.unwrap(), 0x1122334455);
-/// ```
-pub fn bpf_gather_bytes(
-    _context_object: &mut TestContextObject,
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    _memory_mapping: &mut MemoryMapping,
-    result: &mut ProgramResult,
-) {
-    *result = ProgramResult::Ok(
-        arg1.wrapping_shl(32)
+declare_builtin_function!(
+    /// The idea is to assemble five bytes into a single `u64`. For compatibility with the syscalls API,
+    /// each argument must be a `u64`.
+    SyscallGatherBytes,
+    fn rust(
+        _context_object: &mut TestContextObject,
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        _memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, EbpfError> {
+        Ok(arg1.wrapping_shl(32)
             | arg2.wrapping_shl(24)
             | arg3.wrapping_shl(16)
             | arg4.wrapping_shl(8)
-            | arg5,
-    );
-}
-
-/// Same as `void *memfrob(void *s, size_t n);` in `string.h` in C. See the GNU manual page (in
-/// section 3) for `memfrob`. The memory is directly modified, and the syscall returns 0 in all
-/// cases. Arguments 3 to 5 are unused.
-///
-/// # Examples
-///
-/// ```
-/// use solana_rbpf::{program::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_mem_frob, vm::{Config, ProgramResult, TestContextObject}};
-///
-/// let mut val = &mut [0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
-/// let val_va = 0x100000000;
-///
-/// let mut result = ProgramResult::Ok(0);
-/// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_writable(val, val_va)], &config, &SBPFVersion::V2).unwrap();
-/// bpf_mem_frob(&mut TestContextObject::default(), val_va, 8, 0, 0, 0, &mut memory_mapping, &mut result);
-/// assert_eq!(val, &[0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x3b, 0x08, 0x19]);
-/// bpf_mem_frob(&mut TestContextObject::default(), val_va, 8, 0, 0, 0, &mut memory_mapping, &mut result);
-/// assert_eq!(val, &[0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33]);
-/// ```
-pub fn bpf_mem_frob(
-    _context_object: &mut TestContextObject,
-    vm_addr: u64,
-    len: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    memory_mapping: &mut MemoryMapping,
-    result: &mut ProgramResult,
-) {
-    let host_addr = question_mark!(memory_mapping.map(AccessType::Store, vm_addr, len), result);
-    for i in 0..len {
-        unsafe {
-            let p = (host_addr + i) as *mut u8;
-            *p ^= 0b101010;
-        }
+            | arg5)
     }
-    *result = ProgramResult::Ok(0);
-}
+);
 
-/// C-like `strcmp`, return 0 if the strings are equal, and a non-null value otherwise.
-///
-/// # Examples
-///
-/// ```
-/// use solana_rbpf::{program::SBPFVersion, memory_region::{MemoryRegion, MemoryMapping}, syscalls::bpf_str_cmp, vm::{Config, ProgramResult, TestContextObject}};
-///
-/// let foo = "This is a string.";
-/// let bar = "This is another sting.";
-/// let va_foo = 0x100000000;
-/// let va_bar = 0x200000000;
-///
-/// let mut result = ProgramResult::Ok(0);
-/// let config = Config::default();
-/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo)], &config, &SBPFVersion::V2).unwrap();
-/// bpf_str_cmp(&mut TestContextObject::default(), va_foo, va_foo, 0, 0, 0, &mut memory_mapping, &mut result);
-/// assert!(result.unwrap() == 0);
-/// let mut result = ProgramResult::Ok(0);
-/// let mut memory_mapping = MemoryMapping::new(vec![MemoryRegion::new_readonly(foo.as_bytes(), va_foo), MemoryRegion::new_readonly(bar.as_bytes(), va_bar)], &config, &SBPFVersion::V2).unwrap();
-/// bpf_str_cmp(&mut TestContextObject::default(), va_foo, va_bar, 0, 0, 0, &mut memory_mapping, &mut result);
-/// assert!(result.unwrap() != 0);
-/// ```
-pub fn bpf_str_cmp(
-    _context_object: &mut TestContextObject,
-    arg1: u64,
-    arg2: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    memory_mapping: &mut MemoryMapping,
-    result: &mut ProgramResult,
-) {
-    // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
-    if arg1 == 0 || arg2 == 0 {
-        *result = ProgramResult::Ok(u64::MAX);
-        return;
-    }
-    let mut a = question_mark!(memory_mapping.map(AccessType::Load, arg1, 1), result);
-    let mut b = question_mark!(memory_mapping.map(AccessType::Load, arg2, 1), result);
-    unsafe {
-        let mut a_val = *(a as *const u8);
-        let mut b_val = *(b as *const u8);
-        while a_val == b_val && a_val != 0 && b_val != 0 {
-            a += 1;
-            b += 1;
-            a_val = *(a as *const u8);
-            b_val = *(b as *const u8);
-        }
-        *result = if a_val >= b_val {
-            ProgramResult::Ok((a_val - b_val) as u64)
-        } else {
-            ProgramResult::Ok((b_val - a_val) as u64)
-        };
-    }
-}
-
-// Some additional syscalls
-
-/// Prints a NULL-terminated UTF-8 string.
-pub fn bpf_syscall_string(
-    _context_object: &mut TestContextObject,
-    vm_addr: u64,
-    len: u64,
-    _arg3: u64,
-    _arg4: u64,
-    _arg5: u64,
-    memory_mapping: &mut MemoryMapping,
-    result: &mut ProgramResult,
-) {
-    let host_addr = question_mark!(memory_mapping.map(AccessType::Load, vm_addr, len), result);
-    let c_buf: *const i8 = host_addr as *const i8;
-    unsafe {
+declare_builtin_function!(
+    /// Same as `void *memfrob(void *s, size_t n);` in `string.h` in C. See the GNU manual page (in
+    /// section 3) for `memfrob`. The memory is directly modified, and the syscall returns 0 in all
+    /// cases. Arguments 3 to 5 are unused.
+    SyscallMemFrob,
+    fn rust(
+        _context_object: &mut TestContextObject,
+        vm_addr: u64,
+        len: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, EbpfError> {
+        let host_addr: Result<u64, EbpfError> =
+            memory_mapping.map(AccessType::Store, vm_addr, len).into();
+        let host_addr = host_addr?;
         for i in 0..len {
-            let c = std::ptr::read(c_buf.offset(i as isize));
-            if c == 0 {
-                break;
+            unsafe {
+                let p = (host_addr + i) as *mut u8;
+                *p ^= 0b101010;
             }
         }
-        let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize))
-            .unwrap_or("Invalid UTF-8 String");
-        println!("log: {message}");
+        Ok(0)
     }
-    *result = ProgramResult::Ok(0);
-}
+);
 
-/// Prints the five arguments formated as u64 in decimal.
-pub fn bpf_syscall_u64(
-    _context_object: &mut TestContextObject,
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    memory_mapping: &mut MemoryMapping,
-    result: &mut ProgramResult,
-) {
-    println!(
-        "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
-        arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
-    );
-    *result = ProgramResult::Ok(0);
-}
+declare_builtin_function!(
+    /// C-like `strcmp`, return 0 if the strings are equal, and a non-null value otherwise.
+    SyscallStrCmp,
+    fn rust(
+        _context_object: &mut TestContextObject,
+        arg1: u64,
+        arg2: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, EbpfError> {
+        // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
+        if arg1 == 0 || arg2 == 0 {
+            return Ok(u64::MAX);
+        }
+        let a: Result<u64, EbpfError> = memory_mapping.map(AccessType::Load, arg1, 1).into();
+        let mut a = a?;
+        let b: Result<u64, EbpfError> = memory_mapping.map(AccessType::Load, arg2, 1).into();
+        let mut b = b?;
+        unsafe {
+            let mut a_val = *(a as *const u8);
+            let mut b_val = *(b as *const u8);
+            while a_val == b_val && a_val != 0 && b_val != 0 {
+                a += 1;
+                b += 1;
+                a_val = *(a as *const u8);
+                b_val = *(b as *const u8);
+            }
+            if a_val >= b_val {
+                Ok((a_val - b_val) as u64)
+            } else {
+                Ok((b_val - a_val) as u64)
+            }
+        }
+    }
+);
+
+declare_builtin_function!(
+    /// Prints a NULL-terminated UTF-8 string.
+    SyscallString,
+    fn rust(
+        _context_object: &mut TestContextObject,
+        vm_addr: u64,
+        len: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, EbpfError> {
+        let host_addr: Result<u64, EbpfError> =
+            memory_mapping.map(AccessType::Load, vm_addr, len).into();
+        let host_addr = host_addr?;
+        let c_buf: *const i8 = host_addr as *const i8;
+        unsafe {
+            for i in 0..len {
+                let c = std::ptr::read(c_buf.offset(i as isize));
+                if c == 0 {
+                    break;
+                }
+            }
+            let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize))
+                .unwrap_or("Invalid UTF-8 String");
+            println!("log: {message}");
+        }
+        Ok(0)
+    }
+);
+
+declare_builtin_function!(
+    /// Prints the five arguments formated as u64 in decimal.
+    SyscallU64,
+    fn rust(
+        _context_object: &mut TestContextObject,
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, EbpfError> {
+        println!(
+            "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
+            arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _
+        );
+        Ok(0)
+    }
+);

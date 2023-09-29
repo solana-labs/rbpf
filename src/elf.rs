@@ -1203,10 +1203,10 @@ mod test {
         let mut function_registry =
             FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry
-            .register_function_hashed(*b"log", syscalls::bpf_syscall_string)
+            .register_function_hashed(*b"log", syscalls::SyscallString::vm)
             .unwrap();
         function_registry
-            .register_function_hashed(*b"log_64", syscalls::bpf_syscall_u64)
+            .register_function_hashed(*b"log_64", syscalls::SyscallU64::vm)
             .unwrap();
         Arc::new(BuiltinProgram::new_loader(
             Config::default(),
