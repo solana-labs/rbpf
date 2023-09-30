@@ -249,11 +249,12 @@ enum RuntimeEnvironmentSlot {
     StackPointer = 2,
     ContextObjectPointer = 3,
     PreviousInstructionMeter = 4,
-    StopwatchNumerator = 5,
-    StopwatchDenominator = 6,
-    Registers = 7,
-    ProgramResult = 19,
-    MemoryMapping = 27,
+    DueInsnCount = 5,
+    StopwatchNumerator = 6,
+    StopwatchDenominator = 7,
+    Registers = 8,
+    ProgramResult = 20,
+    MemoryMapping = 28,
 }
 
 /* Explaination of the Instruction Meter
@@ -1386,7 +1387,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.set_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL);
         self.emit_ins(X86Instruction::push_immediate(OperandSize::S64, -1)); // Used as PC value in error case, acts as stack padding otherwise
         if self.config.enable_instruction_meter {
-            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_INSTRUCTION_METER, REGISTER_PTR_TO_VM, 0, Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::PreviousInstructionMeter))))); // *PreviousInstructionMeter -= REGISTER_INSTRUCTION_METER;
+            self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_INSTRUCTION_METER, REGISTER_PTR_TO_VM, X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::DueInsnCount)))); // *DueInsnCount = REGISTER_INSTRUCTION_METER;
         }
         self.emit_rust_call(Value::Register(REGISTER_SCRATCH), &[
             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
@@ -1627,6 +1628,7 @@ mod tests {
         check_slot!(env, stack_pointer, StackPointer);
         check_slot!(env, context_object_pointer, ContextObjectPointer);
         check_slot!(env, previous_instruction_meter, PreviousInstructionMeter);
+        check_slot!(env, due_insn_count, DueInsnCount);
         check_slot!(env, stopwatch_numerator, StopwatchNumerator);
         check_slot!(env, stopwatch_denominator, StopwatchDenominator);
         check_slot!(env, registers, Registers);

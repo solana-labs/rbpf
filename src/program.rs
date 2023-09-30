@@ -310,7 +310,7 @@ macro_rules! declare_builtin_function {
                 };
                 let config = vm.loader.get_config();
                 if config.enable_instruction_meter {
-                    vm.context_object_pointer.consume(vm.previous_instruction_meter);
+                    vm.context_object_pointer.consume(vm.previous_instruction_meter - vm.due_insn_count);
                 }
                 let converted_result: $crate::vm::ProgramResult = Self::rust(
                     vm.context_object_pointer, arg_a, arg_b, arg_c, arg_d, arg_e, &mut vm.memory_mapping,

@@ -376,6 +376,8 @@ pub struct EbpfVm<'a, C: ContextObject> {
     pub context_object_pointer: &'a mut C,
     /// Last return value of instruction_meter.get_remaining()
     pub previous_instruction_meter: u64,
+    /// Outstanding value to instruction_meter.consume()
+    pub due_insn_count: u64,
     /// CPU cycles accumulated by the stop watch
     pub stopwatch_numerator: u64,
     /// Number of times the stop watch was used
@@ -422,6 +424,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
             stack_pointer,
             context_object_pointer: context_object,
             previous_instruction_meter: 0,
+            due_insn_count: 0,
             stopwatch_numerator: 0,
             stopwatch_denominator: 0,
             registers: [0u64; 12],
@@ -454,8 +457,9 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
             0
         };
         self.previous_instruction_meter = initial_insn_count;
+        self.due_insn_count = 0;
         self.program_result = ProgramResult::Ok(0);
-        let due_insn_count = if interpreted {
+        if interpreted {
             #[cfg(feature = "debugger")]
             let debug_port = self.debug_port.clone();
             let mut interpreter = Interpreter::new(self, executable, self.registers);
@@ -467,7 +471,6 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
             }
             #[cfg(not(feature = "debugger"))]
             while interpreter.step() {}
-            interpreter.due_insn_count
         } else {
             #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
             {
@@ -480,9 +483,10 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
                 };
                 let instruction_meter_final =
                     compiled_program.invoke(config, self, self.registers).max(0) as u64;
-                self.context_object_pointer
+                self.due_insn_count = self
+                    .context_object_pointer
                     .get_remaining()
-                    .saturating_sub(instruction_meter_final)
+                    .saturating_sub(instruction_meter_final);
             }
             #[cfg(not(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64")))]
             {
@@ -490,7 +494,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
             }
         };
         let instruction_count = if config.enable_instruction_meter {
-            self.context_object_pointer.consume(due_insn_count);
+            self.context_object_pointer.consume(self.due_insn_count);
             initial_insn_count.saturating_sub(self.context_object_pointer.get_remaining())
         } else {
             0
