@@ -1628,7 +1628,7 @@ mod tests {
         let executable = create_mockup_executable(&[]);
         let mut context_object = TestContextObject::new(0);
         let env = EbpfVm::new(
-            executable.get_config(),
+            executable.get_loader().clone(),
             executable.get_sbpf_version(),
             &mut context_object,
             MemoryMapping::new_identity(),

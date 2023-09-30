@@ -319,13 +319,12 @@ pub struct CallFrame {
 ///
 /// let loader = std::sync::Arc::new(BuiltinProgram::new_mock());
 /// let function_registry = FunctionRegistry::default();
-/// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, loader, SBPFVersion::V2, function_registry).unwrap();
+/// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, loader.clone(), SBPFVersion::V2, function_registry).unwrap();
 /// executable.verify::<RequisiteVerifier>().unwrap();
 /// let mut context_object = TestContextObject::new(1);
-/// let config = executable.get_config();
 /// let sbpf_version = executable.get_sbpf_version();
 ///
-/// let mut stack = AlignedMemory::<{ebpf::HOST_ALIGN}>::zero_filled(config.stack_size());
+/// let mut stack = AlignedMemory::<{ebpf::HOST_ALIGN}>::zero_filled(executable.get_config().stack_size());
 /// let stack_len = stack.len();
 /// let mut heap = AlignedMemory::<{ebpf::HOST_ALIGN}>::with_capacity(0);
 ///
@@ -339,9 +338,9 @@ pub struct CallFrame {
 ///     MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START),
 /// ];
 ///
-/// let memory_mapping = MemoryMapping::new(regions, config, sbpf_version).unwrap();
+/// let memory_mapping = MemoryMapping::new(regions, executable.get_config(), sbpf_version).unwrap();
 ///
-/// let mut vm = EbpfVm::new(config, sbpf_version, &mut context_object, memory_mapping, stack_len);
+/// let mut vm = EbpfVm::new(loader, sbpf_version, &mut context_object, memory_mapping, stack_len);
 ///
 /// let (instruction_count, result) = vm.execute_program(&executable, true);
 /// assert_eq!(instruction_count, 1);
@@ -379,6 +378,8 @@ pub struct EbpfVm<'a, C: ContextObject> {
     pub memory_mapping: MemoryMapping<'a>,
     /// Stack of CallFrames used by the Interpreter
     pub call_frames: Vec<CallFrame>,
+    /// Loader built-in program
+    pub loader: Arc<BuiltinProgram<C>>,
     /// TCP port for the debugger interface
     #[cfg(feature = "debugger")]
     pub debug_port: Option<u16>,
@@ -387,12 +388,13 @@ pub struct EbpfVm<'a, C: ContextObject> {
 impl<'a, C: ContextObject> EbpfVm<'a, C> {
     /// Creates a new virtual machine instance.
     pub fn new(
-        config: &Config,
+        loader: Arc<BuiltinProgram<C>>,
         sbpf_version: &SBPFVersion,
         context_object: &'a mut C,
         mut memory_mapping: MemoryMapping<'a>,
         stack_len: usize,
     ) -> Self {
+        let config = loader.get_config();
         let stack_pointer =
             ebpf::MM_STACK_START.saturating_add(if sbpf_version.dynamic_stack_frames() {
                 // the stack is fully descending, frames start as empty and change size anytime r11 is modified
@@ -416,6 +418,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
             program_result: ProgramResult::Ok(0),
             memory_mapping,
             call_frames: vec![CallFrame::default(); config.max_call_depth],
+            loader,
             #[cfg(feature = "debugger")]
             debug_port: None,
         }
@@ -429,6 +432,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
         executable: &Executable<C>,
         interpreted: bool,
     ) -> (u64, ProgramResult) {
+        debug_assert!(Arc::ptr_eq(&self.loader, executable.get_loader()));
         // R1 points to beginning of input memory, R10 to the stack of the first frame, R11 is the pc (hidden)
         self.registers[1] = ebpf::MM_INPUT_START;
         self.registers[ebpf::FRAME_PTR_REG] = self.stack_pointer;

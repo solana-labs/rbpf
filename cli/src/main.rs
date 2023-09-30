@@ -171,7 +171,7 @@ fn main() {
     let memory_mapping = MemoryMapping::new(regions, config, sbpf_version).unwrap();
 
     let mut vm = EbpfVm::new(
-        executable.get_config(),
+        executable.get_loader().clone(),
         executable.get_sbpf_version(),
         &mut context_object,
         memory_mapping,

@@ -208,7 +208,7 @@ macro_rules! create_vm {
         )
         .unwrap();
         let mut $vm_name = solana_rbpf::vm::EbpfVm::new(
-            $verified_executable.get_config(),
+            $verified_executable.get_loader().clone(),
             $verified_executable.get_sbpf_version(),
             $context_object,
             memory_mapping,
