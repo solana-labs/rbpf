@@ -16,7 +16,7 @@ use crate::{
     ebpf::{self, STACK_PTR_REG},
     elf::Executable,
     error::EbpfError,
-    vm::{Config, ContextObject, EbpfVm, ProgramResult},
+    vm::{get_runtime_environment_key, Config, ContextObject, EbpfVm, ProgramResult},
 };
 
 /// Virtual memory operation helper.
@@ -479,7 +479,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                         self.vm.previous_instruction_meter = self.due_insn_count;
                         self.due_insn_count = 0;
                         function(
-                            &mut self.vm,
+                            unsafe { (self.vm as *mut _ as *mut u64).offset(get_runtime_environment_key() as isize) as *mut _ },
                             self.reg[1],
                             self.reg[2],
                             self.reg[3],

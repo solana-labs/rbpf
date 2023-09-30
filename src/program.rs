@@ -209,7 +209,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
 }
 
 /// Syscall function without context
-pub type BuiltinFunction<C> = fn(&mut EbpfVm<C>, u64, u64, u64, u64, u64);
+pub type BuiltinFunction<C> = fn(*mut EbpfVm<C>, u64, u64, u64, u64, u64);
 
 /// Represents the interface to a fixed functionality program
 #[derive(Eq)]
@@ -297,7 +297,7 @@ macro_rules! declare_builtin_function {
             /// VM interface
             #[allow(clippy::too_many_arguments)]
             pub fn vm(
-                vm: &mut $crate::vm::EbpfVm<TestContextObject>,
+                vm: *mut $crate::vm::EbpfVm<TestContextObject>,
                 arg_a: u64,
                 arg_b: u64,
                 arg_c: u64,
@@ -305,6 +305,9 @@ macro_rules! declare_builtin_function {
                 arg_e: u64,
             ) {
                 use $crate::vm::ContextObject;
+                let vm = unsafe {
+                    &mut *((vm as *mut u64).offset(-($crate::vm::get_runtime_environment_key() as isize)) as *mut $crate::vm::EbpfVm<TestContextObject>)
+                };
                 let config = vm.loader.get_config();
                 if config.enable_instruction_meter {
                     vm.context_object_pointer.consume(vm.previous_instruction_meter);

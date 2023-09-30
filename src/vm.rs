@@ -29,7 +29,9 @@ use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 /// 3 bits for 8 Byte alignment, and 1 bit to have encoding space for the RuntimeEnvironment.
 const PROGRAM_ENVIRONMENT_KEY_SHIFT: u32 = 4;
 static RUNTIME_ENVIRONMENT_KEY: std::sync::OnceLock<i32> = std::sync::OnceLock::<i32>::new();
-pub(crate) fn get_runtime_environment_key() -> i32 {
+
+/// Returns (and if not done before generates) the encryption key for the VM pointer
+pub fn get_runtime_environment_key() -> i32 {
     *RUNTIME_ENVIRONMENT_KEY
         .get_or_init(|| rand::thread_rng().gen::<i32>() >> PROGRAM_ENVIRONMENT_KEY_SHIFT)
 }
