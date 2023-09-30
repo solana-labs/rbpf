@@ -94,10 +94,8 @@ impl JitProgram {
         _config: &Config,
         vm: &mut EbpfVm<C>,
         registers: [u64; 12],
-    ) -> i64 {
+    ) {
         unsafe {
-            let mut instruction_meter =
-                (vm.previous_instruction_meter as i64).wrapping_add(registers[11] as i64);
             std::arch::asm!(
                 // RBP and RBX must be saved and restored manually in the current version of rustc and llvm.
                 "push rbx",
@@ -118,19 +116,17 @@ impl JitProgram {
                 "mov rbp, [r11 + 0x50]",
                 "mov r11, [r11 + 0x58]",
                 "call r10",
-                "mov rax, rbx",
                 "pop rbp",
                 "pop rbx",
                 host_stack_pointer = in(reg) &mut vm.host_stack_pointer,
-                inlateout("rax") instruction_meter,
                 inlateout("rdi") (vm as *mut _ as *mut u64).offset(get_runtime_environment_key() as isize) => _,
+                inlateout("rax") (vm.previous_instruction_meter as i64).wrapping_add(registers[11] as i64) => _,
                 inlateout("r10") self.pc_section[registers[11] as usize] => _,
                 inlateout("r11") &registers => _,
                 lateout("rsi") _, lateout("rdx") _, lateout("rcx") _, lateout("r8") _,
                 lateout("r9") _, lateout("r12") _, lateout("r13") _, lateout("r14") _, lateout("r15") _,
                 // lateout("rbp") _, lateout("rbx") _,
             );
-            instruction_meter
         }
     }
 
@@ -1315,6 +1311,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         if self.config.enable_instruction_meter {
             self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_INSTRUCTION_METER, 1, None)); // REGISTER_INSTRUCTION_METER -= 1;
             self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // REGISTER_INSTRUCTION_METER -= pc;
+            // *DueInsnCount = *PreviousInstructionMeter - REGISTER_INSTRUCTION_METER;
+            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x2B, REGISTER_INSTRUCTION_METER, REGISTER_PTR_TO_VM, 0, Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::PreviousInstructionMeter))))); // REGISTER_INSTRUCTION_METER -= *PreviousInstructionMeter;
+            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0xf7, 3, REGISTER_INSTRUCTION_METER, 0, None)); // REGISTER_INSTRUCTION_METER = -REGISTER_INSTRUCTION_METER;
+            self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_INSTRUCTION_METER, REGISTER_PTR_TO_VM, X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::DueInsnCount)))); // *DueInsnCount = REGISTER_INSTRUCTION_METER;
         }
         // Print stop watch value
         fn stopwatch_result(numerator: u64, denominator: u64) {

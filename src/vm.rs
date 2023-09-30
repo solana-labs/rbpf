@@ -481,12 +481,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
                     Ok(compiled_program) => compiled_program,
                     Err(error) => return (0, ProgramResult::Err(error)),
                 };
-                let instruction_meter_final =
-                    compiled_program.invoke(config, self, self.registers).max(0) as u64;
-                self.due_insn_count = self
-                    .context_object_pointer
-                    .get_remaining()
-                    .saturating_sub(instruction_meter_final);
+                compiled_program.invoke(config, self, self.registers);
             }
             #[cfg(not(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64")))]
             {
