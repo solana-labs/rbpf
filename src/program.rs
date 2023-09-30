@@ -304,10 +304,18 @@ macro_rules! declare_builtin_function {
                 arg_d: u64,
                 arg_e: u64,
             ) {
+                use $crate::vm::ContextObject;
+                let config = vm.loader.get_config();
+                if config.enable_instruction_meter {
+                    vm.context_object_pointer.consume(vm.previous_instruction_meter);
+                }
                 let converted_result: $crate::vm::ProgramResult = Self::rust(
                     vm.context_object_pointer, arg_a, arg_b, arg_c, arg_d, arg_e, &mut vm.memory_mapping,
                 ).into();
                 vm.program_result = converted_result;
+                if config.enable_instruction_meter {
+                    vm.previous_instruction_meter = vm.context_object_pointer.get_remaining();
+                }
             }
         }
     };

@@ -1398,13 +1398,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.set_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL);
         self.emit_ins(X86Instruction::push_immediate(OperandSize::S64, -1)); // Used as PC value in error case, acts as stack padding otherwise
         if self.config.enable_instruction_meter {
-            // REGISTER_INSTRUCTION_METER = *PreviousInstructionMeter - REGISTER_INSTRUCTION_METER;
-            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x2B, REGISTER_INSTRUCTION_METER, REGISTER_PTR_TO_VM, 0, Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::PreviousInstructionMeter))))); // REGISTER_INSTRUCTION_METER -= *PreviousInstructionMeter;
-            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0xf7, 3, REGISTER_INSTRUCTION_METER, 0, None)); // REGISTER_INSTRUCTION_METER = -REGISTER_INSTRUCTION_METER;
-            self.emit_rust_call(Value::Constant64(C::consume as *const u8 as i64, false), &[
-                Argument { index: 1, value: Value::Register(REGISTER_INSTRUCTION_METER) },
-                Argument { index: 0, value: Value::RegisterIndirect(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::ContextObjectPointer), false) },
-            ], None);
+            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_INSTRUCTION_METER, REGISTER_PTR_TO_VM, 0, Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::PreviousInstructionMeter))))); // *PreviousInstructionMeter -= REGISTER_INSTRUCTION_METER;
         }
         self.emit_rust_call(Value::Register(REGISTER_SCRATCH), &[
             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
@@ -1415,10 +1409,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             Argument { index: 0, value: Value::RegisterPlusConstant32(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::HostStackPointer), false) },
         ], None);
         if self.config.enable_instruction_meter {
-            self.emit_rust_call(Value::Constant64(C::get_remaining as *const u8 as i64, false), &[
-                Argument { index: 0, value: Value::RegisterIndirect(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::ContextObjectPointer), false) },
-            ], Some(REGISTER_INSTRUCTION_METER));
-            self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_INSTRUCTION_METER, REGISTER_PTR_TO_VM, X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::PreviousInstructionMeter)))); // *PreviousInstructionMeter = REGISTER_INSTRUCTION_METER;
+            self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_INSTRUCTION_METER, X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::PreviousInstructionMeter)))); // REGISTER_INSTRUCTION_METER = *PreviousInstructionMeter;
         }
 
         // Test if result indicates that an error occured

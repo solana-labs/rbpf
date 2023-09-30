@@ -476,9 +476,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                     if let Some((_function_name, function)) = self.executable.get_loader().get_function_registry().lookup_by_key(insn.imm as u32) {
                         resolved = true;
 
-                        if config.enable_instruction_meter {
-                            self.vm.context_object_pointer.consume(self.due_insn_count);
-                        }
+                        self.vm.previous_instruction_meter = self.due_insn_count;
                         self.due_insn_count = 0;
                         function(
                             &mut self.vm,
@@ -492,9 +490,6 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                             ProgramResult::Ok(value) => *value,
                             ProgramResult::Err(_err) => return false,
                         };
-                        if config.enable_instruction_meter {
-                            self.vm.previous_instruction_meter = self.vm.context_object_pointer.get_remaining();
-                        }
                     }
                 }
 
