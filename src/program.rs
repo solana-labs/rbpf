@@ -3,8 +3,7 @@ use {
     crate::{
         ebpf,
         elf::ElfError,
-        memory_region::MemoryMapping,
-        vm::{Config, ContextObject, ProgramResult},
+        vm::{Config, ContextObject, EbpfVm},
     },
     std::collections::{btree_map::Entry, BTreeMap},
 };
@@ -210,8 +209,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
 }
 
 /// Syscall function without context
-pub type BuiltinFunction<C> =
-    fn(&mut C, u64, u64, u64, u64, u64, &mut MemoryMapping, &mut ProgramResult);
+pub type BuiltinFunction<C> = fn(&mut EbpfVm<C>, u64, u64, u64, u64, u64);
 
 /// Represents the interface to a fixed functionality program
 #[derive(Eq)]
@@ -279,10 +277,9 @@ impl<C: ContextObject> std::fmt::Debug for BuiltinProgram<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         writeln!(f, "{:?}", unsafe {
             // `derive(Debug)` does not know that `C: ContextObject` does not need to implement `Debug`
-            std::mem::transmute::<
-                &FunctionRegistry<BuiltinFunction<C>>,
-                &FunctionRegistry<BuiltinFunction<*const ()>>,
-            >(&self.functions)
+            std::mem::transmute::<&FunctionRegistry<BuiltinFunction<C>>, &FunctionRegistry<usize>>(
+                &self.functions,
+            )
         })?;
         Ok(())
     }
@@ -300,19 +297,17 @@ macro_rules! declare_builtin_function {
             /// VM interface
             #[allow(clippy::too_many_arguments)]
             pub fn vm(
-                context_object: &mut TestContextObject,
+                vm: &mut $crate::vm::EbpfVm<TestContextObject>,
                 arg_a: u64,
                 arg_b: u64,
                 arg_c: u64,
                 arg_d: u64,
                 arg_e: u64,
-                memory_mapping: &mut $crate::memory_region::MemoryMapping,
-                program_result: &mut $crate::vm::ProgramResult,
             ) {
                 let converted_result: $crate::vm::ProgramResult = Self::rust(
-                    context_object, arg_a, arg_b, arg_c, arg_d, arg_e, memory_mapping,
+                    vm.context_object_pointer, arg_a, arg_b, arg_c, arg_d, arg_e, &mut vm.memory_mapping,
                 ).into();
-                *program_result = converted_result;
+                vm.program_result = converted_result;
             }
         }
     };

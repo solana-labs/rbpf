@@ -1407,14 +1407,12 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             ], None);
         }
         self.emit_rust_call(Value::Register(REGISTER_SCRATCH), &[
-            Argument { index: 7, value: Value::RegisterPlusConstant32(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult), false) },
-            Argument { index: 6, value: Value::RegisterPlusConstant32(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::MemoryMapping), false) },
             Argument { index: 5, value: Value::Register(ARGUMENT_REGISTERS[5]) },
             Argument { index: 4, value: Value::Register(ARGUMENT_REGISTERS[4]) },
             Argument { index: 3, value: Value::Register(ARGUMENT_REGISTERS[3]) },
             Argument { index: 2, value: Value::Register(ARGUMENT_REGISTERS[2]) },
             Argument { index: 1, value: Value::Register(ARGUMENT_REGISTERS[1]) },
-            Argument { index: 0, value: Value::RegisterIndirect(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::ContextObjectPointer), false) },
+            Argument { index: 0, value: Value::RegisterPlusConstant32(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::HostStackPointer), false) },
         ], None);
         if self.config.enable_instruction_meter {
             self.emit_rust_call(Value::Constant64(C::get_remaining as *const u8 as i64, false), &[

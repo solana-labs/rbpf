@@ -481,14 +481,12 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                         }
                         self.due_insn_count = 0;
                         function(
-                            self.vm.context_object_pointer,
+                            &mut self.vm,
                             self.reg[1],
                             self.reg[2],
                             self.reg[3],
                             self.reg[4],
                             self.reg[5],
-                            &mut self.vm.memory_mapping,
-                            &mut self.vm.program_result,
                         );
                         self.reg[0] = match &self.vm.program_result {
                             ProgramResult::Ok(value) => *value,
