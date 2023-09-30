@@ -21,7 +21,18 @@ use crate::{
     program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
     static_analysis::{Analysis, TraceLogEntry},
 };
+use rand::Rng;
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
+
+/// Shift the RUNTIME_ENVIRONMENT_KEY by this many bits to the LSB
+///
+/// 3 bits for 8 Byte alignment, and 1 bit to have encoding space for the RuntimeEnvironment.
+const PROGRAM_ENVIRONMENT_KEY_SHIFT: u32 = 4;
+static RUNTIME_ENVIRONMENT_KEY: std::sync::OnceLock<i32> = std::sync::OnceLock::<i32>::new();
+pub(crate) fn get_runtime_environment_key() -> i32 {
+    *RUNTIME_ENVIRONMENT_KEY
+        .get_or_init(|| rand::thread_rng().gen::<i32>() >> PROGRAM_ENVIRONMENT_KEY_SHIFT)
+}
 
 /// Same as `Result` but provides a stable memory layout
 #[derive(Debug)]
@@ -125,8 +136,6 @@ pub struct Config {
     pub noop_instruction_rate: u32,
     /// Enable disinfection of immediate values and offsets provided by the user in JIT
     pub sanitize_user_provided_values: bool,
-    /// Encrypt the runtime environment in JIT
-    pub encrypt_runtime_environment: bool,
     /// Throw ElfError::SymbolHashCollision when a BPF function collides with a registered syscall
     pub external_internal_function_hash_collision: bool,
     /// Have the verifier reject "callx r10"
@@ -164,7 +173,6 @@ impl Default for Config {
             reject_broken_elfs: false,
             noop_instruction_rate: 256,
             sanitize_user_provided_values: true,
-            encrypt_runtime_environment: true,
             external_internal_function_hash_collision: true,
             reject_callx_r10: true,
             optimize_rodata: true,

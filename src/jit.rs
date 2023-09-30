@@ -21,19 +21,13 @@ use crate::{
         allocate_pages, free_pages, get_system_page_size, protect_pages, round_to_page_size,
     },
     memory_region::{AccessType, MemoryMapping},
-    vm::{Config, ContextObject, EbpfVm, ProgramResult},
+    vm::{get_runtime_environment_key, Config, ContextObject, EbpfVm, ProgramResult},
     x86::*,
 };
 
-/// Shift the RUNTIME_ENVIRONMENT_KEY by this many bits to the LSB
-///
-/// 3 bits for 8 Byte alignment, and 1 bit to have encoding space for the RuntimeEnvironment.
-const PROGRAM_ENVIRONMENT_KEY_SHIFT: u32 = 4;
 const MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH: usize = 4096;
 const MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION: usize = 110;
 const MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT: usize = 13;
-
-static RUNTIME_ENVIRONMENT_KEY: std::sync::OnceLock<i32> = std::sync::OnceLock::<i32>::new();
 
 pub struct JitProgram {
     /// OS page size in bytes and the alignment of the sections
@@ -129,7 +123,7 @@ impl JitProgram {
                 "pop rbx",
                 host_stack_pointer = in(reg) &mut vm.host_stack_pointer,
                 inlateout("rax") instruction_meter,
-                inlateout("rdi") (vm as *mut _ as *mut u64).offset(*RUNTIME_ENVIRONMENT_KEY.get().unwrap() as isize) => _,
+                inlateout("rdi") (vm as *mut _ as *mut u64).offset(get_runtime_environment_key() as isize) => _,
                 inlateout("r10") self.pc_section[registers[11] as usize] => _,
                 inlateout("r11") &registers => _,
                 lateout("rsi") _, lateout("rdx") _, lateout("rcx") _, lateout("r8") _,
@@ -357,13 +351,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             code_length_estimate += pc / config.instruction_meter_checkpoint_distance * MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT;
         }
 
-        let runtime_environment_key = *RUNTIME_ENVIRONMENT_KEY.get_or_init(|| {
-            if config.encrypt_runtime_environment {
-                rand::thread_rng().gen::<i32>() >> PROGRAM_ENVIRONMENT_KEY_SHIFT
-            } else {
-                0
-            }
-        });
+        let runtime_environment_key = get_runtime_environment_key();
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).map_err(|_| EbpfError::JitNotCompiled)?;
         
         Ok(Self {
