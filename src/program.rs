@@ -288,32 +288,50 @@ impl<C: ContextObject> std::fmt::Debug for BuiltinProgram<C> {
 /// Generates an adapter for a BuiltinFunction between the Rust and the VM interface
 #[macro_export]
 macro_rules! declare_builtin_function {
-    ($(#[$attr:meta])* $name:ident, $rust:item) => {
+    ($(#[$attr:meta])* $name:ident, fn rust(
+        $vm:ident : &mut $ContextObject:ty,
+        $arg_a:ident : u64,
+        $arg_b:ident : u64,
+        $arg_c:ident : u64,
+        $arg_d:ident : u64,
+        $arg_e:ident : u64,
+        $memory_mapping:ident : &mut $MemoryMapping:ty,
+    ) -> Result<u64, EbpfError> $rust:tt) => {
         $(#[$attr])*
         pub struct $name {}
         impl $name {
             /// Rust interface
-            $rust
+            pub fn rust(
+                $vm: &mut $ContextObject,
+                $arg_a: u64,
+                $arg_b: u64,
+                $arg_c: u64,
+                $arg_d: u64,
+                $arg_e: u64,
+                $memory_mapping: &mut $MemoryMapping,
+            ) -> Result<u64, EbpfError> {
+                $rust
+            }
             /// VM interface
             #[allow(clippy::too_many_arguments)]
             pub fn vm(
-                vm: *mut $crate::vm::EbpfVm<TestContextObject>,
-                arg_a: u64,
-                arg_b: u64,
-                arg_c: u64,
-                arg_d: u64,
-                arg_e: u64,
+                $vm: *mut $crate::vm::EbpfVm<$ContextObject>,
+                $arg_a: u64,
+                $arg_b: u64,
+                $arg_c: u64,
+                $arg_d: u64,
+                $arg_e: u64,
             ) {
                 use $crate::vm::ContextObject;
                 let vm = unsafe {
-                    &mut *((vm as *mut u64).offset(-($crate::vm::get_runtime_environment_key() as isize)) as *mut $crate::vm::EbpfVm<TestContextObject>)
+                    &mut *(($vm as *mut u64).offset(-($crate::vm::get_runtime_environment_key() as isize)) as *mut $crate::vm::EbpfVm<$ContextObject>)
                 };
                 let config = vm.loader.get_config();
                 if config.enable_instruction_meter {
                     vm.context_object_pointer.consume(vm.previous_instruction_meter - vm.due_insn_count);
                 }
                 let converted_result: $crate::vm::ProgramResult = Self::rust(
-                    vm.context_object_pointer, arg_a, arg_b, arg_c, arg_d, arg_e, &mut vm.memory_mapping,
+                    vm.context_object_pointer, $arg_a, $arg_b, $arg_c, $arg_d, $arg_e, &mut vm.memory_mapping,
                 ).into();
                 vm.program_result = converted_result;
                 if config.enable_instruction_meter {
