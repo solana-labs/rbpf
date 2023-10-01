@@ -180,3 +180,16 @@ impl<T, E> From<Result<T, E>> for StableResult<T, E> {
 
 /// Return value of programs and syscalls
 pub type ProgramResult = StableResult<u64, EbpfError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_program_result_is_stable() {
+        let ok = ProgramResult::Ok(42);
+        assert_eq!(ok.discriminant(), 0);
+        let err = ProgramResult::Err(EbpfError::JitNotCompiled);
+        assert_eq!(err.discriminant(), 1);
+    }
+}
