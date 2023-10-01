@@ -2415,7 +2415,7 @@ fn test_err_syscall_string() {
             "bpf_syscall_string" => syscalls::SyscallString::vm,
         ),
         TestContextObject::new(2),
-        ProgramResult::Err(EbpfError::AccessViolation(AccessType::Load, 0, 0, "unknown")),
+        ProgramResult::Err(EbpfError::SyscallError(Box::new(EbpfError::AccessViolation(AccessType::Load, 0, 0, "unknown")))),
     );
 }
 
@@ -2510,12 +2510,18 @@ declare_builtin_function!(
         _arg4: u64,
         _arg5: u64,
         _memory_mapping: &mut MemoryMapping,
-    ) -> Result<u64, EbpfError> {
-        let result = if throw == 0 {
-            ProgramResult::Ok(42)
-        } else {
-            ProgramResult::Err(EbpfError::CallDepthExceeded)
-        };
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        let (result, expected_result): (Result<u64, Box<dyn std::error::Error>>, ProgramResult) =
+            if throw == 0 {
+                (Result::Ok(42), ProgramResult::Ok(42))
+            } else {
+                (
+                    Result::Err(Box::new(EbpfError::CallDepthExceeded)),
+                    ProgramResult::Err(EbpfError::SyscallError(Box::new(
+                        EbpfError::CallDepthExceeded,
+                    ))),
+                )
+            };
         #[allow(unused_mut)]
         if depth > 0 {
             let mut function_registry =
@@ -2538,10 +2544,10 @@ declare_builtin_function!(
                 executable,
                 mem,
                 TestContextObject::new(if throw == 0 { 4 } else { 3 }),
-                result,
+                expected_result,
             );
         }
-        result.into()
+        result
     }
 );
 

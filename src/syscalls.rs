@@ -41,7 +41,7 @@ declare_builtin_function!(
         arg4: u64,
         arg5: u64,
         _memory_mapping: &mut MemoryMapping,
-    ) -> Result<u64, EbpfError> {
+    ) -> Result<u64, Box<dyn std::error::Error>> {
         println!("bpf_trace_printf: {arg3:#x}, {arg4:#x}, {arg5:#x}");
         let size_arg = |x| {
             if x == 0 {
@@ -69,7 +69,7 @@ declare_builtin_function!(
         arg4: u64,
         arg5: u64,
         _memory_mapping: &mut MemoryMapping,
-    ) -> Result<u64, EbpfError> {
+    ) -> Result<u64, Box<dyn std::error::Error>> {
         Ok(arg1.wrapping_shl(32)
             | arg2.wrapping_shl(24)
             | arg3.wrapping_shl(16)
@@ -91,7 +91,7 @@ declare_builtin_function!(
         _arg4: u64,
         _arg5: u64,
         memory_mapping: &mut MemoryMapping,
-    ) -> Result<u64, EbpfError> {
+    ) -> Result<u64, Box<dyn std::error::Error>> {
         let host_addr: Result<u64, EbpfError> =
             memory_mapping.map(AccessType::Store, vm_addr, len).into();
         let host_addr = host_addr?;
@@ -116,7 +116,7 @@ declare_builtin_function!(
         _arg4: u64,
         _arg5: u64,
         memory_mapping: &mut MemoryMapping,
-    ) -> Result<u64, EbpfError> {
+    ) -> Result<u64, Box<dyn std::error::Error>> {
         // C-like strcmp, maybe shorter than converting the bytes to string and comparing?
         if arg1 == 0 || arg2 == 0 {
             return Ok(u64::MAX);
@@ -154,7 +154,7 @@ declare_builtin_function!(
         _arg4: u64,
         _arg5: u64,
         memory_mapping: &mut MemoryMapping,
-    ) -> Result<u64, EbpfError> {
+    ) -> Result<u64, Box<dyn std::error::Error>> {
         let host_addr: Result<u64, EbpfError> =
             memory_mapping.map(AccessType::Load, vm_addr, len).into();
         let host_addr = host_addr?;
@@ -185,7 +185,7 @@ declare_builtin_function!(
         arg4: u64,
         arg5: u64,
         memory_mapping: &mut MemoryMapping,
-    ) -> Result<u64, EbpfError> {
+    ) -> Result<u64, Box<dyn std::error::Error>> {
         println!(
             "dump_64: {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:?}",
             arg1, arg2, arg3, arg4, arg5, memory_mapping as *const _

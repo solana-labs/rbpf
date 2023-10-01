@@ -296,7 +296,7 @@ macro_rules! declare_builtin_function {
         $arg_d:ident : u64,
         $arg_e:ident : u64,
         $memory_mapping:ident : &mut $MemoryMapping:ty,
-    ) -> Result<u64, EbpfError> $rust:tt) => {
+    ) -> Result<u64, Box<dyn std::error::Error>> $rust:tt) => {
         $(#[$attr])*
         pub struct $name {}
         impl $name {
@@ -309,7 +309,7 @@ macro_rules! declare_builtin_function {
                 $arg_d: u64,
                 $arg_e: u64,
                 $memory_mapping: &mut $MemoryMapping,
-            ) -> Result<u64, EbpfError> {
+            ) -> Result<u64, Box<dyn std::error::Error>> {
                 $rust
             }
             /// VM interface
@@ -332,7 +332,7 @@ macro_rules! declare_builtin_function {
                 }
                 let converted_result: $crate::error::ProgramResult = Self::rust(
                     vm.context_object_pointer, $arg_a, $arg_b, $arg_c, $arg_d, $arg_e, &mut vm.memory_mapping,
-                ).into();
+                ).map_err(|err| $crate::error::EbpfError::SyscallError(err)).into();
                 vm.program_result = converted_result;
                 if config.enable_instruction_meter {
                     vm.previous_instruction_meter = vm.context_object_pointer.get_remaining();
