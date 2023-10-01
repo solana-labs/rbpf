@@ -79,6 +79,22 @@ impl<T: Debug, E: Debug> StableResult<T, E> {
         }
     }
 
+    /// Maps ok values, leaving error values untouched
+    pub fn map<U, O: FnOnce(T) -> U>(self, op: O) -> StableResult<U, E> {
+        match self {
+            Self::Ok(value) => StableResult::<U, E>::Ok(op(value)),
+            Self::Err(error) => StableResult::<U, E>::Err(error),
+        }
+    }
+
+    /// Maps error values, leaving ok values untouched
+    pub fn map_err<F, O: FnOnce(E) -> F>(self, op: O) -> StableResult<T, F> {
+        match self {
+            Self::Ok(value) => StableResult::<T, F>::Ok(value),
+            Self::Err(error) => StableResult::<T, F>::Err(op(error)),
+        }
+    }
+
     #[cfg_attr(
         any(
             not(feature = "jit"),
