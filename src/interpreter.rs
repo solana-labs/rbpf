@@ -15,8 +15,8 @@
 use crate::{
     ebpf::{self, STACK_PTR_REG},
     elf::Executable,
-    error::EbpfError,
-    vm::{get_runtime_environment_key, Config, ContextObject, EbpfVm, ProgramResult},
+    error::{EbpfError, ProgramResult},
+    vm::{get_runtime_environment_key, Config, ContextObject, EbpfVm},
 };
 
 /// Virtual memory operation helper.

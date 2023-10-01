@@ -19,13 +19,13 @@ use solana_rbpf::{
     assembler::assemble,
     declare_builtin_function, ebpf,
     elf::Executable,
-    error::EbpfError,
+    error::{EbpfError, ProgramResult},
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
     program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
     static_analysis::Analysis,
     syscalls,
     verifier::RequisiteVerifier,
-    vm::{Config, ContextObject, ProgramResult, TestContextObject},
+    vm::{Config, ContextObject, TestContextObject},
 };
 use std::{fs::File, io::Read, sync::Arc};
 use test_utils::{

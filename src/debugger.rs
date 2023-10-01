@@ -23,10 +23,10 @@ use gdbstub::target::ext::section_offsets::Offsets;
 
 use crate::{
     ebpf,
-    error::EbpfError,
+    error::{EbpfError, ProgramResult},
     interpreter::{DebugState, Interpreter},
     memory_region::AccessType,
-    vm::{ContextObject, ProgramResult},
+    vm::ContextObject,
 };
 
 type DynResult<T> = Result<T, Box<dyn std::error::Error>>;

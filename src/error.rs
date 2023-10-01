@@ -87,3 +87,96 @@ pub enum EbpfError {
     #[error("Syscall error: {0}")]
     SyscallError(Box<dyn Error>),
 }
+
+/// Same as `Result` but provides a stable memory layout
+#[derive(Debug)]
+#[repr(C, u64)]
+pub enum StableResult<T, E> {
+    /// Success
+    Ok(T),
+    /// Failure
+    Err(E),
+}
+
+impl<T: std::fmt::Debug, E: std::fmt::Debug> StableResult<T, E> {
+    /// `true` if `Ok`
+    pub fn is_ok(&self) -> bool {
+        match self {
+            Self::Ok(_) => true,
+            Self::Err(_) => false,
+        }
+    }
+
+    /// `true` if `Err`
+    pub fn is_err(&self) -> bool {
+        match self {
+            Self::Ok(_) => false,
+            Self::Err(_) => true,
+        }
+    }
+
+    /// Returns the inner value if `Ok`, panics otherwise
+    pub fn unwrap(self) -> T {
+        match self {
+            Self::Ok(value) => value,
+            Self::Err(error) => panic!("unwrap {:?}", error),
+        }
+    }
+
+    /// Returns the inner error if `Err`, panics otherwise
+    pub fn unwrap_err(self) -> E {
+        match self {
+            Self::Ok(value) => panic!("unwrap_err {:?}", value),
+            Self::Err(error) => error,
+        }
+    }
+
+    /// Maps ok values, leaving error values untouched
+    pub fn map<U, O: FnOnce(T) -> U>(self, op: O) -> StableResult<U, E> {
+        match self {
+            Self::Ok(value) => StableResult::<U, E>::Ok(op(value)),
+            Self::Err(error) => StableResult::<U, E>::Err(error),
+        }
+    }
+
+    /// Maps error values, leaving ok values untouched
+    pub fn map_err<F, O: FnOnce(E) -> F>(self, op: O) -> StableResult<T, F> {
+        match self {
+            Self::Ok(value) => StableResult::<T, F>::Ok(value),
+            Self::Err(error) => StableResult::<T, F>::Err(op(error)),
+        }
+    }
+
+    #[cfg_attr(
+        any(
+            not(feature = "jit"),
+            target_os = "windows",
+            not(target_arch = "x86_64")
+        ),
+        allow(dead_code)
+    )]
+    pub(crate) fn discriminant(&self) -> u64 {
+        unsafe { *(self as *const _ as *const u64) }
+    }
+}
+
+impl<T, E> From<StableResult<T, E>> for Result<T, E> {
+    fn from(result: StableResult<T, E>) -> Self {
+        match result {
+            StableResult::Ok(value) => Ok(value),
+            StableResult::Err(value) => Err(value),
+        }
+    }
+}
+
+impl<T, E> From<Result<T, E>> for StableResult<T, E> {
+    fn from(result: Result<T, E>) -> Self {
+        match result {
+            Ok(value) => Self::Ok(value),
+            Err(value) => Self::Err(value),
+        }
+    }
+}
+
+/// Return value of programs and syscalls
+pub type ProgramResult = StableResult<u64, EbpfError>;

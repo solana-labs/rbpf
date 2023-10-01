@@ -1189,10 +1189,11 @@ mod test {
             consts::{ELFCLASS32, ELFDATA2MSB, ET_REL},
             types::{Elf64Ehdr, Elf64Shdr},
         },
+        error::ProgramResult,
         fuzz::fuzz,
         program::BuiltinFunction,
         syscalls,
-        vm::{ProgramResult, TestContextObject},
+        vm::TestContextObject,
     };
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};

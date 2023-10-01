@@ -3,9 +3,9 @@
 use crate::{
     aligned_memory::Pod,
     ebpf,
-    error::EbpfError,
+    error::{EbpfError, ProgramResult},
     program::SBPFVersion,
-    vm::{Config, ProgramResult},
+    vm::Config,
 };
 use std::{
     array,
