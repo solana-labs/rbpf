@@ -527,6 +527,7 @@ impl From<ElfParserError> for ElfError {
         match err {
             ElfParserError::InvalidSectionHeader
             | ElfParserError::InvalidString
+            | ElfParserError::InvalidStringTooLong(_, _)
             | ElfParserError::InvalidSize
             | ElfParserError::Overlap
             | ElfParserError::SectionNotInOrder

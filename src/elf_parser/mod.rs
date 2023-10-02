@@ -26,6 +26,9 @@ pub enum ElfParserError {
     /// Section or symbol name is not UTF8 or too long
     #[error("invalid string")]
     InvalidString,
+    /// Section or symbol name is too long
+    #[error("Section/symbol name size `{0}` longer than `{1}` bytes.")]
+    InvalidStringTooLong(String, usize),
     /// An index or memory range does exeed its boundaries
     #[error("value out of bounds")]
     OutOfBounds,
@@ -396,7 +399,13 @@ impl<'a> Elf64<'a> {
             .iter()
             .position(|byte| *byte == 0x00)
             .and_then(|string_length| unterminated_string_bytes.get(0..string_length))
-            .ok_or(ElfParserError::InvalidString)
+            .ok_or_else(|| {
+                let string_bytes_unparsed = match String::from_utf8(unterminated_string_bytes.to_vec()) {
+                    Ok(x) => x,
+                    Err(_) => ElfParserError::InvalidString.to_string(),
+                };
+                ElfParserError::InvalidStringTooLong(string_bytes_unparsed, maximum_length)
+            })
     }
 
     /// Returns the string corresponding to the given `sh_name`

@@ -2209,6 +2209,17 @@ fn test_relative_call() {
 }
 
 #[test]
+fn test_sample() {
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/sample.so",
+        [1],
+        (),
+        TestContextObject::new(18),
+        ProgramResult::Err(EbpfError::ElfError(solana_rbpf::elf_parser::ElfParserError::InvalidStringTooLong(".bss.__rust_no_a".to_string(), 16).into())),
+    );
+}
+
+#[test]
 fn test_bpf_to_bpf_scratch_registers() {
     test_interpreter_and_jit_asm!(
         "
