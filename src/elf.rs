@@ -1188,6 +1188,7 @@ mod test {
             // FIXME consts::{ELFCLASS32, ELFDATA2MSB, ET_REL},
             consts::{ELFCLASS32, ELFDATA2MSB, ET_REL},
             types::{Elf64Ehdr, Elf64Shdr},
+            SECTION_NAME_LENGTH_MAXIMUM,
         },
         error::ProgramResult,
         fuzz::fuzz,
@@ -1965,5 +1966,18 @@ mod test {
             std::fs::read("tests/elfs/relative_call.so").expect("failed to read elf file");
         LittleEndian::write_i32(&mut elf_bytes[0x1064..0x1068], 5);
         ElfExecutable::load(&elf_bytes, loader()).expect("validation failed");
+    }
+
+    #[test]
+    fn test_long_section_name() {
+        let elf_bytes = std::fs::read("tests/elfs/long_section_name.so").unwrap();
+        assert_error!(
+            NewParser::parse(&elf_bytes),
+            "FailedToParse(\"Section or symbol name `{}` is longer than `{}` bytes\")",
+            ".bss.__rust_no_alloc_shim_is_unstable"
+                .get(0..SECTION_NAME_LENGTH_MAXIMUM)
+                .unwrap(),
+            SECTION_NAME_LENGTH_MAXIMUM
+        );
     }
 }

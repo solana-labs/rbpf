@@ -8,7 +8,8 @@ use std::{fmt, mem, ops::Range, slice};
 use crate::{ArithmeticOverflow, ErrCheckedArithmetic};
 use {consts::*, types::*};
 
-const SECTION_NAME_LENGTH_MAXIMUM: usize = 16;
+/// Maximum length of section name allowed.
+pub const SECTION_NAME_LENGTH_MAXIMUM: usize = 16;
 const SYMBOL_NAME_LENGTH_MAXIMUM: usize = 64;
 
 /// Error definitions
@@ -26,6 +27,9 @@ pub enum ElfParserError {
     /// Section or symbol name is not UTF8 or too long
     #[error("invalid string")]
     InvalidString,
+    /// Section or symbol name is too long
+    #[error("Section or symbol name `{0}` is longer than `{1}` bytes")]
+    StringTooLong(String, usize),
     /// An index or memory range does exeed its boundaries
     #[error("value out of bounds")]
     OutOfBounds,
@@ -396,7 +400,12 @@ impl<'a> Elf64<'a> {
             .iter()
             .position(|byte| *byte == 0x00)
             .and_then(|string_length| unterminated_string_bytes.get(0..string_length))
-            .ok_or(ElfParserError::InvalidString)
+            .ok_or_else(|| {
+                ElfParserError::StringTooLong(
+                    String::from_utf8_lossy(unterminated_string_bytes).to_string(),
+                    maximum_length,
+                )
+            })
     }
 
     /// Returns the string corresponding to the given `sh_name`
