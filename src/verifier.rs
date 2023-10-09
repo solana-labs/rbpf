@@ -104,10 +104,6 @@ pub trait Verifier {
     ) -> Result<(), VerifierError>;
 }
 
-fn adj_insn_ptr(insn_ptr: usize) -> usize {
-    insn_ptr + ebpf::ELF_INSN_DUMP_OFFSET
-}
-
 fn check_prog_len(prog: &[u8]) -> Result<(), VerifierError> {
     if prog.len() % ebpf::INSN_SIZE != 0 {
         return Err(VerifierError::ProgramLengthNotMultiple);
@@ -120,7 +116,7 @@ fn check_prog_len(prog: &[u8]) -> Result<(), VerifierError> {
 
 fn check_imm_nonzero(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
     if insn.imm == 0 {
-        return Err(VerifierError::DivisionByZero(adj_insn_ptr(insn_ptr)));
+        return Err(VerifierError::DivisionByZero(insn_ptr));
     }
     Ok(())
 }
@@ -128,9 +124,7 @@ fn check_imm_nonzero(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierE
 fn check_imm_endian(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierError> {
     match insn.imm {
         16 | 32 | 64 => Ok(()),
-        _ => Err(VerifierError::UnsupportedLEBEArgument(adj_insn_ptr(
-            insn_ptr,
-        ))),
+        _ => Err(VerifierError::UnsupportedLEBEArgument(insn_ptr)),
     }
 }
 
@@ -141,7 +135,7 @@ fn check_load_dw(prog: &[u8], insn_ptr: usize) -> Result<(), VerifierError> {
     }
     let next_insn = ebpf::get_insn(prog, insn_ptr + 1);
     if next_insn.opc != 0 {
-        return Err(VerifierError::IncompleteLDDW(adj_insn_ptr(insn_ptr)));
+        return Err(VerifierError::IncompleteLDDW(insn_ptr));
     }
     Ok(())
 }
@@ -157,14 +151,14 @@ fn check_jmp_offset(
     if dst_insn_ptr < 0 || !function_range.contains(&(dst_insn_ptr as usize)) {
         return Err(VerifierError::JumpOutOfCode(
             dst_insn_ptr as usize,
-            adj_insn_ptr(insn_ptr),
+            insn_ptr,
         ));
     }
     let dst_insn = ebpf::get_insn(prog, dst_insn_ptr as usize);
     if dst_insn.opc == 0 {
         return Err(VerifierError::JumpToMiddleOfLDDW(
             dst_insn_ptr as usize,
-            adj_insn_ptr(insn_ptr),
+            insn_ptr,
         ));
     }
     Ok(())
@@ -177,16 +171,14 @@ fn check_registers(
     sbpf_version: &SBPFVersion,
 ) -> Result<(), VerifierError> {
     if insn.src > 10 {
-        return Err(VerifierError::InvalidSourceRegister(adj_insn_ptr(insn_ptr)));
+        return Err(VerifierError::InvalidSourceRegister(insn_ptr));
     }
 
     match (insn.dst, store) {
         (0..=9, _) | (10, true) => Ok(()),
         (11, _) if sbpf_version.dynamic_stack_frames() && insn.opc == ebpf::ADD64_IMM => Ok(()),
-        (10, false) => Err(VerifierError::CannotWriteR10(adj_insn_ptr(insn_ptr))),
-        (_, _) => Err(VerifierError::InvalidDestinationRegister(adj_insn_ptr(
-            insn_ptr,
-        ))),
+        (10, false) => Err(VerifierError::CannotWriteR10(insn_ptr)),
+        (_, _) => Err(VerifierError::InvalidDestinationRegister(insn_ptr)),
     }
 }
 
@@ -195,9 +187,7 @@ fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize, imm_bits: u64) -> Result<
     let shift_by = insn.imm as u64;
     if insn.imm < 0 || shift_by >= imm_bits {
         return Err(VerifierError::ShiftWithOverflow(
-            shift_by,
-            imm_bits,
-            adj_insn_ptr(insn_ptr),
+            shift_by, imm_bits, insn_ptr,
         ));
     }
     Ok(())
@@ -216,7 +206,7 @@ fn check_callx_register(
         insn.imm
     };
     if !(0..=10).contains(&reg) || (reg == 10 && config.reject_callx_r10) {
-        return Err(VerifierError::InvalidRegister(adj_insn_ptr(insn_ptr)));
+        return Err(VerifierError::InvalidRegister(insn_ptr));
     }
     Ok(())
 }
@@ -387,7 +377,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::EXIT       => {},
 
                 _                => {
-                    return Err(VerifierError::UnknownOpCode(insn.opc, adj_insn_ptr(insn_ptr)));
+                    return Err(VerifierError::UnknownOpCode(insn.opc, insn_ptr));
                 }
             }
 
@@ -398,7 +388,7 @@ impl Verifier for RequisiteVerifier {
 
         // insn_ptr should now be equal to number of instructions.
         if insn_ptr != prog.len() / ebpf::INSN_SIZE {
-            return Err(VerifierError::JumpOutOfCode(adj_insn_ptr(insn_ptr), adj_insn_ptr(insn_ptr)));
+            return Err(VerifierError::JumpOutOfCode(insn_ptr, insn_ptr));
         }
 
         Ok(())

@@ -100,7 +100,7 @@ fn test_verifier_fail() {
 }
 
 #[test]
-#[should_panic(expected = "DivisionByZero(30)")]
+#[should_panic(expected = "DivisionByZero(1)")]
 fn test_verifier_err_div_by_zero_imm() {
     let executable = assemble::<TestContextObject>(
         "
@@ -114,7 +114,7 @@ fn test_verifier_err_div_by_zero_imm() {
 }
 
 #[test]
-#[should_panic(expected = "UnsupportedLEBEArgument(29)")]
+#[should_panic(expected = "UnsupportedLEBEArgument(0)")]
 fn test_verifier_err_endian_size() {
     let prog = &[
         0xdc, 0x01, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, //
@@ -132,7 +132,7 @@ fn test_verifier_err_endian_size() {
 }
 
 #[test]
-#[should_panic(expected = "IncompleteLDDW(29)")]
+#[should_panic(expected = "IncompleteLDDW(0)")]
 fn test_verifier_err_incomplete_lddw() {
     // Note: ubpf has test-err-incomplete-lddw2, which is the same
     let prog = &[
@@ -168,7 +168,7 @@ fn test_verifier_err_invalid_reg_dst() {
         )
         .unwrap();
         let result = executable.verify::<RequisiteVerifier>();
-        assert_error!(result, "VerifierError(InvalidDestinationRegister(29))");
+        assert_error!(result, "VerifierError(InvalidDestinationRegister(0))");
     }
 }
 
@@ -191,7 +191,7 @@ fn test_verifier_err_invalid_reg_src() {
         )
         .unwrap();
         let result = executable.verify::<RequisiteVerifier>();
-        assert_error!(result, "VerifierError(InvalidSourceRegister(29))");
+        assert_error!(result, "VerifierError(InvalidSourceRegister(0))");
     }
 }
 
@@ -215,7 +215,7 @@ fn test_verifier_resize_stack_ptr_success() {
 }
 
 #[test]
-#[should_panic(expected = "JumpToMiddleOfLDDW(2, 29)")]
+#[should_panic(expected = "JumpToMiddleOfLDDW(2, 0)")]
 fn test_verifier_err_jmp_lddw() {
     let executable = assemble::<TestContextObject>(
         "
@@ -257,7 +257,7 @@ fn test_verifier_err_function_fallthrough() {
 }
 
 #[test]
-#[should_panic(expected = "JumpOutOfCode(3, 29)")]
+#[should_panic(expected = "JumpOutOfCode(3, 0)")]
 fn test_verifier_err_jmp_out() {
     let executable = assemble::<TestContextObject>(
         "
@@ -270,7 +270,7 @@ fn test_verifier_err_jmp_out() {
 }
 
 #[test]
-#[should_panic(expected = "JumpOutOfCode(18446744073709551615, 29)")]
+#[should_panic(expected = "JumpOutOfCode(18446744073709551615, 0)")]
 fn test_verifier_err_jmp_out_start() {
     let executable = assemble::<TestContextObject>(
         "
@@ -283,7 +283,7 @@ fn test_verifier_err_jmp_out_start() {
 }
 
 #[test]
-#[should_panic(expected = "UnknownOpCode(6, 29)")]
+#[should_panic(expected = "UnknownOpCode(6, 0)")]
 fn test_verifier_err_unknown_opcode() {
     let prog = &[
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
@@ -300,7 +300,7 @@ fn test_verifier_err_unknown_opcode() {
 }
 
 #[test]
-#[should_panic(expected = "CannotWriteR10(29)")]
+#[should_panic(expected = "CannotWriteR10(0)")]
 fn test_verifier_err_write_r10() {
     let executable = assemble::<TestContextObject>(
         "
@@ -317,25 +317,25 @@ fn test_verifier_err_all_shift_overflows() {
     let testcases = [
         // lsh32_imm
         ("lsh32 r0, 16", Ok(())),
-        ("lsh32 r0, 32", Err("ShiftWithOverflow(32, 32, 29)")),
-        ("lsh32 r0, 64", Err("ShiftWithOverflow(64, 32, 29)")),
+        ("lsh32 r0, 32", Err("ShiftWithOverflow(32, 32, 0)")),
+        ("lsh32 r0, 64", Err("ShiftWithOverflow(64, 32, 0)")),
         // rsh32_imm
         ("rsh32 r0, 16", Ok(())),
-        ("rsh32 r0, 32", Err("ShiftWithOverflow(32, 32, 29)")),
-        ("rsh32 r0, 64", Err("ShiftWithOverflow(64, 32, 29)")),
+        ("rsh32 r0, 32", Err("ShiftWithOverflow(32, 32, 0)")),
+        ("rsh32 r0, 64", Err("ShiftWithOverflow(64, 32, 0)")),
         // arsh32_imm
         ("arsh32 r0, 16", Ok(())),
-        ("arsh32 r0, 32", Err("ShiftWithOverflow(32, 32, 29)")),
-        ("arsh32 r0, 64", Err("ShiftWithOverflow(64, 32, 29)")),
+        ("arsh32 r0, 32", Err("ShiftWithOverflow(32, 32, 0)")),
+        ("arsh32 r0, 64", Err("ShiftWithOverflow(64, 32, 0)")),
         // lsh64_imm
         ("lsh64 r0, 32", Ok(())),
-        ("lsh64 r0, 64", Err("ShiftWithOverflow(64, 64, 29)")),
+        ("lsh64 r0, 64", Err("ShiftWithOverflow(64, 64, 0)")),
         // rsh64_imm
         ("rsh64 r0, 32", Ok(())),
-        ("rsh64 r0, 64", Err("ShiftWithOverflow(64, 64, 29)")),
+        ("rsh64 r0, 64", Err("ShiftWithOverflow(64, 64, 0)")),
         // arsh64_imm
         ("arsh64 r0, 32", Ok(())),
-        ("arsh64 r0, 64", Err("ShiftWithOverflow(64, 64, 29)")),
+        ("arsh64 r0, 64", Err("ShiftWithOverflow(64, 64, 0)")),
     ];
 
     for (overflowing_instruction, expected) in testcases {
@@ -377,12 +377,7 @@ fn test_sdiv_disabled() {
             if enable_sbpf_v2 {
                 assert!(result.is_ok());
             } else {
-                assert_error!(
-                    result,
-                    "VerifierError(UnknownOpCode({}, {}))",
-                    opc,
-                    ebpf::ELF_INSN_DUMP_OFFSET
-                );
+                assert_error!(result, "VerifierError(UnknownOpCode({}, {}))", opc, 0);
             }
         }
     }

@@ -36,10 +36,6 @@ pub const STACK_PTR_REG: usize = 11;
 pub const FIRST_SCRATCH_REG: usize = 6;
 /// Number of scratch registers
 pub const SCRATCH_REGS: usize = 4;
-/// ELF dump instruction offset
-/// Instruction numbers typically start at 29 in the ELF dump, use this offset
-/// when reporting so that trace aligns with the dump.
-pub const ELF_INSN_DUMP_OFFSET: usize = 29;
 /// Alignment of the memory regions in host address space in bytes
 pub const HOST_ALIGN: usize = 16;
 /// Upper half of a pointer is the region index, lower half the virtual address inside that region.

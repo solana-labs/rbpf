@@ -834,9 +834,7 @@ impl<C: ContextObject> Executable<C> {
                     .saturating_add(1)
                     .saturating_add(insn.imm as isize);
                 if target_pc < 0 || target_pc >= instruction_count as isize {
-                    return Err(ElfError::RelativeJumpOutOfBounds(
-                        i.saturating_add(ebpf::ELF_INSN_DUMP_OFFSET),
-                    ));
+                    return Err(ElfError::RelativeJumpOutOfBounds(i));
                 }
                 let name = if config.enable_symbol_and_section_labels {
                     format!("function_{target_pc}")
@@ -1101,12 +1099,7 @@ impl<C: ContextObject> Executable<C> {
                         {
                             return Err(ElfError::UnresolvedSymbol(
                                 String::from_utf8_lossy(name).to_string(),
-                                r_offset
-                                    .checked_div(ebpf::INSN_SIZE)
-                                    .and_then(|offset| {
-                                        offset.checked_add(ebpf::ELF_INSN_DUMP_OFFSET)
-                                    })
-                                    .unwrap_or(ebpf::ELF_INSN_DUMP_OFFSET),
+                                r_offset.checked_div(ebpf::INSN_SIZE).unwrap_or(0),
                                 r_offset,
                             ));
                         }
@@ -1951,7 +1944,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "validation failed: RelativeJumpOutOfBounds(38)")]
+    #[should_panic(expected = "validation failed: RelativeJumpOutOfBounds(9)")]
     fn test_relative_call_oob_backward() {
         let mut elf_bytes =
             std::fs::read("tests/elfs/relative_call.so").expect("failed to read elf file");
@@ -1960,7 +1953,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "validation failed: RelativeJumpOutOfBounds(41)")]
+    #[should_panic(expected = "validation failed: RelativeJumpOutOfBounds(12)")]
     fn test_relative_call_oob_forward() {
         let mut elf_bytes =
             std::fs::read("tests/elfs/relative_call.so").expect("failed to read elf file");

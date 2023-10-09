@@ -485,7 +485,7 @@ impl<'a> Analysis<'a> {
                 "{:5?} {:016X?} {:5?}: {}",
                 index,
                 &entry[0..11],
-                pc + ebpf::ELF_INSN_DUMP_OFFSET,
+                pc,
                 self.disassemble_instruction(insn),
             )?;
         }

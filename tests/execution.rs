@@ -2881,7 +2881,7 @@ fn test_err_unresolved_syscall_reloc_64_32() {
     file.read_to_end(&mut elf).unwrap();
     assert_error!(
         Executable::<TestContextObject>::from_elf(&elf, Arc::new(loader)),
-        "UnresolvedSymbol(\"log\", 68, 312)"
+        "UnresolvedSymbol(\"log\", 39, 312)"
     );
 }
 
