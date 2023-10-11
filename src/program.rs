@@ -296,7 +296,7 @@ macro_rules! declare_builtin_function {
         $arg_d:ident : u64,
         $arg_e:ident : u64,
         $memory_mapping:ident : &mut $MemoryMapping:ty,
-    ) -> Result<u64, Box<dyn std::error::Error>> $rust:tt) => {
+    ) -> Result<u64, $Error:ty> $rust:tt) => {
         $(#[$attr])*
         pub struct $name {}
         impl $name {
@@ -309,7 +309,7 @@ macro_rules! declare_builtin_function {
                 $arg_d: u64,
                 $arg_e: u64,
                 $memory_mapping: &mut $MemoryMapping,
-            ) -> Result<u64, Box<dyn std::error::Error>> {
+            ) -> Result<u64, $Error> {
                 $rust
             }
             /// VM interface
