@@ -131,7 +131,7 @@ fn main() {
             memory
         }
     };
-    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
+    #[cfg(all(not(target_os = "windows"), target_arch = "x86_64"))]
     if matches.value_of("use") == Some("jit") {
         executable.jit_compile().unwrap();
     }
