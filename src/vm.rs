@@ -18,7 +18,7 @@ use crate::{
     error::{EbpfError, ProgramResult},
     interpreter::Interpreter,
     memory_region::MemoryMapping,
-    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
+    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
     static_analysis::{Analysis, TraceLogEntry},
 };
 use rand::Rng;
@@ -420,5 +420,20 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
         let mut result = ProgramResult::Ok(0);
         std::mem::swap(&mut result, &mut self.program_result);
         (instruction_count, result)
+    }
+
+    /// Invokes a built-in function
+    pub fn invoke_function(&mut self, function: BuiltinFunction<C>) {
+        function(
+            unsafe {
+                (self as *mut _ as *mut u64).offset(get_runtime_environment_key() as isize)
+                    as *mut _
+            },
+            self.registers[1],
+            self.registers[2],
+            self.registers[3],
+            self.registers[4],
+            self.registers[5],
+        );
     }
 }

@@ -16,7 +16,7 @@ use crate::{
     ebpf::{self, STACK_PTR_REG},
     elf::Executable,
     error::{EbpfError, ProgramResult},
-    vm::{get_runtime_environment_key, Config, ContextObject, EbpfVm},
+    vm::{Config, ContextObject, EbpfVm},
 };
 
 /// Virtual memory operation helper.
@@ -475,14 +475,8 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                         resolved = true;
 
                         self.vm.due_insn_count = self.vm.previous_instruction_meter - self.vm.due_insn_count;
-                        function(
-                            unsafe { (self.vm as *mut _ as *mut u64).offset(get_runtime_environment_key() as isize) as *mut _ },
-                            self.reg[1],
-                            self.reg[2],
-                            self.reg[3],
-                            self.reg[4],
-                            self.reg[5],
-                        );
+                        self.vm.registers[0..6].copy_from_slice(&self.reg[0..6]);
+                        self.vm.invoke_function(function);
                         self.vm.due_insn_count = 0;
                         self.reg[0] = match &self.vm.program_result {
                             ProgramResult::Ok(value) => *value,
