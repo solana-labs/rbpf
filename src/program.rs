@@ -288,7 +288,7 @@ impl<C: ContextObject> std::fmt::Debug for BuiltinProgram<C> {
 /// Generates an adapter for a BuiltinFunction between the Rust and the VM interface
 #[macro_export]
 macro_rules! declare_builtin_function {
-    ($(#[$attr:meta])* $name:ident, fn rust(
+    ($(#[$attr:meta])* $name:ident $(<$($generic_ident:tt : $generic_type:tt),+>)?, fn rust(
         $vm:ident : &mut $ContextObject:ty,
         $arg_a:ident : u64,
         $arg_b:ident : u64,
@@ -301,7 +301,7 @@ macro_rules! declare_builtin_function {
         pub struct $name {}
         impl $name {
             /// Rust interface
-            pub fn rust(
+            pub fn rust $(<$($generic_ident : $generic_type),+>)? (
                 $vm: &mut $ContextObject,
                 $arg_a: u64,
                 $arg_b: u64,
@@ -314,7 +314,7 @@ macro_rules! declare_builtin_function {
             }
             /// VM interface
             #[allow(clippy::too_many_arguments)]
-            pub fn vm(
+            pub fn vm $(<$($generic_ident : $generic_type),+>)? (
                 $vm: *mut $crate::vm::EbpfVm<$ContextObject>,
                 $arg_a: u64,
                 $arg_b: u64,
@@ -330,7 +330,7 @@ macro_rules! declare_builtin_function {
                 if config.enable_instruction_meter {
                     vm.context_object_pointer.consume(vm.previous_instruction_meter - vm.due_insn_count);
                 }
-                let converted_result: $crate::error::ProgramResult = Self::rust(
+                let converted_result: $crate::error::ProgramResult = Self::rust $(::<$($generic_ident),+>)?(
                     vm.context_object_pointer, $arg_a, $arg_b, $arg_c, $arg_d, $arg_e, &mut vm.memory_mapping,
                 ).map_err(|err| $crate::error::EbpfError::SyscallError(err)).into();
                 vm.program_result = converted_result;
