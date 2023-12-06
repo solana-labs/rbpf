@@ -16,6 +16,7 @@
     html_favicon_url = "https://raw.githubusercontent.com/qmonnet/rbpf/master/misc/rbpf.ico"
 )]
 #![deny(clippy::arithmetic_side_effects)]
+#![deny(clippy::ptr_as_ptr)]
 
 extern crate byteorder;
 extern crate combine;

@@ -426,8 +426,10 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
     pub fn invoke_function(&mut self, function: BuiltinFunction<C>) {
         function(
             unsafe {
-                (self as *mut _ as *mut u64).offset(get_runtime_environment_key() as isize)
-                    as *mut _
+                std::ptr::addr_of_mut!(*self)
+                    .cast::<u64>()
+                    .offset(get_runtime_environment_key() as isize)
+                    .cast::<Self>()
             },
             self.registers[1],
             self.registers[2],

@@ -389,7 +389,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         let initial_len = len;
         let initial_vm_addr = vm_addr;
         let mut value = 0u64;
-        let mut ptr = &mut value as *mut _ as *mut u8;
+        let mut ptr = std::ptr::addr_of_mut!(value).cast::<u8>();
 
         while len > 0 {
             let load_len = len.min(region.vm_addr_end.saturating_sub(vm_addr));
@@ -440,7 +440,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         // guaranteed to be unique.
         let cache = unsafe { &mut *self.cache.get() };
 
-        let mut src = &value as *const _ as *const u8;
+        let mut src = std::ptr::addr_of!(value).cast::<u8>();
 
         let mut region = match self.find_region(cache, vm_addr) {
             Some(region) if ensure_writable_region(region, &self.cow_cb) => {

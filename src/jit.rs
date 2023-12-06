@@ -47,7 +47,7 @@ impl JitProgram {
             let raw = allocate_pages(pc_loc_table_size + over_allocated_code_size)?;
             Ok(Self {
                 page_size,
-                pc_section: std::slice::from_raw_parts_mut(raw as *mut usize, pc),
+                pc_section: std::slice::from_raw_parts_mut(raw.cast::<usize>(), pc),
                 text_section: std::slice::from_raw_parts_mut(
                     raw.add(pc_loc_table_size),
                     over_allocated_code_size,
@@ -80,7 +80,7 @@ impl JitProgram {
             self.text_section =
                 std::slice::from_raw_parts_mut(raw.add(pc_loc_table_size), text_section_usage);
             protect_pages(
-                self.pc_section.as_mut_ptr() as *mut u8,
+                self.pc_section.as_mut_ptr().cast::<u8>(),
                 pc_loc_table_size,
                 false,
             )?;
@@ -119,7 +119,7 @@ impl JitProgram {
                 "pop rbp",
                 "pop rbx",
                 host_stack_pointer = in(reg) &mut vm.host_stack_pointer,
-                inlateout("rdi") (vm as *mut _ as *mut u64).offset(get_runtime_environment_key() as isize) => _,
+                inlateout("rdi") std::ptr::addr_of_mut!(*vm).cast::<u64>().offset(get_runtime_environment_key() as isize) => _,
                 inlateout("rax") (vm.previous_instruction_meter as i64).wrapping_add(registers[11] as i64) => _,
                 inlateout("r10") self.pc_section[registers[11] as usize] => _,
                 inlateout("r11") &registers => _,
@@ -1269,7 +1269,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     }
 
     fn emit_set_exception_kind(&mut self, err: EbpfError) {
-        let err_kind = unsafe { *(&err as *const _ as *const u64) };
+        let err_kind = unsafe { *std::ptr::addr_of!(err).cast::<u64>() };
         let err_discriminant = ProgramResult::Err(err).discriminant();
         self.emit_ins(X86Instruction::lea(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_OTHER_SCRATCH, Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult)))));
         self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, X86IndirectAccess::Offset(0), err_discriminant as i64)); // result.discriminant = err_discriminant;
@@ -1615,8 +1615,9 @@ mod tests {
             ($env:expr, $entry:ident, $slot:ident) => {
                 assert_eq!(
                     unsafe {
-                        (&$env.$entry as *const _ as *const u64)
-                            .offset_from(&$env as *const _ as *const u64) as usize
+                        std::ptr::addr_of!($env.$entry)
+                            .cast::<u64>()
+                            .offset_from(std::ptr::addr_of!($env).cast::<u64>()) as usize
                     },
                     RuntimeEnvironmentSlot::$slot as usize,
                 );

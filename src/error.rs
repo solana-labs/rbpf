@@ -145,7 +145,7 @@ impl<T: std::fmt::Debug, E: std::fmt::Debug> StableResult<T, E> {
         allow(dead_code)
     )]
     pub(crate) fn discriminant(&self) -> u64 {
-        unsafe { *(self as *const _ as *const u64) }
+        unsafe { *std::ptr::addr_of!(*self).cast::<u64>() }
     }
 }
 

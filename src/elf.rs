@@ -1219,7 +1219,7 @@ mod test {
 
         let write_header = |header: Elf64Ehdr| unsafe {
             let mut bytes = elf_bytes.clone();
-            std::ptr::write(bytes.as_mut_ptr() as *mut Elf64Ehdr, header);
+            std::ptr::write(bytes.as_mut_ptr().cast::<Elf64Ehdr>(), header);
             bytes
         };
 
@@ -1322,7 +1322,7 @@ mod test {
 
         let write_header = |header: Elf64Ehdr| unsafe {
             let mut bytes = elf_bytes.clone();
-            std::ptr::write(bytes.as_mut_ptr() as *mut Elf64Ehdr, header);
+            std::ptr::write(bytes.as_mut_ptr().cast::<Elf64Ehdr>(), header);
             bytes
         };
 

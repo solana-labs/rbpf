@@ -113,16 +113,16 @@ pub unsafe fn allocate_pages(size_in_bytes: usize) -> Result<*mut u8, EbpfError>
         winnt::MEM_RESERVE | winnt::MEM_COMMIT,
         winnt::PAGE_READWRITE,
     );
-    Ok(raw as *mut u8)
+    Ok(raw.cast::<u8>())
 }
 
 pub unsafe fn free_pages(raw: *mut u8, size_in_bytes: usize) -> Result<(), EbpfError> {
     #[cfg(not(target_os = "windows"))]
-    libc_error_guard!(munmap, raw as *mut _, size_in_bytes);
+    libc_error_guard!(munmap, raw.cast::<c_void>(), size_in_bytes);
     #[cfg(target_os = "windows")]
     winapi_error_guard!(
         VirtualFree,
-        raw as *mut _,
+        raw.cast::<c_void>(),
         size_in_bytes,
         winnt::MEM_RELEASE, // winnt::MEM_DECOMMIT
     );
@@ -138,7 +138,7 @@ pub unsafe fn protect_pages(
     {
         libc_error_guard!(
             mprotect,
-            raw as *mut _,
+            raw.cast::<c_void>(),
             size_in_bytes,
             if executable_flag {
                 libc::PROT_EXEC | libc::PROT_READ
@@ -153,7 +153,7 @@ pub unsafe fn protect_pages(
         let ptr_old: *mut minwindef::DWORD = &mut old;
         winapi_error_guard!(
             VirtualProtect,
-            raw as *mut _,
+            raw.cast::<c_void>(),
             size_in_bytes,
             if executable_flag {
                 winnt::PAGE_EXECUTE_READ
