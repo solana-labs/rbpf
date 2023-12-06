@@ -135,7 +135,7 @@ impl<'a> Elf64<'a> {
         let section_header_table =
             slice_from_bytes::<Elf64Shdr>(elf_bytes, section_header_table_range.clone())?;
         section_header_table
-            .get(0)
+            .first()
             .filter(|section_header| section_header.sh_type == SHT_NULL)
             .ok_or(ElfParserError::InvalidSectionHeader)?;
 

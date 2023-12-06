@@ -158,16 +158,10 @@ declare_builtin_function!(
         let host_addr: Result<u64, EbpfError> =
             memory_mapping.map(AccessType::Load, vm_addr, len).into();
         let host_addr = host_addr?;
-        let c_buf: *const i8 = host_addr as *const i8;
         unsafe {
-            for i in 0..len {
-                let c = std::ptr::read(c_buf.offset(i as isize));
-                if c == 0 {
-                    break;
-                }
-            }
-            let message = from_utf8(from_raw_parts(host_addr as *const u8, len as usize))
-                .unwrap_or("Invalid UTF-8 String");
+            let c_buf = from_raw_parts(host_addr as *const u8, len as usize);
+            let len = c_buf.iter().position(|c| *c == 0).unwrap_or(len as usize);
+            let message = from_utf8(&c_buf[0..len]).unwrap_or("Invalid UTF-8 String");
             println!("log: {message}");
         }
         Ok(0)

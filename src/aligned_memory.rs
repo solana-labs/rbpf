@@ -27,7 +27,6 @@ pub struct AlignedMemory<const ALIGN: usize> {
 impl<const ALIGN: usize> AlignedMemory<ALIGN> {
     fn get_mem(max_len: usize) -> (Vec<u8>, usize) {
         let mut mem: Vec<u8> = Vec::with_capacity(max_len.saturating_add(ALIGN));
-        mem.push(0);
         let align_offset = mem.as_ptr().align_offset(ALIGN);
         mem.resize(align_offset, 0);
         (mem, align_offset)
@@ -122,7 +121,7 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
             _ => {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
-                    "aligned memory resize failed",
+                    "aligned memory fill_write failed",
                 ))
             }
         };

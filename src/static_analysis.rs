@@ -553,8 +553,7 @@ impl<'a> Analysis<'a> {
                         format!("<tr><td align=\"left\">{}</td></tr>", html_escape(&desc))
                     }
                 })
-                .collect::<Vec<String>>()
-                .join("")
+                .collect::<String>()
             )?;
             if let Some(dynamic_analysis) = dynamic_analysis {
                 if let Some(recorded_edges) = dynamic_analysis.edges.get(&cfg_node_start) {

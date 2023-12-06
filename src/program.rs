@@ -167,7 +167,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
 
     /// Iterate over all keys
     pub fn keys(&self) -> impl Iterator<Item = u32> + '_ {
-        self.map.keys().cloned()
+        self.map.keys().copied()
     }
 
     /// Iterate over all entries

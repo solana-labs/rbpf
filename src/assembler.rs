@@ -254,6 +254,17 @@ fn insn(opc: u8, dst: i64, src: i64, off: i64, imm: i64) -> Result<Insn, String>
     })
 }
 
+fn resolve_label(
+    insn_ptr: usize,
+    labels: &HashMap<&str, usize>,
+    label: &str,
+) -> Result<i64, String> {
+    labels
+        .get(label)
+        .map(|target_pc| *target_pc as i64 - insn_ptr as i64 - 1)
+        .ok_or_else(|| format!("Label not found {label}"))
+}
+
 /// Parse assembly source and translate to binary.
 ///
 /// # Examples
@@ -299,16 +310,6 @@ pub fn assemble<C: ContextObject>(
     } else {
         SBPFVersion::V1
     };
-    fn resolve_label(
-        insn_ptr: usize,
-        labels: &HashMap<&str, usize>,
-        label: &str,
-    ) -> Result<i64, String> {
-        labels
-            .get(label)
-            .map(|target_pc| *target_pc as i64 - insn_ptr as i64 - 1)
-            .ok_or_else(|| format!("Label not found {label}"))
-    }
 
     let statements = parse(src)?;
     let instruction_map = make_instruction_map();
@@ -321,7 +322,7 @@ pub fn assemble<C: ContextObject>(
             Statement::Label { name } => {
                 if name.starts_with("function_") || name == "entrypoint" {
                     function_registry
-                        .register_function(insn_ptr as u32, name.as_bytes().to_vec(), insn_ptr)
+                        .register_function(insn_ptr as u32, name.as_bytes(), insn_ptr)
                         .map_err(|_| format!("Label hash collision {name}"))?;
                 }
                 labels.insert(name.as_str(), insn_ptr);
@@ -372,7 +373,7 @@ pub fn assemble<C: ContextObject>(
                             function_registry
                                 .register_function(
                                     target_pc as u32,
-                                    label.as_bytes().to_vec(),
+                                    label.as_bytes(),
                                     target_pc as usize,
                                 )
                                 .map_err(|_| format!("Label hash collision {name}"))?;
