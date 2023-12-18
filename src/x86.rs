@@ -218,6 +218,19 @@ impl X86Instruction {
         }
     }
 
+    /// Move source to destination
+    #[inline]
+    pub const fn mov_with_sign_extension(size: OperandSize, source: u8, destination: u8) -> Self {
+        exclude_operand_sizes!(size, OperandSize::S0 | OperandSize::S8 | OperandSize::S16);
+        Self {
+            size,
+            opcode: 0x63,
+            first_operand: destination,
+            second_operand: source,
+            ..Self::DEFAULT
+        }
+    }
+
     /// Conditionally move source to destination
     #[inline]
     pub const fn cmov(size: OperandSize, condition: u8, source: u8, destination: u8) -> Self {
