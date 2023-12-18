@@ -20,6 +20,11 @@ pub enum SBPFVersion {
 }
 
 impl SBPFVersion {
+    /// Implicitly perform sign extension of results
+    pub fn implicit_sign_extension_of_results(&self) -> bool {
+        self == &SBPFVersion::V1
+    }
+
     /// Enable the little-endian byte swap instructions
     pub fn enable_le(&self) -> bool {
         self == &SBPFVersion::V1
