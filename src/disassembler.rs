@@ -45,7 +45,7 @@ fn byteswap_str(name: &str, insn: &ebpf::Insn) -> String {
 #[inline]
 fn signed_off_str(value: i16) -> String {
     if value < 0 {
-        format!("-{:#x}", -value)
+        format!("-{:#x}", -(value as isize))
     } else {
         format!("+{value:#x}")
     }
