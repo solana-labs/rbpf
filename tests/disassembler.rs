@@ -139,22 +139,22 @@ fn test_lddw() {
 // Example for InstructionType::LoadReg.
 #[test]
 fn test_ldxdw() {
-    disasm!("entrypoint:\n    ldxdw r1, [r2+0x3]\n");
-    disasm!("entrypoint:\n    ldxdw r1, [r2-0x3]\n");
+    disasm!("entrypoint:\n    ldxdw r1, [r2+0x7999]\n");
+    disasm!("entrypoint:\n    ldxdw r1, [r2-0x8000]\n");
 }
 
 // Example for InstructionType::StoreImm.
 #[test]
 fn test_sth() {
-    disasm!("entrypoint:\n    sth [r1+0x2], 3\n");
-    disasm!("entrypoint:\n    sth [r1-0x2], 3\n");
+    disasm!("entrypoint:\n    sth [r1+0x7999], 3\n");
+    disasm!("entrypoint:\n    sth [r1-0x8000], 3\n");
 }
 
 // Example for InstructionType::StoreReg.
 #[test]
 fn test_stxh() {
-    disasm!("entrypoint:\n    stxh [r1+0x2], r3\n");
-    disasm!("entrypoint:\n    stxh [r1-0x2], r3\n");
+    disasm!("entrypoint:\n    stxh [r1+0x7999], r3\n");
+    disasm!("entrypoint:\n    stxh [r1-0x8000], r3\n");
 }
 
 // Test all supported AluBinary mnemonics.
