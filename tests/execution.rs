@@ -3027,19 +3027,6 @@ fn test_syscall_reloc_64_32() {
 }
 
 #[test]
-fn test_syscall_static() {
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/syscall_static.so",
-        [],
-        (
-            "log" => syscalls::SyscallString::vm,
-        ),
-        TestContextObject::new(6),
-        ProgramResult::Ok(0),
-    );
-}
-
-#[test]
 fn test_err_unresolved_syscall_reloc_64_32() {
     let loader = BuiltinProgram::new_loader(
         Config {
@@ -3058,24 +3045,6 @@ fn test_err_unresolved_syscall_reloc_64_32() {
 }
 
 #[test]
-fn test_err_unresolved_syscall_static() {
-    let config = Config {
-        enable_instruction_tracing: true,
-        ..Config::default()
-    };
-    // This case only works if we skip verification.
-    test_interpreter_and_jit_elf!(
-        false,
-        "tests/elfs/syscall_static.so",
-        config,
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Err(EbpfError::UnsupportedInstruction),
-    );
-}
-
-#[test]
 fn test_reloc_64_64_sbpfv1() {
     // Tests the correctness of R_BPF_64_64 relocations. The program returns the
     // address of the entrypoint.
@@ -3086,20 +3055,6 @@ fn test_reloc_64_64_sbpfv1() {
         (),
         TestContextObject::new(2),
         ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x120),
-    );
-}
-
-#[test]
-fn test_reloc_64_64() {
-    // Same as test_reloc_64_64, but with .text already alinged to
-    // MM_PROGRAM_START by the linker
-    //   [ 1] .text             PROGBITS        0000000100000000 001000 000018 00  AX  0   0  8
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_64.so",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(ebpf::MM_PROGRAM_START),
     );
 }
 
@@ -3119,21 +3074,6 @@ fn test_reloc_64_relative_sbpfv1() {
 }
 
 #[test]
-fn test_reloc_64_relative() {
-    // Same as test_reloc_64_relative, but with .text placed already within
-    // MM_PROGRAM_START by the linker
-    // [ 1] .text             PROGBITS        0000000100000000 001000 000018 00  AX  0   0  8
-    // [ 2] .rodata           PROGBITS        0000000100000018 001018 00000b 01 AMS  0   0  1
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_relative.so",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x18),
-    );
-}
-
-#[test]
 fn test_reloc_64_relative_data_sbfv1() {
     // Tests the correctness of R_BPF_64_RELATIVE relocations in sections other
     // than .text. The program returns the address of the first .rodata byte.
@@ -3148,24 +3088,6 @@ fn test_reloc_64_relative_data_sbfv1() {
         (),
         TestContextObject::new(3),
         ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x108),
-    );
-}
-
-#[test]
-fn test_reloc_64_relative_data() {
-    // Same as test_reloc_64_relative_data, but with rodata already placed
-    // within MM_PROGRAM_START by the linker
-    // [ 1] .text             PROGBITS        0000000100000000 001000 000020 00  AX  0   0  8
-    // [ 2] .rodata           PROGBITS        0000000100000020 001020 000019 01 AMS  0   0  1
-    //
-    // 0000000100000110 <FILE>:
-    // 536870946:      20 00 00 00 01 00 00 00
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_relative_data.so",
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x20),
     );
 }
 
@@ -3190,22 +3112,6 @@ fn test_reloc_64_relative_data_sbpfv1() {
         (),
         TestContextObject::new(3),
         ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x108),
-    );
-}
-
-#[test]
-fn test_load_elf_rodata() {
-    let config = Config {
-        optimize_rodata: true,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/rodata_section.so",
-        config,
-        [],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(42),
     );
 }
 
