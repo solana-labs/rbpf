@@ -1,3 +1,8 @@
+#[link_section = ".bss.stack"]
+pub static _STACK: [u8; 0x1000] = [0; 0x1000];
+#[link_section = ".bss.heap"]
+pub static _HEAP: [u8; 0x1000] = [0; 0x1000];
+
 static _VAL_A: u64 = 41;
 static VAL_B: u64 = 42;
 static _VAL_C: u64 = 43;
