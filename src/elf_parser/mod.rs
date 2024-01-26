@@ -63,6 +63,14 @@ pub enum ElfParserError {
 }
 
 impl Elf64Phdr {
+    /// Returns the byte range the section spans in the file.
+    pub fn file_range(&self) -> Option<Range<usize>> {
+        (self.p_type == PT_LOAD).then(|| {
+            let offset = self.p_offset as usize;
+            offset..offset.saturating_add(self.p_filesz as usize)
+        })
+    }
+
     /// Returns the segment virtual address range.
     pub fn vm_range(&self) -> Range<Elf64Addr> {
         let addr = self.p_vaddr;
