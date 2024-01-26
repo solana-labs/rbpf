@@ -11,10 +11,12 @@ use crate::{
     ebpf::{self, EF_SBPF_V2, HOST_ALIGN, INSN_SIZE},
     elf_parser::{
         consts::{
-            ELFCLASS64, ELFDATA2LSB, ELFOSABI_NONE, EM_BPF, EM_SBPF, ET_DYN, R_X86_64_32,
-            R_X86_64_64, R_X86_64_NONE, R_X86_64_RELATIVE,
+            ELFCLASS64, ELFDATA2LSB, ELFOSABI_NONE, EM_BPF, EM_SBPF, ET_DYN, PF_R, PF_W, PF_X,
+            PT_GNU_STACK, PT_LOAD, PT_NULL, R_X86_64_32, R_X86_64_64, R_X86_64_NONE,
+            R_X86_64_RELATIVE, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE, SHT_NOBITS, SHT_NULL,
+            SHT_PROGBITS, SHT_SYMTAB, STT_FUNC,
         },
-        types::{Elf64Phdr, Elf64Shdr, Elf64Word},
+        types::{Elf64Phdr, Elf64Shdr, Elf64Sym, Elf64Word},
         Elf64, ElfParserError,
     },
     error::EbpfError,
@@ -378,10 +380,163 @@ impl<C: ContextObject> Executable<C> {
             aligned = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
             aligned.as_slice()
         };
-        Self::load_with_parser(&Elf64::parse(bytes)?, bytes, loader)
+        let elf = Elf64::parse(bytes)?;
+        let sbpf_version = if elf.file_header().e_flags == EF_SBPF_V2 {
+            SBPFVersion::V2
+        } else {
+            SBPFVersion::V1
+        };
+        if !loader
+            .get_config()
+            .enabled_sbpf_versions
+            .contains(&sbpf_version)
+        {
+            return Err(ElfError::UnsupportedSBPFVersion);
+        }
+        if sbpf_version == SBPFVersion::V1 {
+            Self::load_with_lenient_parser(&elf, bytes, loader)
+        } else {
+            Self::load_with_strict_parser(&elf, bytes, loader).map_err(|err| err.into())
+        }
     }
 
-    fn load_with_parser(
+    fn load_with_strict_parser(
+        elf: &Elf64,
+        bytes: &[u8],
+        loader: Arc<BuiltinProgram<C>>,
+    ) -> Result<Self, ElfParserError> {
+        const EXPECTED_PROGRAM_HEADERS: [(u32, u32, u64); 4] = [
+            (PT_LOAD, PF_R | PF_X, ebpf::MM_PROGRAM_START), // byte code
+            (PT_LOAD, PF_R, ebpf::MM_PROGRAM_START),        // read only data
+            (PT_GNU_STACK, PF_R | PF_W, ebpf::MM_STACK_START), // stack
+            (PT_LOAD, PF_R | PF_W, ebpf::MM_HEAP_START),    // heap
+        ];
+        const EXPECTED_SECTION_HEADERS: [(u32, u64, u64); 6] = [
+            (SHT_NULL, 0, 0),
+            (
+                SHT_PROGBITS,
+                SHF_ALLOC | SHF_EXECINSTR,
+                ebpf::MM_PROGRAM_START,
+            ), // .text
+            (SHT_PROGBITS, SHF_ALLOC, ebpf::MM_PROGRAM_START), // .rodata
+            (SHT_NOBITS, SHF_ALLOC | SHF_WRITE, ebpf::MM_STACK_START), // .stack
+            (SHT_NOBITS, SHF_ALLOC | SHF_WRITE, ebpf::MM_HEAP_START), // .heap
+            (SHT_SYMTAB, 0, 0),                                // .symtab
+        ];
+        if elf.file_header().e_type != ET_DYN
+            || elf.file_header().e_ident.ei_osabi != 0x00
+            || elf.file_header().e_ident.ei_abiversion != 0x00
+            || elf.program_header_table().len() < EXPECTED_PROGRAM_HEADERS.len()
+            || elf.section_header_table().len() < EXPECTED_SECTION_HEADERS.len()
+        {
+            return Err(ElfParserError::InvalidFileHeader);
+        }
+        const REGION_MASK: u64 = (-(1i64 << 32)) as u64;
+        const ALIGNMENT_MASK: u64 = 0xF;
+        for (program_header, (p_type, p_flags, addr)) in elf
+            .program_header_table()
+            .iter()
+            .zip(EXPECTED_PROGRAM_HEADERS.iter())
+        {
+            if program_header.p_type != *p_type
+                || program_header.p_flags != *p_flags
+                || program_header.p_paddr != program_header.p_vaddr
+                || program_header.p_vaddr & REGION_MASK != *addr
+                || program_header.p_vaddr & ALIGNMENT_MASK != 0
+                || program_header.p_memsz & REGION_MASK != 0
+                || program_header.p_filesz > program_header.p_memsz
+            {
+                return Err(ElfParserError::InvalidProgramHeader);
+            }
+        }
+        for ((index, section_header), (s_type, s_flags, _sh_addr)) in elf
+            .section_header_table()
+            .iter()
+            .enumerate()
+            .zip(EXPECTED_SECTION_HEADERS.iter())
+        {
+            if section_header.sh_type != *s_type || section_header.sh_flags != *s_flags {
+                return Err(ElfParserError::InvalidSectionHeader);
+            }
+            if *s_type == SHT_NULL {
+                continue;
+            }
+            let program_header = &elf.program_header_table()[index.saturating_sub(1)];
+            if program_header.p_type != PT_NULL
+                && (section_header.sh_addr != program_header.p_vaddr
+                    || section_header.sh_size != program_header.p_memsz)
+            {
+                return Err(ElfParserError::OutOfBounds);
+            }
+        }
+        let config = loader.get_config();
+        let text_section = &elf.section_header_table()[1];
+        let rodata_section = &elf.section_header_table()[2];
+        let symbol_table =
+            elf.slice_from_section_header::<Elf64Sym>(&elf.section_header_table()[5])?;
+        let mut function_registry = FunctionRegistry::<usize>::default();
+        for symbol in symbol_table {
+            if symbol.st_info & STT_FUNC == 0 {
+                continue;
+            }
+            if !text_section.vm_range().contains(&symbol.st_value)
+                || symbol.st_value.checked_rem(ebpf::INSN_SIZE as u64) != Some(0)
+            {
+                return Err(ElfParserError::OutOfBounds);
+            }
+            let target_pc = symbol
+                .st_value
+                .saturating_sub(text_section.sh_addr)
+                .checked_div(ebpf::INSN_SIZE as u64)
+                .unwrap_or_default() as usize;
+            function_registry
+                .register_function(
+                    target_pc as u32,
+                    if config.enable_symbol_and_section_labels {
+                        elf.symbol_name(symbol.st_name as Elf64Word)?
+                    } else {
+                        &[]
+                    },
+                    target_pc,
+                )
+                .map_err(|_| ElfParserError::Overlap)?;
+        }
+        if !text_section.vm_range().contains(&elf.file_header().e_entry)
+            || elf
+                .file_header()
+                .e_entry
+                .checked_rem(ebpf::INSN_SIZE as u64)
+                != Some(0)
+        {
+            return Err(ElfParserError::OutOfBounds);
+        }
+        let entry_pc = elf
+            .file_header()
+            .e_entry
+            .saturating_sub(text_section.sh_addr)
+            .checked_div(ebpf::INSN_SIZE as u64)
+            .unwrap_or_default() as usize;
+        if function_registry.lookup_by_key(entry_pc as u32).is_none() {
+            return Err(ElfParserError::InvalidFileHeader);
+        }
+        Ok(Self {
+            elf_bytes: AlignedMemory::from_slice(bytes), // TODO: borrow
+            sbpf_version: SBPFVersion::V2,
+            ro_section: Section::Borrowed(
+                rodata_section.sh_addr as usize,
+                rodata_section.file_range().unwrap_or_default(),
+            ),
+            text_section_vaddr: text_section.sh_addr, // ebpf::MM_PROGRAM_START,
+            text_section_range: text_section.file_range().unwrap_or_default(),
+            entry_pc,
+            function_registry,
+            loader,
+            #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
+            compiled_program: None,
+        })
+    }
+
+    fn load_with_lenient_parser(
         elf: &Elf64,
         bytes: &[u8],
         loader: Arc<BuiltinProgram<C>>,
@@ -1946,5 +2101,12 @@ mod test {
                 .unwrap(),
             SECTION_NAME_LENGTH_MAXIMUM
         );
+    }
+
+    #[test]
+    fn test_strict_header() {
+        let elf_bytes =
+            std::fs::read("tests/elfs/strict_header.so").expect("failed to read elf file");
+        ElfExecutable::load(&elf_bytes, loader()).expect("validation failed");
     }
 }
