@@ -3131,6 +3131,20 @@ fn test_load_elf_rodata_sbpfv1() {
     );
 }
 
+#[test]
+fn test_struct_func_pointer() {
+    // This tests checks that a struct field adjacent to another field
+    // which is a relocatable function pointer is not overwritten when
+    // the function pointer is relocated at load time.
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/struct_func_pointer.so",
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(0x102030405060708),
+    );
+}
+
 // Programs
 
 #[test]
@@ -3336,20 +3350,6 @@ fn test_tcp_sack_nomatch() {
         (),
         TestContextObject::new(55),
         ProgramResult::Ok(0x0),
-    );
-}
-
-#[test]
-fn test_struct_func_pointer() {
-    // This tests checks that a struct field adjacent to another field
-    // which is a relocatable function pointer is not overwritten when
-    // the function pointer is relocated at load time.
-    test_interpreter_and_jit_elf!(
-        "tests/elfs/struct_func_pointer.so",
-        [],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(0x102030405060708),
     );
 }
 
