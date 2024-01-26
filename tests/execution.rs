@@ -2717,6 +2717,17 @@ fn test_nested_vm_syscall() {
     assert_error!(result, "CallDepthExceeded");
 }
 
+#[test]
+fn test_static_syscall() {
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/strict_header.so",
+        [],
+        (),
+        TestContextObject::new(4),
+        ProgramResult::Ok(42),
+    );
+}
+
 // Instruction Meter Limit
 
 #[test]

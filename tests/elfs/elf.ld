@@ -1,26 +1,31 @@
 PHDRS
 {
-  text PT_LOAD  ;
+  text PT_LOAD ;
   rodata PT_LOAD ;
-  data PT_LOAD ;
-  dynamic PT_DYNAMIC ;
+  stack PT_GNU_STACK ;
+  heap PT_LOAD ;
+  dynsym PT_LOAD ;
+  other PT_NULL ;
 }
 
 SECTIONS
 {
-  . = SIZEOF_HEADERS;
-  .text : { *(.text*) } :text
-  .rodata : { *(.rodata*) } :rodata
-  .data.rel.ro : { *(.data.rel.ro*) } :rodata
-  .dynamic : { *(.dynamic) } :dynamic
-  .dynsym : { *(.dynsym) } :data
-  .dynstr : { *(.dynstr) } :data
-  .rel.dyn : { *(.rel.dyn) } :data
-  .data : { *(.data*) } :data
-  .bss : { *(.bss*) } :data
+  .text 0x000000000 : { *(.text*) } :text
+  .rodata 0x100000000 : { *(.rodata*) } :rodata
+  .bss.stack 0x200000000 : { *(.bss.stack*) } :stack
+  .bss.heap 0x300000000 : { *(.bss.heap*) } :heap
+  .dynsym 0xFFFFFFFF00000000 : { *(.dynsym) } :dynsym
+  .dynstr : { *(.dynstr) } :other
+  .dynamic : { *(.dynamic) } :other
+  .symtab : { *(.symtab) } :other
+  .shstrtab : { *(.shstrtab) } :other
+  .strtab : { *(.strtab) } :other
   /DISCARD/ : {
+      *(.comment*)
       *(.eh_frame*)
-      *(.gnu.hash*)
-      *(.hash*)
+      *(*hash*)
+      *(.bss*)
+      *(.data*)
+      *(.rel.dyn*)
     }
 }

@@ -7,9 +7,12 @@ TOOLCHAIN=../../../agave/sdk/sbf/dependencies/platform-tools
 RC_COMMON="$TOOLCHAIN/rust/bin/rustc --target sbf-solana-solana --crate-type lib -C panic=abort -C opt-level=2"
 RC="$RC_COMMON -C target_cpu=sbfv2"
 RC_V1="$RC_COMMON -C target_cpu=generic"
-LD_COMMON="$TOOLCHAIN/llvm/bin/ld.lld -z notext -shared --Bdynamic -entry entrypoint --script elf.ld"
-LD="$LD_COMMON --section-start=.text=0x100000000"
-LD_V1=$LD_COMMON
+LD_COMMON="$TOOLCHAIN/llvm/bin/ld.lld -z notext -shared --Bdynamic -entry entrypoint"
+LD="$LD_COMMON --script elf.ld"
+LD_V1="$LD_COMMON --script elf_sbpfv1.ld"
+
+$RC -o strict_header.o strict_header.rs
+$LD -o strict_header.so strict_header.o
 
 $RC_V1 -o relative_call.o relative_call.rs
 $LD_V1 -o relative_call_sbpfv1.so relative_call.o
