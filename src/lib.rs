@@ -56,6 +56,7 @@ trait ErrCheckedArithmetic: Sized {
     fn err_checked_add(self, other: Self) -> Result<Self, ArithmeticOverflow>;
     fn err_checked_sub(self, other: Self) -> Result<Self, ArithmeticOverflow>;
     fn err_checked_mul(self, other: Self) -> Result<Self, ArithmeticOverflow>;
+    #[allow(dead_code)]
     fn err_checked_div(self, other: Self) -> Result<Self, ArithmeticOverflow>;
 }
 struct ArithmeticOverflow;

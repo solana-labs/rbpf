@@ -202,7 +202,11 @@ impl<'a> Analysis<'a> {
     fn link_cfg_edges(&mut self, cfg_edges: Vec<(usize, Vec<usize>)>, both_directions: bool) {
         for (source, destinations) in cfg_edges {
             if both_directions {
-                self.cfg_nodes.get_mut(&source).unwrap().destinations = destinations.clone();
+                self.cfg_nodes
+                    .get_mut(&source)
+                    .unwrap()
+                    .destinations
+                    .clone_from(&destinations);
             }
             for destination in &destinations {
                 self.cfg_nodes
@@ -350,7 +354,7 @@ impl<'a> Analysis<'a> {
                 }
                 if let Some(next_cfg_edge) = cfg_edge_iter.peek() {
                     if *next_cfg_edge.0 <= cfg_node_end {
-                        cfg_node.destinations = next_cfg_edge.1 .1.clone();
+                        cfg_node.destinations.clone_from(&next_cfg_edge.1 .1);
                         cfg_edge_iter.next();
                         continue;
                     }

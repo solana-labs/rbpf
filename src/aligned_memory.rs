@@ -212,9 +212,9 @@ pub fn is_memory_aligned(ptr: usize, align: usize) -> bool {
         .unwrap_or(false)
 }
 
+#[allow(clippy::arithmetic_side_effects)]
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::arithmetic_side_effects)]
     use {super::*, std::io::Write};
 
     fn do_test<const ALIGN: usize>() {

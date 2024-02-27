@@ -1176,7 +1176,6 @@ pub(crate) fn get_ro_region(ro_section: &Section, elf: &[u8]) -> MemoryRegion {
 mod test {
     use super::*;
     use crate::{
-        ebpf,
         elf_parser::{
             // FIXME consts::{ELFCLASS32, ELFDATA2MSB, ET_REL},
             consts::{ELFCLASS32, ELFDATA2MSB, ET_REL},
