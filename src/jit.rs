@@ -654,7 +654,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
                     if internal {
                         if let Some((_function_name, target_pc)) = self.executable.get_function_registry().lookup_by_key(insn.imm as u32) {
-                            self.emit_internal_call(Value::Constant64(target_pc as i64, false));
+                            self.emit_internal_call(Value::Constant64(target_pc as i64, true));
                             resolved = true;
                         }
                     }
@@ -1023,9 +1023,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 self.emit_ins(X86Instruction::call_reg(REGISTER_OTHER_SCRATCH, None)); // callq *REGISTER_OTHER_SCRATCH
             },
             Value::Constant64(target_pc, user_provided) => {
-                debug_assert!(!user_provided);
+                debug_assert!(user_provided);
                 self.emit_validate_and_profile_instruction_count(false, Some(target_pc as usize));
-                self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc));
+                if user_provided && self.should_sanitize_constant(target_pc) {
+                    self.emit_sanitized_load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc);
+                } else {
+                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc));
+                }
                 let jump_offset = self.relative_to_target_pc(target_pc as usize, 5);
                 self.emit_ins(X86Instruction::call_immediate(jump_offset));
             },
