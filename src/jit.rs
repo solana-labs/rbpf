@@ -373,6 +373,14 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     pub fn compile(mut self) -> Result<JitProgram, EbpfError> {
         let text_section_base = self.result.text_section.as_ptr();
 
+        // Randomized padding at the start before random intervals begin
+        if self.config.noop_instruction_rate != 0 {
+            for _ in 0..self.diversification_rng.gen_range(0..self.config.noop_instruction_rate) {
+                // X86Instruction::noop().emit(self)?;
+                self.emit::<u8>(0x90);
+            }
+        }
+
         self.emit_subroutines();
 
         while self.pc * ebpf::INSN_SIZE < self.program.len() {
