@@ -347,6 +347,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         if config.instruction_meter_checkpoint_distance != 0 {
             code_length_estimate += pc / config.instruction_meter_checkpoint_distance * MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT;
         }
+        // Relative jump destinations limit the maximum output size
+        debug_assert!(code_length_estimate < (i32::MAX as usize));
 
         let runtime_environment_key = get_runtime_environment_key();
         let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).map_err(|_| EbpfError::JitNotCompiled)?;
