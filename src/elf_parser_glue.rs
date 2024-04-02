@@ -176,6 +176,7 @@ pub trait ElfRelocation: Clone {
 }
 
 /// The Goblin based ELF parser.
+#[derive(Debug)]
 pub struct GoblinParser<'a> {
     elf: Elf<'a>,
     header: Elf64Ehdr,
