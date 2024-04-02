@@ -1973,4 +1973,11 @@ mod test {
             SECTION_NAME_LENGTH_MAXIMUM
         );
     }
+    #[test]
+    fn test_move_binary() {
+        // Binary compiled from move-mv-llvm-compiler/tests/rbpf-tests/eq-u32.move program.
+        let elf_bytes = std::fs::read("tests/elfs/move_u32_eq_check.so").unwrap();
+        let p = GoblinParser::parse(&elf_bytes).expect("Failed to parse move binary");
+        assert!(p.section_headers().count() == 10, "Incorrect section entries");
+    }
 }
