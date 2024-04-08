@@ -149,6 +149,7 @@ fn fuzz_alu() {
                 test_ins(format!("mov64 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("add64 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("sub64 r{src}, r{dst}"), &mut prng, 21);
+                test_ins(format!("or64 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("xor64 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("and64 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("lmul64 r{src}, r{dst}"), &mut prng, 21);
@@ -156,7 +157,9 @@ fn fuzz_alu() {
                 test_ins(format!("shmul64 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("udiv64 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("urem64 r{src}, r{dst}"), &mut prng, 21);
+                test_ins(format!("srem64 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("sdiv64 r{src}, r{dst}"), &mut prng, 21);
+                test_ins(format!("udiv64 r{src}, r{dst}"), &mut prng, 21);
 
                 test_ins(format!("lsh64 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("rsh64 r{src}, r{dst}"), &mut prng, 21);
@@ -165,14 +168,16 @@ fn fuzz_alu() {
                 test_ins(format!("mov32 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("add32 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("sub32 r{src}, r{dst}"), &mut prng, 21);
+                test_ins(format!("or32 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("xor32 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("and32 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("lmul32 r{src}, r{dst}"), &mut prng, 21);
                 // test_ins(format!("uhmul32 r{src}, r{dst}"), &mut p, 21rng);
                 // test_ins(format!("shmul32 r{src}, r{dst}"), &mut p, 21rng);
                 test_ins(format!("udiv32 r{src}, r{dst}"), &mut prng, 21);
-                test_ins(format!("urem32 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("sdiv32 r{src}, r{dst}"), &mut prng, 21);
+                test_ins(format!("srem32 r{src}, r{dst}"), &mut prng, 21);
+                test_ins(format!("urem32 r{src}, r{dst}"), &mut prng, 21);
 
                 test_ins(format!("lsh32 r{src}, r{dst}"), &mut prng, 21);
                 test_ins(format!("rsh32 r{src}, r{dst}"), &mut prng, 21);
