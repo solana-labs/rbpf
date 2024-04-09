@@ -180,7 +180,9 @@ impl<'a> Analysis<'a> {
         }
         let mut result = Self {
             // Removes the generic ContextObject which is safe because we are not going to execute the program
-            executable: unsafe { std::mem::transmute(executable) },
+            executable: unsafe {
+                std::mem::transmute::<&Executable<C>, &Executable<TestContextObject>>(executable)
+            },
             instructions,
             functions,
             cfg_nodes: BTreeMap::new(),
