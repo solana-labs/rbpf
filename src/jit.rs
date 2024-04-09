@@ -28,6 +28,7 @@ use crate::{
 const MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH: usize = 4096;
 const MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION: usize = 110;
 const MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT: usize = 13;
+const MAX_START_PADDING_LENGTH: usize = 256;
 
 pub struct JitProgram {
     /// OS page size in bytes and the alignment of the sections
@@ -340,7 +341,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             }
         }
 
-        let mut code_length_estimate = MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION * pc;
+        let mut code_length_estimate = MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH + MAX_START_PADDING_LENGTH + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION * pc;
         if config.noop_instruction_rate != 0 {
             code_length_estimate += code_length_estimate / config.noop_instruction_rate as usize;
         }
@@ -377,7 +378,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Randomized padding at the start before random intervals begin
         if self.config.noop_instruction_rate != 0 {
-            for _ in 0..self.diversification_rng.gen_range(0..self.config.noop_instruction_rate) {
+            for _ in 0..self.diversification_rng.gen_range(0..MAX_START_PADDING_LENGTH) {
                 // X86Instruction::noop().emit(self)?;
                 self.emit::<u8>(0x90);
             }
