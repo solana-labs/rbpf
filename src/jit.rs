@@ -871,7 +871,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Update `MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT` if you change the code generation here
         if let Some(pc) = pc {
             self.last_instruction_meter_validation_pc = pc;
-            self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, REGISTER_INSTRUCTION_METER, pc as i64 + 1, None));
+            self.emit_sanitized_alu(OperandSize::S64, 0x39, RDI, REGISTER_INSTRUCTION_METER, pc as i64 + 1);
         } else {
             self.emit_ins(X86Instruction::cmp(OperandSize::S64, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, None));
         }
@@ -882,7 +882,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     fn emit_profile_instruction_count(&mut self, target_pc: Option<usize>) {
         match target_pc {
             Some(target_pc) => {
-                self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_INSTRUCTION_METER, target_pc as i64 - self.pc as i64 - 1, None)); // instruction_meter += target_pc - (self.pc + 1);
+                self.emit_sanitized_alu(OperandSize::S32, 0x81, 0, REGISTER_INSTRUCTION_METER, target_pc as i64 - self.pc as i64 - 1);
             },
             None => {
                 self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_INSTRUCTION_METER, self.pc as i64 + 1, None)); // instruction_meter -= self.pc + 1;
