@@ -4,7 +4,7 @@ mod exec;
 mod parse;
 
 fn handle_file(file_path: &str) {
-    eprintln!("Running {}", file_path);
+    eprintln!("++++ {}", file_path);
     let file = std::fs::read(file_path).unwrap();
     let parser = crate::parse::Parser::new(file_path, &file);
     for fixture in parser {

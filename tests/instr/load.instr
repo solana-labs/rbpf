@@ -1,6 +1,6 @@
 input=0001020304050607
 
-# ldxb
+# ldxb reg, [reg+off]
 $ op=71 dst=1 src=1 off=0000 r1 =400000000 : ok  r1=00
 $ op=71 dst=1 src=2 off=0007 r2 =400000000 : ok  r1=07
 $ op=71 dst=1 src=3 off=0008 r3 =400000000 : err

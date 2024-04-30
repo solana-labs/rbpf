@@ -508,7 +508,7 @@ impl Insn {
     /// };
     /// assert_eq!(insn.to_array(), prog);
     /// ```
-    pub fn to_array(&self) -> [u8; INSN_SIZE] {
+    pub const fn to_array(&self) -> [u8; INSN_SIZE] {
         [
             self.opc,
             self.src.wrapping_shl(4) | self.dst,

@@ -1,3 +1,5 @@
+use solana_rbpf::ebpf::Insn;
+
 #[derive(Default, Debug, Clone)]
 pub struct Input {
     pub input: Vec<u8>,
@@ -6,18 +8,21 @@ pub struct Input {
     pub src: u8,
     pub off: u16,
     pub imm: u64,
-    pub regs: [u64; 11],
+    pub regs: [u64; 12],
 }
 
 impl Input {
     pub const fn encode_instruction(&self) -> u64 {
         assert!(self.dst < 0x10);
         assert!(self.src < 0x10);
-        self.op as u64
-            | ((self.dst as u64) << 8)
-            | ((self.src as u64) << 12)
-            | ((self.off as u64) << 16)
-            | (self.imm << 32)
+        u64::from_le_bytes(Insn {
+            ptr: 0,
+            opc: self.op,
+            dst: self.dst,
+            src: self.src,
+            off: self.off as i16,
+            imm: self.imm as i64,
+        }.to_array())
     }
 }
 

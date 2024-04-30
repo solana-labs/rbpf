@@ -87,13 +87,13 @@ impl<'a> Parser<'a> {
                 let c2 = self.cur[1];
                 self.advance(2);
                 assert!(c2.is_ascii_hexdigit());
-                let lo = match c {
+                let hi = match c {
                     b'0'..=b'9' => c - b'0',
                     b'a'..=b'f' => c - b'a' + 10,
                     b'A'..=b'F' => c - b'A' + 10,
                     _ => unreachable!(),
                 };
-                let hi = match c2 {
+                let lo = match c2 {
                     b'0'..=b'9' => c2 - b'0',
                     b'a'..=b'f' => c2 - b'a' + 10,
                     b'A'..=b'F' => c2 - b'A' + 10,
@@ -155,6 +155,8 @@ impl<'a> Iterator for Parser<'a> {
                 b':' => {
                     self.state = State::Assert;
                     self.advance(1);
+                    // Copy registers from input to effects
+                    self.effects.regs[..12].copy_from_slice(&self.input.regs);
                     continue 'next_token;
                 }
                 _ => {}

@@ -1,42 +1,21 @@
 use solana_rbpf::{
-    ebpf,
-    ebpf::Insn,
-    elf::Executable,
-    memory_region::{MemoryMapping, MemoryRegion},
-    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
-    verifier::{RequisiteVerifier, Verifier},
-    vm::{Config, EbpfVm, TestContextObject},
+    ebpf::{self, Insn}, elf::Executable, interpreter::Interpreter, memory_region::{MemoryMapping, MemoryRegion}, program::{BuiltinProgram, FunctionRegistry, SBPFVersion}, verifier::{RequisiteVerifier, Verifier}, vm::{Config, EbpfVm, TestContextObject}
 };
 use std::sync::Arc;
 
 use crate::types::*;
 
 pub fn run_input(input: &Input) -> Effects {
-    let vm_config = Config::default();
+    let vm_config = Config {
+        enable_instruction_meter: false,
+        ..Config::default()
+    };
     let sbpf_version = SBPFVersion::V1;
     let function_registry_usize = FunctionRegistry::default();
     let function_registry_typed = FunctionRegistry::default();
 
-    let mut text = Vec::<u8>::with_capacity(8 * (3 + input.regs.len()));
+    let mut text = Vec::<u8>::with_capacity(8 * 3);
 
-    for (i, reg) in input.regs[..=9].iter().enumerate() {
-        text.extend_from_slice(
-            &Insn {
-                opc: ebpf::LD_DW_IMM,
-                dst: i as u8,
-                imm: ((reg & u32::MAX as u64) as u32) as i64,
-                ..Insn::default()
-            }
-            .to_array(),
-        );
-        text.extend_from_slice(
-            &Insn {
-                imm: ((reg >> 32) as u32) as i64,
-                ..Insn::default()
-            }
-            .to_array(),
-        );
-    }
     text.extend_from_slice(&input.encode_instruction().to_le_bytes());
     text.extend_from_slice(
         &Insn {
@@ -92,11 +71,14 @@ pub fn run_input(input: &Input) -> Effects {
         memory_mapping,
         stack_len,
     );
-    vm.stack_pointer = input.regs[10]; // stack_pointer is r10
-
-    let interpreted = true;
-    let (_, result) = vm.execute_program(&executable, interpreted);
-    if result.is_err() {
+    let mut interpreter = Interpreter::new(
+        &mut vm,
+        &executable,
+        input.regs,
+    );
+    while interpreter.step() {}
+    let post_reg = interpreter.reg;
+    if vm.program_result.is_err() {
         return Effects {
             status: Status::Fault,
             ..Effects::default()
@@ -105,7 +87,7 @@ pub fn run_input(input: &Input) -> Effects {
 
     Effects {
         status: Status::Ok,
-        regs: vm.registers,
+        regs: post_reg,
     }
 }
 
@@ -119,6 +101,20 @@ pub fn run_fixture(fixture: &Fixture, source_file: &str) -> bool {
             source_file, fixture.line, fixture.effects.status, actual.status
         );
         fail = true;
+    }
+    if expected.status != Status::Ok {
+        return fail;
+    }
+    for i in 0..=9 {
+        let reg_expected = expected.regs[i];
+        let reg_actual = actual.regs[i];
+        if reg_expected != reg_actual {
+            eprintln!(
+                "FAIL {}:{}: Expected r{} = {:#x}, got {:#x}",
+                source_file, fixture.line, i, reg_expected, reg_actual
+            );
+            fail = true;
+        }
     }
     fail
 }
