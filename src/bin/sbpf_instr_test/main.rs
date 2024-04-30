@@ -3,19 +3,25 @@ pub use types::*;
 mod exec;
 mod parse;
 
-fn handle_file(file_path: &str) {
+fn handle_file(file_path: &str) -> bool {
     eprintln!("++++ {}", file_path);
     let file = std::fs::read(file_path).unwrap();
     let parser = crate::parse::Parser::new(file_path, &file);
+    let mut fail = false;
     for fixture in parser {
-        crate::exec::run_fixture(&fixture, file_path);
+        fail |= crate::exec::run_fixture(&fixture, file_path);
     }
+    fail
 }
 
 fn main() {
     let mut args = std::env::args();
     args.next();
+    let mut fail = false;
     for arg in args {
-        handle_file(&arg);
+        fail |= handle_file(&arg);
+    }
+    if fail {
+        std::process::exit(1);
     }
 }

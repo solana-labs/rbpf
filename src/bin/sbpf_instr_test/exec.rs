@@ -1,5 +1,11 @@
 use solana_rbpf::{
-    ebpf::{self, Insn}, elf::Executable, interpreter::Interpreter, memory_region::{MemoryMapping, MemoryRegion}, program::{BuiltinProgram, FunctionRegistry, SBPFVersion}, verifier::{RequisiteVerifier, Verifier}, vm::{Config, EbpfVm, TestContextObject}
+    ebpf::{self, Insn},
+    elf::Executable,
+    interpreter::Interpreter,
+    memory_region::{MemoryMapping, MemoryRegion},
+    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
+    verifier::{RequisiteVerifier, Verifier},
+    vm::{Config, EbpfVm, TestContextObject},
 };
 use std::sync::Arc;
 
@@ -17,6 +23,9 @@ pub fn run_input(input: &Input) -> Effects {
     let mut text = Vec::<u8>::with_capacity(8 * 3);
 
     text.extend_from_slice(&input.encode_instruction().to_le_bytes());
+    if let Some(ext) = input.encode_instruction_ext() {
+        text.extend_from_slice(&ext.to_le_bytes());
+    }
     text.extend_from_slice(
         &Insn {
             opc: ebpf::EXIT,
@@ -71,11 +80,7 @@ pub fn run_input(input: &Input) -> Effects {
         memory_mapping,
         stack_len,
     );
-    let mut interpreter = Interpreter::new(
-        &mut vm,
-        &executable,
-        input.regs,
-    );
+    let mut interpreter = Interpreter::new(&mut vm, &executable, input.regs);
     while interpreter.step() {}
     let post_reg = interpreter.reg;
     if vm.program_result.is_err() {
@@ -102,7 +107,7 @@ pub fn run_fixture(fixture: &Fixture, source_file: &str) -> bool {
         );
         fail = true;
     }
-    if expected.status != Status::Ok {
+    if expected.status != Status::Ok || actual.status != Status::Ok {
         return fail;
     }
     for i in 0..=9 {
