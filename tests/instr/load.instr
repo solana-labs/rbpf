@@ -1,0 +1,12 @@
+input=0001020304050607
+
+# ldxb
+$ op=71 dst=1 src=1 off=0000 r1 =400000000 : ok  r1=00
+$ op=71 dst=1 src=2 off=0007 r2 =400000000 : ok  r1=07
+$ op=71 dst=1 src=3 off=0008 r3 =400000000 : err
+$ op=71 dst=2 src=4 off=7fff r4 =3ffff8002 : ok  r2=01
+$ op=71 dst=2 src=5 off=8000 r5 =400008003 : ok  r2=03
+$ op=71 dst=2 src=6 off=ffff r6 =400000008 : ok  r2=07
+$ op=71 dst=9 src=a off=0000 r10=400000004 : ok  r9=04
+$ op=71 dst=a src=1 off=0000               : vfy
+$ op=71 dst=9 src=b off=0000               : vfy
