@@ -348,13 +348,6 @@ fn fuzz_alu() {
             test_ins(true, format!("neg64 r{src}"), &mut prng, 21);
             test_ins(true, format!("neg32 r{src}"), &mut prng, 21);
 
-            test_ins(true, format!("le16 r{src}"), &mut prng, 21);
-            test_ins(true, format!("le32 r{src}"), &mut prng, 21);
-            test_ins(true, format!("le64 r{src}"), &mut prng, 21);
-            test_ins(true, format!("be16 r{src}"), &mut prng, 21);
-            test_ins(true, format!("be32 r{src}"), &mut prng, 21);
-            test_ins(true, format!("be64 r{src}"), &mut prng, 21);
-
             test_ins(true, format!("mul64 r{src}, {imm}"), &mut prng, 21);
             test_ins(true, format!("mod64 r{src}, {imm}"), &mut prng, 21);
             test_ins(true, format!("div64 r{src}, {imm}"), &mut prng, 21);
@@ -507,6 +500,10 @@ fn fuzz_alu() {
             test_ins(false, format!("be64 r{src}"), &mut prng, 21);
             test_ins(false, format!("be32 r{src}"), &mut prng, 21);
             test_ins(false, format!("be16 r{src}"), &mut prng, 21);
+
+            test_ins(true, format!("le64 r{src}"), &mut prng, 21);
+            test_ins(true, format!("le32 r{src}"), &mut prng, 21);
+            test_ins(true, format!("le16 r{src}"), &mut prng, 21);
         }
     }
 }
