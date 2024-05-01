@@ -74,7 +74,7 @@ macro_rules! test_interpreter_and_jit {
                 vm.context_object_pointer.clone(),
             )
         };
-        #[cfg(all(not(windows), target_arch = "x86_64"))]
+        #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
         {
             #[allow(unused_mut)]
             let compilation_result = $executable.jit_compile();
@@ -3270,7 +3270,7 @@ fn test_struct_func_pointer() {
 
 // Fuzzy
 
-#[cfg(all(not(windows), target_arch = "x86_64"))]
+#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 fn execute_generated_program(prog: &[u8]) -> bool {
     let max_instruction_count = 1024;
     let mem_size = 1024 * 1024;

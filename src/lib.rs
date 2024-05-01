@@ -41,7 +41,7 @@ pub mod insn_builder;
 pub mod interpreter;
 #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 mod jit;
-#[cfg(feature = "jit")]
+#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 mod memory_management;
 pub mod memory_region;
 pub mod program;

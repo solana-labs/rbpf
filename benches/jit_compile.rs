@@ -39,7 +39,7 @@ fn bench_init_vm(bencher: &mut Bencher) {
     });
 }
 
-#[cfg(not(windows))]
+#[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 #[bench]
 fn bench_jit_compile(bencher: &mut Bencher) {
     let mut file = File::open("tests/elfs/relative_call.so").unwrap();

@@ -51,8 +51,8 @@ fuzz_target!(|data: FuzzData| {
         // verify please
         return;
     }
-    let mut interp_mem = data.mem.clone();
-    let mut jit_mem = data.mem;
+
+    #[allow(unused_mut)]
     let mut executable = Executable::<TestContextObject>::from_text_bytes(
         prog.into_bytes(),
         std::sync::Arc::new(BuiltinProgram::new_loader(
@@ -63,19 +63,24 @@ fuzz_target!(|data: FuzzData| {
         function_registry,
     )
     .unwrap();
-    if executable.jit_compile().is_ok() {
-        let mut interp_context_object = TestContextObject::new(1 << 16);
-        let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
-        create_vm!(
-            interp_vm,
-            &executable,
-            &mut interp_context_object,
-            interp_stack,
-            interp_heap,
-            vec![interp_mem_region],
-            None
-        );
+    let mut interp_mem = data.mem.clone();
+    let mut interp_context_object = TestContextObject::new(1 << 16);
+    let interp_mem_region = MemoryRegion::new_writable(&mut interp_mem, ebpf::MM_INPUT_START);
+    create_vm!(
+        interp_vm,
+        &executable,
+        &mut interp_context_object,
+        interp_stack,
+        interp_heap,
+        vec![interp_mem_region],
+        None
+    );
+    #[allow(unused)]
+    let (_interp_ins_count, interp_res) = interp_vm.execute_program(&executable, true);
 
+    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
+    if executable.jit_compile().is_ok() {
+        let mut jit_mem = data.mem;
         let mut jit_context_object = TestContextObject::new(1 << 16);
         let jit_mem_region = MemoryRegion::new_writable(&mut jit_mem, ebpf::MM_INPUT_START);
         create_vm!(
@@ -87,8 +92,6 @@ fuzz_target!(|data: FuzzData| {
             vec![jit_mem_region],
             None
         );
-
-        let (_interp_ins_count, interp_res) = interp_vm.execute_program(&executable, true);
         let (_jit_ins_count, jit_res) = jit_vm.execute_program(&executable, false);
         if format!("{:?}", interp_res) != format!("{:?}", jit_res) {
             panic!("Expected {:?}, but got {:?}", interp_res, jit_res);

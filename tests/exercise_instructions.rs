@@ -64,7 +64,7 @@ macro_rules! test_interpreter_and_jit {
                 mem,
             )
         };
-        #[cfg(all(not(windows), target_arch = "x86_64"))]
+        #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
         {
             #[allow(unused_mut)]
             $executable.jit_compile().unwrap();
