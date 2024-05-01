@@ -1,4 +1,5 @@
 use crate::types::*;
+use std::convert::TryFrom;
 use std::str::FromStr;
 
 macro_rules! abort {
@@ -15,6 +16,7 @@ pub struct Parser<'a> {
     cur: &'a [u8],
     input: Input,
     effects: Effects,
+    test_line: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -26,6 +28,7 @@ impl<'a> Parser<'a> {
             cur: data,
             input: Input::default(),
             effects: Effects::default(),
+            test_line: 1,
         }
     }
 }
@@ -47,10 +50,10 @@ impl<'a> Parser<'a> {
         if self.cur.is_empty() || self.cur[0] != b'=' {
             abort!("Expected '=' at {}:{}", self.file_path, self.line);
         }
+        self.advance(1);
         while !self.cur.is_empty() && self.cur[0].is_ascii_whitespace() {
             self.advance(1);
         }
-        self.advance(1);
     }
 
     fn read_hex_int(&mut self) -> u64 {
@@ -112,7 +115,6 @@ impl<'a> Iterator for Parser<'a> {
     type Item = Fixture;
     fn next(&mut self) -> Option<Fixture> {
         'next_token: loop {
-            let prev_line = self.line;
             // Skip whitespace
             while !self.cur.is_empty() && self.cur[0].is_ascii_whitespace() {
                 self.advance(1);
@@ -121,7 +123,7 @@ impl<'a> Iterator for Parser<'a> {
                 if self.state == State::Assert {
                     self.state = State::Input;
                     return Some(Fixture {
-                        line: prev_line,
+                        line: self.test_line,
                         input: self.input.clone(),
                         effects: self.effects.clone(),
                     });
@@ -133,6 +135,8 @@ impl<'a> Iterator for Parser<'a> {
                 b'$' => {
                     let prev_state = self.state;
                     self.state = State::Input;
+                    let prev_line = self.test_line;
+                    self.test_line = self.line;
                     if prev_state == State::Assert {
                         return Some(Fixture {
                             line: prev_line,
@@ -179,19 +183,23 @@ impl<'a> Iterator for Parser<'a> {
                 }
                 b"op" => {
                     self.read_assign_sep();
-                    self.input.op = self.read_hex_int() as u8;
+                    self.input.op = u8::try_from(self.read_hex_int()).expect("opcode overflow");
                 }
                 b"dst" => {
                     self.read_assign_sep();
-                    self.input.dst = self.read_hex_int() as u8;
+                    let reg = self.read_hex_int();
+                    assert!(reg < 0x10, "dst reg idx overflow");
+                    self.input.dst = reg as u8;
                 }
                 b"src" => {
                     self.read_assign_sep();
-                    self.input.src = self.read_hex_int() as u8;
+                    let reg = self.read_hex_int();
+                    assert!(reg < 0x10, "src reg idx overflow");
+                    self.input.src = reg as u8;
                 }
                 b"off" => {
                     self.read_assign_sep();
-                    self.input.off = self.read_hex_int() as u16;
+                    self.input.off = u16::try_from(self.read_hex_int()).expect("offset overflow");
                 }
                 b"imm" => {
                     self.read_assign_sep();

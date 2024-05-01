@@ -25,6 +25,8 @@ pub fn run_input(input: &Input) -> Effects {
     text.extend_from_slice(&input.encode_instruction().to_le_bytes());
     if let Some(ext) = input.encode_instruction_ext() {
         text.extend_from_slice(&ext.to_le_bytes());
+    } else if input.imm > u32::MAX as u64 {
+        panic!("imm overflow");
     }
     text.extend_from_slice(
         &Insn {
