@@ -13,10 +13,11 @@ use crate::types::*;
 
 pub fn run_input(input: &Input) -> Effects {
     let vm_config = Config {
+        max_call_depth: 16,
         enable_address_translation: true,
         enable_stack_frame_gaps: true,
         instruction_meter_checkpoint_distance: 10000,
-        enable_instruction_meter: false,
+        enable_instruction_meter: true,
         enable_instruction_tracing: false,
         enable_symbol_and_section_labels: false,
         reject_broken_elfs: true, // TODO confirm
@@ -76,7 +77,7 @@ pub fn run_input(input: &Input) -> Effects {
     )
     .unwrap();
 
-    let cus = 10000u64;
+    let cus = 100u64;
     let mut context_object = TestContextObject::new(cus);
     let mut input_data = input.input.clone();
 
@@ -97,6 +98,8 @@ pub fn run_input(input: &Input) -> Effects {
         memory_mapping,
         stack_len,
     );
+    vm.previous_instruction_meter = cus;
+
     let mut interpreter = Interpreter::new(&mut vm, &executable, input.regs);
     while interpreter.step() {}
     let post_reg = interpreter.reg;
