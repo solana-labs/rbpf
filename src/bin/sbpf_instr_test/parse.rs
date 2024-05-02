@@ -82,14 +82,16 @@ impl<'a> Parser<'a> {
 
     fn read_hex_buf(&mut self) -> Vec<u8> {
         let mut buf = Vec::<u8>::new();
-        while !self.cur.is_empty() {
+        while self.cur.len() >= 2 {
             let c = self.cur[0];
+            let c2 = self.cur[1];
             if c.is_ascii_whitespace() {
                 self.advance(1);
-            } else if c.is_ascii_hexdigit() {
-                let c2 = self.cur[1];
-                self.advance(2);
+                continue;
+            }
+            if c.is_ascii_hexdigit() {
                 assert!(c2.is_ascii_hexdigit());
+                self.advance(2);
                 let hi = match c {
                     b'0'..=b'9' => c - b'0',
                     b'a'..=b'f' => c - b'a' + 10,
@@ -103,8 +105,6 @@ impl<'a> Parser<'a> {
                     _ => unreachable!(),
                 };
                 buf.push(hi << 4 | lo);
-            } else {
-                break;
             }
         }
         buf
@@ -155,6 +155,7 @@ impl<'a> Iterator for Parser<'a> {
                             continue 'next_token;
                         }
                     }
+                    return None;
                 }
                 b':' => {
                     self.state = State::Assert;
