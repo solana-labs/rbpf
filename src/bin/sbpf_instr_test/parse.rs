@@ -89,23 +89,23 @@ impl<'a> Parser<'a> {
                 self.advance(1);
                 continue;
             }
-            if c.is_ascii_hexdigit() {
-                assert!(c2.is_ascii_hexdigit());
-                self.advance(2);
-                let hi = match c {
-                    b'0'..=b'9' => c - b'0',
-                    b'a'..=b'f' => c - b'a' + 10,
-                    b'A'..=b'F' => c - b'A' + 10,
-                    _ => unreachable!(),
-                };
-                let lo = match c2 {
-                    b'0'..=b'9' => c2 - b'0',
-                    b'a'..=b'f' => c2 - b'a' + 10,
-                    b'A'..=b'F' => c2 - b'A' + 10,
-                    _ => unreachable!(),
-                };
-                buf.push(hi << 4 | lo);
+            if !c.is_ascii_hexdigit() || !c2.is_ascii_hexdigit() {
+                break;
             }
+            self.advance(2);
+            let hi = match c {
+                b'0'..=b'9' => c - b'0',
+                b'a'..=b'f' => c - b'a' + 10,
+                b'A'..=b'F' => c - b'A' + 10,
+                _ => unreachable!(),
+            };
+            let lo = match c2 {
+                b'0'..=b'9' => c2 - b'0',
+                b'a'..=b'f' => c2 - b'a' + 10,
+                b'A'..=b'F' => c2 - b'A' + 10,
+                _ => unreachable!(),
+            };
+            buf.push(hi << 4 | lo);
         }
         buf
     }

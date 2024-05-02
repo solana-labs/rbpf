@@ -13,7 +13,22 @@ use crate::types::*;
 
 pub fn run_input(input: &Input) -> Effects {
     let vm_config = Config {
+        enable_address_translation: true,
+        enable_stack_frame_gaps: true,
+        instruction_meter_checkpoint_distance: 10000,
         enable_instruction_meter: false,
+        enable_instruction_tracing: false,
+        enable_symbol_and_section_labels: false,
+        reject_broken_elfs: true, // TODO confirm
+        noop_instruction_rate: 256,
+        sanitize_user_provided_values: true,
+        external_internal_function_hash_collision: false,
+        reject_callx_r10: false,
+        enable_sbpf_v1: true,
+        enable_sbpf_v2: false,
+        optimize_rodata: false,
+        new_elf_parser: true,
+        aligned_memory_mapping: false,
         ..Config::default()
     };
     let sbpf_version = SBPFVersion::V1;
