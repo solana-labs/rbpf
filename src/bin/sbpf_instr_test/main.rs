@@ -25,3 +25,36 @@ fn main() {
         std::process::exit(1);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_instr_bitwise() {
+        assert!(!super::handle_file("tests/instr/bitwise.instr"));
+    }
+
+    #[test]
+    fn test_instr_int_math() {
+        assert!(!super::handle_file("tests/instr/int_math.instr"));
+    }
+
+    #[test]
+    fn test_instr_jump() {
+        assert!(!super::handle_file("tests/instr/jump.instr"));
+    }
+
+    #[test]
+    fn test_instr_load() {
+        assert!(!super::handle_file("tests/instr/load.instr"));
+    }
+
+    #[test]
+    fn test_instr_opcode() {
+        assert!(!super::handle_file("tests/instr/opcode.instr"));
+    }
+
+    #[test]
+    fn test_instr_shift() {
+        assert!(!super::handle_file("tests/instr/shift.instr"));
+    }
+}
