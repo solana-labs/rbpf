@@ -1,3 +1,4 @@
+sbpfv1
 
 # lsh32 reg, imm
 $ op=64 dst=0 src=a off=000a r0=               0 imm=       0 : ok  r0=       0  # zero

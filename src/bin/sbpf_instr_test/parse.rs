@@ -215,6 +215,12 @@ impl<'a> Iterator for Parser<'a> {
                 b"vfy" => {
                     self.effects.status = Status::VerifyFail;
                 }
+                b"sbpfv1" => {
+                    // In the future, use this as a version selection mechanism
+                }
+                b"sbpfv2" => {
+                    panic!("SBPFv2 not yet supported");
+                }
                 _ if word.len() >= 2 && word[0] == b'r' && word[1].is_ascii_digit() => {
                     let reg_idx = std::str::from_utf8(&word[1..])
                         .ok()

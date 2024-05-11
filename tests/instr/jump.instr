@@ -8,6 +8,8 @@
 # guaranteed to succeed (ok).  Or out of bounds (off=aaaa), which is a
 # verify error.
 
+sbpfv1
+
 # ja dst
 $ op=05 dst=7 src=7 off=aaaa imm=5555aaaa : vfy  # OOB
 $ op=05 dst=6 src=6 off=ffff imm=aaaa5555 : err  # spinloop

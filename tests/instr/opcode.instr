@@ -1,3 +1,4 @@
+sbpfv1
 dst=0 src=0 off=0000
 
 $ op=00 imm=0 : vfy
