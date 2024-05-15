@@ -72,7 +72,7 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
                 let mut mem = vec![0; max_len];
                 let align_offset = mem.as_ptr().align_offset(ALIGN);
                 mem.resize(max_len.saturating_add(align_offset), 0);
-                mem
+                (mem, align_offset)
             })
         });
         (TlsVecU8(mem, max_len, true), align_offset)
