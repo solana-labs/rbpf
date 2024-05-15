@@ -27,7 +27,7 @@ impl Drop for TlsVecU8 {
         if !self.1 {
             return;
         }
-
+        let vec = std::mem::take(&mut self.0);
     }
 }
 
