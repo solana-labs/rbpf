@@ -18,7 +18,17 @@ impl Pod for i64 {}
 #[derive(Debug, PartialEq, Eq)]
 struct TlsVecU8(Vec<u8>, bool);
 
+thread_local! {
+    static vecs: RefCell<BTreeSet<usize>;
+}
+
 impl Drop for TlsVecU8 {
+    fn drop(&mut self) {
+        if !self.1 {
+            return;
+        }
+
+    }
 }
 
 impl std::ops::Deref for TlsVecU8 {
