@@ -20,11 +20,11 @@ struct TlsVecU8(Vec<u8>);
 
 impl std::ops::Deref for TlsVecU8 {
     type Target = Vec<u8>;
-    fn deref(&self) -> &<Self as std::ops::Deref>::Target { todo!() }
+    fn deref(&self) -> &<Self as std::ops::Deref>::Target { &self.0 }
 }
 
 impl std::ops::DerefMut for TlsVecU8 {
-    fn deref_mut(&mut self) -> &mut <Self as std::ops::Deref>::Target { todo!() }
+    fn deref_mut(&mut self) -> &mut <Self as std::ops::Deref>::Target { &mut self.0 }
 }
 
 /// Provides u8 slices at a specified alignment
