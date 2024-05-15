@@ -68,10 +68,13 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
             for (l, v) in vecs.iter() {
                 eprintln!("size: {l}, buffer count: {}", v.len());
             }
-            vecs.entry(max_len).or_default().pop().unwrap_or_else(|| vec![0; max_len])
+            vecs.entry(max_len).or_default().pop().unwrap_or_else(|| {
+                let mut mem = vec![0; max_len];
+                let align_offset = mem.as_ptr().align_offset(ALIGN);
+                mem.resize(max_len.saturating_add(align_offset), 0);
+                mem
+            })
         });
-        let align_offset = mem.as_ptr().align_offset(ALIGN);
-        mem.resize(max_len.saturating_add(align_offset), 0);
         (TlsVecU8(mem, max_len, true), align_offset)
     }
     /// Returns a filled AlignedMemory by copying the given slice
