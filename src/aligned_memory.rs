@@ -19,7 +19,7 @@ impl Pod for i64 {}
 struct TlsVecU8(Vec<u8>, bool);
 
 thread_local! {
-    static VECS: std::cell::RefCell<std::collection::BTreeMap<usize, Vec<u8>> = const { RefCell::new(BTreeMap::new()) };
+    static VECS: std::cell::RefCell<std::collection::BTreeMap<usize, Vec<u8>>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 impl Drop for TlsVecU8 {
