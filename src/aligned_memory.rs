@@ -18,6 +18,9 @@ impl Pod for i64 {}
 #[derive(Debug, PartialEq, Eq)]
 struct TlsVecU8(Vec<u8>, bool);
 
+impl Drop for TlsVecU8 {
+}
+
 impl std::ops::Deref for TlsVecU8 {
     type Target = Vec<u8>;
     fn deref(&self) -> &<Self as std::ops::Deref>::Target { &self.0 }
