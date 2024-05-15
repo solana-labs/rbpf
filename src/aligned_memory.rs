@@ -19,7 +19,7 @@ impl Pod for i64 {}
 struct TlsVecU8(Vec<u8>, usize, bool);
 
 thread_local! {
-    static VECS: std::cell::RefCell<std::collections::BTreeMap<usize, Vec<u8>>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
+    static VECS: std::cell::RefCell<std::collections::BTreeMap<usize, Vec<Vec<u8>>>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
 }
 
 impl Drop for TlsVecU8 {
@@ -29,6 +29,7 @@ impl Drop for TlsVecU8 {
         }
         let vec = std::mem::take(&mut self.0);
         VECS.with_borrow_mut(|vecs| {
+            vecs.entry(self.1).or_default().push(vec);
         });
     }
 }
