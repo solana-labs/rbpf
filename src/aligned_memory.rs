@@ -65,6 +65,9 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
         // malloc() + memset(), see
         // https://github.com/rust-lang/rust/issues/54628
         let mut mem = VECS.with_borrow_mut(|vecs| {
+            for (l, v) in vecs {
+                eprintln!("size: {l}, buffer count: {}", v.len());
+            }
             vecs.entry(max_len).or_default().pop().unwrap_or_else(|| vec![0; max_len])
         });
         let align_offset = mem.as_ptr().align_offset(ALIGN);
