@@ -16,7 +16,7 @@ impl Pod for i32 {}
 impl Pod for i64 {}
 
 #[derive(Debug, PartialEq, Eq)]
-struct TlsVecU8(Vec<u8>);
+struct TlsVecU8(Vec<u8>, bool);
 
 impl std::ops::Deref for TlsVecU8 {
     type Target = Vec<u8>;
