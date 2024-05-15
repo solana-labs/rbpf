@@ -42,7 +42,7 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
         mem.push(0);
         let align_offset = mem.as_ptr().align_offset(ALIGN);
         mem.resize(align_offset, 0);
-        (TlsVecU8(mem), align_offset)
+        (TlsVecU8(mem, false), align_offset)
     }
     fn get_mem_zeroed(max_len: usize) -> (TlsVecU8, usize) {
         // use calloc() to get zeroed memory from the OS instead of using
@@ -51,7 +51,7 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
         let mut mem = vec![0; max_len];
         let align_offset = mem.as_ptr().align_offset(ALIGN);
         mem.resize(max_len.saturating_add(align_offset), 0);
-        (TlsVecU8(mem), align_offset)
+        (TlsVecU8(mem, true), align_offset)
     }
     /// Returns a filled AlignedMemory by copying the given slice
     pub fn from_slice(data: &[u8]) -> Self {
