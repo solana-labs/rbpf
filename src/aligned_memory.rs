@@ -29,6 +29,7 @@ impl Drop for TlsVecU8 {
         }
         let vec = std::mem::take(&mut self.0);
         VECS.with_borrow_mut(|vecs| {
+            vec.fill(0);
             vecs.entry(self.1).or_default().push(vec);
         });
     }
