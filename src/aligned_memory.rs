@@ -64,7 +64,9 @@ impl<const ALIGN: usize> AlignedMemory<ALIGN> {
         // use calloc() to get zeroed memory from the OS instead of using
         // malloc() + memset(), see
         // https://github.com/rust-lang/rust/issues/54628
-        let mut mem = vec![0; max_len];
+        let mut mem = VECS.with_borrow_mut(|vecs| {
+            vec![0; max_len]
+        });
         let align_offset = mem.as_ptr().align_offset(ALIGN);
         mem.resize(max_len.saturating_add(align_offset), 0);
         (TlsVecU8(mem, max_len, true), align_offset)
