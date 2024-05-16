@@ -246,7 +246,10 @@ impl<C: ContextObject> BuiltinProgram<C> {
     /// Constructs a mock loader built-in program
     pub fn new_mock() -> Self {
         Self {
-            config: Some(Box::default()),
+            config: Some(Box::new(Config {
+                max_call_depth: 64,
+                ..Config::default()
+            })),
             functions: FunctionRegistry::default(),
         }
     }
