@@ -832,13 +832,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     #[inline]
     fn emit_sanitized_alu(&mut self, size: OperandSize, opcode: u8, opcode_extension: u8, destination: u8, immediate: i64) {
         if self.should_sanitize_constant(immediate) {
-            self.emit_sanitized_load_immediate(size, REGISTER_SCRATCH, immediate);
-            self.emit_ins(X86Instruction::alu(size, opcode, REGISTER_SCRATCH, destination, 0, None));
+            self.emit_sanitized_load_immediate(size, REGISTER_OTHER_SCRATCH, immediate);
+            self.emit_ins(X86Instruction::alu(size, opcode, REGISTER_OTHER_SCRATCH, destination, 0, None));
         } else if immediate >= i32::MIN as i64 && immediate <= i32::MAX as i64 {
             self.emit_ins(X86Instruction::alu(size, 0x81, opcode_extension, destination, immediate, None));
         } else {
-            self.emit_ins(X86Instruction::load_immediate(size, REGISTER_SCRATCH, immediate));
-            self.emit_ins(X86Instruction::alu(size, opcode, REGISTER_SCRATCH, destination, 0, None));
+            self.emit_ins(X86Instruction::load_immediate(size, REGISTER_OTHER_SCRATCH, immediate));
+            self.emit_ins(X86Instruction::alu(size, opcode, REGISTER_OTHER_SCRATCH, destination, 0, None));
         }
     }
 
@@ -882,7 +882,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     fn emit_profile_instruction_count(&mut self, target_pc: Option<usize>) {
         match target_pc {
             Some(target_pc) => {
-                self.emit_sanitized_alu(OperandSize::S32, 0x81, 0, REGISTER_INSTRUCTION_METER, target_pc as i64 - self.pc as i64 - 1);
+                self.emit_sanitized_alu(OperandSize::S64, 0x01, 0, REGISTER_INSTRUCTION_METER, target_pc as i64 - self.pc as i64 - 1);
             },
             None => {
                 self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_INSTRUCTION_METER, self.pc as i64 + 1, None)); // instruction_meter -= self.pc + 1;
