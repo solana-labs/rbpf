@@ -78,7 +78,7 @@ fuzz_target!(|data: FuzzData| {
     #[allow(unused)]
     let (_interp_ins_count, interp_res) = interp_vm.execute_program(&executable, true);
 
-    #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
+    #[cfg(all(not(target_os = "windows"), target_arch = "x86_64"))]
     if executable.jit_compile().is_ok() {
         let mut jit_mem = data.mem;
         let mut jit_context_object = TestContextObject::new(1 << 16);
