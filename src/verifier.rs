@@ -164,6 +164,16 @@ fn check_jmp_offset(
     Ok(())
 }
 
+fn check_call_target(
+    key: u32,
+    function_registry: &FunctionRegistry<usize>,
+) -> Result<(), VerifierError> {
+    function_registry
+        .lookup_by_key(key)
+        .map(|_| ())
+        .ok_or(VerifierError::InvalidFunction(key as usize))
+}
+
 fn check_registers(
     insn: &ebpf::Insn,
     store: bool,
@@ -371,7 +381,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
-                ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src != 0 => { check_jmp_offset(prog, insn_ptr, &program_range)?; },
+                ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src != 0 => { check_call_target(insn.imm as u32, function_registry)?; },
                 ebpf::CALL_IMM   => {},
                 ebpf::CALL_REG   => { check_callx_register(&insn, insn_ptr, config, sbpf_version)?; },
                 ebpf::EXIT       => {},
