@@ -2801,6 +2801,29 @@ fn test_err_exit_capped() {
     );
 }
 
+#[test]
+fn test_far_jumps() {
+    test_interpreter_and_jit_asm!(
+        "
+        call function_c
+        exit
+        function_a:
+        exit
+        function_b:
+        .fill 1024, 0x0F
+        exit
+        function_c:
+        mov32 r1, 0x00000010
+        hor64 r1, 0x00000001
+        callx r1
+        exit",
+        [],
+        (),
+        TestContextObject::new(7),
+        ProgramResult::Ok(0),
+    );
+}
+
 // Symbols and Relocation
 
 #[test]
