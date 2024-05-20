@@ -38,6 +38,11 @@ pub enum Operand {
 pub enum Statement {
     /// Parsed label (name).
     Label { name: String },
+    /// Parsed directive (name, operands).
+    Directive {
+        name: String,
+        operands: Vec<Operand>,
+    },
     /// Parsed instruction (name, operands).
     Instruction {
         name: String,
@@ -106,6 +111,14 @@ parser! {
 }
 
 parser! {
+    fn directive[I]()(I) -> Statement where [I: Stream<Item=char>] {
+        let operands = sep_by(operand(), char(',').skip(skip_many(char(' '))));
+        (char('.').with(many1(alpha_num())).skip(skip_many(char(' '))), operands)
+            .map(|t| Statement::Directive { name: t.0, operands: t.1 })
+    }
+}
+
+parser! {
     fn instruction[I]()(I) -> Statement where [I: Stream<Item=char>] {
         let operands = sep_by(operand(), char(',').skip(skip_many(char(' '))));
         (mnemonic().skip(skip_many(char(' '))), operands)
@@ -150,7 +163,12 @@ fn format_parse_error(parse_error: &Errors<char, &str, SourcePosition>) -> Strin
 /// The instructions are not validated and may have invalid names and operand types.
 pub fn parse(input: &str) -> Result<Vec<Statement>, String> {
     match spaces()
-        .with(many(attempt(label()).or(instruction()).skip(spaces())))
+        .with(many(
+            attempt(label())
+                .or(directive())
+                .or(instruction())
+                .skip(spaces()),
+        ))
         .skip(eof())
         .easy_parse(State::with_positioner(input, SourcePosition::default()))
     {
@@ -648,7 +666,7 @@ exit
         assert_eq!(
             parse("exit\n^"),
             Err(
-                "Parse error at line 2 column 1: unexpected '^', expected letter or digit, expected \'_\', expected whitespaces, expected end of input".to_string()
+                "Parse error at line 2 column 1: unexpected '^', expected letter or digit, expected '_', expected '.', expected whitespaces, expected end of input".to_string()
             )
         );
     }

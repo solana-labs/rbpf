@@ -36,6 +36,17 @@ fn test_empty() {
     assert_eq!(asm(""), Ok(vec![]));
 }
 
+#[test]
+fn test_fill() {
+    assert_eq!(
+        asm(".fill 2, 0x210F"),
+        Ok(vec![
+            insn(0, ebpf::ADD64_REG, 1, 2, 0, 0),
+            insn(1, ebpf::ADD64_REG, 1, 2, 0, 0)
+        ])
+    );
+}
+
 // Example for InstructionType::NoOperand.
 #[test]
 fn test_exit() {
