@@ -414,7 +414,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_PTR_TO_VM, insn.imm, Some(stack_ptr_access)));
                 }
 
-                ebpf::LD_DW_IMM  => {
+                ebpf::LD_DW_IMM if !self.executable.get_sbpf_version().disable_lddw() => {
                     self.emit_validate_and_profile_instruction_count(true, Some(self.pc + 2));
                     self.pc += 1;
                     self.result.pc_section[self.pc] = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
@@ -584,7 +584,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::MOV64_REG  => self.emit_ins(X86Instruction::mov(OperandSize::S64, src, dst)),
                 ebpf::ARSH64_IMM => self.emit_shift(OperandSize::S64, 7, REGISTER_SCRATCH, dst, Some(insn.imm)),
                 ebpf::ARSH64_REG => self.emit_shift(OperandSize::S64, 7, src, dst, None),
-                ebpf::HOR64_IMM => {
+                ebpf::HOR64_IMM if self.executable.get_sbpf_version().disable_lddw() => {
                     self.emit_sanitized_alu(OperandSize::S64, 0x09, 1, dst, (insn.imm as u64).wrapping_shl(32) as i64);
                 }
 

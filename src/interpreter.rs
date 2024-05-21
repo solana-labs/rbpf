@@ -183,7 +183,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 self.vm.stack_pointer = self.vm.stack_pointer.overflowing_add(insn.imm as u64).0;
             }
 
-            ebpf::LD_DW_IMM  => {
+            ebpf::LD_DW_IMM if !self.executable.get_sbpf_version().disable_lddw() => {
                 ebpf::augment_lddw_unchecked(self.program, &mut insn);
                 self.reg[dst] = insn.imm as u64;
                 self.reg[11] += 1;
