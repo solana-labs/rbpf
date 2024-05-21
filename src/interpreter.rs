@@ -183,7 +183,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 self.vm.stack_pointer = self.vm.stack_pointer.overflowing_add(insn.imm as u64).0;
             }
 
-            ebpf::LD_DW_IMM if !self.executable.get_sbpf_version().disable_lddw() => {
+            ebpf::LD_DW_IMM if self.executable.get_sbpf_version().enable_lddw() => {
                 ebpf::augment_lddw_unchecked(self.program, &mut insn);
                 self.reg[dst] = insn.imm as u64;
                 self.reg[11] += 1;
@@ -337,7 +337,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
             ebpf::MOV64_REG  => self.reg[dst] =  self.reg[src],
             ebpf::ARSH64_IMM => self.reg[dst] = (self.reg[dst] as i64).wrapping_shr(insn.imm as u32)      as u64,
             ebpf::ARSH64_REG => self.reg[dst] = (self.reg[dst] as i64).wrapping_shr(self.reg[src] as u32) as u64,
-            ebpf::HOR64_IMM if self.executable.get_sbpf_version().disable_lddw() => {
+            ebpf::HOR64_IMM if !self.executable.get_sbpf_version().enable_lddw() => {
                 self.reg[dst] |= (insn.imm as u64).wrapping_shl(32);
             }
 

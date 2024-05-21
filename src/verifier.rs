@@ -251,7 +251,7 @@ impl Verifier for RequisiteVerifier {
             }
 
             match insn.opc {
-                ebpf::LD_DW_IMM if !sbpf_version.disable_lddw() => {
+                ebpf::LD_DW_IMM if sbpf_version.enable_lddw() => {
                     check_load_dw(prog, insn_ptr)?;
                     insn_ptr += 1;
                 },
@@ -329,7 +329,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::MOV64_REG  => {},
                 ebpf::ARSH64_IMM => { check_imm_shift(&insn, insn_ptr, 64)?; },
                 ebpf::ARSH64_REG => {},
-                ebpf::HOR64_IMM  if sbpf_version.disable_lddw() => {},
+                ebpf::HOR64_IMM  if !sbpf_version.enable_lddw() => {},
 
                 // BPF_PQR class
                 ebpf::LMUL32_IMM if sbpf_version.enable_pqr() => {},

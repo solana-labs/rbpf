@@ -35,9 +35,9 @@ impl SBPFVersion {
         self != &SBPFVersion::V1
     }
 
-    /// Disable the only two slots long instruction: LD_DW_IMM
-    pub fn disable_lddw(&self) -> bool {
-        self != &SBPFVersion::V1
+    /// Enable the only two slots long instruction: LD_DW_IMM
+    pub fn enable_lddw(&self) -> bool {
+        self == &SBPFVersion::V1
     }
 
     /// Enable the BPF_PQR instruction class
