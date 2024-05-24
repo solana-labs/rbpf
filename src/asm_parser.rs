@@ -64,7 +64,7 @@ parser! {
 
 parser! {
     fn integer[I]()(I) -> i64 where [I: Stream<Item=char>] {
-        let sign = optional(one_of("-+".chars())).map(|x| match x {
+        let sign = optional(one_of("-+".chars()).skip(skip_many(char(' ')))).map(|x| match x {
             Some('-') => -1,
             _ => 1,
         });
@@ -92,7 +92,7 @@ parser! {
         let memory = between(
             char('['),
             char(']'),
-            (register(), optional(integer())),
+            (register().skip(skip_many(char(' '))), optional(integer())),
         )
         .map(|t| Operand::Memory(t.0, t.1.unwrap_or(0)));
         let label = ident().map(Operand::Label);
@@ -238,6 +238,11 @@ mod tests {
         assert_eq!(
             operand().parse("[r3-0x1f]"),
             Ok((Operand::Memory(3, -31), ""))
+        );
+        assert_eq!(operand().parse("[r5 + 3]"), Ok((Operand::Memory(5, 3), "")));
+        assert_eq!(
+            operand().parse("[r11 - 0x30]"),
+            Ok((Operand::Memory(11, -48), ""))
         );
     }
 
