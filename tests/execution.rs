@@ -1987,8 +1987,6 @@ fn test_err_dynamic_stack_out_of_bound() {
 
 #[test]
 fn test_err_dynamic_stack_ptr_overflow() {
-    let config = Config::default();
-
     // See the comment in CallFrames::resize_stack() for the reason why it's
     // safe to let the stack pointer overflow
 
@@ -1999,13 +1997,12 @@ fn test_err_dynamic_stack_ptr_overflow() {
         add r11, -0x7FFFFFFF
         add r11, -0x7FFFFFFF
         add r11, -0x7FFFFFFF
-        add r11, -0x14005
+        add r11, -0x40005
         call function_foo
         exit
         function_foo:
         stb [r10], 0
         exit",
-        config,
         [],
         (),
         TestContextObject::new(7),
@@ -2325,54 +2322,69 @@ fn test_err_callx_oob_high() {
 
 #[test]
 fn test_bpf_to_bpf_depth() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldxb r1, [r1]
-        add64 r1, -2
-        call function_foo
-        exit
-        function_foo:
-        jeq r1, 0, +2
-        add64 r1, -1
-        call function_foo
-        exit",
-        [Config::default().max_call_depth as u8],
-        (),
-        TestContextObject::new(78),
-        ProgramResult::Ok(0),
-    );
-    // The instruction count is lower here because all the `exit`s never run
-    test_interpreter_and_jit_asm!(
-        "
-        ldxb r1, [r1]
-        add64 r1, -2
-        call function_foo
-        exit
-        function_foo:
-        jeq r1, 0, +2
-        add64 r1, -1
-        call function_foo
-        exit",
-        [Config::default().max_call_depth as u8 + 1],
-        (),
-        TestContextObject::new(60),
-        ProgramResult::Err(EbpfError::CallDepthExceeded),
-    );
+    for max_call_depth in [20usize, Config::default().max_call_depth] {
+        let config = Config {
+            max_call_depth,
+            ..Config::default()
+        };
+        test_interpreter_and_jit_asm!(
+            "
+            ldxb r1, [r1]
+            add64 r1, -2
+            call function_foo
+            exit
+            function_foo:
+            jeq r1, 0, +2
+            add64 r1, -1
+            call function_foo
+            exit",
+            config,
+            [max_call_depth as u8],
+            (),
+            TestContextObject::new(max_call_depth as u64 * 4 - 2),
+            ProgramResult::Ok(0),
+        );
+        // The instruction count is lower here because all the `exit`s never run
+        test_interpreter_and_jit_asm!(
+            "
+            ldxb r1, [r1]
+            add64 r1, -2
+            call function_foo
+            exit
+            function_foo:
+            jeq r1, 0, +2
+            add64 r1, -1
+            call function_foo
+            exit",
+            config,
+            [max_call_depth as u8 + 1],
+            (),
+            TestContextObject::new(max_call_depth as u64 * 3),
+            ProgramResult::Err(EbpfError::CallDepthExceeded),
+        );
+    }
 }
 
 #[test]
 fn test_err_reg_stack_depth() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r0, 0x1
-        lsh64 r0, 0x20
-        callx r0
-        exit",
-        [],
-        (),
-        TestContextObject::new(60),
-        ProgramResult::Err(EbpfError::CallDepthExceeded),
-    );
+    for max_call_depth in [20usize, Config::default().max_call_depth] {
+        let config = Config {
+            max_call_depth,
+            ..Config::default()
+        };
+        test_interpreter_and_jit_asm!(
+            "
+            mov64 r0, 0x1
+            lsh64 r0, 0x20
+            callx r0
+            exit",
+            config,
+            [],
+            (),
+            TestContextObject::new(max_call_depth as u64 * 3),
+            ProgramResult::Err(EbpfError::CallDepthExceeded),
+        );
+    }
 }
 
 // CALL_IMM : Syscalls

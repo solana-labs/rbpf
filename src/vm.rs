@@ -87,7 +87,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            max_call_depth: 20,
+            max_call_depth: 64,
             stack_frame_size: 4_096,
             enable_address_translation: true,
             enable_stack_frame_gaps: true,
