@@ -1,6 +1,6 @@
 [package]
 name = "solana_rbpf"
-version = "0.8.0"
+version = "0.8.1"
 description = "Virtual machine and JIT compiler for eBPF programs"
 authors = ["Solana Maintainers <maintainers@solana.foundation>"]
 repository = "https://github.com/solana-labs/rbpf"
