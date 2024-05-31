@@ -22,7 +22,13 @@ use crate::{
     program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
     vm::ContextObject,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+
+#[cfg(not(feature = "shuttle-test"))]
+use std::sync::Arc;
+
+#[cfg(feature = "shuttle-test")]
+use shuttle::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum InstructionType {

@@ -10,7 +10,13 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+#[cfg(not(feature = "shuttle-test"))]
+use rand::{thread_rng, Rng};
+
+#[cfg(feature = "shuttle-test")]
+use shuttle::rand::{thread_rng, Rng};
+
+use rand::{rngs::SmallRng, SeedableRng};
 use std::{fmt::Debug, mem, ptr};
 
 use crate::{
@@ -352,8 +358,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         debug_assert!(code_length_estimate < (i32::MAX as usize));
 
         let runtime_environment_key = get_runtime_environment_key();
-        let mut diversification_rng = SmallRng::from_rng(rand::thread_rng()).map_err(|_| EbpfError::JitNotCompiled)?;
-        
+        let mut diversification_rng = SmallRng::from_rng(thread_rng()).map_err(|_| EbpfError::JitNotCompiled)?;
+
         Ok(Self {
             result: JitProgram::new(pc, code_length_estimate)?,
             text_section_jumps: vec![],

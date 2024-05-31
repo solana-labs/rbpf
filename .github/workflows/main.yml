@@ -37,6 +37,7 @@ jobs:
       run: |
         export RUSTFLAGS="-D warnings"
         cargo build --verbose
+        cargo build --features="shuttle-test"
         cargo test --verbose
         cargo test --test exercise_instructions --verbose
       shell: bash
