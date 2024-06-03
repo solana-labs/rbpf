@@ -359,9 +359,9 @@ dependencies = [
 
 [[package]]
 name = "shuttle"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa904d5f504c34f1aa43218ee180173970a360124f44bdbaeda4e3d8d53e24c3"
+checksum = "2d9a8db61a44e2b663f169a08206a789bcbd22ba32011e14951562848e7b9c98"
 dependencies = [
  "assoc",
  "bitvec",
