@@ -29,6 +29,7 @@ log = "0.4.2"
 rand = { version = "0.8.5", features = ["small_rng"]}
 rustc-demangle = "0.1"
 scroll = "0.11"
+shuttle = { version = "0.7.1", optional = true }
 thiserror = "1.0.26"
 
 [target.'cfg(windows)'.dependencies]
@@ -42,6 +43,7 @@ default = ["jit"]
 jit = ["libc", "winapi"]
 fuzzer-not-safe-for-production = ["arbitrary"]
 debugger = ["gdbstub"]
+shuttle-test = ["dep:shuttle"]
 
 [dev-dependencies]
 elf = "0.0.10"
