@@ -62,6 +62,53 @@ pub enum ElfParserError {
     NoDynamicStringTable,
 }
 
+impl Elf64Phdr {
+    /// Returns the segment virtual address range.
+    pub fn vm_range(&self) -> Range<Elf64Addr> {
+        let addr = self.p_vaddr;
+        addr..addr.saturating_add(self.p_memsz)
+    }
+}
+
+impl Elf64Shdr {
+    /// Returns whether the section is writable.
+    pub fn is_writable(&self) -> bool {
+        self.sh_flags & (SHF_ALLOC | SHF_WRITE) == SHF_ALLOC | SHF_WRITE
+    }
+
+    /// Returns the byte range the section spans in the file.
+    pub fn file_range(&self) -> Option<Range<usize>> {
+        (self.sh_type != SHT_NOBITS).then(|| {
+            let offset = self.sh_offset as usize;
+            offset..offset.saturating_add(self.sh_size as usize)
+        })
+    }
+
+    /// Returns the virtual address range.
+    pub fn vm_range(&self) -> Range<Elf64Addr> {
+        self.sh_addr..self.sh_addr.saturating_add(self.sh_size)
+    }
+}
+
+impl Elf64Sym {
+    /// Returns whether the symbol is a function.
+    pub fn is_function(&self) -> bool {
+        (self.st_info & 0xF) == STT_FUNC
+    }
+}
+
+impl Elf64Rel {
+    /// Returns the relocation type.
+    pub fn r_type(&self) -> Elf64Word {
+        (self.r_info & 0xFFFFFFFF) as Elf64Word
+    }
+
+    /// Returns the symbol index.
+    pub fn r_sym(&self) -> Elf64Word {
+        self.r_info.checked_shr(32).unwrap_or(0) as Elf64Word
+    }
+}
+
 fn check_that_there_is_no_overlap(
     range_a: &Range<usize>,
     range_b: &Range<usize>,

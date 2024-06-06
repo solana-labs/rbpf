@@ -34,7 +34,6 @@ pub mod disassembler;
 pub mod ebpf;
 pub mod elf;
 pub mod elf_parser;
-pub mod elf_parser_glue;
 pub mod error;
 pub mod fuzz;
 pub mod insn_builder;
