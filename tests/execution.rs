@@ -184,21 +184,16 @@ macro_rules! test_interpreter_and_jit_elf {
 // BPF_ALU : Arithmetic and Logic
 
 #[test]
-fn test_mov() {
+fn test_mov32_imm() {
     test_interpreter_and_jit_asm!(
         "
-        mov32 r1, 1
-        mov32 r0, r1
+        mov32 r0, 1
         exit",
         [],
         (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(0x1),
+        TestContextObject::new(2),
+        ProgramResult::Ok(1),
     );
-}
-
-#[test]
-fn test_mov32_imm_large() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, -1
@@ -211,7 +206,17 @@ fn test_mov32_imm_large() {
 }
 
 #[test]
-fn test_mov_large() {
+fn test_mov32_reg() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov32 r1, 1
+        mov32 r0, r1
+        exit",
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(0x1),
+    );
     test_interpreter_and_jit_asm!(
         "
         mov32 r1, -1
@@ -220,7 +225,53 @@ fn test_mov_large() {
         [],
         (),
         TestContextObject::new(3),
-        ProgramResult::Ok(0xffffffff),
+        ProgramResult::Ok(0xffffffffffffffff),
+    );
+}
+
+#[test]
+fn test_mov64_imm() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r0, 1
+        exit",
+        [],
+        (),
+        TestContextObject::new(2),
+        ProgramResult::Ok(1),
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r0, -1
+        exit",
+        [],
+        (),
+        TestContextObject::new(2),
+        ProgramResult::Ok(0xffffffffffffffff),
+    );
+}
+
+#[test]
+fn test_mov64_reg() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r1, 1
+        mov64 r0, r1
+        exit",
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(0x1),
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r1, -1
+        mov64 r0, r1
+        exit",
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(0xffffffffffffffff),
     );
 }
 
@@ -651,33 +702,93 @@ fn test_pqr() {
         (ebpf::UDIV64_IMM, u64::MAX, u64::MAX, 1u64),
         (ebpf::UREM32_IMM, u64::MAX, u64::MAX, 0u64),
         (ebpf::UREM64_IMM, u64::MAX, u64::MAX, 0u64),
-        (ebpf::LMUL32_IMM, 13i64 as u64, 4i32 as u64, 52i32 as u64),
+        (
+            ebpf::LMUL32_IMM,
+            13i64 as u64,
+            4i32 as u32 as u64,
+            52i32 as u32 as u64,
+        ),
         (ebpf::LMUL64_IMM, 13i64 as u64, 4i64 as u64, 52i64 as u64),
         (ebpf::SHMUL64_IMM, 13i64 as u64, 4i64 as u64, 0i64 as u64),
-        (ebpf::SDIV32_IMM, 13i64 as u64, 4i32 as u64, 3i32 as u64),
+        (
+            ebpf::SDIV32_IMM,
+            13i64 as u64,
+            4i32 as u32 as u64,
+            3i32 as u32 as u64,
+        ),
         (ebpf::SDIV64_IMM, 13i64 as u64, 4i64 as u64, 3i64 as u64),
-        (ebpf::SREM32_IMM, 13i64 as u64, 4i32 as u64, 1i64 as u64),
+        (
+            ebpf::SREM32_IMM,
+            13i64 as u64,
+            4i32 as u32 as u64,
+            1i64 as u64,
+        ),
         (ebpf::SREM64_IMM, 13i64 as u64, 4i64 as u64, 1i64 as u64),
-        (ebpf::LMUL32_IMM, 13i64 as u64, -4i32 as u64, -52i32 as u64),
+        (
+            ebpf::LMUL32_IMM,
+            13i64 as u64,
+            -4i32 as u32 as u64,
+            -52i32 as u32 as u64,
+        ),
         (ebpf::LMUL64_IMM, 13i64 as u64, -4i64 as u64, -52i64 as u64),
         (ebpf::SHMUL64_IMM, 13i64 as u64, -4i64 as u64, -1i64 as u64),
-        (ebpf::SDIV32_IMM, 13i64 as u64, -4i32 as u64, -3i32 as u64),
+        (
+            ebpf::SDIV32_IMM,
+            13i64 as u64,
+            -4i32 as u32 as u64,
+            -3i32 as u32 as u64,
+        ),
         (ebpf::SDIV64_IMM, 13i64 as u64, -4i64 as u64, -3i64 as u64),
-        (ebpf::SREM32_IMM, 13i64 as u64, -4i32 as u64, 1i64 as u64),
+        (
+            ebpf::SREM32_IMM,
+            13i64 as u64,
+            -4i32 as u32 as u64,
+            1i64 as u64,
+        ),
         (ebpf::SREM64_IMM, 13i64 as u64, -4i64 as u64, 1i64 as u64),
-        (ebpf::LMUL32_IMM, -13i64 as u64, 4i32 as u64, -52i32 as u64),
+        (
+            ebpf::LMUL32_IMM,
+            -13i64 as u64,
+            4i32 as u32 as u64,
+            -52i32 as u32 as u64,
+        ),
         (ebpf::LMUL64_IMM, -13i64 as u64, 4i64 as u64, -52i64 as u64),
         (ebpf::SHMUL64_IMM, -13i64 as u64, 4i64 as u64, -1i64 as u64),
-        (ebpf::SDIV32_IMM, -13i64 as u64, 4i32 as u64, -3i32 as u64),
+        (
+            ebpf::SDIV32_IMM,
+            -13i64 as u64,
+            4i32 as u32 as u64,
+            -3i32 as u32 as u64,
+        ),
         (ebpf::SDIV64_IMM, -13i64 as u64, 4i64 as u64, -3i64 as u64),
-        (ebpf::SREM32_IMM, -13i64 as u64, 4i32 as u64, -1i64 as u64),
+        (
+            ebpf::SREM32_IMM,
+            -13i64 as u64,
+            4i32 as u32 as u64,
+            -1i32 as u32 as u64,
+        ),
         (ebpf::SREM64_IMM, -13i64 as u64, 4i64 as u64, -1i64 as u64),
-        (ebpf::LMUL32_IMM, -13i64 as u64, -4i32 as u64, 52i32 as u64),
+        (
+            ebpf::LMUL32_IMM,
+            -13i64 as u64,
+            -4i32 as u32 as u64,
+            52i32 as u32 as u64,
+        ),
         (ebpf::LMUL64_IMM, -13i64 as u64, -4i64 as u64, 52i64 as u64),
         (ebpf::SHMUL64_IMM, -13i64 as u64, -4i64 as u64, 0i64 as u64),
-        (ebpf::SDIV32_IMM, -13i64 as u64, -4i32 as u64, 3i32 as u64),
+        (
+            ebpf::SDIV32_IMM,
+            -13i64 as u64,
+            -4i32 as u32 as u64,
+            3i32 as u32 as u64,
+        ),
         (ebpf::SDIV64_IMM, -13i64 as u64, -4i64 as u64, 3i64 as u64),
-        (ebpf::SREM32_IMM, -13i64 as u64, -4i32 as u64, -1i64 as u64),
+        (
+            ebpf::SREM32_IMM,
+            -13i64 as u64,
+            -4i32 as u32 as u64,
+            -1i32 as u32 as u64,
+        ),
         (ebpf::SREM64_IMM, -13i64 as u64, -4i64 as u64, -1i64 as u64),
     ] {
         LittleEndian::write_u32(&mut prog[4..], dst as u32);
@@ -3439,6 +3550,25 @@ fn test_err_fixed_stack_out_of_bound() {
             1,
             "program"
         )),
+    );
+}
+
+#[test]
+fn test_mov32_reg_truncating() {
+    let config = Config {
+        enable_sbpf_v2: false,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r1, -1
+        mov32 r0, r1
+        exit",
+        config,
+        [],
+        (),
+        TestContextObject::new(3),
+        ProgramResult::Ok(0xffffffff),
     );
 }
 
