@@ -113,10 +113,7 @@ The following Rust equivalents assume that:
 | `CC` / `11001100`  | all         | `ash32 dst, src`       | `dst = (dst as i32).wrapping_shr(src as u32) as u32 as u64`
 | `D4` / `11010100`  | until v2    | `le dst, imm` | `dst = dst as u32 as u64`
 | `DC` / `11011100`  | all         | `be dst, imm` | `dst = match imm { 16 => (dst as u16).swap_bytes() as u64, 32 => (dst as u32).swap_bytes() as u64, 64 => dst.swap_bytes() }`
-| `E4` / `11100100`  |             | -- reserved --
-| `EC` / `11101100`  |             | -- reserved --
-| `F4` / `11110100`  |             | -- reserved --
-| `FC` / `11111100`  |             | -- reserved --
+| `E4` to `FC`       |             | -- reserved --
 
 ### 64 bit Arithmetic and Logic
 | opcode (hex / bin) | feature set | assembler mnemonic | Rust equivalent
@@ -148,10 +145,7 @@ The following Rust equivalents assume that:
 | `BF` / `10111111`  | all         | `mov64 dst, src`   | `dst = src`
 | `C7` / `11000111`  | all         | `ash64 dst, imm`   | `dst = (dst as i64).wrapping_shr(imm)`
 | `CF` / `11001111`  | all         | `ash64 dst, src`   | `dst = (dst as i64).wrapping_shr(src as u32)`
-| `D7` / `11010111`  |             | -- reserved --
-| `DF` / `11011111`  |             | -- reserved --
-| `E7` / `11100111`  |             | -- reserved --
-| `EF` / `11101111`  |             | -- reserved --
+| `D7` to `EF`       |             | -- reserved --
 | `F7` / `11110111`  | from v2     | `hor64 dst, imm`   | `dst = dst.or((imm as u64).wrapping_shl(32))`
 | `FF` / `11111111`  |             | -- reserved --
 
@@ -170,12 +164,7 @@ The following Rust equivalents assume that:
 
 | opcode (hex / bin) | feature set | assembler mnemonic | Rust equivalent
 | ------------------ | ----------- | ------------------ | ---------------
-| `06` / `00000110`  |             | -- reserved --
-| `0E` / `00001110`  |             | -- reserved --
-| `16` / `00010110`  |             | -- reserved --
-| `1E` / `00011110`  |             | -- reserved --
-| `26` / `00100110`  |             | -- reserved --
-| `2E` / `00101110`  |             | -- reserved --
+| `06` to `2E`       |             | -- reserved --
 | `36` / `00110110`  | from v2     | `uhmul64 dst, imm` | `dst = (dst as u128).wrapping_mul(imm as u128).wrapping_shr(64) as u64`
 | `3E` / `00111110`  | from v2     | `uhmul64 dst, src` | `dst = (dst as u128).wrapping_mul(src as u128).wrapping_shr(64) as u64`
 | `46` / `01000110`  | from v2     | `udiv32 dst, imm`  | `dst = ((dst as u32) / imm) as u64`
@@ -190,8 +179,7 @@ The following Rust equivalents assume that:
 | `8E` / `10001110`  | from v2     | `lmul32 dst, src`  | `dst = (dst as i32).wrapping_mul(src as i32) as u32 as u64`
 | `96` / `10010110`  | from v2     | `lmul64 dst, imm`  | `dst = dst.wrapping_mul(imm as u64)`
 | `9E` / `10011110`  | from v2     | `lmul64 dst, src`  | `dst = dst.wrapping_mul(src)`
-| `A6` / `10100110`  |             | -- reserved --
-| `AE` / `10101110`  |             | -- reserved --
+| `A6` to `AE`       |             | -- reserved --
 | `B6` / `10110110`  | from v2     | `shmul64 dst, imm` | `dst = (dst as i128).wrapping_mul(imm as i32 as i128).wrapping_shr(64) as i64 as u64`
 | `BE` / `10111110`  | from v2     | `shmul64 dst, src` | `dst = (dst as i128).wrapping_mul(src as i64 as i128).wrapping_shr(64) as i64 as u64`
 | `C6` / `11000110`  | from v2     | `sdiv32 dst, imm`  | `dst = ((dst as i32) / (imm as i32)) as u32 as u64`
@@ -212,142 +200,36 @@ The following Rust equivalents assume that:
 | opcode (hex / bin) | feature set | assembler mnemonic | Rust equivalent
 | ------------------ | ----------- | ------------------ | ---------------
 | `00` / `00000000`  | until v2    | `lddw dst, imm`    | `dst = dst.or((imm as u64).wrapping_shl(32))`
-| `08` / `00001000`  |             | -- reserved --
-| `10` / `00010000`  |             | -- reserved --
+| `08` to `10`       |             | -- reserved --
 | `18` / `00011000`  | until v2    | `lddw dst, imm`    | `dst = imm as u64`
-| `20` / `00100000`  |             | -- reserved --
-| `28` / `00101000`  |             | -- reserved --
-| `30` / `00110000`  |             | -- reserved --
-| `38` / `00111000`  |             | -- reserved --
-| `40` / `01000000`  |             | -- reserved --
-| `48` / `01001000`  |             | -- reserved --
-| `50` / `01010000`  |             | -- reserved --
-| `58` / `01011000`  |             | -- reserved --
-| `60` / `01100000`  |             | -- reserved --
-| `68` / `01101000`  |             | -- reserved --
-| `70` / `01110000`  |             | -- reserved --
-| `78` / `01111000`  |             | -- reserved --
-| `80` / `10000000`  |             | -- reserved --
-| `88` / `10001000`  |             | -- reserved --
-| `90` / `10010000`  |             | -- reserved --
-| `98` / `10011000`  |             | -- reserved --
-| `A0` / `10100000`  |             | -- reserved --
-| `A8` / `10101000`  |             | -- reserved --
-| `B0` / `10110000`  |             | -- reserved --
-| `B8` / `10111000`  |             | -- reserved --
-| `C0` / `11000000`  |             | -- reserved --
-| `C8` / `11001000`  |             | -- reserved --
-| `D0` / `11010000`  |             | -- reserved --
-| `D8` / `11011000`  |             | -- reserved --
-| `E0` / `11100000`  |             | -- reserved --
-| `E8` / `11101000`  |             | -- reserved --
-| `F0` / `11110000`  |             | -- reserved --
-| `F8` / `11111000`  |             | -- reserved --
+| `20` to `F8`       |             | -- reserved --
 
 | opcode (hex / bin) | feature set | assembler mnemonic
 | ------------------ | ----------- | ------------------
-| `01` / `00000001`  |             | -- reserved --
-| `09` / `00001001`  |             | -- reserved --
-| `11` / `00010001`  |             | -- reserved --
-| `19` / `00011001`  |             | -- reserved --
-| `21` / `00100001`  |             | -- reserved --
-| `29` / `00101001`  |             | -- reserved --
-| `31` / `00110001`  |             | -- reserved --
-| `39` / `00111001`  |             | -- reserved --
-| `41` / `01000001`  |             | -- reserved --
-| `49` / `01001001`  |             | -- reserved --
-| `51` / `01010001`  |             | -- reserved --
-| `59` / `01011001`  |             | -- reserved --
+| `01` to `59`       |             | -- reserved --
 | `61` / `01100001`  | all         | `ldxw dst, [src + off]`
 | `69` / `01101001`  | all         | `ldxh dst, [src + off]`
 | `71` / `01110001`  | all         | `ldxb dst, [src + off]`
 | `79` / `01111001`  | all         | `ldxdw dst, [src + off]`
-| `81` / `10000001`  |             | -- reserved --
-| `89` / `10001001`  |             | -- reserved --
-| `91` / `10010001`  |             | -- reserved --
-| `99` / `10011001`  |             | -- reserved --
-| `A1` / `10100001`  |             | -- reserved --
-| `A9` / `10101001`  |             | -- reserved --
-| `B1` / `10110001`  |             | -- reserved --
-| `B9` / `10111001`  |             | -- reserved --
-| `C1` / `11000001`  |             | -- reserved --
-| `C9` / `11001001`  |             | -- reserved --
-| `D1` / `11010001`  |             | -- reserved --
-| `D9` / `11011001`  |             | -- reserved --
-| `E1` / `11100001`  |             | -- reserved --
-| `E9` / `11101001`  |             | -- reserved --
-| `F1` / `11110001`  |             | -- reserved --
-| `F9` / `11111001`  |             | -- reserved --
+| `81` to `F9`       |             | -- reserved --
 
 | opcode (hex / bin) | feature set | assembler mnemonic
 | ------------------ | ----------- | ------------------
-| `02` / `00000010`  |             | -- reserved --
-| `0A` / `00001010`  |             | -- reserved --
-| `12` / `00010010`  |             | -- reserved --
-| `1A` / `00011010`  |             | -- reserved --
-| `22` / `00100010`  |             | -- reserved --
-| `2A` / `00101010`  |             | -- reserved --
-| `32` / `00110010`  |             | -- reserved --
-| `3A` / `00111010`  |             | -- reserved --
-| `42` / `01000010`  |             | -- reserved --
-| `4A` / `01001010`  |             | -- reserved --
-| `52` / `01010010`  |             | -- reserved --
-| `5A` / `01011010`  |             | -- reserved --
+| `02` to `5A`       |             | -- reserved --
 | `62` / `01100010`  | all         | `stw [dst + off], imm`
 | `6A` / `01101010`  | all         | `sth [dst + off], imm`
 | `72` / `01110010`  | all         | `stb [dst + off], imm`
 | `7A` / `01111010`  | all         | `stdw [dst + off], imm`
-| `82` / `10000010`  |             | -- reserved --
-| `8A` / `10001010`  |             | -- reserved --
-| `92` / `10010010`  |             | -- reserved --
-| `9A` / `10011010`  |             | -- reserved --
-| `A2` / `10100010`  |             | -- reserved --
-| `AA` / `10101010`  |             | -- reserved --
-| `B2` / `10110010`  |             | -- reserved --
-| `BA` / `10111010`  |             | -- reserved --
-| `C2` / `11000010`  |             | -- reserved --
-| `CA` / `11001010`  |             | -- reserved --
-| `D2` / `11010010`  |             | -- reserved --
-| `DA` / `11011010`  |             | -- reserved --
-| `E2` / `11100010`  |             | -- reserved --
-| `EA` / `11101010`  |             | -- reserved --
-| `F2` / `11110010`  |             | -- reserved --
-| `FA` / `11111010`  |             | -- reserved --
+| `82` to `FA`       |             | -- reserved --
 
 | opcode (hex / bin) | feature set | assembler mnemonic
 | ------------------ | ----------- | ------------------
-| `03` / `00000011`  |             | -- reserved --
-| `0B` / `00001011`  |             | -- reserved --
-| `13` / `00010011`  |             | -- reserved --
-| `1B` / `00011011`  |             | -- reserved --
-| `23` / `00100011`  |             | -- reserved --
-| `2B` / `00101011`  |             | -- reserved --
-| `33` / `00110011`  |             | -- reserved --
-| `3B` / `00111011`  |             | -- reserved --
-| `43` / `01000011`  |             | -- reserved --
-| `4B` / `01001011`  |             | -- reserved --
-| `53` / `01010011`  |             | -- reserved --
-| `5B` / `01011011`  |             | -- reserved --
+| `03` to `5B`       |             | -- reserved --
 | `63` / `01100011`  | all         | `stxw [dst + off], src`
 | `6B` / `01101011`  | all         | `stxh [dst + off], src`
 | `73` / `01110011`  | all         | `stxb [dst + off], src`
 | `7B` / `01111011`  | all         | `stxdw [dst + off], src`
-| `83` / `10000011`  |             | -- reserved --
-| `8B` / `10001011`  |             | -- reserved --
-| `93` / `10010011`  |             | -- reserved --
-| `9B` / `10011011`  |             | -- reserved --
-| `A3` / `10100011`  |             | -- reserved --
-| `AB` / `10101011`  |             | -- reserved --
-| `B3` / `10110011`  |             | -- reserved --
-| `BB` / `10111011`  |             | -- reserved --
-| `C3` / `11000011`  |             | -- reserved --
-| `CB` / `11001011`  |             | -- reserved --
-| `D3` / `11010011`  |             | -- reserved --
-| `DB` / `11011011`  |             | -- reserved --
-| `E3` / `11100011`  |             | -- reserved --
-| `EB` / `11101011`  |             | -- reserved --
-| `F3` / `11110011`  |             | -- reserved --
-| `FB` / `11111011`  |             | -- reserved --
+| `83` to `FB`       |             | -- reserved --
 
 ### Control Flow
 
@@ -403,10 +285,7 @@ The `exit` (a.k.a. return) instruction does:
 | `CD` / `11001101`  | all         | `jslt dst, src, off` | `(dst as i64) < (src as i64)`
 | `D5` / `11010101`  | all         | `jsle dst, imm, off` | `(dst as i64) <= (imm as i32 as i64)`
 | `DD` / `11011101`  | all         | `jsle dst, src, off` | `(dst as i64) <= (src as i64)`
-| `E5` / `11100101`  |             | -- reserved --
-| `ED` / `11101101`  |             | -- reserved --
-| `F5` / `11110101`  |             | -- reserved --
-| `FD` / `11111101`  |             | -- reserved --
+| `E5` to `FD`       |             | -- reserved --
 
 
 Verification
