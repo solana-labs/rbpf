@@ -353,7 +353,7 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
 name = "solana_rbpf"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "arbitrary",
  "byteorder 1.4.3",
@@ -392,7 +392,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "test_utils"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "libc",
  "solana_rbpf",
