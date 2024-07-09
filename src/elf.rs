@@ -214,18 +214,6 @@ impl BpfRelocationType {
 }
 
 #[derive(Debug, PartialEq)]
-struct SectionInfo {
-    name: String,
-    vaddr: u64,
-    offset_range: Range<usize>,
-}
-impl SectionInfo {
-    fn mem_size(&self) -> usize {
-        mem::size_of::<Self>().saturating_add(self.name.capacity())
-    }
-}
-
-#[derive(Debug, PartialEq)]
 pub(crate) enum Section {
     /// Owned section data.
     ///
@@ -249,8 +237,8 @@ pub struct Executable<C: ContextObject> {
     sbpf_version: SBPFVersion,
     /// Read-only section
     ro_section: Section,
-    /// Text section info
-    text_section_info: SectionInfo,
+    /// Text section
+    text_section: Section,
     /// Address of the entry point
     entry_pc: usize,
     /// Call resolution map (hash, pc, name)
@@ -275,21 +263,16 @@ impl<C: ContextObject> Executable<C> {
 
     /// Get the .text section virtual address and bytes
     pub fn get_text_bytes(&self) -> (u64, &[u8]) {
-        let (ro_offset, ro_section) = match &self.ro_section {
-            Section::Owned(offset, data) => (*offset, data.as_slice()),
+        let (offset, section) = match &self.text_section {
+            Section::Owned(_offset, _data) => unreachable!(),
             Section::Borrowed(offset, byte_range) => {
                 (*offset, &self.elf_bytes.as_slice()[byte_range.clone()])
             }
         };
-
-        let offset = self
-            .text_section_info
-            .vaddr
-            .saturating_sub(ebpf::MM_PROGRAM_START)
-            .saturating_sub(ro_offset as u64) as usize;
         (
-            self.text_section_info.vaddr,
-            &ro_section[offset..offset.saturating_add(self.text_section_info.offset_range.len())],
+            // The offset field is relative to `MM_PROGRAM_START`
+            ebpf::MM_PROGRAM_START.saturating_add(offset as u64),
+            section,
         )
     }
 
@@ -313,10 +296,13 @@ impl<C: ContextObject> Executable<C> {
         self.entry_pc
     }
 
-    /// Get the text section offset
+    /// Get the text section offset in the ELF file
     #[cfg(feature = "debugger")]
     pub fn get_text_section_offset(&self) -> u64 {
-        self.text_section_info.offset_range.start as u64
+        match &self.text_section {
+            Section::Owned(_offset, _data) => unreachable!(),
+            Section::Borrowed(_offset, byte_range) => byte_range.start as u64,
+        }
     }
 
     /// Get the loader built-in program
@@ -362,8 +348,6 @@ impl<C: ContextObject> Executable<C> {
         mut function_registry: FunctionRegistry<usize>,
     ) -> Result<Self, ElfError> {
         let elf_bytes = AlignedMemory::from_slice(text_bytes);
-        let config = loader.get_config();
-        let enable_symbol_and_section_labels = config.enable_symbol_and_section_labels;
         let entry_pc = if let Some((_name, pc)) = function_registry.lookup_by_name(b"entrypoint") {
             pc
         } else {
@@ -379,15 +363,7 @@ impl<C: ContextObject> Executable<C> {
             elf_bytes,
             sbpf_version,
             ro_section: Section::Borrowed(0, 0..text_bytes.len()),
-            text_section_info: SectionInfo {
-                name: if enable_symbol_and_section_labels {
-                    ".text".to_string()
-                } else {
-                    String::default()
-                },
-                vaddr: ebpf::MM_PROGRAM_START,
-                offset_range: 0..text_bytes.len(),
-            },
+            text_section: Section::Borrowed(0, 0..text_bytes.len()),
             entry_pc,
             function_registry,
             loader,
@@ -429,29 +405,16 @@ impl<C: ContextObject> Executable<C> {
 
         // calculate the text section info
         let text_section = get_section(elf, b".text")?;
-        let text_section_info = SectionInfo {
-            name: if config.enable_symbol_and_section_labels {
-                elf.section_name(text_section.sh_name)
-                    .ok()
-                    .and_then(|name| std::str::from_utf8(name).ok())
-                    .unwrap_or(".text")
-                    .to_string()
-            } else {
-                String::default()
-            },
-            vaddr: if sbpf_version.enable_elf_vaddr()
-                && text_section.sh_addr >= ebpf::MM_PROGRAM_START
-            {
+        let text_section_vaddr =
+            if sbpf_version.enable_elf_vaddr() && text_section.sh_addr >= ebpf::MM_PROGRAM_START {
                 text_section.sh_addr
             } else {
                 text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START)
-            },
-            offset_range: text_section.file_range().unwrap_or_default(),
-        };
+            };
         let vaddr_end = if sbpf_version.reject_rodata_stack_overlap() {
-            text_section_info.vaddr.saturating_add(text_section.sh_size)
+            text_section_vaddr.saturating_add(text_section.sh_size)
         } else {
-            text_section_info.vaddr
+            text_section_vaddr
         };
         if (config.reject_broken_elfs
             && !sbpf_version.enable_elf_vaddr()
@@ -503,7 +466,11 @@ impl<C: ContextObject> Executable<C> {
             elf_bytes,
             sbpf_version,
             ro_section,
-            text_section_info,
+            text_section: Section::Borrowed(
+                // The offset field is relative to `MM_PROGRAM_START`
+                text_section_vaddr.saturating_sub(ebpf::MM_PROGRAM_START) as usize,
+                text_section.file_range().unwrap_or_default(),
+            ),
             entry_pc,
             function_registry,
             loader,
@@ -525,8 +492,6 @@ impl<C: ContextObject> Executable<C> {
                 Section::Owned(_, data) => data.capacity(),
                 Section::Borrowed(_, _) => 0,
             })
-            // text section info
-            .saturating_add(self.text_section_info.mem_size())
             // bpf functions
             .saturating_add(self.function_registry.mem_size());
 
