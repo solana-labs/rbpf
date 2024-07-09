@@ -237,8 +237,10 @@ pub struct Executable<C: ContextObject> {
     sbpf_version: SBPFVersion,
     /// Read-only section
     ro_section: Section,
-    /// Text section
-    text_section: Section,
+    /// Text section virtual address
+    text_section_vaddr: u64,
+    /// Text section range in `elf_bytes`
+    text_section_range: Range<usize>,
     /// Address of the entry point
     entry_pc: usize,
     /// Call resolution map (hash, pc, name)
@@ -263,16 +265,9 @@ impl<C: ContextObject> Executable<C> {
 
     /// Get the .text section virtual address and bytes
     pub fn get_text_bytes(&self) -> (u64, &[u8]) {
-        let (offset, section) = match &self.text_section {
-            Section::Owned(_offset, _data) => unreachable!(),
-            Section::Borrowed(offset, byte_range) => {
-                (*offset, &self.elf_bytes.as_slice()[byte_range.clone()])
-            }
-        };
         (
-            // The offset field is relative to `MM_PROGRAM_START`
-            ebpf::MM_PROGRAM_START.saturating_add(offset as u64),
-            section,
+            self.text_section_vaddr,
+            &self.elf_bytes.as_slice()[self.text_section_range.clone()],
         )
     }
 
@@ -299,10 +294,7 @@ impl<C: ContextObject> Executable<C> {
     /// Get the text section offset in the ELF file
     #[cfg(feature = "debugger")]
     pub fn get_text_section_offset(&self) -> u64 {
-        match &self.text_section {
-            Section::Owned(_offset, _data) => unreachable!(),
-            Section::Borrowed(_offset, byte_range) => byte_range.start as u64,
-        }
+        self.text_section_range.start as u64
     }
 
     /// Get the loader built-in program
@@ -363,7 +355,8 @@ impl<C: ContextObject> Executable<C> {
             elf_bytes,
             sbpf_version,
             ro_section: Section::Borrowed(0, 0..text_bytes.len()),
-            text_section: Section::Borrowed(0, 0..text_bytes.len()),
+            text_section_vaddr: ebpf::MM_PROGRAM_START,
+            text_section_range: 0..text_bytes.len(),
             entry_pc,
             function_registry,
             loader,
@@ -466,11 +459,8 @@ impl<C: ContextObject> Executable<C> {
             elf_bytes,
             sbpf_version,
             ro_section,
-            text_section: Section::Borrowed(
-                // The offset field is relative to `MM_PROGRAM_START`
-                text_section_vaddr.saturating_sub(ebpf::MM_PROGRAM_START) as usize,
-                text_section.file_range().unwrap_or_default(),
-            ),
+            text_section_vaddr,
+            text_section_range: text_section.file_range().unwrap_or_default(),
             entry_pc,
             function_registry,
             loader,
