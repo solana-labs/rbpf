@@ -516,16 +516,13 @@ impl<C: ContextObject> Executable<C> {
         }
 
         let sbpf_version = if header.e_flags == EF_SBPF_V2 {
-            if !config.enable_sbpf_v2 {
-                return Err(ElfError::UnsupportedSBPFVersion);
-            }
             SBPFVersion::V2
         } else {
-            if !config.enable_sbpf_v1 {
-                return Err(ElfError::UnsupportedSBPFVersion);
-            }
             SBPFVersion::V1
         };
+        if !config.enabled_sbpf_versions.contains(&sbpf_version) {
+            return Err(ElfError::UnsupportedSBPFVersion);
+        }
 
         if sbpf_version.enable_elf_vaddr() {
             if !config.optimize_rodata {
@@ -1456,7 +1453,7 @@ mod test {
     fn test_sh_offset_not_same_as_vaddr() {
         let config = Config {
             reject_broken_elfs: true,
-            enable_sbpf_v2: false,
+            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
             ..Config::default()
         };
         let elf_bytes = [0u8; 512];
@@ -1834,7 +1831,7 @@ mod test {
     #[test]
     fn test_reject_rodata_stack_overlap() {
         let config = Config {
-            enable_sbpf_v2: true,
+            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
             ..Config::default()
         };
         let elf_bytes = [0u8; 512];

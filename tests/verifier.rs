@@ -153,14 +153,14 @@ fn test_verifier_err_incomplete_lddw() {
 fn test_verifier_err_invalid_reg_dst() {
     // r11 is disabled when sbpf_version.dynamic_stack_frames()=false, and only sub and add are
     // allowed when sbpf_version.dynamic_stack_frames()=true
-    for enable_sbpf_v2 in [false, true] {
+    for highest_sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
         let executable = assemble::<TestContextObject>(
             "
             mov r11, 1
             exit",
             Arc::new(BuiltinProgram::new_loader(
                 Config {
-                    enable_sbpf_v2,
+                    enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version,
                     ..Config::default()
                 },
                 FunctionRegistry::default(),
@@ -176,14 +176,14 @@ fn test_verifier_err_invalid_reg_dst() {
 fn test_verifier_err_invalid_reg_src() {
     // r11 is disabled when sbpf_version.dynamic_stack_frames()=false, and only sub and add are
     // allowed when sbpf_version.dynamic_stack_frames()=true
-    for enable_sbpf_v2 in [false, true] {
+    for highest_sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
         let executable = assemble::<TestContextObject>(
             "
             mov r0, r11
             exit",
             Arc::new(BuiltinProgram::new_loader(
                 Config {
-                    enable_sbpf_v2,
+                    enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version,
                     ..Config::default()
                 },
                 FunctionRegistry::default(),
@@ -360,13 +360,13 @@ fn test_sdiv_disabled() {
     ];
 
     for (opc, instruction) in instructions {
-        for enable_sbpf_v2 in [true, false] {
+        for highest_sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
             let assembly = format!("\n{instruction}\nexit");
             let executable = assemble::<TestContextObject>(
                 &assembly,
                 Arc::new(BuiltinProgram::new_loader(
                     Config {
-                        enable_sbpf_v2,
+                        enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version.clone(),
                         ..Config::default()
                     },
                     FunctionRegistry::default(),
@@ -374,7 +374,7 @@ fn test_sdiv_disabled() {
             )
             .unwrap();
             let result = executable.verify::<RequisiteVerifier>();
-            if enable_sbpf_v2 {
+            if highest_sbpf_version == SBPFVersion::V2 {
                 assert!(result.is_ok());
             } else {
                 assert_error!(result, "VerifierError(UnknownOpCode({}, {}))", opc, 0);

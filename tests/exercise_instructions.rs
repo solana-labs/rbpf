@@ -17,7 +17,7 @@ use solana_rbpf::{
     assembler::assemble,
     ebpf,
     memory_region::MemoryRegion,
-    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry},
+    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
     static_analysis::Analysis,
     verifier::RequisiteVerifier,
     vm::{Config, ContextObject, TestContextObject},
@@ -540,7 +540,7 @@ fn test_ins(v1: bool, ins: String, prng: &mut SmallRng, cu: u64) {
 
     let mut config = Config::default();
     if v1 {
-        config.enable_sbpf_v2 = false;
+        config.enabled_sbpf_versions = SBPFVersion::V1..=SBPFVersion::V1;
     }
     test_interpreter_and_jit_asm!(asm.as_str(), config, input, (), TestContextObject::new(cu));
 }

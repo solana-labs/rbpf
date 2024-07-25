@@ -1943,7 +1943,7 @@ fn test_string_stack() {
 #[test]
 fn test_err_dynamic_stack_out_of_bound() {
     let config = Config {
-        enable_sbpf_v2: true,
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
         max_call_depth: 3,
         ..Config::default()
     };
@@ -2083,9 +2083,9 @@ fn test_entrypoint_exit() {
     // can't infer anything from the stack size so we track call depth
     // explicitly. Make sure exit still works with both fixed and dynamic
     // frames.
-    for enable_sbpf_v2 in [false, true] {
+    for highest_sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
         let config = Config {
-            enable_sbpf_v2,
+            enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version,
             ..Config::default()
         };
 
@@ -2111,9 +2111,9 @@ fn test_entrypoint_exit() {
 
 #[test]
 fn test_stack_call_depth_tracking() {
-    for enable_sbpf_v2 in [false, true] {
+    for highest_sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
         let config = Config {
-            enable_sbpf_v2,
+            enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version,
             max_call_depth: 2,
             ..Config::default()
         };
@@ -3421,7 +3421,7 @@ fn test_total_chaos() {
 #[test]
 fn test_err_fixed_stack_out_of_bound() {
     let config = Config {
-        enable_sbpf_v2: false,
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         max_call_depth: 3,
         ..Config::default()
     };
@@ -3445,7 +3445,7 @@ fn test_err_fixed_stack_out_of_bound() {
 #[test]
 fn test_lddw() {
     let config = Config {
-        enable_sbpf_v2: false,
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3566,7 +3566,7 @@ fn test_lddw() {
 #[test]
 fn test_le() {
     let config = Config {
-        enable_sbpf_v2: false,
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3629,7 +3629,7 @@ fn test_le() {
 #[test]
 fn test_neg() {
     let config = Config {
-        enable_sbpf_v2: false,
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3681,7 +3681,7 @@ fn test_neg() {
 #[test]
 fn test_callx_imm() {
     let config = Config {
-        enable_sbpf_v2: false,
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3706,7 +3706,7 @@ fn test_callx_imm() {
 #[test]
 fn test_mul() {
     let config = Config {
-        enable_sbpf_v2: false,
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3783,7 +3783,7 @@ fn test_mul() {
 #[test]
 fn test_div() {
     let config = Config {
-        enable_sbpf_v2: false,
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3875,7 +3875,7 @@ fn test_div() {
 #[test]
 fn test_mod() {
     let config = Config {
-        enable_sbpf_v2: false,
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(

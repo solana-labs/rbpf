@@ -10,7 +10,12 @@ extern crate solana_rbpf;
 extern crate test;
 
 #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
-use solana_rbpf::{ebpf, memory_region::MemoryRegion, program::FunctionRegistry, vm::Config};
+use solana_rbpf::{
+    ebpf,
+    memory_region::MemoryRegion,
+    program::{FunctionRegistry, SBPFVersion},
+    vm::Config,
+};
 use solana_rbpf::{
     elf::Executable, program::BuiltinProgram, verifier::RequisiteVerifier, vm::TestContextObject,
 };
@@ -166,7 +171,7 @@ fn bench_jit_vs_interpreter_address_translation_stack_fixed(bencher: &mut Benche
         bencher,
         ADDRESS_TRANSLATION_STACK_CODE,
         Config {
-            enable_sbpf_v2: false,
+            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
             ..Config::default()
         },
         524289,
@@ -181,7 +186,7 @@ fn bench_jit_vs_interpreter_address_translation_stack_dynamic(bencher: &mut Benc
         bencher,
         ADDRESS_TRANSLATION_STACK_CODE,
         Config {
-            enable_sbpf_v2: true,
+            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
             ..Config::default()
         },
         524289,
@@ -228,7 +233,7 @@ fn bench_jit_vs_interpreter_call_depth_fixed(bencher: &mut Bencher) {
     call function_foo
     exit",
         Config {
-            enable_sbpf_v2: false,
+            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
             ..Config::default()
         },
         137218,
@@ -259,7 +264,7 @@ fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
     add r11, 4
     exit",
         Config {
-            enable_sbpf_v2: true,
+            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
             ..Config::default()
         },
         176130,

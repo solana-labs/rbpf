@@ -80,10 +80,8 @@ pub struct Config {
     pub optimize_rodata: bool,
     /// Use aligned memory mapping
     pub aligned_memory_mapping: bool,
-    /// Allow ExecutableCapability::V1
-    pub enable_sbpf_v1: bool,
-    /// Allow ExecutableCapability::V2
-    pub enable_sbpf_v2: bool,
+    /// Allowed [SBPFVersion]s
+    pub enabled_sbpf_versions: std::ops::RangeInclusive<SBPFVersion>,
 }
 
 impl Config {
@@ -111,8 +109,7 @@ impl Default for Config {
             reject_callx_r10: true,
             optimize_rodata: true,
             aligned_memory_mapping: true,
-            enable_sbpf_v1: true,
-            enable_sbpf_v2: true,
+            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
         }
     }
 }

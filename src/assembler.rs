@@ -19,7 +19,7 @@ use crate::{
     },
     ebpf::{self, Insn},
     elf::Executable,
-    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
+    program::{BuiltinProgram, FunctionRegistry},
     vm::ContextObject,
 };
 use std::collections::HashMap;
@@ -311,11 +311,7 @@ pub fn assemble<C: ContextObject>(
     src: &str,
     loader: Arc<BuiltinProgram<C>>,
 ) -> Result<Executable<C>, String> {
-    let sbpf_version = if loader.get_config().enable_sbpf_v2 {
-        SBPFVersion::V2
-    } else {
-        SBPFVersion::V1
-    };
+    let sbpf_version = loader.get_config().enabled_sbpf_versions.end().clone();
 
     let statements = parse(src)?;
     let instruction_map = make_instruction_map();

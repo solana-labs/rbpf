@@ -9,7 +9,7 @@ use {
 };
 
 /// Defines a set of sbpf_version of an executable
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Clone)]
 pub enum SBPFVersion {
     /// The legacy format
     V1,
