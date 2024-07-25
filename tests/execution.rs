@@ -1955,7 +1955,7 @@ fn test_err_dynamic_stack_out_of_bound() {
         "
         stb [r10-0x3001], 0
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(1),
@@ -1972,7 +1972,7 @@ fn test_err_dynamic_stack_out_of_bound() {
         "
         stb [r10], 0
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(1),
@@ -2027,7 +2027,7 @@ fn test_dynamic_stack_frames_empty() {
         function_foo:
         mov r0, r10
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(4),
@@ -2049,7 +2049,7 @@ fn test_dynamic_frame_ptr() {
         function_foo:
         mov r0, r10
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(5),
@@ -2067,7 +2067,7 @@ fn test_dynamic_frame_ptr() {
         function_foo:
         exit
         ",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(5),
@@ -2130,7 +2130,7 @@ fn test_stack_call_depth_tracking() {
             function_foo:
             exit
             ",
-            config,
+            config.clone(),
             [],
             (),
             TestContextObject::new(5),
@@ -2338,7 +2338,7 @@ fn test_bpf_to_bpf_depth() {
             add64 r1, -1
             call function_foo
             exit",
-            config,
+            config.clone(),
             [max_call_depth as u8],
             (),
             TestContextObject::new(max_call_depth as u64 * 4 - 2),
@@ -3452,7 +3452,7 @@ fn test_lddw() {
         "
         lddw r0, 0x1122334455667788
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(2),
@@ -3462,7 +3462,7 @@ fn test_lddw() {
         "
         lddw r0, 0x0000000080000000
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(2),
@@ -3481,7 +3481,7 @@ fn test_lddw() {
         add r0, r1
         exit
         ",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(9),
@@ -3495,7 +3495,7 @@ fn test_lddw() {
         callx r8
         lddw r0, 0x1122334455667788
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(4),
@@ -3509,7 +3509,7 @@ fn test_lddw() {
         callx r8
         lddw r0, 0x1122334455667788
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(5),
@@ -3526,7 +3526,7 @@ fn test_lddw() {
         lddw r0, 0x1122334455667788
         exit
         ",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(5),
@@ -3542,7 +3542,7 @@ fn test_lddw() {
         lddw r0, 0x1122334455667788
         exit
         ",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(3),
@@ -3574,7 +3574,7 @@ fn test_le() {
         ldxh r0, [r1]
         le16 r0
         exit",
-        config,
+        config.clone(),
         [0x22, 0x11],
         (),
         TestContextObject::new(3),
@@ -3585,7 +3585,7 @@ fn test_le() {
         ldxdw r0, [r1]
         le16 r0
         exit",
-        config,
+        config.clone(),
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
         TestContextObject::new(3),
@@ -3596,7 +3596,7 @@ fn test_le() {
         ldxw r0, [r1]
         le32 r0
         exit",
-        config,
+        config.clone(),
         [0x44, 0x33, 0x22, 0x11],
         (),
         TestContextObject::new(3),
@@ -3607,7 +3607,7 @@ fn test_le() {
         ldxdw r0, [r1]
         le32 r0
         exit",
-        config,
+        config.clone(),
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
         TestContextObject::new(3),
@@ -3637,7 +3637,7 @@ fn test_neg() {
         mov32 r0, 2
         neg32 r0
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(3),
@@ -3648,7 +3648,7 @@ fn test_neg() {
         mov r0, 2
         neg r0
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(3),
@@ -3659,7 +3659,7 @@ fn test_neg() {
         mov32 r0, 3
         sub32 r0, 1
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(3),
@@ -3714,7 +3714,7 @@ fn test_mul() {
         mov r0, 3
         mul32 r0, 4
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(3),
@@ -3726,7 +3726,7 @@ fn test_mul() {
         mov r1, 4
         mul32 r0, r1
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(4),
@@ -3738,7 +3738,7 @@ fn test_mul() {
         mov r1, 4
         mul32 r0, r1
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(4),
@@ -3749,7 +3749,7 @@ fn test_mul() {
         mov r0, 0x40000001
         mul r0, 4
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(3),
@@ -3761,7 +3761,7 @@ fn test_mul() {
         mov r1, 4
         mul r0, r1
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(4),
@@ -3792,7 +3792,7 @@ fn test_div() {
         lddw r1, 0x100000004
         div32 r0, r1
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(4),
@@ -3803,7 +3803,7 @@ fn test_div() {
         lddw r0, 0x10000000c
         div32 r0, 4
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(3),
@@ -3815,7 +3815,7 @@ fn test_div() {
         mov r1, 4
         div32 r0, r1
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(4),
@@ -3827,7 +3827,7 @@ fn test_div() {
         lsh r0, 32
         div r0, 4
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(4),
@@ -3840,7 +3840,7 @@ fn test_div() {
         mov r1, 4
         div r0, r1
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(5),
@@ -3852,7 +3852,7 @@ fn test_div() {
         mov32 r1, 0
         div r0, r1
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(3),
@@ -3885,7 +3885,7 @@ fn test_mod() {
         mov32 r1, 13
         mod32 r0, r1
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(5),
@@ -3896,7 +3896,7 @@ fn test_mod() {
         lddw r0, 0x100000003
         mod32 r0, 3
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(3),
@@ -3913,7 +3913,7 @@ fn test_mod() {
         mod r0, r1
         mod r0, 0x658f1778
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(9),
@@ -3925,7 +3925,7 @@ fn test_mod() {
         mov32 r1, 0
         mod r0, r1
         exit",
-        config,
+        config.clone(),
         [],
         (),
         TestContextObject::new(3),

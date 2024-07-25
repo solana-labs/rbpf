@@ -48,7 +48,7 @@ pub fn get_runtime_environment_key() -> i32 {
 }
 
 /// VM configuration settings
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// Maximum call depth
     pub max_call_depth: usize,
