@@ -449,10 +449,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 if !self.push_frame(config) {
                     return false;
                 }
-                if target_pc < self.program_vm_addr {
-                    throw_error!(self, EbpfError::CallOutsideTextSegment);
-                }
-                check_pc!(self, next_pc, (target_pc - self.program_vm_addr) / ebpf::INSN_SIZE as u64);
+                check_pc!(self, next_pc, target_pc.wrapping_sub(self.program_vm_addr) / ebpf::INSN_SIZE as u64);
                 if self.executable.get_sbpf_version().static_syscalls() && self.executable.get_function_registry().lookup_by_key(next_pc as u32).is_none() {
                     self.vm.due_insn_count += 1;
                     self.reg[11] = next_pc;
