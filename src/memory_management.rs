@@ -4,7 +4,7 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#![cfg_attr(target_os = "windows", allow(dead_code))]
+#![allow(dead_code)]
 
 use crate::error::EbpfError;
 
