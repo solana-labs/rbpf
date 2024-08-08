@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-        rust: [stable, beta, nightly]
+        rust: [1.78.0]
     steps:
     - uses: actions/checkout@v1
     - name: Setup Rust (rustup)
