@@ -2321,6 +2321,17 @@ fn test_err_callx_oob_high() {
 }
 
 #[test]
+fn test_callx_unaligned_text_section() {
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/callx_unaligned.so",
+        [],
+        (),
+        TestContextObject::new(129),
+        ProgramResult::Err(EbpfError::CallDepthExceeded),
+    );
+}
+
+#[test]
 fn test_bpf_to_bpf_depth() {
     for max_call_depth in [20usize, Config::default().max_call_depth] {
         let config = Config {

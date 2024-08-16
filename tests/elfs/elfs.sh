@@ -3,7 +3,7 @@
 # Requires Latest release of Solana's custom LLVM
 # https://github.com/solana-labs/platform-tools/releases
 
-TOOLCHAIN=../../../solana/sdk/sbf/dependencies/sbf-tools
+TOOLCHAIN=../../../agave/sdk/sbf/dependencies/platform-tools
 RC_COMMON="$TOOLCHAIN/rust/bin/rustc --target sbf-solana-solana --crate-type lib -C panic=abort -C opt-level=2"
 RC="$RC_COMMON -C target_cpu=sbfv2"
 RC_V1="$RC_COMMON -C target_cpu=generic"
@@ -55,5 +55,8 @@ $LD_V1 -o reloc_64_relative_sbpfv1.so reloc_64_relative.o
 
 # $RC_V1 -o reloc_64_relative_data.o reloc_64_relative_data.rs
 # $LD_V1 -o reloc_64_relative_data_sbpfv1.so reloc_64_relative_data.o
+
+# $RC_V1 -o callx_unaligned.o callx_unaligned.rs
+# $LD_V1 -o callx_unaligned.so callx_unaligned.o
 
 rm *.o
