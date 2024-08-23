@@ -14,6 +14,8 @@ use solana_rbpf::{
     vm::{Config, TestContextObject},
 };
 use std::sync::Arc;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
 
 // Using a macro to keep actual line numbers in failure output
 macro_rules! disasm {

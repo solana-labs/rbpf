@@ -21,11 +21,14 @@
 
 extern crate solana_rbpf;
 extern crate thiserror;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
 
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
     elf::Executable,
+    error::EbpfError,
     program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
     syscalls,
     verifier::{RequisiteVerifier, Verifier, VerifierError},
@@ -90,7 +93,6 @@ fn test_verifier_success() {
 }
 
 #[test]
-#[should_panic(expected = "NoProgram")]
 fn test_verifier_fail() {
     let executable = assemble::<TestContextObject>(
         "
@@ -99,11 +101,14 @@ fn test_verifier_fail() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    executable.verify::<ContradictionVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::NoProgram)) =
+        executable.verify::<ContradictionVerifier>()
+    else {
+        panic!("Expected VerifierError::NoProgram")
+    };
 }
 
 #[test]
-#[should_panic(expected = "DivisionByZero(1)")]
 fn test_verifier_err_div_by_zero_imm() {
     let executable = assemble::<TestContextObject>(
         "
@@ -113,11 +118,15 @@ fn test_verifier_err_div_by_zero_imm() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::DivisionByZero(num))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected VerifierError::DivisionByZero")
+    };
+    assert_eq!(num, 1)
 }
 
 #[test]
-#[should_panic(expected = "UnsupportedLEBEArgument(0)")]
 fn test_verifier_err_endian_size() {
     let prog = &[
         0xdc, 0x01, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, //
@@ -131,11 +140,15 @@ fn test_verifier_err_endian_size() {
         FunctionRegistry::default(),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::UnsupportedLEBEArgument(num))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected VerifierError::UnsupportedLEBEArgument")
+    };
+    assert_eq!(num, 0);
 }
 
 #[test]
-#[should_panic(expected = "IncompleteLDDW(0)")]
 fn test_verifier_err_incomplete_lddw() {
     // Note: ubpf has test-err-incomplete-lddw2, which is the same
     let prog = &[
@@ -149,7 +162,12 @@ fn test_verifier_err_incomplete_lddw() {
         FunctionRegistry::default(),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::IncompleteLDDW(num))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected VerifierError::IncompleteLDDW")
+    };
+    assert_eq!(num, 0);
 }
 
 #[test]
@@ -218,7 +236,6 @@ fn test_verifier_resize_stack_ptr_success() {
 }
 
 #[test]
-#[should_panic(expected = "JumpToMiddleOfLDDW(2, 0)")]
 fn test_verifier_err_jmp_lddw() {
     let executable = assemble::<TestContextObject>(
         "
@@ -228,11 +245,16 @@ fn test_verifier_err_jmp_lddw() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::JumpToMiddleOfLDDW(a, b))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected VerifierError::JumpToMiddleOfLDDW")
+    };
+    assert_eq!(a, 2);
+    assert_eq!(b, 0);
 }
 
 #[test]
-#[should_panic(expected = "InvalidFunction(1)")]
 fn test_verifier_err_call_lddw() {
     let executable = assemble::<TestContextObject>(
         "
@@ -242,11 +264,15 @@ fn test_verifier_err_call_lddw() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::InvalidFunction(num))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected VerifierError::InvalidFunction");
+    };
+    assert_eq!(num, 1)
 }
 
 #[test]
-#[should_panic(expected = "InvalidFunction(0)")]
 fn test_verifier_err_function_fallthrough() {
     let executable = assemble::<TestContextObject>(
         "
@@ -256,11 +282,15 @@ fn test_verifier_err_function_fallthrough() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::InvalidFunction(num))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected VerifierError::InvalidFunction");
+    };
+    assert_eq!(num, 0);
 }
 
 #[test]
-#[should_panic(expected = "JumpOutOfCode(3, 0)")]
 fn test_verifier_err_jmp_out() {
     let executable = assemble::<TestContextObject>(
         "
@@ -269,11 +299,16 @@ fn test_verifier_err_jmp_out() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::JumpOutOfCode(a, b))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected VerifierError::JumpOutOfCode");
+    };
+    assert_eq!(a, 3);
+    assert_eq!(b, 0);
 }
 
 #[test]
-#[should_panic(expected = "JumpOutOfCode(18446744073709551615, 0)")]
 fn test_verifier_err_jmp_out_start() {
     let executable = assemble::<TestContextObject>(
         "
@@ -282,11 +317,19 @@ fn test_verifier_err_jmp_out_start() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::JumpOutOfCode(a, b))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected VerifierError::JumpOutOfCode")
+    };
+    #[cfg(target_arch = "wasm32")]
+    assert_eq!(a as u32, u32::MAX);
+    #[cfg(not(target_arch = "wasm32"))]
+    assert_eq!(a as u64, u64::MAX);
+    assert_eq!(b, 0);
 }
 
 #[test]
-#[should_panic(expected = "UnknownOpCode(6, 0)")]
 fn test_verifier_err_unknown_opcode() {
     let prog = &[
         0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
@@ -299,11 +342,16 @@ fn test_verifier_err_unknown_opcode() {
         FunctionRegistry::default(),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::UnknownOpCode(a, b))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected VerifierError::UnknownOpCode")
+    };
+    assert_eq!(a, 6);
+    assert_eq!(b, 0)
 }
 
 #[test]
-#[should_panic(expected = "InvalidFunction(1811268606)")]
 fn test_verifier_unknown_sycall() {
     let prog = &[
         0x85, 0x00, 0x00, 0x00, 0xfe, 0xc3, 0xf5, 0x6b, // call 0x6bf5c3fe
@@ -316,7 +364,12 @@ fn test_verifier_unknown_sycall() {
         FunctionRegistry::default(),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::InvalidFunction(idx))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected InvalidFunction error")
+    };
+    assert_eq!(idx, 1811268606);
 }
 
 #[test]
@@ -343,7 +396,6 @@ fn test_verifier_known_syscall() {
 }
 
 #[test]
-#[should_panic(expected = "CannotWriteR10(0)")]
 fn test_verifier_err_write_r10() {
     let executable = assemble::<TestContextObject>(
         "
@@ -352,7 +404,12 @@ fn test_verifier_err_write_r10() {
         Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
-    executable.verify::<RequisiteVerifier>().unwrap();
+    let Err(EbpfError::VerifierError(VerifierError::CannotWriteR10(num))) =
+        executable.verify::<RequisiteVerifier>()
+    else {
+        panic!("Expected VerifierError::CannotWriteR10");
+    };
+    assert_eq!(num, 0);
 }
 
 #[test]
