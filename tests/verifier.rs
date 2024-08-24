@@ -322,10 +322,7 @@ fn test_verifier_err_jmp_out_start() {
     else {
         panic!("Expected VerifierError::JumpOutOfCode")
     };
-    #[cfg(target_arch = "wasm32")]
-    assert_eq!(a as u32, u32::MAX);
-    #[cfg(not(target_arch = "wasm32"))]
-    assert_eq!(a as u64, u64::MAX);
+    assert_eq!(a, usize::MAX);
     assert_eq!(b, 0);
 }
 
