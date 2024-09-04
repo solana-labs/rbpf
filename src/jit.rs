@@ -399,7 +399,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_subroutines();
 
         while self.pc * ebpf::INSN_SIZE < self.program.len() {
-            if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
+            if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION * 2 >= self.result.text_section.len() {
                 return Err(EbpfError::ExhaustedTextSegment(self.pc));
             }
             let mut insn = ebpf::get_insn_unchecked(self.program, self.pc);
@@ -729,7 +729,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         }
 
         // Bumper in case there was no final exit
-        if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION > self.result.text_section.len() {
+        if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION * 2 >= self.result.text_section.len() {
             return Err(EbpfError::ExhaustedTextSegment(self.pc));
         }        
         self.emit_validate_and_profile_instruction_count(true, Some(self.pc + 2));
