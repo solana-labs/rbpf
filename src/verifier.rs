@@ -10,18 +10,7 @@
 // the MIT license <http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-//! This “verifier” performs simple checks when the eBPF program is loaded into the VM (before it is
-//! interpreted or JIT-compiled). It has nothing to do with the much more elaborated verifier inside
-//! Linux kernel. There is no verification regarding the program flow control (should be a Direct
-//! Acyclic Graph) or the consistency for registers usage (the verifier of the kernel assigns types
-//! to the registers and is much stricter).
-//!
-//! On the other hand, rbpf is not expected to run in kernel space.
-//!
-//! Improving the verifier would be nice, but this is not trivial (and Linux kernel is under GPL
-//! license, so we cannot copy it).
-//!
-//! Contrary to the verifier of the Linux kernel, this one does not modify the bytecode at all.
+//! Verifies that the bytecode is valid for the given config.
 
 use crate::{
     ebpf,

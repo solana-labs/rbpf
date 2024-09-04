@@ -79,8 +79,10 @@ declare_builtin_function!(
 );
 
 declare_builtin_function!(
-    /// Same as `void *memfrob(void *s, size_t n);` in `string.h` in C. See the GNU manual page (in
-    /// section 3) for `memfrob`. The memory is directly modified, and the syscall returns 0 in all
+    /// Same as `void *memfrob(void *s, size_t n);` in `string.h` in C.
+    ///
+    /// See the GNU manual page (in section 3) for `memfrob`.
+    /// The memory is directly modified, and the syscall returns 0 in all
     /// cases. Arguments 3 to 5 are unused.
     SyscallMemFrob,
     fn rust(
