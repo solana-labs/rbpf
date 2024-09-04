@@ -16,7 +16,11 @@ use rand::{thread_rng, Rng};
 #[cfg(feature = "shuttle-test")]
 use shuttle::rand::{thread_rng, Rng};
 
-use rand::{rngs::SmallRng, SeedableRng};
+use rand::{
+    distributions::{Distribution, Uniform},
+    rngs::SmallRng,
+    SeedableRng,
+};
 use std::{fmt::Debug, mem, ptr};
 
 use crate::{
@@ -321,6 +325,7 @@ pub struct JitCompiler<'a, C: ContextObject> {
     pc: usize,
     last_instruction_meter_validation_pc: usize,
     next_noop_insertion: u32,
+    noop_range: Uniform<u32>,
     runtime_environment_key: i32,
     diversification_rng: SmallRng,
     stopwatch_is_active: bool,
@@ -372,6 +377,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             pc: 0,
             last_instruction_meter_validation_pc: 0,
             next_noop_insertion: if config.noop_instruction_rate == 0 { u32::MAX } else { diversification_rng.gen_range(0..config.noop_instruction_rate * 2) },
+            noop_range: Uniform::new_inclusive(0, config.noop_instruction_rate * 2),
             runtime_environment_key,
             diversification_rng,
             stopwatch_is_active: false,
@@ -786,7 +792,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     pub fn emit_ins(&mut self, instruction: X86Instruction) {
         instruction.emit(self);
         if self.next_noop_insertion == 0 {
-            self.next_noop_insertion = self.diversification_rng.gen_range(0..self.config.noop_instruction_rate * 2);
+            self.next_noop_insertion = self.noop_range.sample(&mut self.diversification_rng);
             // X86Instruction::noop().emit(self)?;
             self.emit::<u8>(0x90);
         } else {
