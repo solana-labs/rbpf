@@ -14,8 +14,8 @@
 
 use crate::{
     ebpf,
-    program::{FunctionRegistry, SBPFVersion},
-    vm::Config,
+    program::{BuiltinFunction, FunctionRegistry, SBPFVersion},
+    vm::{Config, ContextObject},
 };
 use thiserror::Error;
 
@@ -85,11 +85,12 @@ pub trait Verifier {
     ///   - Unknown instructions.
     ///   - Bad formed instruction.
     ///   - Unknown eBPF syscall index.
-    fn verify(
+    fn verify<C: ContextObject>(
         prog: &[u8],
         config: &Config,
         sbpf_version: &SBPFVersion,
         function_registry: &FunctionRegistry<usize>,
+        syscall_registry: &FunctionRegistry<BuiltinFunction<C>>,
     ) -> Result<(), VerifierError>;
 }
 
@@ -153,10 +154,14 @@ fn check_jmp_offset(
     Ok(())
 }
 
-fn check_call_target(
+fn check_call_target<T>(
     key: u32,
-    function_registry: &FunctionRegistry<usize>,
-) -> Result<(), VerifierError> {
+    function_registry: &FunctionRegistry<T>,
+) -> Result<(), VerifierError>
+where
+    T: Copy,
+    T: PartialEq,
+{
     function_registry
         .lookup_by_key(key)
         .map(|_| ())
@@ -216,7 +221,7 @@ pub struct RequisiteVerifier {}
 impl Verifier for RequisiteVerifier {
     /// Check the program against the verifier's rules
     #[rustfmt::skip]
-    fn verify(prog: &[u8], config: &Config, sbpf_version: &SBPFVersion, function_registry: &FunctionRegistry<usize>) -> Result<(), VerifierError> {
+    fn verify<C: ContextObject>(prog: &[u8], config: &Config, sbpf_version: &SBPFVersion, function_registry: &FunctionRegistry<usize>, syscall_registry: &FunctionRegistry<BuiltinFunction<C>>) -> Result<(), VerifierError> {
         check_prog_len(prog)?;
 
         let program_range = 0..prog.len() / ebpf::INSN_SIZE;
@@ -371,6 +376,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src != 0 => { check_call_target(insn.imm as u32, function_registry)?; },
+                ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src == 0 => { check_call_target(insn.imm as u32, syscall_registry)?; },
                 ebpf::CALL_IMM   => {},
                 ebpf::CALL_REG   => { check_callx_register(&insn, insn_ptr, config, sbpf_version)?; },
                 ebpf::EXIT       => {},
