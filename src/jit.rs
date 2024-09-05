@@ -1623,7 +1623,7 @@ mod tests {
 
     #[test]
     fn test_runtime_environment_slots() {
-        let executable = create_mockup_executable(&[]);
+        let executable = create_mockup_executable(SBPFVersion::V2, &[]);
         let mut context_object = TestContextObject::new(0);
         let env = EbpfVm::new(
             executable.get_loader().clone(),
@@ -1659,7 +1659,10 @@ mod tests {
         check_slot!(env, memory_mapping, MemoryMapping);
     }
 
-    fn create_mockup_executable(program: &[u8]) -> Executable<TestContextObject> {
+    fn create_mockup_executable(
+        sbpf_version: SBPFVersion,
+        program: &[u8],
+    ) -> Executable<TestContextObject> {
         let mut function_registry =
             FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry
@@ -1679,7 +1682,7 @@ mod tests {
         Executable::<TestContextObject>::from_text_bytes(
             program,
             Arc::new(loader),
-            SBPFVersion::V2,
+            sbpf_version,
             function_registry,
         )
         .unwrap()
@@ -1690,69 +1693,74 @@ mod tests {
         const INSTRUCTION_COUNT: usize = 256;
         let mut prog = [0; ebpf::INSN_SIZE * INSTRUCTION_COUNT];
 
-        let empty_program_machine_code_length = {
-            prog[0] = ebpf::EXIT;
-            let mut executable = create_mockup_executable(&prog[0..ebpf::INSN_SIZE]);
-            Executable::<TestContextObject>::jit_compile(&mut executable).unwrap();
-            executable
-                .get_compiled_program()
-                .unwrap()
-                .machine_code_length()
-        };
-        assert!(empty_program_machine_code_length <= MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH);
+        for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+            let empty_program_machine_code_length = {
+                prog[0] = ebpf::EXIT;
+                let mut executable =
+                    create_mockup_executable(sbpf_version.clone(), &prog[0..ebpf::INSN_SIZE]);
+                Executable::<TestContextObject>::jit_compile(&mut executable).unwrap();
+                executable
+                    .get_compiled_program()
+                    .unwrap()
+                    .machine_code_length()
+            };
+            assert!(empty_program_machine_code_length <= MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH);
 
-        for mut opcode in 0x00..=0xFF {
-            let (registers, immediate) = match opcode {
-                0x85 | 0x8D => (0x88, 8),
-                0x86 => {
-                    // Put external function calls on a separate loop iteration
-                    opcode = 0x85;
-                    (0x00, 0x91020CDD)
+            for mut opcode in 0x00..=0xFF {
+                let (registers, immediate) = match opcode {
+                    0x85 | 0x8D => (0x88, 8),
+                    0x86 => {
+                        // Put external function calls on a separate loop iteration
+                        opcode = 0x85;
+                        (0x00, 0x91020CDD)
+                    }
+                    0x87 => {
+                        // Put invalid function calls on a separate loop iteration
+                        opcode = 0x85;
+                        (0x88, 0x91020CDD)
+                    }
+                    0xD4 | 0xDC => (0x88, 16),
+                    _ => (0x88, 0xFFFFFFFF),
+                };
+                for pc in 0..INSTRUCTION_COUNT {
+                    prog[pc * ebpf::INSN_SIZE] = opcode;
+                    prog[pc * ebpf::INSN_SIZE + 1] = registers;
+                    prog[pc * ebpf::INSN_SIZE + 2] = 0xFF;
+                    prog[pc * ebpf::INSN_SIZE + 3] = 0xFF;
+                    LittleEndian::write_u32(&mut prog[pc * ebpf::INSN_SIZE + 4..], immediate);
                 }
-                0x87 => {
-                    // Put invalid function calls on a separate loop iteration
-                    opcode = 0x85;
-                    (0x88, 0x91020CDD)
+                let mut executable = create_mockup_executable(sbpf_version.clone(), &prog);
+                let result = Executable::<TestContextObject>::jit_compile(&mut executable);
+                if result.is_err() {
+                    assert!(matches!(
+                        result.unwrap_err(),
+                        EbpfError::UnsupportedInstruction
+                    ));
+                    continue;
                 }
-                0xD4 | 0xDC => (0x88, 16),
-                _ => (0x88, 0xFFFFFFFF),
-            };
-            for pc in 0..INSTRUCTION_COUNT {
-                prog[pc * ebpf::INSN_SIZE] = opcode;
-                prog[pc * ebpf::INSN_SIZE + 1] = registers;
-                prog[pc * ebpf::INSN_SIZE + 2] = 0xFF;
-                prog[pc * ebpf::INSN_SIZE + 3] = 0xFF;
-                LittleEndian::write_u32(&mut prog[pc * ebpf::INSN_SIZE + 4..], immediate);
+                let machine_code_length = executable
+                    .get_compiled_program()
+                    .unwrap()
+                    .machine_code_length()
+                    - empty_program_machine_code_length;
+                let instruction_count = if opcode == 0x18 {
+                    // LDDW takes two slots
+                    INSTRUCTION_COUNT / 2
+                } else {
+                    INSTRUCTION_COUNT
+                };
+                let machine_code_length_per_instruction =
+                    (machine_code_length as f64 / instruction_count as f64 + 0.5) as usize;
+                assert!(
+                    machine_code_length_per_instruction <= MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION
+                );
+                /*println!("opcode={:02X} machine_code_length_per_instruction={}", opcode, machine_code_length_per_instruction);
+                let analysis = crate::static_analysis::Analysis::from_executable(&executable).unwrap();
+                {
+                    let stdout = std::io::stdout();
+                    analysis.disassemble(&mut stdout.lock()).unwrap();
+                }*/
             }
-            let mut executable = create_mockup_executable(&prog);
-            let result = Executable::<TestContextObject>::jit_compile(&mut executable);
-            if result.is_err() {
-                assert!(matches!(
-                    result.unwrap_err(),
-                    EbpfError::UnsupportedInstruction
-                ));
-                continue;
-            }
-            let machine_code_length = executable
-                .get_compiled_program()
-                .unwrap()
-                .machine_code_length()
-                - empty_program_machine_code_length;
-            let instruction_count = if opcode == 0x18 {
-                // LDDW takes two slots
-                INSTRUCTION_COUNT / 2
-            } else {
-                INSTRUCTION_COUNT
-            };
-            let machine_code_length_per_instruction =
-                (machine_code_length as f64 / instruction_count as f64 + 0.5) as usize;
-            assert!(machine_code_length_per_instruction <= MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION);
-            /*println!("opcode={:02X} machine_code_length_per_instruction={}", opcode, machine_code_length_per_instruction);
-            let analysis = crate::static_analysis::Analysis::from_executable(&executable).unwrap();
-            {
-                let stdout = std::io::stdout();
-                analysis.disassemble(&mut stdout.lock()).unwrap();
-            }*/
         }
     }
 }
