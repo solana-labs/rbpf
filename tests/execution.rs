@@ -2692,11 +2692,6 @@ fn test_err_instruction_count_syscall_capped() {
 
 #[test]
 fn test_non_terminate_early() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-
     test_interpreter_and_jit_asm!(
         "
         mov64 r6, 0x0
@@ -2705,15 +2700,14 @@ fn test_non_terminate_early() {
         mov64 r3, 0x0
         mov64 r4, 0x0
         mov64 r5, r6
-        syscall Unresolved
+        callx r6
         add64 r6, 0x1
         ja -0x8
         exit",
-        config.clone(),
         [],
         (),
         TestContextObject::new(7),
-        ProgramResult::Err(EbpfError::UnsupportedInstruction),
+        ProgramResult::Err(EbpfError::CallOutsideTextSegment),
     );
 }
 
@@ -2776,21 +2770,15 @@ fn test_err_capped_before_exception() {
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
 
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x0
         mov64 r2, 0x0
         add64 r0, 0x0
         add64 r0, 0x0
-        syscall Unresolved
+        callx r2
         add64 r0, 0x0
         exit",
-        config.clone(),
         [],
         (),
         TestContextObject::new(4),
