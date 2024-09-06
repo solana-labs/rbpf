@@ -1631,7 +1631,7 @@ mod tests {
 
     #[test]
     fn test_runtime_environment_slots() {
-        let executable = create_mockup_executable(SBPFVersion::V2, &[]);
+        let executable = create_mockup_executable(Config::default(), &[]);
         let mut context_object = TestContextObject::new(0);
         let env = EbpfVm::new(
             executable.get_loader().clone(),
@@ -1667,22 +1667,14 @@ mod tests {
         check_slot!(env, memory_mapping, MemoryMapping);
     }
 
-    fn create_mockup_executable(
-        sbpf_version: SBPFVersion,
-        program: &[u8],
-    ) -> Executable<TestContextObject> {
+    fn create_mockup_executable(config: Config, program: &[u8]) -> Executable<TestContextObject> {
+        let sbpf_version = config.enabled_sbpf_versions.end().clone();
         let mut function_registry =
             FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry
             .register_function_hashed(*b"gather_bytes", syscalls::SyscallGatherBytes::vm)
             .unwrap();
-        let loader = BuiltinProgram::new_loader(
-            Config {
-                noop_instruction_rate: 0,
-                ..Config::default()
-            },
-            function_registry,
-        );
+        let loader = BuiltinProgram::new_loader(config, function_registry);
         let mut function_registry = FunctionRegistry::default();
         function_registry
             .register_function(8, *b"function_foo", 8)
@@ -1699,13 +1691,20 @@ mod tests {
     #[test]
     fn test_code_length_estimate() {
         const INSTRUCTION_COUNT: usize = 256;
-        let mut prog = [0; ebpf::INSN_SIZE * INSTRUCTION_COUNT];
+        let mut prog = vec![0; ebpf::INSN_SIZE * INSTRUCTION_COUNT];
+        for pc in 0..INSTRUCTION_COUNT {
+            prog[pc * ebpf::INSN_SIZE] = ebpf::ADD64_IMM;
+        }
 
+        let mut empty_program_machine_code_length_per_version = [0; 2];
         for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
             let empty_program_machine_code_length = {
-                prog[0] = ebpf::EXIT;
-                let mut executable =
-                    create_mockup_executable(sbpf_version.clone(), &prog[0..ebpf::INSN_SIZE]);
+                let config = Config {
+                    noop_instruction_rate: 0,
+                    enabled_sbpf_versions: sbpf_version.clone()..=sbpf_version.clone(),
+                    ..Config::default()
+                };
+                let mut executable = create_mockup_executable(config, &prog[0..0]);
                 Executable::<TestContextObject>::jit_compile(&mut executable).unwrap();
                 executable
                     .get_compiled_program()
@@ -1713,6 +1712,41 @@ mod tests {
                     .machine_code_length()
             };
             assert!(empty_program_machine_code_length <= MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH);
+            empty_program_machine_code_length_per_version[sbpf_version.clone() as usize] =
+                empty_program_machine_code_length;
+        }
+
+        let mut instruction_meter_checkpoint_machine_code_length = [0; 2];
+        for (index, machine_code_length) in instruction_meter_checkpoint_machine_code_length
+            .iter_mut()
+            .enumerate()
+        {
+            let config = Config {
+                instruction_meter_checkpoint_distance: index * INSTRUCTION_COUNT * 2,
+                noop_instruction_rate: 0,
+                enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+                ..Config::default()
+            };
+            let mut executable = create_mockup_executable(config, &prog);
+            Executable::<TestContextObject>::jit_compile(&mut executable).unwrap();
+            *machine_code_length = (executable
+                .get_compiled_program()
+                .unwrap()
+                .machine_code_length()
+                - empty_program_machine_code_length_per_version[0])
+                / INSTRUCTION_COUNT;
+        }
+        let instruction_meter_checkpoint_machine_code_length =
+            instruction_meter_checkpoint_machine_code_length[0]
+                - instruction_meter_checkpoint_machine_code_length[1];
+        assert_eq!(
+            instruction_meter_checkpoint_machine_code_length,
+            MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT
+        );
+
+        for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+            let empty_program_machine_code_length =
+                empty_program_machine_code_length_per_version[sbpf_version.clone() as usize];
 
             for mut opcode in 0x00..=0xFF {
                 let (registers, immediate) = match opcode {
@@ -1737,7 +1771,12 @@ mod tests {
                     prog[pc * ebpf::INSN_SIZE + 3] = 0xFF;
                     LittleEndian::write_u32(&mut prog[pc * ebpf::INSN_SIZE + 4..], immediate);
                 }
-                let mut executable = create_mockup_executable(sbpf_version.clone(), &prog);
+                let config = Config {
+                    noop_instruction_rate: 0,
+                    enabled_sbpf_versions: sbpf_version.clone()..=sbpf_version.clone(),
+                    ..Config::default()
+                };
+                let mut executable = create_mockup_executable(config, &prog);
                 let result = Executable::<TestContextObject>::jit_compile(&mut executable);
                 if result.is_err() {
                     assert!(matches!(
@@ -1758,9 +1797,10 @@ mod tests {
                     INSTRUCTION_COUNT
                 };
                 let machine_code_length_per_instruction =
-                    (machine_code_length as f64 / instruction_count as f64 + 0.5) as usize;
+                    machine_code_length as f64 / instruction_count as f64;
                 assert!(
-                    machine_code_length_per_instruction <= MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION
+                    (machine_code_length_per_instruction + 0.5) as usize
+                        <= MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION
                 );
                 /*println!("opcode={:02X} machine_code_length_per_instruction={}", opcode, machine_code_length_per_instruction);
                 let analysis = crate::static_analysis::Analysis::from_executable(&executable).unwrap();
