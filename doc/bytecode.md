@@ -323,5 +323,6 @@ Verification
 - `hor64` is allowed
 - The offset of jump instructions must be limited to the range of the current function
 - `callx` source register is encoded in the src field
-- The targets of syscalls (`call` instructions with src ≠ 0) must have been registered at verification time
+- The targets of internal calls (`call` instructions with src ≠ 0) must have been registered at verification time
+- The targets of syscalls (`call` instructions with src = 0) must have been registered at verification time
 - `add64 reg, imm` can use `r11` as destination register
