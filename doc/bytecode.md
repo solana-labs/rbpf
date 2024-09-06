@@ -87,7 +87,8 @@ The following Rust equivalents assume that:
 | `0C` / `00001100`  | from v2     | `add32 dst, src`       | `dst = (dst as u32).wrapping_add(src as u32) as u64`
 | `14` / `00010100`  | until v2    | `sub32 dst, imm`       | `dst = (dst as u32).wrapping_sub(imm) as u64`
 | `14` / `00010100`  | from v2     | `sub32 dst, imm`       | `dst = imm.wrapping_sub(dst as u32) as u64`
-| `1C` / `00011100`  | all         | `sub32 dst, src`       | `dst = (dst as u32).wrapping_sub(src as u32) as u64`
+| `1C` / `00011100`  | until v2    | `sub32 dst, src`       | `dst = (dst as u32).wrapping_sub(src as u32) as i32 as i64 as u64`
+| `1C` / `00011100`  | from v2     | `sub32 dst, src`       | `dst = (dst as u32).wrapping_sub(src as u32) as u64`
 | `24` / `00100100`  | until v2    | `mul32 dst, imm`       | `dst = (dst as i32).wrapping_mul(imm as i32) as i64 as u64`
 | `2C` / `00101100`  | until v2    | `mul32 dst, src`       | `dst = (dst as i32).wrapping_mul(src as i32) as i64 as u64`
 | `34` / `00110100`  | until v2    | `div32 dst, imm`       | `dst = ((dst as u32) / imm) as u64`
