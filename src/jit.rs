@@ -907,7 +907,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             },
             None => {
                 self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_INSTRUCTION_METER, self.pc as i64 + 1, None)); // instruction_meter -= self.pc + 1;
-                self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, self.pc as i64, None)); // instruction_meter += target_pc;
+                self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter += target_pc;
             },
         }
     }
