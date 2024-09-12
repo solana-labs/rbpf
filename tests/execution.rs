@@ -3454,11 +3454,46 @@ fn test_err_fixed_stack_out_of_bound() {
 }
 
 #[test]
+fn test_execution_overrun() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_asm!(
+        "
+        add r1, 0",
+        config.clone(),
+        [],
+        (),
+        TestContextObject::new(2),
+        ProgramResult::Err(EbpfError::ExecutionOverrun),
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        add r1, 0",
+        config.clone(),
+        [],
+        (),
+        TestContextObject::new(1),
+        ProgramResult::Err(EbpfError::ExceededMaxInstructions),
+    );
+}
+
+#[test]
 fn test_lddw() {
     let config = Config {
         enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
+    test_interpreter_and_jit_asm!(
+        "
+        lddw r0, 0x1122334455667788",
+        config.clone(),
+        [],
+        (),
+        TestContextObject::new(2),
+        ProgramResult::Err(EbpfError::ExecutionOverrun),
+    );
     test_interpreter_and_jit_asm!(
         "
         lddw r0, 0x1122334455667788
