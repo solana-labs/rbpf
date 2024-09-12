@@ -3499,6 +3499,15 @@ fn test_execution_overrun() {
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
+    test_interpreter_and_jit_asm!(
+        "
+        add r1, 0",
+        config.clone(),
+        [],
+        (),
+        TestContextObject::new(0),
+        ProgramResult::Err(EbpfError::ExceededMaxInstructions),
+    );
 }
 
 #[test]
