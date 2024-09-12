@@ -1037,6 +1037,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Store PC in case the bounds check fails
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64));
 
+        self.emit_validate_instruction_count(false, Some(self.pc));
         self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE, 5)));
 
         match dst {
@@ -1049,14 +1050,14 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
                 self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG, 5)));
 
-                self.emit_validate_and_profile_instruction_count(false, false, None);
+                self.emit_profile_instruction_count(false, None);
                 self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], REGISTER_OTHER_SCRATCH));
                 self.emit_ins(X86Instruction::pop(REGISTER_MAP[0])); // Restore RAX
                 self.emit_ins(X86Instruction::call_reg(REGISTER_OTHER_SCRATCH, None)); // callq *REGISTER_OTHER_SCRATCH
             },
             Value::Constant64(target_pc, user_provided) => {
                 debug_assert!(user_provided);
-                self.emit_validate_and_profile_instruction_count(false, user_provided, Some(target_pc as usize));
+                self.emit_profile_instruction_count(user_provided, Some(target_pc as usize));
                 if user_provided && self.should_sanitize_constant(target_pc) {
                     self.emit_sanitized_load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc);
                 } else {
