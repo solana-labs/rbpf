@@ -718,7 +718,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     }
 
                     // and return
-                    self.emit_validate_and_profile_instruction_count(false, false, Some(0));
+                    self.emit_validate_instruction_count(false, Some(self.pc));
+                    self.emit_profile_instruction_count(false, Some(0));
                     self.emit_ins(X86Instruction::return_near());
                 },
 
@@ -895,6 +896,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
     #[inline]
     fn emit_profile_instruction_count(&mut self, user_provided: bool, target_pc: Option<usize>) {
+        if !self.config.enable_instruction_meter {
+            return;
+        }
         match target_pc {
             Some(target_pc) => {
                 // instruction_meter += target_pc - (self.pc + 1);
@@ -914,10 +918,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
     #[inline]
     fn emit_validate_and_profile_instruction_count(&mut self, exclusive: bool, user_provided: bool, target_pc: Option<usize>) {
-        if self.config.enable_instruction_meter {
-            self.emit_validate_instruction_count(exclusive, Some(self.pc));
-            self.emit_profile_instruction_count(user_provided, target_pc);
-        }
+        self.emit_validate_instruction_count(exclusive, Some(self.pc));
+        self.emit_profile_instruction_count(user_provided, target_pc);
     }
 
     #[inline]
