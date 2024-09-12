@@ -731,8 +731,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Bumper in case there was no final exit
         if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION * 2 >= self.result.text_section.len() {
             return Err(EbpfError::ExhaustedTextSegment(self.pc));
-        }        
-        self.emit_validate_and_profile_instruction_count(true, false, Some(self.pc + 2));
+        }
+        self.emit_validate_and_profile_instruction_count(true, false, Some(self.pc + 1));
+        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64)); // Save pc
         self.emit_set_exception_kind(EbpfError::ExecutionOverrun);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
