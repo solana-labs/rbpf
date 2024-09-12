@@ -527,11 +527,6 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
             _ => throw_error!(self, EbpfError::UnsupportedInstruction),
         }
 
-        if config.enable_instruction_meter && self.vm.due_insn_count >= self.vm.previous_instruction_meter {
-            self.reg[11] += 1;
-            throw_error!(self, EbpfError::ExceededMaxInstructions);
-        }
-
         self.reg[11] = next_pc;
         true
     }

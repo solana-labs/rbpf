@@ -628,7 +628,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
                 // BPF_JMP class
                 ebpf::JA         => {
-                    self.emit_validate_and_profile_instruction_count(false, true, Some(target_pc));
+                    self.emit_validate_and_profile_instruction_count(true, true, Some(target_pc));
                     self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc as i64));
                     let jump_offset = self.relative_to_target_pc(target_pc, 5);
                     self.emit_ins(X86Instruction::jump_immediate(jump_offset));
@@ -696,6 +696,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_internal_call(Value::Register(target_pc));
                 },
                 ebpf::EXIT      => {
+                    self.emit_validate_instruction_count(true, Some(self.pc));
+
                     let call_depth_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::CallDepth));
                     self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[FRAME_PTR_REG], call_depth_access));
 
@@ -718,7 +720,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     }
 
                     // and return
-                    self.emit_validate_instruction_count(false, Some(self.pc));
                     self.emit_profile_instruction_count(false, Some(0));
                     self.emit_ins(X86Instruction::return_near());
                 },
@@ -1039,7 +1040,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Store PC in case the bounds check fails
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64));
 
-        self.emit_validate_instruction_count(false, Some(self.pc));
+        self.emit_validate_instruction_count(true, Some(self.pc));
         self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE, 5)));
 
         match dst {
@@ -1152,7 +1153,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
     #[inline]
     fn emit_conditional_branch_reg(&mut self, op: u8, bitwise: bool, first_operand: u8, second_operand: u8, target_pc: usize) {
-        self.emit_validate_and_profile_instruction_count(false, true, Some(target_pc));
+        self.emit_validate_and_profile_instruction_count(true, true, Some(target_pc));
         if bitwise { // Logical
             self.emit_ins(X86Instruction::test(OperandSize::S64, first_operand, second_operand, None));
         } else { // Arithmetic
@@ -1166,7 +1167,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
     #[inline]
     fn emit_conditional_branch_imm(&mut self, op: u8, bitwise: bool, immediate: i64, second_operand: u8, target_pc: usize) {
-        self.emit_validate_and_profile_instruction_count(false, true, Some(target_pc));
+        self.emit_validate_and_profile_instruction_count(true, true, Some(target_pc));
         if self.should_sanitize_constant(immediate) {
             self.emit_sanitized_load_immediate(OperandSize::S64, REGISTER_SCRATCH, immediate);
             if bitwise { // Logical
@@ -1382,7 +1383,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Quit gracefully
         self.set_anchor(ANCHOR_EXIT);
-        self.emit_validate_instruction_count(false, None);
         self.emit_ins(X86Instruction::lea(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_OTHER_SCRATCH, Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult)))));
         self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], REGISTER_OTHER_SCRATCH, X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32))); // result.return_value = R0;
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], 0));
