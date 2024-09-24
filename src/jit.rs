@@ -1311,9 +1311,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     fn emit_set_exception_kind(&mut self, err: EbpfError) {
         let err_kind = unsafe { *std::ptr::addr_of!(err).cast::<u64>() };
         let err_discriminant = ProgramResult::Err(err).discriminant();
-        self.emit_ins(X86Instruction::lea(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_OTHER_SCRATCH, Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult)))));
-        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, X86IndirectAccess::Offset(0), err_discriminant as i64)); // result.discriminant = err_discriminant;
-        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32), err_kind as i64)); // err.kind = err_kind;
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[0], Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult)))));
+        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, REGISTER_MAP[0], X86IndirectAccess::Offset(0), err_discriminant as i64)); // result.discriminant = err_discriminant;
+        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, REGISTER_MAP[0], X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32), err_kind as i64)); // err.kind = err_kind;
     }
 
     fn emit_result_is_err(&mut self, destination: u8) {
