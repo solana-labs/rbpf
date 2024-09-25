@@ -974,7 +974,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 Value::RegisterIndirect(reg, offset, user_provided) => {
                     debug_assert!(!user_provided);
                     if is_stack_argument {
+                        debug_assert_ne!(reg, RSP);
                         self.emit_ins(X86Instruction::push(reg, Some(X86IndirectAccess::Offset(offset))));
+                    } else if reg == RSP {
+                        self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, dst, X86IndirectAccess::OffsetIndexShift(offset, RSP, 0)));
                     } else {
                         self.emit_ins(X86Instruction::load(OperandSize::S64, reg, dst, X86IndirectAccess::Offset(offset)));
                     }
@@ -984,6 +987,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     if is_stack_argument {
                         self.emit_ins(X86Instruction::push(reg, None));
                         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, offset as i64, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0))));
+                    } else if reg == RSP {
+                        self.emit_ins(X86Instruction::lea(OperandSize::S64, RSP, dst, Some(X86IndirectAccess::OffsetIndexShift(offset, RSP, 0))));
                     } else {
                         self.emit_ins(X86Instruction::lea(OperandSize::S64, reg, dst, Some(X86IndirectAccess::Offset(offset))));
                     }
