@@ -113,18 +113,18 @@ impl JitProgram {
                 "push rbp",
                 "mov [{host_stack_pointer}], rsp",
                 "add QWORD PTR [{host_stack_pointer}], -8", // We will push RIP in "call r10" later
-                "mov rbx, rax",
+                "mov rbp, rax",
                 "mov rax, [r11 + 0x00]",
                 "mov rsi, [r11 + 0x08]",
                 "mov rdx, [r11 + 0x10]",
                 "mov rcx, [r11 + 0x18]",
                 "mov r8,  [r11 + 0x20]",
                 "mov r9,  [r11 + 0x28]",
-                "mov r12, [r11 + 0x30]",
-                "mov r13, [r11 + 0x38]",
-                "mov r14, [r11 + 0x40]",
-                "mov r15, [r11 + 0x48]",
-                "mov rbp, [r11 + 0x50]",
+                "mov rbx, [r11 + 0x30]",
+                "mov r12, [r11 + 0x38]",
+                "mov r13, [r11 + 0x40]",
+                "mov r14, [r11 + 0x48]",
+                "mov r15, [r11 + 0x50]",
                 "mov r11, [r11 + 0x58]",
                 "call r10",
                 "pop rbp",
@@ -205,17 +205,17 @@ const REGISTER_MAP: [u8; 11] = [
     ARGUMENT_REGISTERS[3],     // RCX
     ARGUMENT_REGISTERS[4],     // R8
     ARGUMENT_REGISTERS[5],     // R9
+    CALLEE_SAVED_REGISTERS[1], // RBX
     CALLEE_SAVED_REGISTERS[2], // R12
     CALLEE_SAVED_REGISTERS[3], // R13
     CALLEE_SAVED_REGISTERS[4], // R14
     CALLEE_SAVED_REGISTERS[5], // R15
-    CALLEE_SAVED_REGISTERS[0], // RBP
 ];
 
 /// RDI: Used together with slot_in_vm()
 const REGISTER_PTR_TO_VM: u8 = ARGUMENT_REGISTERS[0];
-/// RBX: Program counter limit
-const REGISTER_INSTRUCTION_METER: u8 = CALLEE_SAVED_REGISTERS[1];
+/// RBP: Program counter limit
+const REGISTER_INSTRUCTION_METER: u8 = CALLEE_SAVED_REGISTERS[0];
 /// R10: Other scratch register
 // const REGISTER_OTHER_SCRATCH: u8 = CALLER_SAVED_REGISTERS[7];
 /// R11: Scratch register
