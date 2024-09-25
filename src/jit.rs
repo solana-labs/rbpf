@@ -1105,6 +1105,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             },
         }
 
+        let stack_slot_of_value_to_store = X86IndirectAccess::OffsetIndexShift(-112, RSP, 0);
         match value {
             Some(Value::Register(reg)) => {
                 self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, REGISTER_OTHER_SCRATCH));
@@ -1118,6 +1119,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             }
             _ => {}
         }
+        self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_OTHER_SCRATCH, RSP, stack_slot_of_value_to_store));
 
         if self.config.enable_address_translation {
             let access_type = if value.is_none() { AccessType::Load } else { AccessType::Store };
@@ -1554,7 +1556,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 };
                 self.emit_rust_call(Value::Constant64(store, false), &[
                     Argument { index: 3, value: Value::Register(REGISTER_SCRATCH) }, // Specify first as the src register could be overwritten by other arguments
-                    Argument { index: 2, value: Value::Register(REGISTER_OTHER_SCRATCH) },
+                    Argument { index: 2, value: Value::RegisterIndirect(RSP, -8, false) },
                     Argument { index: 4, value: Value::Constant64(0, false) }, // self.pc is set later
                     Argument { index: 1, value: Value::RegisterPlusConstant32(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::MemoryMapping), false) },
                     Argument { index: 0, value: Value::RegisterPlusConstant32(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult), false) },
