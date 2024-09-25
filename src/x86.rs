@@ -613,6 +613,19 @@ impl X86Instruction {
         }
     }
 
+    /// Jump to absolute destination
+    #[inline]
+    pub const fn jump_reg(destination: u8, indirect: Option<X86IndirectAccess>) -> Self {
+        Self {
+            size: OperandSize::S64,
+            opcode: 0xff,
+            first_operand: 4,
+            second_operand: destination,
+            indirect,
+            ..Self::DEFAULT
+        }
+    }
+
     /// Push RIP and jump to relative destination
     #[inline]
     pub const fn call_immediate(relative_destination: i32) -> Self {

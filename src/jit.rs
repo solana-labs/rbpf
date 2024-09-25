@@ -1044,17 +1044,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         match dst {
             Value::Register(reg) => {
-                // Move guest_target_address into RAX
-                self.emit_ins(X86Instruction::push(REGISTER_MAP[0], None));
-                if reg != REGISTER_MAP[0] {
-                    self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[0]));
-                }
-
+                // Move guest_target_address into REGISTER_MAP[FRAME_PTR_REG]
+                self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[FRAME_PTR_REG]));
                 self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG, 5)));
-
-                self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], REGISTER_OTHER_SCRATCH));
-                self.emit_ins(X86Instruction::pop(REGISTER_MAP[0])); // Restore RAX
-                self.emit_ins(X86Instruction::call_reg(REGISTER_OTHER_SCRATCH, None)); // callq *REGISTER_OTHER_SCRATCH
             },
             Value::Constant64(target_pc, user_provided) => {
                 debug_assert!(user_provided);
@@ -1482,9 +1474,11 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::return_near());
 
         // Routine for emit_internal_call(Value::Register())
-        // Inputs: Guest current pc in REGISTER_SCRATCH, Guest target address in REGISTER_MAP[0]
-        // Outputs: Guest target pc in REGISTER_SCRATCH, Host target address in REGISTER_MAP[0]
+        // Inputs: Guest current pc in REGISTER_SCRATCH, Guest target address in REGISTER_MAP[FRAME_PTR_REG]
+        // Outputs: Guest target pc in REGISTER_SCRATCH, Host target address in RIP
         self.set_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG);
+        self.emit_ins(X86Instruction::push(REGISTER_MAP[0], None));
+        self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0]));
         // Calculate offset relative to program_vm_addr
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], self.program_vm_addr as i64));
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0], 0, None)); // guest_target_address -= self.program_vm_addr;
@@ -1513,7 +1507,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], X86IndirectAccess::Offset(0))); // host_target_address = self.result.pc_section[host_target_address / 8];
         // Load the frame pointer again since we've clobbered REGISTER_MAP[FRAME_PTR_REG]
         self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[FRAME_PTR_REG], stack_pointer_access));
-        self.emit_ins(X86Instruction::return_near());
+        // Restore the clobbered REGISTER_MAP[0]
+        self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], REGISTER_OTHER_SCRATCH));
+        self.emit_ins(X86Instruction::pop(REGISTER_MAP[0]));
+        self.emit_ins(X86Instruction::jump_reg(REGISTER_OTHER_SCRATCH, None)); // Tail call to host_target_address
 
         // Translates a vm memory address to a host memory address
         for (access_type, len) in &[
