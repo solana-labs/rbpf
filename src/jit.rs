@@ -1083,6 +1083,22 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     fn emit_address_translation(&mut self, dst: Option<u8>, vm_addr: Value, len: u64, value: Option<Value>) {
         debug_assert_ne!(dst.is_some(), value.is_some());
 
+        let stack_slot_of_value_to_store = X86IndirectAccess::OffsetIndexShift(-112, RSP, 0);
+        match value {
+            Some(Value::Register(reg)) => {
+                self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, REGISTER_OTHER_SCRATCH));
+            }
+            Some(Value::Constant64(constant, user_provided)) => {
+                if user_provided && self.should_sanitize_constant(constant) {
+                    self.emit_sanitized_load_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, constant);
+                } else {
+                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, constant));
+                }
+            }
+            _ => {}
+        }
+        self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_OTHER_SCRATCH, RSP, stack_slot_of_value_to_store));
+
         match vm_addr {
             Value::RegisterPlusConstant64(reg, constant, user_provided) => {
                 if user_provided && self.should_sanitize_constant(constant) {
@@ -1104,22 +1120,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 unreachable!();
             },
         }
-
-        let stack_slot_of_value_to_store = X86IndirectAccess::OffsetIndexShift(-112, RSP, 0);
-        match value {
-            Some(Value::Register(reg)) => {
-                self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, REGISTER_OTHER_SCRATCH));
-            }
-            Some(Value::Constant64(constant, user_provided)) => {
-                if user_provided && self.should_sanitize_constant(constant) {
-                    self.emit_sanitized_load_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, constant);
-                } else {
-                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, constant));
-                }
-            }
-            _ => {}
-        }
-        self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_OTHER_SCRATCH, RSP, stack_slot_of_value_to_store));
 
         if self.config.enable_address_translation {
             let access_type = if value.is_none() { AccessType::Load } else { AccessType::Store };
