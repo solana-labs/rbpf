@@ -218,8 +218,6 @@ const REGISTER_MAP: [u8; 11] = [
 const REGISTER_PTR_TO_VM: u8 = ARGUMENT_REGISTERS[0];
 /// R10: Program counter limit
 const REGISTER_INSTRUCTION_METER: u8 = CALLER_SAVED_REGISTERS[7];
-/// RBP: Other scratch register
-const REGISTER_OTHER_SCRATCH: u8 = CALLEE_SAVED_REGISTERS[0];
 /// R11: Scratch register
 const REGISTER_SCRATCH: u8 = CALLER_SAVED_REGISTERS[8];
 
