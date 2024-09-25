@@ -217,7 +217,7 @@ const REGISTER_PTR_TO_VM: u8 = ARGUMENT_REGISTERS[0];
 /// RBX: Program counter limit
 const REGISTER_INSTRUCTION_METER: u8 = CALLEE_SAVED_REGISTERS[1];
 /// R10: Other scratch register
-const REGISTER_OTHER_SCRATCH: u8 = CALLER_SAVED_REGISTERS[7];
+// const REGISTER_OTHER_SCRATCH: u8 = CALLER_SAVED_REGISTERS[7];
 /// R11: Scratch register
 const REGISTER_SCRATCH: u8 = CALLER_SAVED_REGISTERS[8];
 
@@ -1138,13 +1138,15 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 _ => unreachable!(),
             }
         } else {
+            self.emit_ins(X86Instruction::xchg(OperandSize::S64, RSP, REGISTER_MAP[0], Some(stack_slot_of_value_to_store))); // Save REGISTER_MAP[0] and retrieve value to store
             match len {
-                1 => self.emit_ins(X86Instruction::store(OperandSize::S8, REGISTER_OTHER_SCRATCH, REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
-                2 => self.emit_ins(X86Instruction::store(OperandSize::S16, REGISTER_OTHER_SCRATCH, REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
-                4 => self.emit_ins(X86Instruction::store(OperandSize::S32, REGISTER_OTHER_SCRATCH, REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
-                8 => self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_OTHER_SCRATCH, REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
+                1 => self.emit_ins(X86Instruction::store(OperandSize::S8, REGISTER_MAP[0], REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
+                2 => self.emit_ins(X86Instruction::store(OperandSize::S16, REGISTER_MAP[0], REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
+                4 => self.emit_ins(X86Instruction::store(OperandSize::S32, REGISTER_MAP[0], REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
+                8 => self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
                 _ => unreachable!(),
             }
+            self.emit_ins(X86Instruction::xchg(OperandSize::S64, RSP, REGISTER_MAP[0], Some(stack_slot_of_value_to_store))); // Restore REGISTER_MAP[0]
         }
     }
 
