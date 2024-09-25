@@ -614,6 +614,7 @@ impl X86Instruction {
     }
 
     /// Jump to absolute destination
+    #[allow(dead_code)]
     #[inline]
     pub const fn jump_reg(destination: u8, indirect: Option<X86IndirectAccess>) -> Self {
         Self {

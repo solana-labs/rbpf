@@ -1508,9 +1508,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Load the frame pointer again since we've clobbered REGISTER_MAP[FRAME_PTR_REG]
         self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[FRAME_PTR_REG], stack_pointer_access));
         // Restore the clobbered REGISTER_MAP[0]
-        self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], REGISTER_OTHER_SCRATCH));
-        self.emit_ins(X86Instruction::pop(REGISTER_MAP[0]));
-        self.emit_ins(X86Instruction::jump_reg(REGISTER_OTHER_SCRATCH, None)); // Tail call to host_target_address
+        self.emit_ins(X86Instruction::xchg(OperandSize::S64, REGISTER_MAP[0], RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Swap REGISTER_MAP[0] and host_target_address
+        self.emit_ins(X86Instruction::return_near()); // Tail call to host_target_address
 
         // Translates a vm memory address to a host memory address
         for (access_type, len) in &[
