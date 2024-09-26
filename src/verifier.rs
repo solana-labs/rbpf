@@ -201,7 +201,6 @@ fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize, imm_bits: u64) -> Result<
 fn check_callx_register(
     insn: &ebpf::Insn,
     insn_ptr: usize,
-    config: &Config,
     sbpf_version: &SBPFVersion,
 ) -> Result<(), VerifierError> {
     let reg = if sbpf_version.callx_uses_src_reg() {
@@ -209,7 +208,7 @@ fn check_callx_register(
     } else {
         insn.imm
     };
-    if !(0..=10).contains(&reg) || (reg == 10 && config.reject_callx_r10) {
+    if !(0..10).contains(&reg) {
         return Err(VerifierError::InvalidRegister(insn_ptr));
     }
     Ok(())
@@ -221,7 +220,7 @@ pub struct RequisiteVerifier {}
 impl Verifier for RequisiteVerifier {
     /// Check the program against the verifier's rules
     #[rustfmt::skip]
-    fn verify<C: ContextObject>(prog: &[u8], config: &Config, sbpf_version: &SBPFVersion, function_registry: &FunctionRegistry<usize>, syscall_registry: &FunctionRegistry<BuiltinFunction<C>>) -> Result<(), VerifierError> {
+    fn verify<C: ContextObject>(prog: &[u8], _config: &Config, sbpf_version: &SBPFVersion, function_registry: &FunctionRegistry<usize>, syscall_registry: &FunctionRegistry<BuiltinFunction<C>>) -> Result<(), VerifierError> {
         check_prog_len(prog)?;
 
         let program_range = 0..prog.len() / ebpf::INSN_SIZE;
@@ -378,7 +377,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src != 0 => { check_call_target(insn.imm as u32, function_registry)?; },
                 ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src == 0 => { check_call_target(insn.imm as u32, syscall_registry)?; },
                 ebpf::CALL_IMM   => {},
-                ebpf::CALL_REG   => { check_callx_register(&insn, insn_ptr, config, sbpf_version)?; },
+                ebpf::CALL_REG   => { check_callx_register(&insn, insn_ptr, sbpf_version)?; },
                 ebpf::EXIT       => {},
 
                 _                => {
