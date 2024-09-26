@@ -139,9 +139,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
             } else {
                 ebpf::hash_symbol_name(&usize::from(value).to_le_bytes())
             };
-            if config.external_internal_function_hash_collision
-                && loader.get_function_registry().lookup_by_key(hash).is_some()
-            {
+            if loader.get_function_registry().lookup_by_key(hash).is_some() {
                 return Err(ElfError::SymbolHashCollision(hash));
             }
             hash

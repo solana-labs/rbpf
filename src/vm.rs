@@ -72,8 +72,6 @@ pub struct Config {
     pub noop_instruction_rate: u32,
     /// Enable disinfection of immediate values and offsets provided by the user in JIT
     pub sanitize_user_provided_values: bool,
-    /// Throw ElfError::SymbolHashCollision when a BPF function collides with a registered syscall
-    pub external_internal_function_hash_collision: bool,
     /// Avoid copying read only sections when possible
     pub optimize_rodata: bool,
     /// Use aligned memory mapping
@@ -103,7 +101,6 @@ impl Default for Config {
             reject_broken_elfs: false,
             noop_instruction_rate: 256,
             sanitize_user_provided_values: true,
-            external_internal_function_hash_collision: true,
             optimize_rodata: true,
             aligned_memory_mapping: true,
             enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
