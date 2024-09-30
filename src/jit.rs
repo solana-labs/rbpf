@@ -112,7 +112,7 @@ impl JitProgram {
                 "push rbx",
                 "push rbp",
                 "mov [{host_stack_pointer}], rsp",
-                "add QWORD PTR [{host_stack_pointer}], -8", // We will push RIP in "call r10" later
+                "add QWORD PTR [{host_stack_pointer}], -8", // We will push RIP in "call rbp" later
                 "mov rbp, rax",
                 "mov rax, [r11 + 0x00]",
                 "mov rsi, [r11 + 0x08]",
@@ -126,13 +126,13 @@ impl JitProgram {
                 "mov r14, [r11 + 0x48]",
                 "mov r15, [r11 + 0x50]",
                 "mov r11, [r11 + 0x58]",
-                "call r10",
+                "call rbp",
                 "pop rbp",
                 "pop rbx",
                 host_stack_pointer = in(reg) &mut vm.host_stack_pointer,
                 inlateout("rdi") std::ptr::addr_of_mut!(*vm).cast::<u64>().offset(get_runtime_environment_key() as isize) => _,
-                inlateout("rax") (vm.previous_instruction_meter as i64).wrapping_add(registers[11] as i64) => _,
-                inlateout("r10") self.pc_section[registers[11] as usize] => _,
+                inlateout("r10") (vm.previous_instruction_meter as i64).wrapping_add(registers[11] as i64) => _,
+                inlateout("rax") self.pc_section[registers[11] as usize] => _,
                 inlateout("r11") &registers => _,
                 lateout("rsi") _, lateout("rdx") _, lateout("rcx") _, lateout("r8") _,
                 lateout("r9") _, lateout("r12") _, lateout("r13") _, lateout("r14") _, lateout("r15") _,
@@ -214,10 +214,10 @@ const REGISTER_MAP: [u8; 11] = [
 
 /// RDI: Used together with slot_in_vm()
 const REGISTER_PTR_TO_VM: u8 = ARGUMENT_REGISTERS[0];
-/// RBP: Program counter limit
-const REGISTER_INSTRUCTION_METER: u8 = CALLEE_SAVED_REGISTERS[0];
-/// R10: Other scratch register
-// const REGISTER_OTHER_SCRATCH: u8 = CALLER_SAVED_REGISTERS[7];
+/// R10: Program counter limit
+const REGISTER_INSTRUCTION_METER: u8 = CALLER_SAVED_REGISTERS[7];
+/// RBP: Other scratch register
+const REGISTER_OTHER_SCRATCH: u8 = CALLEE_SAVED_REGISTERS[0];
 /// R11: Scratch register
 const REGISTER_SCRATCH: u8 = CALLER_SAVED_REGISTERS[8];
 
