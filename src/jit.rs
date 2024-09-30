@@ -113,6 +113,8 @@ impl JitProgram {
                 "push rbp",
                 "mov [{host_stack_pointer}], rsp",
                 "add QWORD PTR [{host_stack_pointer}], -8",
+                // RBP is zeroed out in order not to compromise the runtime environment (RDI) encryption.
+                "xor rbp, rbp",
                 "mov [rsp-8], rax",
                 "mov rax, [r11 + 0x00]",
                 "mov rsi, [r11 + 0x08]",
