@@ -76,6 +76,11 @@ impl SBPFVersion {
     pub fn static_syscalls(&self) -> bool {
         self != &SBPFVersion::V1
     }
+
+    /// Restricts jump and call targets to function boundaries
+    pub fn stricter_controlflow(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
 }
 
 /// Holds the function symbols of an Executable

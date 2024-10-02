@@ -231,7 +231,7 @@ impl Verifier for RequisiteVerifier {
             let insn = ebpf::get_insn(prog, insn_ptr);
             let mut store = false;
 
-            if sbpf_version.static_syscalls() && function_iter.peek() == Some(&insn_ptr) {
+            if sbpf_version.stricter_controlflow() && function_iter.peek() == Some(&insn_ptr) {
                 function_range.start = function_iter.next().unwrap_or(0);
                 function_range.end = *function_iter.peek().unwrap_or(&program_range.end);
                 let insn = ebpf::get_insn(prog, function_range.end.saturating_sub(1));
@@ -374,8 +374,8 @@ impl Verifier for RequisiteVerifier {
                 ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
-                ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src != 0 => { check_call_target(insn.imm as u32, function_registry)?; },
-                ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src == 0 => { check_call_target(insn.imm as u32, syscall_registry)?; },
+                ebpf::CALL_IMM   if sbpf_version.stricter_controlflow() && insn.src != 0 => { check_call_target(insn.imm as u32, function_registry)?; },
+                ebpf::CALL_IMM   if sbpf_version.stricter_controlflow() && insn.src == 0 => { check_call_target(insn.imm as u32, syscall_registry)?; },
                 ebpf::CALL_IMM   => {},
                 ebpf::CALL_REG   => { check_callx_register(&insn, insn_ptr, sbpf_version)?; },
                 ebpf::EXIT       => {},

@@ -1632,7 +1632,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         }
         // There is no `VerifierError::JumpToMiddleOfLDDW` for `call imm` so patch it here
         let call_unsupported_instruction = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
-        if self.executable.get_sbpf_version().static_syscalls() {
+        if self.executable.get_sbpf_version().stricter_controlflow() {
             let mut prev_pc = 0;
             for current_pc in self.executable.get_function_registry().keys() {
                 if current_pc as usize >= self.result.pc_section.len() {
