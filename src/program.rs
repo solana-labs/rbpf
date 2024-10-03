@@ -20,65 +20,61 @@ pub enum SBPFVersion {
 }
 
 impl SBPFVersion {
-    /// Explicitly perform sign extension of results
-    pub fn explicit_sign_extension_of_results(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Enable the little-endian byte swap instructions
-    pub fn disable_le(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Enable the negation instruction
-    pub fn disable_neg(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Swaps the reg and imm operands of the subtraction instruction
-    pub fn swap_sub_reg_imm_operands(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Enable the only two slots long instruction: LD_DW_IMM
-    pub fn disable_lddw(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Enable the BPF_PQR instruction class
-    pub fn enable_pqr(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Use src reg instead of imm in callx
-    pub fn callx_uses_src_reg(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Ensure that rodata sections don't exceed their maximum allowed size and
-    /// overlap with the stack
-    pub fn reject_rodata_stack_overlap(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Allow sh_addr != sh_offset in elf sections. Used in V2 to align
-    /// section vaddrs to MM_PROGRAM_START.
-    pub fn enable_elf_vaddr(&self) -> bool {
-        self != &SBPFVersion::V1
-    }
-
-    /// Use dynamic stack frame sizes
+    /// Enable SIMD-0166: SBPF dynamic stack frames
     pub fn dynamic_stack_frames(&self) -> bool {
         self != &SBPFVersion::V1
     }
 
-    /// Support syscalls via pseudo calls (insn.src = 0)
+    /// Enable SIMD-0173: SBPF instruction encoding improvements
+    pub fn callx_uses_src_reg(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+    /// ... SIMD-0173
+    pub fn disable_lddw(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+    /// ... SIMD-0173
+    pub fn disable_le(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+    /// ... SIMD-0173
+    pub fn move_memory_instruction_classes(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+
+    /// Enable SIMD-0174: SBPF arithmetics improvements
+    pub fn enable_pqr(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+    /// ... SIMD-0174
+    pub fn disable_neg(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+    /// ... SIMD-0174
+    pub fn swap_sub_reg_imm_operands(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+    /// ... SIMD-0174
+    pub fn explicit_sign_extension_of_results(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+
+    /// Enable SIMD-0176: SBPF static syscalls
     pub fn static_syscalls(&self) -> bool {
         self != &SBPFVersion::V1
     }
 
-    /// Restricts jump and call targets to function boundaries
+    /// Enable SIMD-XXXX: SBPF stricter controlflow
     pub fn stricter_controlflow(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+
+    /// Enable SIMD-XXXX: Stricter ELF header
+    pub fn reject_rodata_stack_overlap(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+    /// ... SIMD-XXXX
+    pub fn enable_elf_vaddr(&self) -> bool {
         self != &SBPFVersion::V1
     }
 }
