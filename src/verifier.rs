@@ -250,22 +250,22 @@ impl Verifier for RequisiteVerifier {
                 },
 
                 // BPF_LDX class
-                ebpf::LD_B_REG   => {},
-                ebpf::LD_H_REG   => {},
-                ebpf::LD_W_REG   => {},
-                ebpf::LD_DW_REG  => {},
+                ebpf::LD_B_REG  if !sbpf_version.move_memory_instruction_classes() => {},
+                ebpf::LD_H_REG  if !sbpf_version.move_memory_instruction_classes() => {},
+                ebpf::LD_W_REG  if !sbpf_version.move_memory_instruction_classes() => {},
+                ebpf::LD_DW_REG if !sbpf_version.move_memory_instruction_classes() => {},
 
                 // BPF_ST class
-                ebpf::ST_B_IMM   => store = true,
-                ebpf::ST_H_IMM   => store = true,
-                ebpf::ST_W_IMM   => store = true,
-                ebpf::ST_DW_IMM  => store = true,
+                ebpf::ST_B_IMM  if !sbpf_version.move_memory_instruction_classes() => store = true,
+                ebpf::ST_H_IMM  if !sbpf_version.move_memory_instruction_classes() => store = true,
+                ebpf::ST_W_IMM  if !sbpf_version.move_memory_instruction_classes() => store = true,
+                ebpf::ST_DW_IMM if !sbpf_version.move_memory_instruction_classes() => store = true,
 
                 // BPF_STX class
-                ebpf::ST_B_REG   => store = true,
-                ebpf::ST_H_REG   => store = true,
-                ebpf::ST_W_REG   => store = true,
-                ebpf::ST_DW_REG  => store = true,
+                ebpf::ST_B_REG  if !sbpf_version.move_memory_instruction_classes() => store = true,
+                ebpf::ST_H_REG  if !sbpf_version.move_memory_instruction_classes() => store = true,
+                ebpf::ST_W_REG  if !sbpf_version.move_memory_instruction_classes() => store = true,
+                ebpf::ST_DW_REG if !sbpf_version.move_memory_instruction_classes() => store = true,
 
                 // BPF_ALU class
                 ebpf::ADD32_IMM  => {},

@@ -124,22 +124,22 @@ pub fn disassemble_instruction<C: ContextObject>(
         ebpf::LD_DW_IMM  => { name = "lddw"; desc = format!("{} r{:}, {:#x}", name, insn.dst, insn.imm); },
 
         // BPF_LDX class
-        ebpf::LD_B_REG   => { name = "ldxb";  desc = ld_reg_str(name, insn); },
-        ebpf::LD_H_REG   => { name = "ldxh";  desc = ld_reg_str(name, insn); },
-        ebpf::LD_W_REG   => { name = "ldxw";  desc = ld_reg_str(name, insn); },
-        ebpf::LD_DW_REG  => { name = "ldxdw"; desc = ld_reg_str(name, insn); },
+        ebpf::LD_B_REG  if !sbpf_version.move_memory_instruction_classes() => { name = "ldxb";  desc = ld_reg_str(name, insn); },
+        ebpf::LD_H_REG  if !sbpf_version.move_memory_instruction_classes() => { name = "ldxh";  desc = ld_reg_str(name, insn); },
+        ebpf::LD_W_REG  if !sbpf_version.move_memory_instruction_classes() => { name = "ldxw";  desc = ld_reg_str(name, insn); },
+        ebpf::LD_DW_REG if !sbpf_version.move_memory_instruction_classes() => { name = "ldxdw"; desc = ld_reg_str(name, insn); },
 
         // BPF_ST class
-        ebpf::ST_B_IMM   => { name = "stb";  desc = ld_st_imm_str(name, insn); },
-        ebpf::ST_H_IMM   => { name = "sth";  desc = ld_st_imm_str(name, insn); },
-        ebpf::ST_W_IMM   => { name = "stw";  desc = ld_st_imm_str(name, insn); },
-        ebpf::ST_DW_IMM  => { name = "stdw"; desc = ld_st_imm_str(name, insn); },
+        ebpf::ST_B_IMM  if !sbpf_version.move_memory_instruction_classes() => { name = "stb";   desc = ld_st_imm_str(name, insn); },
+        ebpf::ST_H_IMM  if !sbpf_version.move_memory_instruction_classes() => { name = "sth";   desc = ld_st_imm_str(name, insn); },
+        ebpf::ST_W_IMM  if !sbpf_version.move_memory_instruction_classes() => { name = "stw";   desc = ld_st_imm_str(name, insn); },
+        ebpf::ST_DW_IMM if !sbpf_version.move_memory_instruction_classes() => { name = "stdw";  desc = ld_st_imm_str(name, insn); },
 
         // BPF_STX class
-        ebpf::ST_B_REG   => { name = "stxb";      desc = st_reg_str(name, insn); },
-        ebpf::ST_H_REG   => { name = "stxh";      desc = st_reg_str(name, insn); },
-        ebpf::ST_W_REG   => { name = "stxw";      desc = st_reg_str(name, insn); },
-        ebpf::ST_DW_REG  => { name = "stxdw";     desc = st_reg_str(name, insn); },
+        ebpf::ST_B_REG  if !sbpf_version.move_memory_instruction_classes() => { name = "stxb";  desc = st_reg_str(name, insn); },
+        ebpf::ST_H_REG  if !sbpf_version.move_memory_instruction_classes() => { name = "stxh";  desc = st_reg_str(name, insn); },
+        ebpf::ST_W_REG  if !sbpf_version.move_memory_instruction_classes() => { name = "stxw";  desc = st_reg_str(name, insn); },
+        ebpf::ST_DW_REG if !sbpf_version.move_memory_instruction_classes() => { name = "stxdw"; desc = st_reg_str(name, insn); },
 
         // BPF_ALU class
         ebpf::ADD32_IMM  => { name = "add32";  desc = alu_imm_str(name, insn);  },
