@@ -76,6 +76,11 @@ impl SBPFVersion {
     pub fn static_syscalls(&self) -> bool {
         self != &SBPFVersion::V1
     }
+
+    /// Move opcodes of memory instructions into ALU instruction classes
+    pub fn move_memory_instruction_classes(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
 }
 
 /// Holds the function symbols of an Executable
