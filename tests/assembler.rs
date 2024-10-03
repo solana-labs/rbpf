@@ -72,33 +72,6 @@ fn test_neg64() {
     assert_eq!(asm("neg64 r1"), Ok(vec![insn(0, ebpf::NEG64, 1, 0, 0, 0)]));
 }
 
-// Example for InstructionType::LoadReg.
-#[test]
-fn test_ldxw() {
-    assert_eq!(
-        asm("ldxw r1, [r2+5]"),
-        Ok(vec![insn(0, ebpf::LD_W_REG, 1, 2, 5, 0)])
-    );
-}
-
-// Example for InstructionType::StoreImm.
-#[test]
-fn test_stw() {
-    assert_eq!(
-        asm("stw [r2+5], 7"),
-        Ok(vec![insn(0, ebpf::ST_W_IMM, 2, 0, 5, 7)])
-    );
-}
-
-// Example for InstructionType::StoreReg.
-#[test]
-fn test_stxw() {
-    assert_eq!(
-        asm("stxw [r2+5], r8"),
-        Ok(vec![insn(0, ebpf::ST_W_REG, 2, 8, 5, 0)])
-    );
-}
-
 // Example for InstructionType::JumpUnconditional.
 #[test]
 fn test_ja() {
@@ -158,33 +131,6 @@ fn test_lddw() {
             insn(0, ebpf::LD_DW_IMM, 1, 0, 0, 0xffffffffdd33cc44u64 as i64),
             insn(1, 0, 0, 0, 0, 0xffffffffff11ee22u64 as i64)
         ])
-    );
-}
-
-// Example for InstructionType::LoadReg.
-#[test]
-fn test_ldxdw() {
-    assert_eq!(
-        asm("ldxdw r1, [r2+3]"),
-        Ok(vec![insn(0, ebpf::LD_DW_REG, 1, 2, 3, 0)])
-    );
-}
-
-// Example for InstructionType::StoreImm.
-#[test]
-fn test_sth() {
-    assert_eq!(
-        asm("sth [r1+2], 3"),
-        Ok(vec![insn(0, ebpf::ST_H_IMM, 1, 0, 2, 3)])
-    );
-}
-
-// Example for InstructionType::StoreReg.
-#[test]
-fn test_stxh() {
-    assert_eq!(
-        asm("stxh [r1+2], r3"),
-        Ok(vec![insn(0, ebpf::ST_H_REG, 1, 3, 2, 0)])
     );
 }
 
@@ -385,15 +331,15 @@ fn test_alu_unary() {
 #[test]
 fn test_load_reg() {
     assert_eq!(
-        asm("ldxw r1, [r2+3]
+        asm("ldxb r1, [r2+3]
              ldxh r1, [r2+3]
-             ldxb r1, [r2+3]
+             ldxw r1, [r2+3]
              ldxdw r1, [r2+3]"),
         Ok(vec![
-            insn(0, ebpf::LD_W_REG, 1, 2, 3, 0),
-            insn(1, ebpf::LD_H_REG, 1, 2, 3, 0),
-            insn(2, ebpf::LD_B_REG, 1, 2, 3, 0),
-            insn(3, ebpf::LD_DW_REG, 1, 2, 3, 0)
+            insn(0, ebpf::LD_1B_REG, 1, 2, 3, 0),
+            insn(1, ebpf::LD_2B_REG, 1, 2, 3, 0),
+            insn(2, ebpf::LD_4B_REG, 1, 2, 3, 0),
+            insn(3, ebpf::LD_8B_REG, 1, 2, 3, 0)
         ])
     );
 }
@@ -402,15 +348,15 @@ fn test_load_reg() {
 #[test]
 fn test_store_imm() {
     assert_eq!(
-        asm("stw [r1+2], 3
+        asm("stb [r1+2], 3
              sth [r1+2], 3
-             stb [r1+2], 3
+             stw [r1+2], 3
              stdw [r1+2], 3"),
         Ok(vec![
-            insn(0, ebpf::ST_W_IMM, 1, 0, 2, 3),
-            insn(1, ebpf::ST_H_IMM, 1, 0, 2, 3),
-            insn(2, ebpf::ST_B_IMM, 1, 0, 2, 3),
-            insn(3, ebpf::ST_DW_IMM, 1, 0, 2, 3)
+            insn(0, ebpf::ST_1B_IMM, 1, 0, 2, 3),
+            insn(1, ebpf::ST_2B_IMM, 1, 0, 2, 3),
+            insn(2, ebpf::ST_4B_IMM, 1, 0, 2, 3),
+            insn(3, ebpf::ST_8B_IMM, 1, 0, 2, 3)
         ])
     );
 }
@@ -419,15 +365,15 @@ fn test_store_imm() {
 #[test]
 fn test_store_reg() {
     assert_eq!(
-        asm("stxw [r1+2], r3
+        asm("stxb [r1+2], r3
              stxh [r1+2], r3
-             stxb [r1+2], r3
+             stxw [r1+2], r3
              stxdw [r1+2], r3"),
         Ok(vec![
-            insn(0, ebpf::ST_W_REG, 1, 3, 2, 0),
-            insn(1, ebpf::ST_H_REG, 1, 3, 2, 0),
-            insn(2, ebpf::ST_B_REG, 1, 3, 2, 0),
-            insn(3, ebpf::ST_DW_REG, 1, 3, 2, 0)
+            insn(0, ebpf::ST_1B_REG, 1, 3, 2, 0),
+            insn(1, ebpf::ST_2B_REG, 1, 3, 2, 0),
+            insn(2, ebpf::ST_4B_REG, 1, 3, 2, 0),
+            insn(3, ebpf::ST_8B_REG, 1, 3, 2, 0)
         ])
     );
 }
