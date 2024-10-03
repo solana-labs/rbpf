@@ -12,7 +12,6 @@ pub struct ConfigTemplate {
     enable_stack_frame_gaps: bool,
     enable_symbol_and_section_labels: bool,
     sanitize_user_provided_values: bool,
-    reject_callx_r10: bool,
     optimize_rodata: bool,
 }
 
@@ -26,7 +25,6 @@ impl<'a> Arbitrary<'a> for ConfigTemplate {
             enable_stack_frame_gaps: bools & (1 << 0) != 0,
             enable_symbol_and_section_labels: bools & (1 << 1) != 0,
             sanitize_user_provided_values: bools & (1 << 3) != 0,
-            reject_callx_r10: bools & (1 << 6) != 0,
             optimize_rodata: bools & (1 << 9) != 0,
         })
     }
@@ -49,7 +47,6 @@ impl From<ConfigTemplate> for Config {
                 enable_stack_frame_gaps,
                 enable_symbol_and_section_labels,
                 sanitize_user_provided_values,
-                reject_callx_r10,
                 optimize_rodata,
             } => Config {
                 max_call_depth,
@@ -58,7 +55,6 @@ impl From<ConfigTemplate> for Config {
                 enable_symbol_and_section_labels,
                 noop_instruction_rate,
                 sanitize_user_provided_values,
-                reject_callx_r10,
                 optimize_rodata,
                 ..Default::default()
             },

@@ -112,27 +112,29 @@ impl JitProgram {
                 "push rbx",
                 "push rbp",
                 "mov [{host_stack_pointer}], rsp",
-                "add QWORD PTR [{host_stack_pointer}], -8", // We will push RIP in "call r10" later
-                "mov rbx, rax",
+                "add QWORD PTR [{host_stack_pointer}], -8",
+                // RBP is zeroed out in order not to compromise the runtime environment (RDI) encryption.
+                "xor rbp, rbp",
+                "mov [rsp-8], rax",
                 "mov rax, [r11 + 0x00]",
                 "mov rsi, [r11 + 0x08]",
                 "mov rdx, [r11 + 0x10]",
                 "mov rcx, [r11 + 0x18]",
                 "mov r8,  [r11 + 0x20]",
                 "mov r9,  [r11 + 0x28]",
-                "mov r12, [r11 + 0x30]",
-                "mov r13, [r11 + 0x38]",
-                "mov r14, [r11 + 0x40]",
-                "mov r15, [r11 + 0x48]",
-                "mov rbp, [r11 + 0x50]",
+                "mov rbx, [r11 + 0x30]",
+                "mov r12, [r11 + 0x38]",
+                "mov r13, [r11 + 0x40]",
+                "mov r14, [r11 + 0x48]",
+                "mov r15, [r11 + 0x50]",
                 "mov r11, [r11 + 0x58]",
-                "call r10",
+                "call [rsp-8]",
                 "pop rbp",
                 "pop rbx",
                 host_stack_pointer = in(reg) &mut vm.host_stack_pointer,
                 inlateout("rdi") std::ptr::addr_of_mut!(*vm).cast::<u64>().offset(get_runtime_environment_key() as isize) => _,
-                inlateout("rax") (vm.previous_instruction_meter as i64).wrapping_add(registers[11] as i64) => _,
-                inlateout("r10") self.pc_section[registers[11] as usize] => _,
+                inlateout("r10") (vm.previous_instruction_meter as i64).wrapping_add(registers[11] as i64) => _,
+                inlateout("rax") self.pc_section[registers[11] as usize] => _,
                 inlateout("r11") &registers => _,
                 lateout("rsi") _, lateout("rdx") _, lateout("rcx") _, lateout("r8") _,
                 lateout("r9") _, lateout("r12") _, lateout("r13") _, lateout("r14") _, lateout("r15") _,
@@ -205,19 +207,17 @@ const REGISTER_MAP: [u8; 11] = [
     ARGUMENT_REGISTERS[3],     // RCX
     ARGUMENT_REGISTERS[4],     // R8
     ARGUMENT_REGISTERS[5],     // R9
+    CALLEE_SAVED_REGISTERS[1], // RBX
     CALLEE_SAVED_REGISTERS[2], // R12
     CALLEE_SAVED_REGISTERS[3], // R13
     CALLEE_SAVED_REGISTERS[4], // R14
     CALLEE_SAVED_REGISTERS[5], // R15
-    CALLEE_SAVED_REGISTERS[0], // RBP
 ];
 
 /// RDI: Used together with slot_in_vm()
 const REGISTER_PTR_TO_VM: u8 = ARGUMENT_REGISTERS[0];
-/// RBX: Program counter limit
-const REGISTER_INSTRUCTION_METER: u8 = CALLEE_SAVED_REGISTERS[1];
-/// R10: Other scratch register
-const REGISTER_OTHER_SCRATCH: u8 = CALLER_SAVED_REGISTERS[7];
+/// R10: Program counter limit
+const REGISTER_INSTRUCTION_METER: u8 = CALLER_SAVED_REGISTERS[7];
 /// R11: Scratch register
 const REGISTER_SCRATCH: u8 = CALLER_SAVED_REGISTERS[8];
 
@@ -427,7 +427,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 }
 
                 ebpf::LD_DW_IMM if self.executable.get_sbpf_version().enable_lddw() => {
-                    self.emit_validate_and_profile_instruction_count(true, false, Some(self.pc + 2));
+                    self.emit_validate_and_profile_instruction_count(false, Some(self.pc + 2));
                     self.pc += 1;
                     self.result.pc_section[self.pc] = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
                     ebpf::augment_lddw_unchecked(self.program, &mut insn);
@@ -642,7 +642,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
                 // BPF_JMP class
                 ebpf::JA         => {
-                    self.emit_validate_and_profile_instruction_count(false, true, Some(target_pc));
+                    self.emit_validate_and_profile_instruction_count(true, Some(target_pc));
                     self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc as i64));
                     let jump_offset = self.relative_to_target_pc(target_pc, 5);
                     self.emit_ins(X86Instruction::jump_immediate(jump_offset));
@@ -681,7 +681,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
                     if external {
                         if let Some((_function_name, function)) = self.executable.get_loader().get_function_registry().lookup_by_key(insn.imm as u32) {
-                            self.emit_validate_and_profile_instruction_count(true, false, Some(0));
+                            self.emit_validate_and_profile_instruction_count(false, Some(0));
                             self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, function as usize as i64));
                             self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL, 5)));
                             self.emit_undo_profile_instruction_count(0);
@@ -710,6 +710,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_internal_call(Value::Register(target_pc));
                 },
                 ebpf::EXIT      => {
+                    self.emit_validate_instruction_count(true, Some(self.pc));
+
                     let call_depth_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::CallDepth));
                     self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[FRAME_PTR_REG], call_depth_access));
 
@@ -732,7 +734,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     }
 
                     // and return
-                    self.emit_validate_and_profile_instruction_count(false, false, Some(0));
+                    self.emit_profile_instruction_count(false, Some(0));
                     self.emit_ins(X86Instruction::return_near());
                 },
 
@@ -745,8 +747,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Bumper in case there was no final exit
         if self.offset_in_text_section + MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION * 2 >= self.result.text_section.len() {
             return Err(EbpfError::ExhaustedTextSegment(self.pc));
-        }        
-        self.emit_validate_and_profile_instruction_count(true, false, Some(self.pc + 2));
+        }
+        self.emit_validate_and_profile_instruction_count(false, Some(self.pc + 1));
+        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64)); // Save pc
         self.emit_set_exception_kind(EbpfError::ExecutionOverrun);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION, 5)));
 
@@ -858,13 +861,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     #[inline]
     fn emit_sanitized_alu(&mut self, size: OperandSize, opcode: u8, opcode_extension: u8, destination: u8, immediate: i64) {
         if self.should_sanitize_constant(immediate) {
-            self.emit_sanitized_load_immediate(size, REGISTER_OTHER_SCRATCH, immediate);
-            self.emit_ins(X86Instruction::alu(size, opcode, REGISTER_OTHER_SCRATCH, destination, 0, None));
+            self.emit_sanitized_load_immediate(size, REGISTER_SCRATCH, immediate);
+            self.emit_ins(X86Instruction::alu(size, opcode, REGISTER_SCRATCH, destination, 0, None));
         } else if immediate >= i32::MIN as i64 && immediate <= i32::MAX as i64 {
             self.emit_ins(X86Instruction::alu(size, 0x81, opcode_extension, destination, immediate, None));
         } else {
-            self.emit_ins(X86Instruction::load_immediate(size, REGISTER_OTHER_SCRATCH, immediate));
-            self.emit_ins(X86Instruction::alu(size, opcode, REGISTER_OTHER_SCRATCH, destination, 0, None));
+            self.emit_ins(X86Instruction::load_immediate(size, REGISTER_SCRATCH, immediate));
+            self.emit_ins(X86Instruction::alu(size, opcode, REGISTER_SCRATCH, destination, 0, None));
         }
     }
 
@@ -908,6 +911,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
     #[inline]
     fn emit_profile_instruction_count(&mut self, user_provided: bool, target_pc: Option<usize>) {
+        if !self.config.enable_instruction_meter {
+            return;
+        }
         match target_pc {
             Some(target_pc) => {
                 // instruction_meter += target_pc - (self.pc + 1);
@@ -920,17 +926,15 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             },
             None => {
                 self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_INSTRUCTION_METER, self.pc as i64 + 1, None)); // instruction_meter -= self.pc + 1;
-                self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, self.pc as i64, None)); // instruction_meter += target_pc;
+                self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter += target_pc;
             },
         }
     }
 
     #[inline]
-    fn emit_validate_and_profile_instruction_count(&mut self, exclusive: bool, user_provided: bool, target_pc: Option<usize>) {
-        if self.config.enable_instruction_meter {
-            self.emit_validate_instruction_count(exclusive, Some(self.pc));
-            self.emit_profile_instruction_count(user_provided, target_pc);
-        }
+    fn emit_validate_and_profile_instruction_count(&mut self, user_provided: bool, target_pc: Option<usize>) {
+        self.emit_validate_instruction_count(true, Some(self.pc));
+        self.emit_profile_instruction_count(user_provided, target_pc);
     }
 
     #[inline]
@@ -984,7 +988,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 Value::RegisterIndirect(reg, offset, user_provided) => {
                     debug_assert!(!user_provided);
                     if is_stack_argument {
+                        debug_assert_ne!(reg, RSP);
                         self.emit_ins(X86Instruction::push(reg, Some(X86IndirectAccess::Offset(offset))));
+                    } else if reg == RSP {
+                        self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, dst, X86IndirectAccess::OffsetIndexShift(offset, RSP, 0)));
                     } else {
                         self.emit_ins(X86Instruction::load(OperandSize::S64, reg, dst, X86IndirectAccess::Offset(offset)));
                     }
@@ -994,6 +1001,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     if is_stack_argument {
                         self.emit_ins(X86Instruction::push(reg, None));
                         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, RSP, offset as i64, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0))));
+                    } else if reg == RSP {
+                        self.emit_ins(X86Instruction::lea(OperandSize::S64, RSP, dst, Some(X86IndirectAccess::OffsetIndexShift(offset, RSP, 0))));
                     } else {
                         self.emit_ins(X86Instruction::lea(OperandSize::S64, reg, dst, Some(X86IndirectAccess::Offset(offset))));
                     }
@@ -1049,27 +1058,18 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     fn emit_internal_call(&mut self, dst: Value) {
         // Store PC in case the bounds check fails
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64));
-
+        self.last_instruction_meter_validation_pc = self.pc;
         self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE, 5)));
 
         match dst {
             Value::Register(reg) => {
-                // Move vm target_address into RAX
-                self.emit_ins(X86Instruction::push(REGISTER_MAP[0], None));
-                if reg != REGISTER_MAP[0] {
-                    self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[0]));
-                }
-
+                // Move guest_target_address into REGISTER_MAP[FRAME_PTR_REG]
+                self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[FRAME_PTR_REG]));
                 self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG, 5)));
-
-                self.emit_validate_and_profile_instruction_count(false, false, None);
-                self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], REGISTER_OTHER_SCRATCH));
-                self.emit_ins(X86Instruction::pop(REGISTER_MAP[0])); // Restore RAX
-                self.emit_ins(X86Instruction::call_reg(REGISTER_OTHER_SCRATCH, None)); // callq *REGISTER_OTHER_SCRATCH
             },
             Value::Constant64(target_pc, user_provided) => {
                 debug_assert!(user_provided);
-                self.emit_validate_and_profile_instruction_count(false, user_provided, Some(target_pc as usize));
+                self.emit_profile_instruction_count(user_provided, Some(target_pc as usize));
                 if user_provided && self.should_sanitize_constant(target_pc) {
                     self.emit_sanitized_load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc);
                 } else {
@@ -1097,6 +1097,22 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     fn emit_address_translation(&mut self, dst: Option<u8>, vm_addr: Value, len: u64, value: Option<Value>) {
         debug_assert_ne!(dst.is_some(), value.is_some());
 
+        let stack_slot_of_value_to_store = X86IndirectAccess::OffsetIndexShift(-112, RSP, 0);
+        match value {
+            Some(Value::Register(reg)) => {
+                self.emit_ins(X86Instruction::store(OperandSize::S64, reg, RSP, stack_slot_of_value_to_store));
+            }
+            Some(Value::Constant64(constant, user_provided)) => {
+                if user_provided && self.should_sanitize_constant(constant) {
+                    self.emit_sanitized_load_immediate(OperandSize::S64, REGISTER_SCRATCH, constant);
+                } else {
+                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, constant));
+                }
+                self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_SCRATCH, RSP, stack_slot_of_value_to_store));
+            }
+            _ => {}
+        }
+
         match vm_addr {
             Value::RegisterPlusConstant64(reg, constant, user_provided) => {
                 if user_provided && self.should_sanitize_constant(constant) {
@@ -1119,20 +1135,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             },
         }
 
-        match value {
-            Some(Value::Register(reg)) => {
-                self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, REGISTER_OTHER_SCRATCH));
-            }
-            Some(Value::Constant64(constant, user_provided)) => {
-                if user_provided && self.should_sanitize_constant(constant) {
-                    self.emit_sanitized_load_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, constant);
-                } else {
-                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, constant));
-                }
-            }
-            _ => {}
-        }
-
         if self.config.enable_address_translation {
             let access_type = if value.is_none() { AccessType::Load } else { AccessType::Store };
             let anchor = ANCHOR_TRANSLATE_MEMORY_ADDRESS + len.trailing_zeros() as usize + 4 * (access_type as usize);
@@ -1150,19 +1152,21 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 _ => unreachable!(),
             }
         } else {
+            self.emit_ins(X86Instruction::xchg(OperandSize::S64, RSP, REGISTER_MAP[0], Some(stack_slot_of_value_to_store))); // Save REGISTER_MAP[0] and retrieve value to store
             match len {
-                1 => self.emit_ins(X86Instruction::store(OperandSize::S8, REGISTER_OTHER_SCRATCH, REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
-                2 => self.emit_ins(X86Instruction::store(OperandSize::S16, REGISTER_OTHER_SCRATCH, REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
-                4 => self.emit_ins(X86Instruction::store(OperandSize::S32, REGISTER_OTHER_SCRATCH, REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
-                8 => self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_OTHER_SCRATCH, REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
+                1 => self.emit_ins(X86Instruction::store(OperandSize::S8, REGISTER_MAP[0], REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
+                2 => self.emit_ins(X86Instruction::store(OperandSize::S16, REGISTER_MAP[0], REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
+                4 => self.emit_ins(X86Instruction::store(OperandSize::S32, REGISTER_MAP[0], REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
+                8 => self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], REGISTER_SCRATCH, X86IndirectAccess::Offset(0))),
                 _ => unreachable!(),
             }
+            self.emit_ins(X86Instruction::xchg(OperandSize::S64, RSP, REGISTER_MAP[0], Some(stack_slot_of_value_to_store))); // Restore REGISTER_MAP[0]
         }
     }
 
     #[inline]
     fn emit_conditional_branch_reg(&mut self, op: u8, bitwise: bool, first_operand: u8, second_operand: u8, target_pc: usize) {
-        self.emit_validate_and_profile_instruction_count(false, true, Some(target_pc));
+        self.emit_validate_and_profile_instruction_count(true, Some(target_pc));
         if bitwise { // Logical
             self.emit_ins(X86Instruction::test(OperandSize::S64, first_operand, second_operand, None));
         } else { // Arithmetic
@@ -1176,7 +1180,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
     #[inline]
     fn emit_conditional_branch_imm(&mut self, op: u8, bitwise: bool, immediate: i64, second_operand: u8, target_pc: usize) {
-        self.emit_validate_and_profile_instruction_count(false, true, Some(target_pc));
+        self.emit_validate_and_profile_instruction_count(true, Some(target_pc));
         if self.should_sanitize_constant(immediate) {
             self.emit_sanitized_load_immediate(OperandSize::S64, REGISTER_SCRATCH, immediate);
             if bitwise { // Logical
@@ -1320,9 +1324,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     fn emit_set_exception_kind(&mut self, err: EbpfError) {
         let err_kind = unsafe { *std::ptr::addr_of!(err).cast::<u64>() };
         let err_discriminant = ProgramResult::Err(err).discriminant();
-        self.emit_ins(X86Instruction::lea(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_OTHER_SCRATCH, Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult)))));
-        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, X86IndirectAccess::Offset(0), err_discriminant as i64)); // result.discriminant = err_discriminant;
-        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, REGISTER_OTHER_SCRATCH, X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32), err_kind as i64)); // err.kind = err_kind;
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[0], Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult)))));
+        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, REGISTER_MAP[0], X86IndirectAccess::Offset(0), err_discriminant as i64)); // result.discriminant = err_discriminant;
+        self.emit_ins(X86Instruction::store_immediate(OperandSize::S64, REGISTER_MAP[0], X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32), err_kind as i64)); // err.kind = err_kind;
     }
 
     fn emit_result_is_err(&mut self, destination: u8) {
@@ -1392,10 +1396,12 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Quit gracefully
         self.set_anchor(ANCHOR_EXIT);
-        self.emit_validate_instruction_count(false, None);
-        self.emit_ins(X86Instruction::lea(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_OTHER_SCRATCH, Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult)))));
-        self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], REGISTER_OTHER_SCRATCH, X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32))); // result.return_value = R0;
-        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[0], 0));
+        if self.config.enable_instruction_meter {
+            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // REGISTER_INSTRUCTION_METER -= pc;
+        }
+        self.emit_ins(X86Instruction::lea(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_SCRATCH, Some(X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult)))));
+        self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[0], REGISTER_SCRATCH, X86IndirectAccess::Offset(std::mem::size_of::<u64>() as i32))); // result.return_value = R0;
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x31, REGISTER_SCRATCH, REGISTER_SCRATCH, 0, None)); // REGISTER_SCRATCH ^= REGISTER_SCRATCH; // REGISTER_SCRATCH = 0;
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_EPILOGUE, 5)));
 
         // Handler for exceptions which report their pc
@@ -1461,6 +1467,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Routine for prologue of emit_internal_call()
         self.set_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE);
+        self.emit_validate_instruction_count(true, None);
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, RSP, 8 * (SCRATCH_REGS + 1) as i64, None)); // alloca
         self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_SCRATCH, RSP, X86IndirectAccess::OffsetIndexShift(0, RSP, 0))); // Save original REGISTER_SCRATCH
         self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, REGISTER_SCRATCH, X86IndirectAccess::OffsetIndexShift(8 * (SCRATCH_REGS + 1) as i32, RSP, 0))); // Load return address
@@ -1490,31 +1497,42 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::return_near());
 
         // Routine for emit_internal_call(Value::Register())
+        // Inputs: Guest current pc in REGISTER_SCRATCH, Guest target address in REGISTER_MAP[FRAME_PTR_REG]
+        // Outputs: Guest target pc in REGISTER_SCRATCH, Host target address in RIP
         self.set_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG);
-        // Calculate offset relative to instruction_addresses
+        self.emit_ins(X86Instruction::push(REGISTER_MAP[0], None));
+        self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0]));
+        // Calculate offset relative to program_vm_addr
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], self.program_vm_addr as i64));
-        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0], 0, None)); // RAX -= self.program_vm_addr;
-        // Force alignment of RAX
-        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i64 - 1), None)); // RAX &= !(INSN_SIZE - 1);
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0], 0, None)); // guest_target_address -= self.program_vm_addr;
+        // Force alignment of guest_target_address
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 4, REGISTER_MAP[0], !(INSN_SIZE as i64 - 1), None)); // guest_target_address &= !(INSN_SIZE - 1);
         // Bound check
-        // if(RAX >= number_of_instructions * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
+        // if(guest_target_address >= number_of_instructions * INSN_SIZE) throw CALL_OUTSIDE_TEXT_SEGMENT;
         let number_of_instructions = self.result.pc_section.len();
-        self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, REGISTER_MAP[0], (number_of_instructions * INSN_SIZE) as i64, None));
+        self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, REGISTER_MAP[0], (number_of_instructions * INSN_SIZE) as i64, None)); // guest_target_address.cmp(number_of_instructions * INSN_SIZE)
         self.emit_ins(X86Instruction::conditional_jump_immediate(0x83, self.relative_to_anchor(ANCHOR_CALL_OUTSIDE_TEXT_SEGMENT, 6)));
+        // First half of self.emit_profile_instruction_count(false, None);
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter -= guest_current_pc;
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_INSTRUCTION_METER, 1, None)); // instruction_meter -= 1;
         // Calculate the target_pc (dst / INSN_SIZE) to update REGISTER_INSTRUCTION_METER
         // and as target pc for potential ANCHOR_CALL_UNSUPPORTED_INSTRUCTION
         let shift_amount = INSN_SIZE.trailing_zeros();
         debug_assert_eq!(INSN_SIZE, 1 << shift_amount);
-        self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], REGISTER_SCRATCH));
-        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0xc1, 5, REGISTER_SCRATCH, shift_amount as i64, None));
+        self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[0], REGISTER_SCRATCH)); // guest_target_pc = guest_target_address;
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0xc1, 5, REGISTER_SCRATCH, shift_amount as i64, None)); // guest_target_pc /= INSN_SIZE;
+        // Second half of self.emit_profile_instruction_count(false, None);
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter += guest_target_pc;
         // Load host target_address from self.result.pc_section
         debug_assert_eq!(INSN_SIZE, 8); // Because the instruction size is also the slot size we do not need to shift the offset
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], self.result.pc_section.as_ptr() as i64));
-        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0], 0, None)); // RAX += self.result.pc_section;
-        self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], X86IndirectAccess::Offset(0))); // RAX = self.result.pc_section[RAX / 8];
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0], 0, None)); // host_target_address = guest_target_address + self.result.pc_section;
+        self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_MAP[0], REGISTER_MAP[0], X86IndirectAccess::Offset(0))); // host_target_address = self.result.pc_section[host_target_address / 8];
         // Load the frame pointer again since we've clobbered REGISTER_MAP[FRAME_PTR_REG]
         self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[FRAME_PTR_REG], stack_pointer_access));
-        self.emit_ins(X86Instruction::return_near());
+        // Restore the clobbered REGISTER_MAP[0]
+        self.emit_ins(X86Instruction::xchg(OperandSize::S64, REGISTER_MAP[0], RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Swap REGISTER_MAP[0] and host_target_address
+        self.emit_ins(X86Instruction::return_near()); // Tail call to host_target_address
 
         // Translates a vm memory address to a host memory address
         for (access_type, len) in &[
@@ -1554,7 +1572,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 };
                 self.emit_rust_call(Value::Constant64(store, false), &[
                     Argument { index: 3, value: Value::Register(REGISTER_SCRATCH) }, // Specify first as the src register could be overwritten by other arguments
-                    Argument { index: 2, value: Value::Register(REGISTER_OTHER_SCRATCH) },
+                    Argument { index: 2, value: Value::RegisterIndirect(RSP, -8, false) },
                     Argument { index: 4, value: Value::Constant64(0, false) }, // self.pc is set later
                     Argument { index: 1, value: Value::RegisterPlusConstant32(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::MemoryMapping), false) },
                     Argument { index: 0, value: Value::RegisterPlusConstant32(REGISTER_PTR_TO_VM, self.slot_in_vm(RuntimeEnvironmentSlot::ProgramResult), false) },

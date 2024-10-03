@@ -41,6 +41,9 @@ macro_rules! test_interpreter_and_jit {
             .unwrap();
     };
     ($executable:expr, $mem:tt, $context_object:expr, $expected_result:expr $(,)?) => {
+        test_interpreter_and_jit!(true, $executable, $mem, $context_object, $expected_result)
+    };
+    ($verify:literal, $executable:expr, $mem:tt, $context_object:expr, $expected_result:expr $(,)?) => {
         let expected_instruction_count = $context_object.get_remaining();
         #[allow(unused_mut)]
         let mut context_object = $context_object;
@@ -48,7 +51,9 @@ macro_rules! test_interpreter_and_jit {
         if !expected_result.contains("ExceededMaxInstructions") {
             context_object.remaining = INSTRUCTION_METER_BUDGET;
         }
-        $executable.verify::<RequisiteVerifier>().unwrap();
+        if $verify {
+            $executable.verify::<RequisiteVerifier>().unwrap();
+        }
         let (instruction_count_interpreter, interpreter_final_pc, _tracer_interpreter) = {
             let mut mem = $mem;
             let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
@@ -159,7 +164,7 @@ macro_rules! test_interpreter_and_jit_asm {
 }
 
 macro_rules! test_interpreter_and_jit_elf {
-    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
+    ($verify:literal, $source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
         let mut file = File::open($source).unwrap();
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
@@ -169,8 +174,11 @@ macro_rules! test_interpreter_and_jit_elf {
             $(test_interpreter_and_jit!(register, function_registry, $location => $syscall_function);)*
             let loader = Arc::new(BuiltinProgram::new_loader($config, function_registry));
             let mut executable = Executable::<TestContextObject>::from_elf(&elf, loader).unwrap();
-            test_interpreter_and_jit!(executable, $mem, $context_object, $expected_result);
+            test_interpreter_and_jit!($verify, executable, $mem, $context_object, $expected_result);
         }
+    };
+    ($source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
+         test_interpreter_and_jit_elf!(true, $source, $config, $mem, ($($location => $syscall_function),*), $context_object, $expected_result);
     };
     ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
         let config = Config {
@@ -2803,14 +2811,14 @@ fn test_non_terminate_early() {
         mov64 r3, 0x0
         mov64 r4, 0x0
         mov64 r5, r6
-        syscall Unresolved
+        callx r6
         add64 r6, 0x1
         ja -0x8
         exit",
         [],
         (),
         TestContextObject::new(7),
-        ProgramResult::Err(EbpfError::UnsupportedInstruction),
+        ProgramResult::Err(EbpfError::CallOutsideTextSegment),
     );
 }
 
@@ -2872,13 +2880,14 @@ fn test_err_capped_before_exception() {
         TestContextObject::new(4),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
+
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x0
         mov64 r2, 0x0
         add64 r0, 0x0
         add64 r0, 0x0
-        syscall Unresolved
+        callx r2
         add64 r0, 0x0
         exit",
         [],
@@ -2981,6 +2990,11 @@ fn test_symbol_relocation() {
 
 #[test]
 fn test_err_call_unresolved() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
+
     test_interpreter_and_jit_asm!(
         "
         mov r1, 1
@@ -2991,6 +3005,7 @@ fn test_err_call_unresolved() {
         syscall Unresolved
         mov64 r0, 0x0
         exit",
+        config.clone(),
         [],
         (),
         TestContextObject::new(6),
@@ -3044,8 +3059,15 @@ fn test_err_unresolved_syscall_reloc_64_32() {
 
 #[test]
 fn test_err_unresolved_syscall_static() {
+    let config = Config {
+        enable_instruction_tracing: true,
+        ..Config::default()
+    };
+    // This case only works if we skip verification.
     test_interpreter_and_jit_elf!(
+        false,
         "tests/elfs/syscall_static.so",
+        config,
         [],
         (),
         TestContextObject::new(4),
@@ -3565,6 +3587,41 @@ fn test_err_fixed_stack_out_of_bound() {
 }
 
 #[test]
+fn test_execution_overrun() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
+    test_interpreter_and_jit_asm!(
+        "
+        add r1, 0",
+        config.clone(),
+        [],
+        (),
+        TestContextObject::new(2),
+        ProgramResult::Err(EbpfError::ExecutionOverrun),
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        add r1, 0",
+        config.clone(),
+        [],
+        (),
+        TestContextObject::new(1),
+        ProgramResult::Err(EbpfError::ExceededMaxInstructions),
+    );
+    test_interpreter_and_jit_asm!(
+        "
+        add r1, 0",
+        config.clone(),
+        [],
+        (),
+        TestContextObject::new(0),
+        ProgramResult::Err(EbpfError::ExceededMaxInstructions),
+    );
+}
+
+#[test]
 fn test_mov32_reg_truncating() {
     let config = Config {
         enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
@@ -3589,6 +3646,15 @@ fn test_lddw() {
         enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
+    test_interpreter_and_jit_asm!(
+        "
+        lddw r0, 0x1122334455667788",
+        config.clone(),
+        [],
+        (),
+        TestContextObject::new(2),
+        ProgramResult::Err(EbpfError::ExecutionOverrun),
+    );
     test_interpreter_and_jit_asm!(
         "
         lddw r0, 0x1122334455667788

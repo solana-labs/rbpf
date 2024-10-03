@@ -26,9 +26,10 @@ use solana_rbpf::{
     assembler::assemble,
     ebpf,
     elf::Executable,
-    program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
+    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
+    syscalls,
     verifier::{RequisiteVerifier, Verifier, VerifierError},
-    vm::{Config, TestContextObject},
+    vm::{Config, ContextObject, TestContextObject},
 };
 use std::sync::Arc;
 use test_utils::{assert_error, create_vm};
@@ -43,11 +44,12 @@ pub enum VerifierTestError {
 
 struct TautologyVerifier {}
 impl Verifier for TautologyVerifier {
-    fn verify(
+    fn verify<C: ContextObject>(
         _prog: &[u8],
         _config: &Config,
         _sbpf_version: &SBPFVersion,
         _function_registry: &FunctionRegistry<usize>,
+        _syscall_registry: &FunctionRegistry<BuiltinFunction<C>>,
     ) -> std::result::Result<(), VerifierError> {
         Ok(())
     }
@@ -55,11 +57,12 @@ impl Verifier for TautologyVerifier {
 
 struct ContradictionVerifier {}
 impl Verifier for ContradictionVerifier {
-    fn verify(
+    fn verify<C: ContextObject>(
         _prog: &[u8],
         _config: &Config,
         _sbpf_version: &SBPFVersion,
         _function_registry: &FunctionRegistry<usize>,
+        _syscall_registry: &FunctionRegistry<BuiltinFunction<C>>,
     ) -> std::result::Result<(), VerifierError> {
         Err(VerifierError::NoProgram)
     }
@@ -292,6 +295,46 @@ fn test_verifier_err_unknown_opcode() {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltinProgram::new_mock()),
+        SBPFVersion::V2,
+        FunctionRegistry::default(),
+    )
+    .unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
+}
+
+#[test]
+#[should_panic(expected = "InvalidFunction(1811268606)")]
+fn test_verifier_unknown_sycall() {
+    let prog = &[
+        0x85, 0x00, 0x00, 0x00, 0xfe, 0xc3, 0xf5, 0x6b, // call 0x6bf5c3fe
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    ];
+    let executable = Executable::<TestContextObject>::from_text_bytes(
+        prog,
+        Arc::new(BuiltinProgram::new_mock()),
+        SBPFVersion::V2,
+        FunctionRegistry::default(),
+    )
+    .unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
+}
+
+#[test]
+fn test_verifier_known_syscall() {
+    let prog = &[
+        0x85, 0x00, 0x00, 0x00, 0xfe, 0xc3, 0xf5, 0x6b, // call 0x6bf5c3fe
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    ];
+    let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+    function_registry
+        .register_function(0x6bf5c3fe, b"my_syscall", syscalls::SyscallString::vm)
+        .unwrap();
+    let executable = Executable::<TestContextObject>::from_text_bytes(
+        prog,
+        Arc::new(BuiltinProgram::new_loader(
+            Config::default(),
+            function_registry,
+        )),
         SBPFVersion::V2,
         FunctionRegistry::default(),
     )
