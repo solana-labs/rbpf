@@ -134,7 +134,6 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
             AluBinary,
             ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_UHMUL,
         );
-        entry("uhmul32", AluBinary, ebpf::BPF_PQR | ebpf::BPF_UHMUL);
         entry(
             "shmul",
             AluBinary,
@@ -145,7 +144,6 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
             AluBinary,
             ebpf::BPF_PQR | ebpf::BPF_B | ebpf::BPF_SHMUL,
         );
-        entry("shmul32", AluBinary, ebpf::BPF_PQR | ebpf::BPF_SHMUL);
         entry(
             "udiv",
             AluBinary,

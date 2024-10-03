@@ -52,12 +52,6 @@ fn test_add64() {
     disasm!("entrypoint:\n    add64 r1, 5\n");
 }
 
-// Example for InstructionType::AluUnary.
-#[test]
-fn test_neg64() {
-    disasm!("entrypoint:\n    neg64 r1\n");
-}
-
 // Example for InstructionType::LoadReg.
 #[test]
 fn test_ldxw() {
@@ -164,13 +158,10 @@ fn test_alu_binary() {
         "entrypoint:
     add64 r1, r2
     sub64 r1, r2
-    mul64 r1, r2
-    div64 r1, r2
     or64 r1, r2
     and64 r1, r2
     lsh64 r1, r2
     rsh64 r1, r2
-    mod64 r1, r2
     xor64 r1, r2
     mov64 r1, r2
     arsh64 r1, r2
@@ -181,13 +172,10 @@ fn test_alu_binary() {
         "entrypoint:
     add64 r1, 2
     sub64 r1, 2
-    mul64 r1, 2
-    div64 r1, 2
     or64 r1, 2
     and64 r1, 2
     lsh64 r1, 2
     rsh64 r1, 2
-    mod64 r1, 2
     xor64 r1, 2
     mov64 r1, 2
     arsh64 r1, 2
@@ -198,13 +186,10 @@ fn test_alu_binary() {
         "entrypoint:
     add32 r1, r2
     sub32 r1, r2
-    mul32 r1, r2
-    div32 r1, r2
     or32 r1, r2
     and32 r1, r2
     lsh32 r1, r2
     rsh32 r1, r2
-    mod32 r1, r2
     xor32 r1, r2
     mov32 r1, r2
     arsh32 r1, r2
@@ -215,27 +200,47 @@ fn test_alu_binary() {
         "entrypoint:
     add32 r1, 2
     sub32 r1, 2
-    mul32 r1, 2
-    div32 r1, 2
     or32 r1, 2
     and32 r1, 2
     lsh32 r1, 2
     rsh32 r1, 2
-    mod32 r1, 2
     xor32 r1, 2
     mov32 r1, 2
     arsh32 r1, 2
 "
     );
-}
 
-// Test all supported AluUnary mnemonics.
-#[test]
-fn test_alu_unary() {
     disasm!(
         "entrypoint:
-    neg64 r1
-    neg32 r1
+    lmul64 r1, r2
+    lmul32 r1, r2
+    uhmul64 r1, r2
+    shmul64 r1, r2
+    udiv64 r1, r2
+    udiv32 r1, r2
+    urem64 r1, r2
+    urem32 r1, r2
+    sdiv64 r1, r2
+    sdiv32 r1, r2
+    srem64 r1, r2
+    srem32 r1, r2
+"
+    );
+
+    disasm!(
+        "entrypoint:
+    lmul64 r1, 2
+    lmul32 r1, 2
+    uhmul64 r1, 2
+    shmul64 r1, 2
+    udiv64 r1, 2
+    udiv32 r1, 2
+    urem64 r1, 2
+    urem32 r1, 2
+    sdiv64 r1, 2
+    sdiv32 r1, 2
+    srem64 r1, 2
+    srem32 r1, 2
 "
     );
 }
