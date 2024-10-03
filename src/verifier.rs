@@ -244,7 +244,7 @@ impl Verifier for RequisiteVerifier {
             }
 
             match insn.opc {
-                ebpf::LD_DW_IMM if sbpf_version.enable_lddw() => {
+                ebpf::LD_DW_IMM if !sbpf_version.disable_lddw() => {
                     check_load_dw(prog, insn_ptr)?;
                     insn_ptr += 1;
                 },
@@ -284,7 +284,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::LSH32_REG  => {},
                 ebpf::RSH32_IMM  => { check_imm_shift(&insn, insn_ptr, 32)?; },
                 ebpf::RSH32_REG  => {},
-                ebpf::NEG32      if sbpf_version.enable_neg() => {},
+                ebpf::NEG32      if !sbpf_version.disable_neg() => {},
                 ebpf::MOD32_IMM  if !sbpf_version.enable_pqr() => { check_imm_nonzero(&insn, insn_ptr)?; },
                 ebpf::MOD32_REG  if !sbpf_version.enable_pqr() => {},
                 ebpf::XOR32_IMM  => {},
@@ -293,7 +293,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::MOV32_REG  => {},
                 ebpf::ARSH32_IMM => { check_imm_shift(&insn, insn_ptr, 32)?; },
                 ebpf::ARSH32_REG => {},
-                ebpf::LE         if sbpf_version.enable_le() => { check_imm_endian(&insn, insn_ptr)?; },
+                ebpf::LE         if !sbpf_version.disable_le() => { check_imm_endian(&insn, insn_ptr)?; },
                 ebpf::BE         => { check_imm_endian(&insn, insn_ptr)?; },
 
                 // BPF_ALU64 class
@@ -313,7 +313,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::LSH64_REG  => {},
                 ebpf::RSH64_IMM  => { check_imm_shift(&insn, insn_ptr, 64)?; },
                 ebpf::RSH64_REG  => {},
-                ebpf::NEG64      if sbpf_version.enable_neg() => {},
+                ebpf::NEG64      if !sbpf_version.disable_neg() => {},
                 ebpf::MOD64_IMM  if !sbpf_version.enable_pqr() => { check_imm_nonzero(&insn, insn_ptr)?; },
                 ebpf::MOD64_REG  if !sbpf_version.enable_pqr() => {},
                 ebpf::XOR64_IMM  => {},
@@ -322,7 +322,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::MOV64_REG  => {},
                 ebpf::ARSH64_IMM => { check_imm_shift(&insn, insn_ptr, 64)?; },
                 ebpf::ARSH64_REG => {},
-                ebpf::HOR64_IMM  if !sbpf_version.enable_lddw() => {},
+                ebpf::HOR64_IMM  if sbpf_version.disable_lddw() => {},
 
                 // BPF_PQR class
                 ebpf::LMUL32_IMM if sbpf_version.enable_pqr() => {},
