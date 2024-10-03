@@ -8,8 +8,8 @@
 //! This module translates eBPF assembly language to binary.
 
 use self::InstructionType::{
-    AluBinary, AluUnary, CallImm, CallReg, Endian, JumpConditional, JumpUnconditional, LoadAbs,
-    LoadDwImm, LoadInd, LoadReg, NoOperand, StoreImm, StoreReg, Syscall,
+    AluBinary, AluUnary, CallImm, CallReg, Endian, JumpConditional, JumpUnconditional, LoadDwImm,
+    LoadReg, NoOperand, StoreImm, StoreReg, Syscall,
 };
 use crate::{
     asm_parser::{
@@ -35,8 +35,6 @@ enum InstructionType {
     AluBinary,
     AluUnary,
     LoadDwImm,
-    LoadAbs,
-    LoadInd,
     LoadReg,
     StoreImm,
     StoreReg,
@@ -193,18 +191,8 @@ fn make_instruction_map() -> HashMap<String, (InstructionType, u8)> {
         );
         entry("srem32", AluBinary, ebpf::BPF_PQR | ebpf::BPF_SREM);
 
-        // LoadAbs, LoadInd, LoadReg, StoreImm, and StoreReg.
+        //  LoadReg, StoreImm, and StoreReg.
         for &(suffix, size) in &mem_sizes {
-            entry(
-                &format!("ldabs{suffix}"),
-                LoadAbs,
-                ebpf::BPF_ABS | ebpf::BPF_LD | size,
-            );
-            entry(
-                &format!("ldind{suffix}"),
-                LoadInd,
-                ebpf::BPF_IND | ebpf::BPF_LD | size,
-            );
             entry(
                 &format!("ldx{suffix}"),
                 LoadReg,
@@ -381,8 +369,6 @@ pub fn assemble<C: ContextObject>(
                                 insn(opc | ebpf::BPF_K, *dst, 0, 0, *imm)
                             }
                             (AluUnary, [Register(dst)]) => insn(opc, *dst, 0, 0, 0),
-                            (LoadAbs, [Integer(imm)]) => insn(opc, 0, 0, 0, *imm),
-                            (LoadInd, [Register(src), Integer(imm)]) => insn(opc, 0, *src, 0, *imm),
                             (LoadReg, [Register(dst), Memory(src, off)])
                             | (StoreReg, [Memory(dst, off), Register(src)]) => {
                                 insn(opc, *dst, *src, *off, 0)
