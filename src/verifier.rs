@@ -267,7 +267,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::ST_W_REG  if !sbpf_version.move_memory_instruction_classes() => store = true,
                 ebpf::ST_DW_REG if !sbpf_version.move_memory_instruction_classes() => store = true,
 
-                // BPF_ALU class
+                // BPF_ALU32_LOAD class
                 ebpf::ADD32_IMM  => {},
                 ebpf::ADD32_REG  => {},
                 ebpf::SUB32_IMM  => {},
@@ -300,7 +300,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::LE         if sbpf_version.enable_le() => { check_imm_endian(&insn, insn_ptr)?; },
                 ebpf::BE         => { check_imm_endian(&insn, insn_ptr)?; },
 
-                // BPF_ALU64 class
+                // BPF_ALU64_STORE class
                 ebpf::ADD64_IMM  => {},
                 ebpf::ADD64_REG  => {},
                 ebpf::SUB64_IMM  => {},

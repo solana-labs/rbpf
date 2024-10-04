@@ -365,9 +365,9 @@ enum OpBits {
 /// Architecture of instructions
 pub enum Arch {
     /// 64-bit instructions
-    X64 = BPF_ALU64 as isize,
+    X64 = BPF_ALU64_STORE as isize,
     /// 32-bit instructions
-    X32 = BPF_ALU as isize,
+    X32 = BPF_ALU32_LOAD as isize,
 }
 
 /// struct representation of byte swap operation

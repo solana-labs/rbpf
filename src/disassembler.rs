@@ -141,7 +141,7 @@ pub fn disassemble_instruction<C: ContextObject>(
         ebpf::ST_W_REG  if !sbpf_version.move_memory_instruction_classes() => { name = "stxw";  desc = st_reg_str(name, insn); },
         ebpf::ST_DW_REG if !sbpf_version.move_memory_instruction_classes() => { name = "stxdw"; desc = st_reg_str(name, insn); },
 
-        // BPF_ALU class
+        // BPF_ALU32_LOAD class
         ebpf::ADD32_IMM  => { name = "add32";  desc = alu_imm_str(name, insn);  },
         ebpf::ADD32_REG  => { name = "add32";  desc = alu_reg_str(name, insn);  },
         ebpf::SUB32_IMM  => { name = "sub32";  desc = alu_imm_str(name, insn);  },
@@ -174,7 +174,7 @@ pub fn disassemble_instruction<C: ContextObject>(
         ebpf::LE         => { name = "le";     desc = byteswap_str(name, insn); },
         ebpf::BE         => { name = "be";     desc = byteswap_str(name, insn); },
 
-        // BPF_ALU64 class
+        // BPF_ALU64_STORE class
         ebpf::ADD64_IMM  => { name = "add64";  desc = alu_imm_str(name, insn); },
         ebpf::ADD64_REG  => { name = "add64";  desc = alu_reg_str(name, insn); },
         ebpf::SUB64_IMM  => { name = "sub64";  desc = alu_imm_str(name, insn); },

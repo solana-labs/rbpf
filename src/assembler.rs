@@ -71,19 +71,19 @@ fn make_instruction_map(sbpf_version: &SBPFVersion) -> HashMap<String, (Instruct
             "ldx",
             LoadReg,
             ebpf::BPF_MEM | ebpf::BPF_LDX,
-            ebpf::BPF_ALU | ebpf::BPF_X,
+            ebpf::BPF_ALU32_LOAD | ebpf::BPF_X,
         ),
         (
             "st",
             StoreImm,
             ebpf::BPF_MEM | ebpf::BPF_ST,
-            ebpf::BPF_ALU64 | ebpf::BPF_K,
+            ebpf::BPF_ALU64_STORE | ebpf::BPF_K,
         ),
         (
             "stx",
             StoreReg,
             ebpf::BPF_MEM | ebpf::BPF_STX,
-            ebpf::BPF_ALU64 | ebpf::BPF_X,
+            ebpf::BPF_ALU64_STORE | ebpf::BPF_X,
         ),
     ];
     let mem_sizes = [
@@ -127,9 +127,9 @@ fn make_instruction_map(sbpf_version: &SBPFVersion) -> HashMap<String, (Instruct
 
         // AluBinary.
         for &(name, opc) in &alu_binary_ops {
-            entry(name, AluBinary, ebpf::BPF_ALU64 | opc);
-            entry(&format!("{name}32"), AluBinary, ebpf::BPF_ALU | opc);
-            entry(&format!("{name}64"), AluBinary, ebpf::BPF_ALU64 | opc);
+            entry(name, AluBinary, ebpf::BPF_ALU64_STORE | opc);
+            entry(&format!("{name}32"), AluBinary, ebpf::BPF_ALU32_LOAD | opc);
+            entry(&format!("{name}64"), AluBinary, ebpf::BPF_ALU64_STORE | opc);
         }
 
         // Product Quotient Remainder.

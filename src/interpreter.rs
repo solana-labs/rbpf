@@ -259,7 +259,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 translate_memory_access!(self, store, self.reg[src], vm_addr, u64);
             },
 
-            // BPF_ALU class
+            // BPF_ALU32_LOAD class
             ebpf::ADD32_IMM  => self.reg[dst] = self.sign_extension((self.reg[dst] as i32).wrapping_add(insn.imm as i32)),
             ebpf::ADD32_REG  => self.reg[dst] = self.sign_extension((self.reg[dst] as i32).wrapping_add(self.reg[src] as i32)),
             ebpf::SUB32_IMM  => if self.executable.get_sbpf_version().swap_sub_reg_imm_operands() {
@@ -336,7 +336,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 };
             },
 
-            // BPF_ALU64 class
+            // BPF_ALU64_STORE class
             ebpf::ADD64_IMM  => self.reg[dst] =  self.reg[dst].wrapping_add(insn.imm as u64),
             ebpf::ADD64_REG  => self.reg[dst] =  self.reg[dst].wrapping_add(self.reg[src]),
             ebpf::SUB64_IMM  => if self.executable.get_sbpf_version().swap_sub_reg_imm_operands() {

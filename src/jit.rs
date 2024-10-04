@@ -480,7 +480,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 8, Some(Value::Register(src)));
                 },
 
-                // BPF_ALU class
+                // BPF_ALU32_LOAD class
                 ebpf::ADD32_IMM  => {
                     self.emit_sanitized_alu(OperandSize::S32, 0x01, 0, dst, insn.imm);
                     if self.executable.get_sbpf_version().implicit_sign_extension_of_results() {
@@ -583,7 +583,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     }
                 },
 
-                // BPF_ALU64 class
+                // BPF_ALU64_STORE class
                 ebpf::ADD64_IMM  => self.emit_sanitized_alu(OperandSize::S64, 0x01, 0, dst, insn.imm),
                 ebpf::ADD64_REG  => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, src, dst, 0, None)),
                 ebpf::SUB64_IMM  => {

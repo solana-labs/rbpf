@@ -131,7 +131,7 @@ macro_rules! test_interpreter_and_jit_asm {
     };
 }
 
-// BPF_ALU : Arithmetic and Logic
+// BPF_ALU32_LOAD : Arithmetic and Logic
 #[test]
 fn fuzz_alu() {
     let seed = 0xC2DB2F8F282284A0;

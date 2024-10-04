@@ -189,7 +189,7 @@ macro_rules! test_interpreter_and_jit_elf {
     };
 }
 
-// BPF_ALU : Arithmetic and Logic
+// BPF_ALU32_LOAD : Arithmetic and Logic
 
 #[test]
 fn test_mov32_imm() {
