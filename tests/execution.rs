@@ -913,7 +913,175 @@ fn test_err_divide_overflow() {
     }
 }
 
-// BPF_LD : Loads
+// Loads and stores
+
+#[test]
+fn test_memory_instructions() {
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let config = Config {
+            enabled_sbpf_versions: sbpf_version.clone()..=sbpf_version,
+            ..Config::default()
+        };
+
+        test_interpreter_and_jit_asm!(
+            "
+            ldxb r0, [r1+2]
+            exit",
+            config.clone(),
+            [0xaa, 0xbb, 0x11, 0xcc, 0xdd],
+            (),
+            TestContextObject::new(2),
+            ProgramResult::Ok(0x11),
+        );
+        test_interpreter_and_jit_asm!(
+            "
+            ldxh r0, [r1+2]
+            exit",
+            config.clone(),
+            [0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd],
+            (),
+            TestContextObject::new(2),
+            ProgramResult::Ok(0x2211),
+        );
+        test_interpreter_and_jit_asm!(
+            "
+            ldxw r0, [r1+2]
+            exit",
+            config.clone(),
+            [
+                0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0xcc, 0xdd, //
+            ],
+            (),
+            TestContextObject::new(2),
+            ProgramResult::Ok(0x44332211),
+        );
+        test_interpreter_and_jit_asm!(
+            "
+            ldxdw r0, [r1+2]
+            exit",
+            config.clone(),
+            [
+                0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, //
+                0x77, 0x88, 0xcc, 0xdd, //
+            ],
+            (),
+            TestContextObject::new(2),
+            ProgramResult::Ok(0x8877665544332211),
+        );
+
+        test_interpreter_and_jit_asm!(
+            "
+            stb [r1+2], 0x11
+            ldxb r0, [r1+2]
+            exit",
+            config.clone(),
+            [0xaa, 0xbb, 0xff, 0xcc, 0xdd],
+            (),
+            TestContextObject::new(3),
+            ProgramResult::Ok(0x11),
+        );
+        test_interpreter_and_jit_asm!(
+            "
+            sth [r1+2], 0x2211
+            ldxh r0, [r1+2]
+            exit",
+            config.clone(),
+            [
+                0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
+            ],
+            (),
+            TestContextObject::new(3),
+            ProgramResult::Ok(0x2211),
+        );
+        test_interpreter_and_jit_asm!(
+            "
+            stw [r1+2], 0x44332211
+            ldxw r0, [r1+2]
+            exit",
+            config.clone(),
+            [
+                0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
+            ],
+            (),
+            TestContextObject::new(3),
+            ProgramResult::Ok(0x44332211),
+        );
+        test_interpreter_and_jit_asm!(
+            "
+            stdw [r1+2], 0x44332211
+            ldxdw r0, [r1+2]
+            exit",
+            config.clone(),
+            [
+                0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
+                0xff, 0xff, 0xcc, 0xdd, //
+            ],
+            (),
+            TestContextObject::new(3),
+            ProgramResult::Ok(0x44332211),
+        );
+
+        test_interpreter_and_jit_asm!(
+            "
+            mov32 r2, 0x11
+            stxb [r1+2], r2
+            ldxb r0, [r1+2]
+            exit",
+            config.clone(),
+            [
+                0xaa, 0xbb, 0xff, 0xcc, 0xdd, //
+            ],
+            (),
+            TestContextObject::new(4),
+            ProgramResult::Ok(0x11),
+        );
+        test_interpreter_and_jit_asm!(
+            "
+            mov32 r2, 0x2211
+            stxh [r1+2], r2
+            ldxh r0, [r1+2]
+            exit",
+            config.clone(),
+            [
+                0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
+            ],
+            (),
+            TestContextObject::new(4),
+            ProgramResult::Ok(0x2211),
+        );
+        test_interpreter_and_jit_asm!(
+            "
+            mov32 r2, 0x44332211
+            stxw [r1+2], r2
+            ldxw r0, [r1+2]
+            exit",
+            config.clone(),
+            [
+                0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
+            ],
+            (),
+            TestContextObject::new(4),
+            ProgramResult::Ok(0x44332211),
+        );
+        test_interpreter_and_jit_asm!(
+            "
+            mov r2, -2005440939
+            lsh r2, 32
+            or r2, 0x44332211
+            stxdw [r1+2], r2
+            ldxdw r0, [r1+2]
+            exit",
+            config.clone(),
+            [
+                0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
+                0xff, 0xff, 0xcc, 0xdd, //
+            ],
+            (),
+            TestContextObject::new(6),
+            ProgramResult::Ok(0x8877665544332211),
+        );
+    }
+}
 
 #[test]
 fn test_hor64() {
@@ -930,47 +1098,6 @@ fn test_hor64() {
 }
 
 #[test]
-fn test_ldxb() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldxb r0, [r1+2]
-        exit",
-        [0xaa, 0xbb, 0x11, 0xcc, 0xdd],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Ok(0x11),
-    );
-}
-
-#[test]
-fn test_ldxh() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldxh r0, [r1+2]
-        exit",
-        [0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Ok(0x2211),
-    );
-}
-
-#[test]
-fn test_ldxw() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldxw r0, [r1+2]
-        exit",
-        [
-            0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0xcc, 0xdd, //
-        ],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Ok(0x44332211),
-    );
-}
-
-#[test]
 fn test_ldxh_same_reg() {
     test_interpreter_and_jit_asm!(
         "
@@ -982,22 +1109,6 @@ fn test_ldxh_same_reg() {
         (),
         TestContextObject::new(4),
         ProgramResult::Ok(0x1234),
-    );
-}
-
-#[test]
-fn test_lldxdw() {
-    test_interpreter_and_jit_asm!(
-        "
-        ldxdw r0, [r1+2]
-        exit",
-        [
-            0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, //
-            0x77, 0x88, 0xcc, 0xdd, //
-        ],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Ok(0x8877665544332211),
     );
 }
 
@@ -1232,140 +1343,6 @@ fn test_ldxw_all() {
         (),
         TestContextObject::new(31),
         ProgramResult::Ok(0x030f0f),
-    );
-}
-
-#[test]
-fn test_stb() {
-    test_interpreter_and_jit_asm!(
-        "
-        stb [r1+2], 0x11
-        ldxb r0, [r1+2]
-        exit",
-        [0xaa, 0xbb, 0xff, 0xcc, 0xdd],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(0x11),
-    );
-}
-
-#[test]
-fn test_sth() {
-    test_interpreter_and_jit_asm!(
-        "
-        sth [r1+2], 0x2211
-        ldxh r0, [r1+2]
-        exit",
-        [
-            0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
-        ],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(0x2211),
-    );
-}
-
-#[test]
-fn test_stw() {
-    test_interpreter_and_jit_asm!(
-        "
-        stw [r1+2], 0x44332211
-        ldxw r0, [r1+2]
-        exit",
-        [
-            0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
-        ],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(0x44332211),
-    );
-}
-
-#[test]
-fn test_stdw() {
-    test_interpreter_and_jit_asm!(
-        "
-        stdw [r1+2], 0x44332211
-        ldxdw r0, [r1+2]
-        exit",
-        [
-            0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
-            0xff, 0xff, 0xcc, 0xdd, //
-        ],
-        (),
-        TestContextObject::new(3),
-        ProgramResult::Ok(0x44332211),
-    );
-}
-
-#[test]
-fn test_stxb() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r2, 0x11
-        stxb [r1+2], r2
-        ldxb r0, [r1+2]
-        exit",
-        [
-            0xaa, 0xbb, 0xff, 0xcc, 0xdd, //
-        ],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0x11),
-    );
-}
-
-#[test]
-fn test_stxh() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r2, 0x2211
-        stxh [r1+2], r2
-        ldxh r0, [r1+2]
-        exit",
-        [
-            0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
-        ],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0x2211),
-    );
-}
-
-#[test]
-fn test_stxw() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov32 r2, 0x44332211
-        stxw [r1+2], r2
-        ldxw r0, [r1+2]
-        exit",
-        [
-            0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
-        ],
-        (),
-        TestContextObject::new(4),
-        ProgramResult::Ok(0x44332211),
-    );
-}
-
-#[test]
-fn test_stxdw() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r2, -2005440939
-        lsh r2, 32
-        or r2, 0x44332211
-        stxdw [r1+2], r2
-        ldxdw r0, [r1+2]
-        exit",
-        [
-            0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
-            0xff, 0xff, 0xcc, 0xdd, //
-        ],
-        (),
-        TestContextObject::new(6),
-        ProgramResult::Ok(0x8877665544332211),
     );
 }
 
