@@ -552,7 +552,7 @@ impl<'a> Elf64<'a> {
     }
 }
 
-impl<'a> fmt::Debug for Elf64<'a> {
+impl fmt::Debug for Elf64<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{:#X?}", self.file_header)?;
         for program_header in self.program_header_table.iter() {

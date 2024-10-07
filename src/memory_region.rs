@@ -195,7 +195,7 @@ pub struct UnalignedMemoryMapping<'a> {
     cow_cb: Option<MemoryCowCallback>,
 }
 
-impl<'a> fmt::Debug for UnalignedMemoryMapping<'a> {
+impl fmt::Debug for UnalignedMemoryMapping<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnalignedMemoryMapping")
             .field("regions", &self.regions)
@@ -559,7 +559,7 @@ pub struct AlignedMemoryMapping<'a> {
     cow_cb: Option<MemoryCowCallback>,
 }
 
-impl<'a> fmt::Debug for AlignedMemoryMapping<'a> {
+impl fmt::Debug for AlignedMemoryMapping<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AlignedMemoryMapping")
             .field("regions", &self.regions)
