@@ -355,7 +355,7 @@ impl<C: ContextObject> Executable<C> {
         Ok(Self {
             elf_bytes,
             sbpf_version,
-            ro_section: Section::Borrowed(0, 0..text_bytes.len()),
+            ro_section: Section::Borrowed(ebpf::MM_PROGRAM_START as usize, 0..text_bytes.len()),
             text_section_vaddr: ebpf::MM_PROGRAM_START,
             text_section_range: 0..text_bytes.len(),
             entry_pc,
@@ -720,12 +720,12 @@ impl<C: ContextObject> Executable<C> {
                 // ebpf::MM_PROGRAM_START so if the linker has already put the
                 // sections within ebpf::MM_PROGRAM_START, we need to subtract
                 // it now.
-                lowest_addr.saturating_sub(ebpf::MM_PROGRAM_START as usize)
+                lowest_addr
             } else {
                 if sbpf_version.enable_elf_vaddr() {
                     return Err(ElfError::ValueOutOfBounds);
                 }
-                lowest_addr
+                lowest_addr.saturating_add(ebpf::MM_PROGRAM_START as usize)
             };
 
             Section::Borrowed(addr_offset, buf_offset_start..buf_offset_end)
@@ -759,9 +759,9 @@ impl<C: ContextObject> Executable<C> {
             }
 
             let addr_offset = if lowest_addr >= ebpf::MM_PROGRAM_START as usize {
-                lowest_addr.saturating_sub(ebpf::MM_PROGRAM_START as usize)
-            } else {
                 lowest_addr
+            } else {
+                lowest_addr.saturating_add(ebpf::MM_PROGRAM_START as usize)
             };
             Section::Owned(addr_offset, ro_section)
         };
@@ -1138,10 +1138,7 @@ pub(crate) fn get_ro_region(ro_section: &Section, elf: &[u8]) -> MemoryRegion {
     // If offset > 0, the region will start at MM_PROGRAM_START + the offset of
     // the first read only byte. [MM_PROGRAM_START, MM_PROGRAM_START + offset)
     // will be unmappable, see MemoryRegion::vm_to_host.
-    MemoryRegion::new_readonly(
-        ro_data,
-        ebpf::MM_PROGRAM_START.saturating_add(offset as u64),
-    )
+    MemoryRegion::new_readonly(ro_data, offset as u64)
 }
 
 #[cfg(test)]
@@ -1419,7 +1416,7 @@ mod test {
                 sections,
                 &elf_bytes,
             ),
-            Ok(Section::Owned(offset, data)) if offset == 10 && data.len() == 30
+            Ok(Section::Owned(offset, data)) if offset == ebpf::MM_PROGRAM_START as usize + 10 && data.len() == 30
         ));
     }
 
@@ -1446,7 +1443,7 @@ mod test {
                 sections,
                 &elf_bytes,
             ),
-            Ok(Section::Owned(offset, data)) if offset == 10 && data.len() == 20
+            Ok(Section::Owned(offset, data)) if offset == ebpf::MM_PROGRAM_START as usize + 10 && data.len() == 20
         ));
     }
 
@@ -1543,7 +1540,10 @@ mod test {
             [(Some(b".text"), &s1), (Some(b".rodata"), &s2)];
         assert_eq!(
             ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes),
-            Ok(Section::Borrowed(10, 100..120))
+            Ok(Section::Borrowed(
+                ebpf::MM_PROGRAM_START as usize + 10,
+                100..120
+            ))
         );
     }
 
@@ -1708,7 +1708,7 @@ mod test {
                 sections,
                 &elf_bytes,
             ),
-            Ok(Section::Owned(offset, data)) if offset == 0 && data.len() == 20
+            Ok(Section::Owned(offset, data)) if offset == ebpf::MM_PROGRAM_START as usize && data.len() == 20
         ));
     }
 
@@ -1732,7 +1732,10 @@ mod test {
             ];
             assert_eq!(
                 ElfExecutable::parse_ro_sections(&config, &sbpf_version, sections, &elf_bytes),
-                Ok(Section::Borrowed(20, 20..50))
+                Ok(Section::Borrowed(
+                    ebpf::MM_PROGRAM_START as usize + 20,
+                    20..50
+                ))
             );
         }
     }
