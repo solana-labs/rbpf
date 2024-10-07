@@ -1,5 +1,5 @@
 #![allow(clippy::arithmetic_side_effects)]
-#![cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
+//#![cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 // Copyright 2020 Solana Maintainers <maintainers@solana.com>
 //
 // Licensed under the Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0> or
@@ -293,7 +293,7 @@ fn test_bounce() {
         mov r8, r7
         mov r9, r8
         mov r0, r9
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -309,7 +309,7 @@ fn test_add32() {
         mov32 r1, 2
         add32 r0, 1
         add32 r0, r1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(5),
@@ -339,7 +339,7 @@ fn test_alu32_arithmetic() {
         lmul32 r0, r3
         udiv32 r0, 2
         udiv32 r0, r4
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(19),
@@ -369,7 +369,7 @@ fn test_alu64_arithmetic() {
         lmul r0, r3
         udiv r0, 2
         udiv r0, r4
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(19),
@@ -454,7 +454,7 @@ fn test_alu32_logic() {
         rsh32 r0, r7
         xor32 r0, 0x03
         xor32 r0, r2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(21),
@@ -488,7 +488,7 @@ fn test_alu64_logic() {
         rsh r0, r7
         xor r0, 0x03
         xor r0, r2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(23),
@@ -504,7 +504,7 @@ fn test_arsh32_high_shift() {
         mov32 r1, 0x00000001
         hor64 r1, 0x00000001
         arsh32 r0, r1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(5),
@@ -519,7 +519,7 @@ fn test_arsh32_imm() {
         mov32 r0, 0xf8
         lsh32 r0, 28
         arsh32 r0, 16
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(4),
@@ -535,7 +535,7 @@ fn test_arsh32_reg() {
         mov32 r1, 16
         lsh32 r0, 28
         arsh32 r0, r1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(5),
@@ -552,7 +552,7 @@ fn test_arsh64() {
         arsh r0, 55
         mov32 r1, 5
         arsh r0, r1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(6),
@@ -611,7 +611,7 @@ fn test_be16() {
         "
         ldxh r0, [r1]
         be16 r0
-        exit",
+        return",
         [0x11, 0x22],
         (),
         TestContextObject::new(3),
@@ -625,7 +625,7 @@ fn test_be16_high() {
         "
         ldxdw r0, [r1]
         be16 r0
-        exit",
+        return",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
         TestContextObject::new(3),
@@ -639,7 +639,7 @@ fn test_be32() {
         "
         ldxw r0, [r1]
         be32 r0
-        exit",
+        return",
         [0x11, 0x22, 0x33, 0x44],
         (),
         TestContextObject::new(3),
@@ -653,7 +653,7 @@ fn test_be32_high() {
         "
         ldxdw r0, [r1]
         be32 r0
-        exit",
+        return",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
         TestContextObject::new(3),
@@ -667,7 +667,7 @@ fn test_be64() {
         "
         ldxdw r0, [r1]
         be64 r0
-        exit",
+        return",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
         (),
         TestContextObject::new(3),
@@ -2144,7 +2144,7 @@ fn test_dynamic_frame_ptr() {
         exit
         function_foo:
         mov r0, r10
-        exit",
+        return",
         config.clone(),
         [],
         (),
@@ -2159,9 +2159,9 @@ fn test_dynamic_frame_ptr() {
         add r11, -8
         call function_foo
         mov r0, r10
-        exit
+        return
         function_foo:
-        exit
+        return
         ",
         config.clone(),
         [],
@@ -2325,7 +2325,7 @@ fn test_bpf_to_bpf_scratch_registers() {
         mov64 r7, 0x00
         mov64 r8, 0x00
         mov64 r9, 0x00
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(15),
@@ -2361,10 +2361,10 @@ fn test_callx() {
         lsh64 r8, 0x20
         or64 r8, 0x30
         callx r8
-        exit
+        return
         function_foo:
         mov64 r0, 0x2A
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(8),
@@ -2449,7 +2449,7 @@ fn test_bpf_to_bpf_depth() {
             jeq r1, 0, +2
             add64 r1, -1
             call function_foo
-            exit",
+            return",
             config.clone(),
             [max_call_depth as u8],
             (),
@@ -2467,7 +2467,7 @@ fn test_bpf_to_bpf_depth() {
             jeq r1, 0, +2
             add64 r1, -1
             call function_foo
-            exit",
+            return",
             config,
             [max_call_depth as u8 + 1],
             (),
@@ -2489,7 +2489,7 @@ fn test_err_reg_stack_depth() {
             mov64 r0, 0x1
             lsh64 r0, 0x20
             callx r0
-            exit",
+            return",
             config,
             [],
             (),
@@ -2533,7 +2533,7 @@ fn test_err_syscall_string() {
         mov64 r1, 0x0
         syscall bpf_syscall_string
         mov64 r0, 0x0
-        exit",
+        return",
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2591,7 +2591,7 @@ fn test_call_gather_bytes() {
         mov r4, 4
         mov r5, 5
         syscall bpf_gather_bytes
-        exit",
+        return",
         [],
         (
             "bpf_gather_bytes" => syscalls::SyscallGatherBytes::vm,
@@ -2611,7 +2611,7 @@ fn test_call_memfrob() {
         syscall bpf_mem_frob
         ldxdw r0, [r6]
         be64 r0
-        exit",
+        return",
         [
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, //
         ],
@@ -2741,7 +2741,7 @@ fn test_tight_infinite_recursion_callx() {
         function_foo:
         mov64 r3, 0x41414141
         callx r8
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(8),
@@ -2796,7 +2796,7 @@ fn test_non_terminate_early() {
         callx r6
         add64 r6, 0x1
         ja -0x8
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -2817,7 +2817,7 @@ fn test_err_non_terminate_capped() {
         syscall bpf_trace_printf
         add64 r6, 0x1
         ja -0x8
-        exit",
+        return",
         [],
         (
             "bpf_trace_printf" => syscalls::SyscallTracePrintf::vm,
@@ -2836,7 +2836,7 @@ fn test_err_non_terminate_capped() {
         syscall bpf_trace_printf
         add64 r6, 0x1
         ja -0x8
-        exit",
+        return",
         [],
         (
             "bpf_trace_printf" => syscalls::SyscallTracePrintf::vm,
