@@ -231,7 +231,7 @@ impl Verifier for RequisiteVerifier {
             let insn = ebpf::get_insn(prog, insn_ptr);
             let mut store = false;
 
-            if sbpf_version.static_syscalls() && function_iter.peek() == Some(&insn_ptr) {
+            if sbpf_version.stricter_controlflow() && function_iter.peek() == Some(&insn_ptr) {
                 function_range.start = function_iter.next().unwrap_or(0);
                 function_range.end = *function_iter.peek().unwrap_or(&program_range.end);
                 let insn = ebpf::get_insn(prog, function_range.end.saturating_sub(1));
@@ -244,7 +244,7 @@ impl Verifier for RequisiteVerifier {
             }
 
             match insn.opc {
-                ebpf::LD_DW_IMM if sbpf_version.enable_lddw() => {
+                ebpf::LD_DW_IMM if !sbpf_version.disable_lddw() => {
                     check_load_dw(prog, insn_ptr)?;
                     insn_ptr += 1;
                 },
@@ -284,7 +284,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::LSH32_REG  => {},
                 ebpf::RSH32_IMM  => { check_imm_shift(&insn, insn_ptr, 32)?; },
                 ebpf::RSH32_REG  => {},
-                ebpf::NEG32      if sbpf_version.enable_neg() => {},
+                ebpf::NEG32      if !sbpf_version.disable_neg() => {},
                 ebpf::MOD32_IMM  if !sbpf_version.enable_pqr() => { check_imm_nonzero(&insn, insn_ptr)?; },
                 ebpf::MOD32_REG  if !sbpf_version.enable_pqr() => {},
                 ebpf::XOR32_IMM  => {},
@@ -293,7 +293,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::MOV32_REG  => {},
                 ebpf::ARSH32_IMM => { check_imm_shift(&insn, insn_ptr, 32)?; },
                 ebpf::ARSH32_REG => {},
-                ebpf::LE         if sbpf_version.enable_le() => { check_imm_endian(&insn, insn_ptr)?; },
+                ebpf::LE         if !sbpf_version.disable_le() => { check_imm_endian(&insn, insn_ptr)?; },
                 ebpf::BE         => { check_imm_endian(&insn, insn_ptr)?; },
 
                 // BPF_ALU64 class
@@ -313,7 +313,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::LSH64_REG  => {},
                 ebpf::RSH64_IMM  => { check_imm_shift(&insn, insn_ptr, 64)?; },
                 ebpf::RSH64_REG  => {},
-                ebpf::NEG64      if sbpf_version.enable_neg() => {},
+                ebpf::NEG64      if !sbpf_version.disable_neg() => {},
                 ebpf::MOD64_IMM  if !sbpf_version.enable_pqr() => { check_imm_nonzero(&insn, insn_ptr)?; },
                 ebpf::MOD64_REG  if !sbpf_version.enable_pqr() => {},
                 ebpf::XOR64_IMM  => {},
@@ -322,7 +322,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::MOV64_REG  => {},
                 ebpf::ARSH64_IMM => { check_imm_shift(&insn, insn_ptr, 64)?; },
                 ebpf::ARSH64_REG => {},
-                ebpf::HOR64_IMM  if !sbpf_version.enable_lddw() => {},
+                ebpf::HOR64_IMM  if sbpf_version.disable_lddw() => {},
 
                 // BPF_PQR class
                 ebpf::LMUL32_IMM if sbpf_version.enable_pqr() => {},
@@ -374,8 +374,8 @@ impl Verifier for RequisiteVerifier {
                 ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
-                ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src != 0 => { check_call_target(insn.imm as u32, function_registry)?; },
-                ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src == 0 => { check_call_target(insn.imm as u32, syscall_registry)?; },
+                ebpf::CALL_IMM   if sbpf_version.stricter_controlflow() && insn.src != 0 => { check_call_target(insn.imm as u32, function_registry)?; },
+                ebpf::CALL_IMM   if sbpf_version.stricter_controlflow() && insn.src == 0 => { check_call_target(insn.imm as u32, syscall_registry)?; },
                 ebpf::CALL_IMM   => {},
                 ebpf::CALL_REG   => { check_callx_register(&insn, insn_ptr, sbpf_version)?; },
                 ebpf::EXIT       => {},
