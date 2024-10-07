@@ -11,6 +11,8 @@ extern crate libc;
 extern crate solana_rbpf;
 extern crate test_utils;
 extern crate thiserror;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
 
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use solana_rbpf::{

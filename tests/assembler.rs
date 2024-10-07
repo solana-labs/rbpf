@@ -11,6 +11,8 @@ extern crate test_utils;
 use solana_rbpf::{assembler::assemble, ebpf, program::BuiltinProgram, vm::TestContextObject};
 use std::sync::Arc;
 use test_utils::{TCP_SACK_ASM, TCP_SACK_BIN};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
 
 fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
     let executable = assemble::<TestContextObject>(src, Arc::new(BuiltinProgram::new_mock()))?;
