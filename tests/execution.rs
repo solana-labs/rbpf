@@ -3036,25 +3036,6 @@ fn test_syscall_reloc_64_32() {
 }
 
 #[test]
-fn test_err_unresolved_syscall_reloc_64_32() {
-    let loader = BuiltinProgram::new_loader(
-        Config {
-            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-            reject_broken_elfs: true,
-            ..Config::default()
-        },
-        FunctionRegistry::default(),
-    );
-    let mut file = File::open("tests/elfs/syscall_reloc_64_32_sbpfv1.so").unwrap();
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-    assert_error!(
-        Executable::<TestContextObject>::from_elf(&elf, Arc::new(loader)),
-        "UnresolvedSymbol(\"log\", 39, 312)"
-    );
-}
-
-#[test]
 fn test_reloc_64_64_sbpfv1() {
     // Tests the correctness of R_BPF_64_64 relocations. The program returns the
     // address of the entrypoint.

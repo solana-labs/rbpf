@@ -1917,6 +1917,22 @@ mod test {
     }
 
     #[test]
+    #[should_panic(expected = "validation failed: UnresolvedSymbol(\"log\", 39, 312)")]
+    fn test_err_unresolved_syscall_reloc_64_32() {
+        let loader = BuiltinProgram::new_loader(
+            Config {
+                enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+                reject_broken_elfs: true,
+                ..Config::default()
+            },
+            FunctionRegistry::default(),
+        );
+        let elf_bytes = std::fs::read("tests/elfs/syscall_reloc_64_32_sbpfv1.so")
+            .expect("failed to read elf file");
+        ElfExecutable::load(&elf_bytes, Arc::new(loader)).expect("validation failed");
+    }
+
+    #[test]
     fn test_long_section_name() {
         let elf_bytes = std::fs::read("tests/elfs/long_section_name.so").unwrap();
         assert_error!(
