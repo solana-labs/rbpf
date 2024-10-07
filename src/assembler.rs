@@ -314,7 +314,7 @@ pub fn assemble<C: ContextObject>(
     src: &str,
     loader: Arc<BuiltinProgram<C>>,
 ) -> Result<Executable<C>, String> {
-    let sbpf_version = loader.get_config().enabled_sbpf_versions.end().clone();
+    let sbpf_version = *loader.get_config().enabled_sbpf_versions.end();
 
     let statements = parse(src)?;
     let instruction_map = make_instruction_map(&sbpf_version);

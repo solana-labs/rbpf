@@ -53,6 +53,11 @@ fn test_exit() {
     assert_eq!(asm("exit"), Ok(vec![insn(0, ebpf::EXIT, 0, 0, 0, 0)]));
 }
 
+#[test]
+fn test_return() {
+    assert_eq!(asm("return"), Ok(vec![insn(0, ebpf::RETURN, 0, 0, 0, 0)]));
+}
+
 // Example for InstructionType::AluBinary.
 #[test]
 fn test_add64() {

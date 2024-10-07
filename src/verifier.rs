@@ -236,7 +236,7 @@ impl Verifier for RequisiteVerifier {
                 function_range.end = *function_iter.peek().unwrap_or(&program_range.end);
                 let insn = ebpf::get_insn(prog, function_range.end.saturating_sub(1));
                 match insn.opc {
-                    ebpf::JA | ebpf::EXIT => {},
+                    ebpf::JA | ebpf::RETURN => {},
                     _ => return Err(VerifierError::InvalidFunction(
                         function_range.end.saturating_sub(1),
                     )),

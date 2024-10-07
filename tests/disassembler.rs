@@ -45,6 +45,11 @@ fn test_exit() {
     disasm!("entrypoint:\n    exit\n");
 }
 
+#[test]
+fn test_return() {
+    disasm!("entrypoint:\n    return\n");
+}
+
 // Example for InstructionType::AluBinary.
 #[test]
 fn test_add64() {
