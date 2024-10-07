@@ -377,6 +377,7 @@ impl<C: ContextObject> Executable<C> {
         let bytes = if is_memory_aligned(bytes.as_ptr() as usize, HOST_ALIGN) {
             bytes
         } else {
+            // debug_assert!(false);
             aligned = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
             aligned.as_slice()
         };
@@ -405,6 +406,21 @@ impl<C: ContextObject> Executable<C> {
         bytes: &[u8],
         loader: Arc<BuiltinProgram<C>>,
     ) -> Result<Self, ElfParserError> {
+        println!("{:X?}", elf.file_header());
+        for header in elf.program_header_table().iter() {
+            println!("{:X?}", header);
+        }
+        for header in elf.section_header_table().iter() {
+            println!(
+                "{} {:X?}",
+                elf.section_name(header.sh_name)
+                    .ok()
+                    .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                    .map(|str| str.to_string())
+                    .unwrap(),
+                header
+            );
+        }
         const EXPECTED_PROGRAM_HEADERS: [(u32, u32, u64); 4] = [
             (PT_LOAD, PF_R | PF_X, ebpf::MM_PROGRAM_START), // byte code
             (PT_LOAD, PF_R, ebpf::MM_PROGRAM_START),        // read only data
@@ -489,6 +505,15 @@ impl<C: ContextObject> Executable<C> {
                 .saturating_sub(text_section.sh_addr)
                 .checked_div(ebpf::INSN_SIZE as u64)
                 .unwrap_or_default() as usize;
+            println!(
+                "{} {:X}",
+                elf.symbol_name(symbol.st_name as Elf64Word)
+                    .ok()
+                    .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                    .map(|str| str.to_string())
+                    .unwrap(),
+                target_pc
+            );
             function_registry
                 .register_function(
                     target_pc as u32,
