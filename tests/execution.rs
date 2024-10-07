@@ -2283,7 +2283,7 @@ fn test_err_mem_access_out_of_bound() {
     let mut prog = [0; 32];
     prog[0] = ebpf::MOV32_IMM;
     prog[8] = ebpf::HOR64_IMM;
-    prog[16] = ebpf::ST_B_IMM;
+    prog[16] = ebpf::ST_1B_IMM;
     prog[24] = ebpf::EXIT;
     let loader = Arc::new(BuiltinProgram::new_mock());
     for address in [0x2u64, 0x8002u64, 0x80000002u64, 0x8000000000000002u64] {
