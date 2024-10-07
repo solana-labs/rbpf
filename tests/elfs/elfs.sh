@@ -11,17 +11,17 @@ LD_COMMON="$TOOLCHAIN/llvm/bin/ld.lld -z notext -shared --Bdynamic -entry entryp
 LD="$LD_COMMON --section-start=.text=0x100000000"
 LD_V1=$LD_COMMON
 
-$RC -o relative_call.o relative_call.rs
-$LD -o relative_call.so relative_call.o
+$RC_V1 -o relative_call.o relative_call.rs
+$LD_V1 -o relative_call_sbpfv1.so relative_call.o
 
 $RC_V1 -o syscall_reloc_64_32.o syscall_reloc_64_32.rs
-$LD_V1 -o syscall_reloc_64_32.so syscall_reloc_64_32.o
+$LD_V1 -o syscall_reloc_64_32_sbpfv1.so syscall_reloc_64_32.o
 
-$RC -o bss_section.o bss_section.rs
-$LD -o bss_section.so bss_section.o
+$RC_V1 -o bss_section.o bss_section.rs
+$LD_V1 -o bss_section_sbpfv1.so bss_section.o
 
-$RC -o data_section.o data_section.rs
-$LD -o data_section.so data_section.o
+$RC_V1 -o data_section.o data_section.rs
+$LD_V1 -o data_section_sbpfv1.so data_section.o
 
 $RC_V1 -o rodata_section.o rodata_section.rs
 $LD_V1 -o rodata_section_sbpfv1.so rodata_section.o
@@ -29,8 +29,8 @@ $LD_V1 -o rodata_section_sbpfv1.so rodata_section.o
 $RC -o program_headers_overflow.o rodata_section.rs
 "$TOOLCHAIN"/llvm/bin/ld.lld -z notext -shared --Bdynamic -entry entrypoint --script program_headers_overflow.ld --noinhibit-exec -o program_headers_overflow.so program_headers_overflow.o
 
-$RC -o struct_func_pointer.o struct_func_pointer.rs
-$LD -o struct_func_pointer.so struct_func_pointer.o
+$RC_V1 -o struct_func_pointer.o struct_func_pointer.rs
+$LD_V1 -o struct_func_pointer_sbpfv1.so struct_func_pointer.o
 
 $RC_V1 -o reloc_64_64.o reloc_64_64.rs
 $LD_V1 -o reloc_64_64_sbpfv1.so reloc_64_64.o
@@ -38,8 +38,8 @@ $LD_V1 -o reloc_64_64_sbpfv1.so reloc_64_64.o
 $RC_V1 -o reloc_64_relative.o reloc_64_relative.rs
 $LD_V1 -o reloc_64_relative_sbpfv1.so reloc_64_relative.o
 
-# $RC_V1 -o reloc_64_relative_data.o reloc_64_relative_data.rs
-# $LD_V1 -o reloc_64_relative_data_sbpfv1.so reloc_64_relative_data.o
+$RC_V1 -o reloc_64_relative_data.o reloc_64_relative_data.rs
+$LD_V1 -o reloc_64_relative_data_sbpfv1.so reloc_64_relative_data.o
 
 # $RC_V1 -o callx_unaligned.o callx_unaligned.rs
 # $LD_V1 -o callx_unaligned.so callx_unaligned.o

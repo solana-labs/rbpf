@@ -25,7 +25,7 @@ use test_utils::create_vm;
 
 #[bench]
 fn bench_init_interpreter_start(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/rodata_section.so").unwrap();
+    let mut file = File::open("tests/elfs/rodata_section_sbpfv1.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let executable =
@@ -51,7 +51,7 @@ fn bench_init_interpreter_start(bencher: &mut Bencher) {
 #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 #[bench]
 fn bench_init_jit_start(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/rodata_section.so").unwrap();
+    let mut file = File::open("tests/elfs/rodata_section_sbpfv1.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let mut executable =

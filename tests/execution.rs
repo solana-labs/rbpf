@@ -2315,11 +2315,16 @@ fn test_err_mem_access_out_of_bound() {
 
 #[test]
 fn test_relative_call() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_elf!(
-        "tests/elfs/relative_call.so",
+        "tests/elfs/relative_call_sbpfv1.so",
+        config,
         [1],
         (),
-        TestContextObject::new(18),
+        TestContextObject::new(16),
         ProgramResult::Ok(3),
     );
 }
@@ -2994,7 +2999,6 @@ fn test_err_call_unresolved() {
         enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
-
     test_interpreter_and_jit_asm!(
         "
         mov r1, 1
@@ -3015,8 +3019,13 @@ fn test_err_call_unresolved() {
 
 #[test]
 fn test_syscall_reloc_64_32() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_elf!(
-        "tests/elfs/syscall_reloc_64_32.so",
+        "tests/elfs/syscall_reloc_64_32_sbpfv1.so",
+        config,
         [],
         (
             "log" => syscalls::SyscallString::vm,
@@ -3030,12 +3039,13 @@ fn test_syscall_reloc_64_32() {
 fn test_err_unresolved_syscall_reloc_64_32() {
     let loader = BuiltinProgram::new_loader(
         Config {
+            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
             reject_broken_elfs: true,
             ..Config::default()
         },
         FunctionRegistry::default(),
     );
-    let mut file = File::open("tests/elfs/syscall_reloc_64_32.so").unwrap();
+    let mut file = File::open("tests/elfs/syscall_reloc_64_32_sbpfv1.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     assert_error!(
@@ -3064,8 +3074,13 @@ fn test_reloc_64_relative_sbpfv1() {
     // returns the address of the first .rodata byte.
     //   [ 1] .text             PROGBITS        0000000000000120 000120 000018 00  AX  0   0  8
     //   [ 2] .rodata           PROGBITS        0000000000000138 000138 00000a 01 AMS  0   0  1
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_elf!(
         "tests/elfs/reloc_64_relative_sbpfv1.so",
+        config,
         [],
         (),
         TestContextObject::new(2),
@@ -3082,8 +3097,13 @@ fn test_reloc_64_relative_data_sbfv1() {
     //
     // 00000000000001f8 <FILE>:
     // 63:       08 01 00 00 00 00 00 00
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_elf!(
         "tests/elfs/reloc_64_relative_data_sbpfv1.so",
+        config,
         [],
         (),
         TestContextObject::new(3),
@@ -3106,8 +3126,13 @@ fn test_reloc_64_relative_data_sbpfv1() {
     //
     // 00000000000001f8 <FILE>:
     // 63:       00 00 00 00 08 01 00 00
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_elf!(
         "tests/elfs/reloc_64_relative_data_sbpfv1.so",
+        config,
         [],
         (),
         TestContextObject::new(3),
@@ -3118,6 +3143,7 @@ fn test_reloc_64_relative_data_sbpfv1() {
 #[test]
 fn test_load_elf_rodata_sbpfv1() {
     let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         optimize_rodata: false,
         ..Config::default()
     };
@@ -3136,11 +3162,16 @@ fn test_struct_func_pointer() {
     // This tests checks that a struct field adjacent to another field
     // which is a relocatable function pointer is not overwritten when
     // the function pointer is relocated at load time.
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_elf!(
-        "tests/elfs/struct_func_pointer.so",
+        "tests/elfs/struct_func_pointer_sbpfv1.so",
+        config,
         [],
         (),
-        TestContextObject::new(3),
+        TestContextObject::new(2),
         ProgramResult::Ok(0x102030405060708),
     );
 }
