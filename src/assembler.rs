@@ -113,6 +113,7 @@ fn make_instruction_map(sbpf_version: &SBPFVersion) -> HashMap<String, (Instruct
         };
 
         // Miscellaneous.
+        entry("return", NoOperand, ebpf::RETURN);
         entry("exit", NoOperand, ebpf::EXIT);
         entry("ja", JumpUnconditional, ebpf::JA);
         entry("syscall", Syscall, ebpf::CALL_IMM);

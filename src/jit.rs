@@ -745,7 +745,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     };
                     self.emit_internal_call(Value::Register(target_pc));
                 },
-                ebpf::EXIT      => {
+                ebpf::EXIT
+                | ebpf::RETURN => {
+                    if (insn.opc == ebpf::EXIT && self.executable.get_sbpf_version().static_syscalls())
+                        || (insn.opc == ebpf::RETURN && !self.executable.get_sbpf_version().static_syscalls()) {
+                        return Err(EbpfError::UnsupportedInstruction);
+                    }
+
                     self.emit_validate_instruction_count(true, Some(self.pc));
 
                     let call_depth_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::CallDepth));
@@ -772,7 +778,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     // and return
                     self.emit_profile_instruction_count(false, Some(0));
                     self.emit_ins(X86Instruction::return_near());
-                },
+                }
 
                 _               => return Err(EbpfError::UnsupportedInstruction),
             }
