@@ -513,6 +513,14 @@ fn test_ins(v1: bool, ins: String, prng: &mut SmallRng, cu: u64) {
 
     prng.fill_bytes(&mut input);
 
+    let mut config = Config::default();
+    let final_instr = if v1 {
+        config.enabled_sbpf_versions = SBPFVersion::V1..=SBPFVersion::V1;
+        "exit"
+    } else {
+        "return"
+    };
+
     let asm = format!(
         "
         ldxdw r9, [r1+72]
@@ -535,12 +543,8 @@ fn test_ins(v1: bool, ins: String, prng: &mut SmallRng, cu: u64) {
         xor64 r0, r7
         xor64 r0, r8
         xor64 r0, r9
-        exit"
+        {final_instr}"
     );
 
-    let mut config = Config::default();
-    if v1 {
-        config.enabled_sbpf_versions = SBPFVersion::V1..=SBPFVersion::V1;
-    }
     test_interpreter_and_jit_asm!(asm.as_str(), config, input, (), TestContextObject::new(cu));
 }

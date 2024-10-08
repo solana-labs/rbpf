@@ -95,8 +95,8 @@ macro_rules! test_interpreter_and_jit {
                 None
             );
             match compilation_result {
-                Err(err) => assert_eq!(
-                    format!("{:?}", err),
+                Err(_) => assert_eq!(
+                    format!("{:?}", compilation_result),
                     expected_result,
                     "Unexpected result for JIT compilation"
                 ),
