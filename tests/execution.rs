@@ -4125,15 +4125,15 @@ fn test_mod() {
 
 #[test]
 fn test_invalid_exit_or_return() {
-    for sbf_version in [SBPFVersion::V1, SBPFVersion::V2] {
-        let final_instr = if sbf_version == SBPFVersion::V1 {
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let final_instr = if sbpf_version == SBPFVersion::V1 {
             "return"
         } else {
             "exit"
         };
 
         let config = Config {
-            enabled_sbpf_versions: sbf_version..=sbf_version,
+            enabled_sbpf_versions: sbpf_version..=sbpf_version,
             enable_instruction_tracing: true,
             ..Config::default()
         };
