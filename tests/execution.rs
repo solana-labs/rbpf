@@ -143,7 +143,7 @@ macro_rules! test_interpreter_and_jit {
 }
 
 macro_rules! test_interpreter_and_jit_asm {
-    ($source:tt, $config:expr, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
+    ($source:expr, $config:expr, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
         #[allow(unused_mut)]
         {
             let mut config = $config;
@@ -155,7 +155,7 @@ macro_rules! test_interpreter_and_jit_asm {
             test_interpreter_and_jit!(executable, $mem, $context_object, $expected_result);
         }
     };
-    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
+    ($source:expr, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
         #[allow(unused_mut)]
         {
             test_interpreter_and_jit_asm!($source, Config::default(), $mem, ($($location => $syscall_function),*), $context_object, $expected_result);
@@ -918,35 +918,40 @@ fn test_err_divide_overflow() {
 #[test]
 fn test_memory_instructions() {
     for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let final_instr = if sbpf_version == SBPFVersion::V1 {
+            "exit"
+        } else {
+            "return"
+        };
+
         let config = Config {
-            enabled_sbpf_versions: sbpf_version.clone()..=sbpf_version,
+            enabled_sbpf_versions: sbpf_version..=sbpf_version,
             ..Config::default()
         };
 
+        let asm = format!("ldxb r0, [r1+2]\n{final_instr}");
         test_interpreter_and_jit_asm!(
-            "
-            ldxb r0, [r1+2]
-            exit",
+            asm.as_str(),
             config.clone(),
             [0xaa, 0xbb, 0x11, 0xcc, 0xdd],
             (),
             TestContextObject::new(2),
             ProgramResult::Ok(0x11),
         );
+
+        let asm = format!("ldxh r0, [r1+2]\n{final_instr}");
         test_interpreter_and_jit_asm!(
-            "
-            ldxh r0, [r1+2]
-            exit",
+            asm.as_str(),
             config.clone(),
             [0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd],
             (),
             TestContextObject::new(2),
             ProgramResult::Ok(0x2211),
         );
+
+        let asm = format!("ldxw r0, [r1+2]\n{final_instr}");
         test_interpreter_and_jit_asm!(
-            "
-            ldxw r0, [r1+2]
-            exit",
+            asm.as_str(),
             config.clone(),
             [
                 0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0xcc, 0xdd, //
@@ -955,10 +960,10 @@ fn test_memory_instructions() {
             TestContextObject::new(2),
             ProgramResult::Ok(0x44332211),
         );
+
+        let asm = format!("ldxdw r0, [r1+2]\n{final_instr}");
         test_interpreter_and_jit_asm!(
-            "
-            ldxdw r0, [r1+2]
-            exit",
+            asm.as_str(),
             config.clone(),
             [
                 0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, //
@@ -969,22 +974,29 @@ fn test_memory_instructions() {
             ProgramResult::Ok(0x8877665544332211),
         );
 
-        test_interpreter_and_jit_asm!(
+        let asm = format!(
             "
             stb [r1+2], 0x11
             ldxb r0, [r1+2]
-            exit",
+            {final_instr}"
+        );
+        test_interpreter_and_jit_asm!(
+            asm.as_str(),
             config.clone(),
             [0xaa, 0xbb, 0xff, 0xcc, 0xdd],
             (),
             TestContextObject::new(3),
             ProgramResult::Ok(0x11),
         );
-        test_interpreter_and_jit_asm!(
+
+        let asm = format!(
             "
             sth [r1+2], 0x2211
             ldxh r0, [r1+2]
-            exit",
+            {final_instr}"
+        );
+        test_interpreter_and_jit_asm!(
+            asm.as_str(),
             config.clone(),
             [
                 0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
@@ -993,11 +1005,15 @@ fn test_memory_instructions() {
             TestContextObject::new(3),
             ProgramResult::Ok(0x2211),
         );
-        test_interpreter_and_jit_asm!(
+
+        let asm = format!(
             "
             stw [r1+2], 0x44332211
             ldxw r0, [r1+2]
-            exit",
+            {final_instr}"
+        );
+        test_interpreter_and_jit_asm!(
+            asm.as_str(),
             config.clone(),
             [
                 0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
@@ -1006,11 +1022,15 @@ fn test_memory_instructions() {
             TestContextObject::new(3),
             ProgramResult::Ok(0x44332211),
         );
-        test_interpreter_and_jit_asm!(
+
+        let asm = format!(
             "
             stdw [r1+2], 0x44332211
             ldxdw r0, [r1+2]
-            exit",
+            {final_instr}"
+        );
+        test_interpreter_and_jit_asm!(
+            asm.as_str(),
             config.clone(),
             [
                 0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
@@ -1021,12 +1041,15 @@ fn test_memory_instructions() {
             ProgramResult::Ok(0x44332211),
         );
 
-        test_interpreter_and_jit_asm!(
+        let asm = format!(
             "
             mov32 r2, 0x11
             stxb [r1+2], r2
             ldxb r0, [r1+2]
-            exit",
+            {final_instr}"
+        );
+        test_interpreter_and_jit_asm!(
+            asm.as_str(),
             config.clone(),
             [
                 0xaa, 0xbb, 0xff, 0xcc, 0xdd, //
@@ -1035,12 +1058,16 @@ fn test_memory_instructions() {
             TestContextObject::new(4),
             ProgramResult::Ok(0x11),
         );
-        test_interpreter_and_jit_asm!(
+
+        let asm = format!(
             "
             mov32 r2, 0x2211
             stxh [r1+2], r2
             ldxh r0, [r1+2]
-            exit",
+            {final_instr}"
+        );
+        test_interpreter_and_jit_asm!(
+            asm.as_str(),
             config.clone(),
             [
                 0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
@@ -1049,12 +1076,16 @@ fn test_memory_instructions() {
             TestContextObject::new(4),
             ProgramResult::Ok(0x2211),
         );
-        test_interpreter_and_jit_asm!(
+
+        let asm = format!(
             "
             mov32 r2, 0x44332211
             stxw [r1+2], r2
             ldxw r0, [r1+2]
-            exit",
+            {final_instr}"
+        );
+        test_interpreter_and_jit_asm!(
+            asm.as_str(),
             config.clone(),
             [
                 0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
@@ -1063,14 +1094,18 @@ fn test_memory_instructions() {
             TestContextObject::new(4),
             ProgramResult::Ok(0x44332211),
         );
-        test_interpreter_and_jit_asm!(
+
+        let asm = format!(
             "
             mov r2, -2005440939
             lsh r2, 32
             or r2, 0x44332211
             stxdw [r1+2], r2
             ldxdw r0, [r1+2]
-            exit",
+            {final_instr}"
+        );
+        test_interpreter_and_jit_asm!(
+            asm.as_str(),
             config.clone(),
             [
                 0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
@@ -1489,14 +1524,13 @@ fn test_exit() {
             "return"
         };
         let asm = format!("mov r0, 0\n{final_instr}\n");
-        let asm_str = asm.as_str();
 
         let config = Config {
             enabled_sbpf_versions: SBPFVersion::V1..=sbpf_version,
             ..Config::default()
         };
         test_interpreter_and_jit_asm!(
-            asm_str,
+            asm.as_str(),
             config,
             [],
             (),
@@ -1515,14 +1549,13 @@ fn test_early_exit() {
             "return"
         };
         let asm = format!("mov r0, 3\n{final_instr}\nmov r0, 4\n{final_instr}\n");
-        let asm_str = asm.as_str();
 
         let config = Config {
             enabled_sbpf_versions: SBPFVersion::V1..=sbpf_version,
             ..Config::default()
         };
         test_interpreter_and_jit_asm!(
-            asm_str,
+            asm.as_str(),
             config,
             [],
             (),
@@ -2247,12 +2280,11 @@ fn test_entrypoint_exit() {
             mov r0, 12
             {final_instr}"
         );
-        let asm_str = asm.as_str();
 
         // This checks that when foo exits we don't stop execution even if the
         // stack is empty (stack size and call depth are decoupled)
         test_interpreter_and_jit_asm!(
-            asm_str,
+            asm.as_str(),
             config,
             [],
             (),
@@ -2292,10 +2324,8 @@ fn test_stack_call_depth_tracking() {
             "
         );
 
-        let asm_str = asm.as_str();
-
         test_interpreter_and_jit_asm!(
-            asm_str,
+            asm.as_str(),
             config.clone(),
             [],
             (),
@@ -2318,9 +2348,8 @@ fn test_stack_call_depth_tracking() {
             "
         );
 
-        let asm_str = asm.as_str();
         test_interpreter_and_jit_asm!(
-            asm_str,
+            asm.as_str(),
             config,
             [],
             (),
