@@ -1089,7 +1089,7 @@ fn test_hor64() {
         "
         hor64 r0, 0x10203040
         hor64 r0, 0x01020304
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(3),
@@ -1104,7 +1104,7 @@ fn test_ldxh_same_reg() {
         mov r0, r1
         sth [r0], 0x1234
         ldxh r0, [r0]
-        exit",
+        return",
         [0xff, 0xff],
         (),
         TestContextObject::new(4),
@@ -1117,7 +1117,7 @@ fn test_err_ldxdw_oob() {
     test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1+6]
-        exit",
+        return",
         [
             0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, //
             0x77, 0x88, 0xcc, 0xdd, //
@@ -1138,7 +1138,7 @@ fn test_err_ldxdw_nomem() {
     test_interpreter_and_jit_asm!(
         "
         ldxdw r0, [r1+6]
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(1),
@@ -1185,7 +1185,7 @@ fn test_ldxb_all() {
         or r0, r7
         or r0, r8
         or r0, r9
-        exit",
+        return",
         [
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, //
             0x08, 0x09, //
@@ -1240,7 +1240,7 @@ fn test_ldxh_all() {
         or r0, r7
         or r0, r8
         or r0, r9
-        exit",
+        return",
         [
             0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, //
             0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, //
@@ -1286,7 +1286,7 @@ fn test_ldxh_all2() {
         or r0, r7
         or r0, r8
         or r0, r9
-        exit",
+        return",
         [
             0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00, 0x08, //
             0x00, 0x10, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, //
@@ -1332,7 +1332,7 @@ fn test_ldxw_all() {
         or r0, r7
         or r0, r8
         or r0, r9
-        exit",
+        return",
         [
             0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, //
             0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x08, //
@@ -1368,7 +1368,7 @@ fn test_stxb_all() {
         stxb [r1+7], r8
         ldxdw r0, [r1]
         be64 r0
-        exit",
+        return",
         [
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
         ],
@@ -1389,7 +1389,7 @@ fn test_stxb_all2() {
         stxb [r0+1], r9
         ldxh r0, [r0]
         be16 r0
-        exit",
+        return",
         [0xff, 0xff],
         (),
         TestContextObject::new(8),
@@ -1421,7 +1421,7 @@ fn test_stxb_chain() {
         ldxb r1, [r0+8]
         stxb [r0+9], r1
         ldxb r0, [r0+9]
-        exit",
+        return",
         [
             0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
             0x00, 0x00, //
@@ -1493,7 +1493,7 @@ fn test_ja() {
         mov r0, 1
         ja +1
         mov r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(3),
@@ -1512,7 +1512,7 @@ fn test_jeq_imm() {
         mov32 r1, 0xb
         jeq r1, 0xb, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -1532,7 +1532,7 @@ fn test_jeq_reg() {
         mov32 r1, 0xb
         jeq r1, r2, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(8),
@@ -1551,7 +1551,7 @@ fn test_jge_imm() {
         mov32 r1, 0xc
         jge r1, 0xb, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -1571,7 +1571,7 @@ fn test_jge_reg() {
         mov32 r1, 0xb
         jge r1, r2, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(8),
@@ -1587,11 +1587,11 @@ fn test_jle_imm() {
         mov32 r1, 5
         jle r1, 4, +1
         jle r1, 6, +1
-        exit
+        return
         jle r1, 5, +1
-        exit
+        return
         mov32 r0, 1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -1609,11 +1609,11 @@ fn test_jle_reg() {
         mov r3, 6
         jle r1, r2, +2
         jle r1, r1, +1
-        exit
+        return
         jle r1, r3, +1
-        exit
+        return
         mov r0, 1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(9),
@@ -1630,9 +1630,9 @@ fn test_jgt_imm() {
         jgt r1, 6, +2
         jgt r1, 5, +1
         jgt r1, 4, +1
-        exit
+        return
         mov32 r0, 1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -1651,9 +1651,9 @@ fn test_jgt_reg() {
         jgt r1, r2, +2
         jgt r1, r1, +1
         jgt r1, r3, +1
-        exit
+        return
         mov r0, 1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(9),
@@ -1670,9 +1670,9 @@ fn test_jlt_imm() {
         jlt r1, 4, +2
         jlt r1, 5, +1
         jlt r1, 6, +1
-        exit
+        return
         mov32 r0, 1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -1691,9 +1691,9 @@ fn test_jlt_reg() {
         jlt r1, r2, +2
         jlt r1, r1, +1
         jlt r1, r3, +1
-        exit
+        return
         mov r0, 1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(9),
@@ -1712,7 +1712,7 @@ fn test_jne_imm() {
         mov32 r1, 0xa
         jne r1, 0xb, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -1732,7 +1732,7 @@ fn test_jne_reg() {
         mov32 r1, 0xa
         jne r1, r2, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(8),
@@ -1751,7 +1751,7 @@ fn test_jset_imm() {
         mov32 r1, 0x9
         jset r1, 0x8, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -1771,7 +1771,7 @@ fn test_jset_reg() {
         mov32 r1, 0x9
         jset r1, r2, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(8),
@@ -1791,7 +1791,7 @@ fn test_jsge_imm() {
         mov r1, -1
         jsge r1, -1, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(8),
@@ -1813,7 +1813,7 @@ fn test_jsge_reg() {
         mov r1, r2
         jsge r1, r2, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(10),
@@ -1829,11 +1829,11 @@ fn test_jsle_imm() {
         mov r1, -2
         jsle r1, -3, +1
         jsle r1, -1, +1
-        exit
+        return
         mov32 r0, 1
         jsle r1, -2, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -1851,12 +1851,12 @@ fn test_jsle_reg() {
         mov32 r3, 0
         jsle r1, r2, +1
         jsle r1, r3, +1
-        exit
+        return
         mov32 r0, 1
         mov r1, r2
         jsle r1, r2, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(10),
@@ -1875,7 +1875,7 @@ fn test_jsgt_imm() {
         mov32 r1, 0
         jsgt r1, -1, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -1895,7 +1895,7 @@ fn test_jsgt_reg() {
         mov32 r1, 0
         jsgt r1, r2, +1
         mov32 r0, 2
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(8),
@@ -1912,9 +1912,9 @@ fn test_jslt_imm() {
         jslt r1, -3, +2
         jslt r1, -2, +1
         jslt r1, -1, +1
-        exit
+        return
         mov32 r0, 1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -1933,9 +1933,9 @@ fn test_jslt_reg() {
         jslt r1, r1, +2
         jslt r1, r2, +1
         jslt r1, r3, +1
-        exit
+        return
         mov32 r0, 1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(9),
@@ -1957,7 +1957,7 @@ fn test_stack1() {
         mov r2, r10
         add r2, r1
         ldxdw r0, [r2-16]
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(9),
@@ -2050,7 +2050,7 @@ fn test_err_dynamic_stack_out_of_bound() {
     test_interpreter_and_jit_asm!(
         "
         stb [r10-0x3001], 0
-        exit",
+        return",
         config.clone(),
         [],
         (),
@@ -2067,7 +2067,7 @@ fn test_err_dynamic_stack_out_of_bound() {
     test_interpreter_and_jit_asm!(
         "
         stb [r10], 0
-        exit",
+        return",
         config.clone(),
         [],
         (),
@@ -2095,10 +2095,10 @@ fn test_err_dynamic_stack_ptr_overflow() {
         add r11, -0x7FFFFFFF
         add r11, -0x40005
         call function_foo
-        exit
+        return
         function_foo:
         stb [r10], 0
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -2119,10 +2119,10 @@ fn test_dynamic_stack_frames_empty() {
     test_interpreter_and_jit_asm!(
         "
         call function_foo
-        exit
+        return
         function_foo:
         mov r0, r10
-        exit",
+        return",
         config.clone(),
         [],
         (),
@@ -2141,7 +2141,7 @@ fn test_dynamic_frame_ptr() {
         "
         add r11, -8
         call function_foo
-        exit
+        return
         function_foo:
         mov r0, r10
         return",
@@ -2261,7 +2261,7 @@ fn test_err_mem_access_out_of_bound() {
     prog[0] = ebpf::MOV32_IMM;
     prog[8] = ebpf::HOR64_IMM;
     prog[16] = ebpf::ST_1B_IMM;
-    prog[24] = ebpf::EXIT;
+    prog[24] = ebpf::RETURN;
     let loader = Arc::new(BuiltinProgram::new_mock());
     for address in [0x2u64, 0x8002u64, 0x80000002u64, 0x8000000000000002u64] {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
@@ -2319,7 +2319,7 @@ fn test_bpf_to_bpf_scratch_registers() {
         add64 r0, r7
         add64 r0, r8
         add64 r0, r9
-        exit
+        return
         function_foo:
         mov64 r6, 0x00
         mov64 r7, 0x00
@@ -2342,7 +2342,7 @@ fn test_syscall_parameter_on_stack() {
         mov64 r2, 0x1
         syscall bpf_syscall_string
         mov64 r0, 0x0
-        exit",
+        return",
         [],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2550,7 +2550,7 @@ fn test_syscall_string() {
         mov64 r2, 0x5
         syscall bpf_syscall_string
         mov64 r0, 0x0
-        exit",
+        return",
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2571,7 +2571,7 @@ fn test_syscall() {
         mov64 r5, 0xEE
         syscall bpf_syscall_u64
         mov64 r0, 0x0
-        exit",
+        return",
         [],
         (
             "bpf_syscall_u64" => syscalls::SyscallU64::vm,
@@ -2693,7 +2693,7 @@ fn test_tight_infinite_loop_conditional() {
     test_interpreter_and_jit_asm!(
         "
         jsge r0, r0, -1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(4),
@@ -2706,7 +2706,7 @@ fn test_tight_infinite_loop_unconditional() {
     test_interpreter_and_jit_asm!(
         "
         ja -1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(4),
@@ -2721,7 +2721,7 @@ fn test_tight_infinite_recursion() {
         entrypoint:
         mov64 r3, 0x41414141
         call entrypoint
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(4),
@@ -2737,7 +2737,7 @@ fn test_tight_infinite_recursion_callx() {
         lsh64 r8, 0x20
         or64 r8, 0x28
         call function_foo
-        exit
+        return
         function_foo:
         mov64 r3, 0x41414141
         callx r8

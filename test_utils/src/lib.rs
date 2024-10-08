@@ -38,7 +38,7 @@ pub const PROG_TCP_PORT_80: &str = "
     ldxh r1, [r1+0x0]
     jne r1, 0x5000, +0x1
     mov64 r0, 0x1
-    exit";
+    return";
 
 pub const TCP_SACK_ASM: &str = "
     ldxb r2, [r1+12]
@@ -84,7 +84,7 @@ pub const TCP_SACK_ASM: &str = "
     jsgt r2, r3, -18
     ja +1
     mov r0, 0x1
-    exit";
+    return";
 
 pub const TCP_SACK_BIN: [u8; 352] = [
     0x2c, 0x12, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, //
