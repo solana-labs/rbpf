@@ -11,6 +11,9 @@ LD_COMMON="$TOOLCHAIN/llvm/bin/ld.lld -z notext -shared --Bdynamic -entry entryp
 LD="$LD_COMMON --section-start=.text=0x100000000"
 LD_V1=$LD_COMMON
 
+$RC -o strict_header.o strict_header.rs
+$LD -o strict_header.so strict_header.o
+
 $RC_V1 -o relative_call.o relative_call.rs
 $LD_V1 -o relative_call_sbpfv1.so relative_call.o
 
