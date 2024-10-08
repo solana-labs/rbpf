@@ -145,7 +145,7 @@ fn bench_jit_vs_interpreter_address_translation(bencher: &mut Bencher) {
     mov r0, r1
     and r0, 0xFFFFFF
     jlt r0, 0x20000, -5
-    exit",
+    return",
         Config::default(),
         655361,
         &mut [0; 0x20000],
@@ -161,15 +161,15 @@ static ADDRESS_TRANSLATION_STACK_CODE: &str = "
     add r3, -1
     ldxb r4, [r3]
     add r2, 1
-    jlt r2, 0x10000, -8
-    exit";
+    jlt r2, 0x10000, -8";
 
 #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 #[bench]
 fn bench_jit_vs_interpreter_address_translation_stack_fixed(bencher: &mut Bencher) {
+    let asm = format!("{ADDRESS_TRANSLATION_STACK_CODE}\nexit");
     bench_jit_vs_interpreter(
         bencher,
-        ADDRESS_TRANSLATION_STACK_CODE,
+        asm.as_str(),
         Config {
             enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
             ..Config::default()
@@ -182,9 +182,10 @@ fn bench_jit_vs_interpreter_address_translation_stack_fixed(bencher: &mut Benche
 #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 #[bench]
 fn bench_jit_vs_interpreter_address_translation_stack_dynamic(bencher: &mut Bencher) {
+    let asm = format!("{ADDRESS_TRANSLATION_STACK_CODE}\nreturn");
     bench_jit_vs_interpreter(
         bencher,
-        ADDRESS_TRANSLATION_STACK_CODE,
+        asm.as_str(),
         Config {
             enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
             ..Config::default()
@@ -204,7 +205,7 @@ fn bench_jit_vs_interpreter_empty_for_loop(bencher: &mut Bencher) {
     and r1, 1023
     add r2, 1
     jlt r2, 0x10000, -4
-    exit",
+    return",
         Config::default(),
         262145,
         &mut [0; 0],
@@ -252,7 +253,7 @@ fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
     mov r1, 18
     call function_foo
     jlt r6, 1024, -4
-    exit
+    return
     function_foo:
     add r11, -4
     stw [r10-4], 0x11223344
@@ -262,7 +263,7 @@ fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
     add r1, -1
     call function_foo
     add r11, 4
-    exit",
+    return",
         Config {
             enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
             ..Config::default()
