@@ -1,5 +1,5 @@
 #![allow(clippy::arithmetic_side_effects)]
-//#![cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
+#![cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 // Copyright 2020 Solana Maintainers <maintainers@solana.com>
 //
 // Licensed under the Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0> or
@@ -196,7 +196,7 @@ fn test_mov32_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, 1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(2),
@@ -205,7 +205,7 @@ fn test_mov32_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov32 r0, -1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(2),
@@ -219,7 +219,7 @@ fn test_mov32_reg() {
         "
         mov32 r1, 1
         mov32 r0, r1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(3),
@@ -229,7 +229,7 @@ fn test_mov32_reg() {
         "
         mov32 r1, -1
         mov32 r0, r1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(3),
@@ -242,7 +242,7 @@ fn test_mov64_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r0, 1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(2),
@@ -251,7 +251,7 @@ fn test_mov64_imm() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r0, -1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(2),
@@ -265,7 +265,7 @@ fn test_mov64_reg() {
         "
         mov64 r1, 1
         mov64 r0, r1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(3),
@@ -275,7 +275,7 @@ fn test_mov64_reg() {
         "
         mov64 r1, -1
         mov64 r0, r1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(3),
@@ -422,7 +422,7 @@ fn test_lmul128() {
         rsh64 r4, 0x20
         or64 r0, r4
         stxdw [r1+0x0], r0
-        exit",
+        return",
         [0; 16],
         (),
         TestContextObject::new(42),
@@ -567,7 +567,7 @@ fn test_lsh64_reg() {
         mov r0, 0x1
         mov r7, 4
         lsh r0, r7
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(4),
@@ -582,7 +582,7 @@ fn test_rhs32_imm() {
         xor r0, r0
         add r0, -1
         rsh32 r0, 8
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(4),
@@ -597,7 +597,7 @@ fn test_rsh64_reg() {
         mov r0, 0x10
         mov r7, 4
         rsh r0, r7
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(4),
@@ -687,7 +687,7 @@ fn test_pqr() {
     prog[24] = ebpf::HOR64_IMM;
     prog[25] = 1; // dst = R1
     prog[33] = 16; // src = R1
-    prog[40] = ebpf::EXIT;
+    prog[40] = ebpf::RETURN;
     let loader = Arc::new(BuiltinProgram::new_mock());
     for (opc, dst, src, expected_result) in [
         (ebpf::UHMUL64_IMM, 13u64, 4u64, 0u64),
@@ -841,7 +841,7 @@ fn test_pqr() {
 fn test_err_divide_by_zero() {
     let mut prog = [0; 24];
     prog[0] = ebpf::MOV32_IMM;
-    prog[16] = ebpf::EXIT;
+    prog[16] = ebpf::RETURN;
     let loader = Arc::new(BuiltinProgram::new_mock());
     for opc in [
         ebpf::UDIV32_REG,
@@ -882,7 +882,7 @@ fn test_err_divide_overflow() {
     LittleEndian::write_i32(&mut prog[20..], -1);
     prog[25] = 16; // src = R1
     LittleEndian::write_i32(&mut prog[28..], -1);
-    prog[32] = ebpf::EXIT;
+    prog[32] = ebpf::RETURN;
     let loader = Arc::new(BuiltinProgram::new_mock());
     for opc in [
         ebpf::SDIV32_IMM,
@@ -1436,54 +1436,100 @@ fn test_stxb_chain() {
 
 #[test]
 fn test_exit_capped() {
-    test_interpreter_and_jit_asm!(
-        "
-        exit",
-        [],
-        (),
-        TestContextObject::new(0),
-        ProgramResult::Err(EbpfError::ExceededMaxInstructions),
-    );
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let asm = if sbpf_version == SBPFVersion::V1 {
+            "exit"
+        } else {
+            "return"
+        };
+        let config = Config {
+            enabled_sbpf_versions: SBPFVersion::V1..=sbpf_version,
+            ..Config::default()
+        };
+        test_interpreter_and_jit_asm!(
+            asm,
+            config,
+            [],
+            (),
+            TestContextObject::new(0),
+            ProgramResult::Err(EbpfError::ExceededMaxInstructions),
+        );
+    }
 }
 
 #[test]
 fn test_exit_without_value() {
-    test_interpreter_and_jit_asm!(
-        "
-        exit",
-        [],
-        (),
-        TestContextObject::new(1),
-        ProgramResult::Ok(0x0),
-    );
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let asm = if sbpf_version == SBPFVersion::V1 {
+            "exit"
+        } else {
+            "return"
+        };
+        let config = Config {
+            enabled_sbpf_versions: SBPFVersion::V1..=sbpf_version,
+            ..Config::default()
+        };
+        test_interpreter_and_jit_asm!(
+            asm,
+            config,
+            [],
+            (),
+            TestContextObject::new(1),
+            ProgramResult::Ok(0x0),
+        );
+    }
 }
 
 #[test]
 fn test_exit() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0
-        exit",
-        [],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Ok(0x0),
-    );
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let final_instr = if sbpf_version == SBPFVersion::V1 {
+            "exit"
+        } else {
+            "return"
+        };
+        let asm = format!("mov r0, 0\n{final_instr}\n");
+        let asm_str = asm.as_str();
+
+        let config = Config {
+            enabled_sbpf_versions: SBPFVersion::V1..=sbpf_version,
+            ..Config::default()
+        };
+        test_interpreter_and_jit_asm!(
+            asm_str,
+            config,
+            [],
+            (),
+            TestContextObject::new(2),
+            ProgramResult::Ok(0x0),
+        );
+    }
 }
 
 #[test]
 fn test_early_exit() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 3
-        exit
-        mov r0, 4
-        exit",
-        [],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Ok(0x3),
-    );
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let final_instr = if sbpf_version == SBPFVersion::V1 {
+            "exit"
+        } else {
+            "return"
+        };
+        let asm = format!("mov r0, 3\n{final_instr}\nmov r0, 4\n{final_instr}\n");
+        let asm_str = asm.as_str();
+
+        let config = Config {
+            enabled_sbpf_versions: SBPFVersion::V1..=sbpf_version,
+            ..Config::default()
+        };
+        test_interpreter_and_jit_asm!(
+            asm_str,
+            config,
+            [],
+            (),
+            TestContextObject::new(2),
+            ProgramResult::Ok(0x3),
+        );
+    }
 }
 
 #[test]
@@ -1984,7 +2030,7 @@ fn test_stack2() {
         ldxb r5, [r10-1]
         syscall bpf_gather_bytes
         xor r0, 0x2a2a2a2a
-        exit",
+        return",
         [],
         (
             "bpf_mem_frob" => syscalls::SyscallMemFrob::vm,
@@ -2026,7 +2072,7 @@ fn test_string_stack() {
         mov r0, 0x1
         jeq r1, r6, +1
         mov r0, 0x0
-        exit",
+        return",
         [],
         (
             "bpf_str_cmp" => syscalls::SyscallStrCmp::vm,
@@ -2185,17 +2231,28 @@ fn test_entrypoint_exit() {
             ..Config::default()
         };
 
-        // This checks that when foo exits we don't stop execution even if the
-        // stack is empty (stack size and call depth are decoupled)
-        test_interpreter_and_jit_asm!(
+        let final_instr = if highest_sbpf_version == SBPFVersion::V1 {
+            "exit"
+        } else {
+            "return"
+        };
+
+        let asm = format!(
             "
             entrypoint:
             call function_foo
             mov r0, 42
-            exit
+            {final_instr}
             function_foo:
             mov r0, 12
-            exit",
+            {final_instr}"
+        );
+        let asm_str = asm.as_str();
+
+        // This checks that when foo exits we don't stop execution even if the
+        // stack is empty (stack size and call depth are decoupled)
+        test_interpreter_and_jit_asm!(
+            asm_str,
             config,
             [],
             (),
@@ -2214,18 +2271,31 @@ fn test_stack_call_depth_tracking() {
             ..Config::default()
         };
 
+        let final_instr = if highest_sbpf_version == SBPFVersion::V1 {
+            "exit"
+        } else {
+            "return"
+        };
+
         // Given max_call_depth=2, make sure that two sibling calls don't
         // trigger CallDepthExceeded. In other words ensure that we correctly
         // pop frames in the interpreter and decrement
         // EnvironmentStackSlotDepth on ebpf::EXIT in the jit.
-        test_interpreter_and_jit_asm!(
+
+        let asm = format!(
             "
             call function_foo
             call function_foo
-            exit
+            {final_instr}
             function_foo:
-            exit
-            ",
+            {final_instr}
+            "
+        );
+
+        let asm_str = asm.as_str();
+
+        test_interpreter_and_jit_asm!(
+            asm_str,
             config.clone(),
             [],
             (),
@@ -2234,17 +2304,23 @@ fn test_stack_call_depth_tracking() {
         );
 
         // two nested calls should trigger CallDepthExceeded instead
-        test_interpreter_and_jit_asm!(
+
+        let asm = format!(
             "
             entrypoint:
             call function_foo
-            exit
+            {final_instr}
             function_foo:
             call function_bar
-            exit
+            {final_instr}
             function_bar:
-            exit
-            ",
+            {final_instr}
+            "
+        );
+
+        let asm_str = asm.as_str();
+        test_interpreter_and_jit_asm!(
+            asm_str,
             config,
             [],
             (),
@@ -2381,9 +2457,9 @@ fn test_err_callx_unregistered() {
         lsh64 r8, 0x20
         or64 r8, 0x30
         callx r8
-        exit
+        return
         mov64 r0, 0x2A
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(6),
@@ -2397,7 +2473,7 @@ fn test_err_callx_oob_low() {
         "
         mov64 r0, 0x3
         callx r0
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(2),
@@ -2413,7 +2489,7 @@ fn test_err_callx_oob_high() {
         lsh64 r0, 0x20
         or64 r0, 0x3
         callx r0
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(4),
@@ -2444,7 +2520,7 @@ fn test_bpf_to_bpf_depth() {
             ldxb r1, [r1]
             add64 r1, -2
             call function_foo
-            exit
+            return
             function_foo:
             jeq r1, 0, +2
             add64 r1, -1
@@ -2462,7 +2538,7 @@ fn test_bpf_to_bpf_depth() {
             ldxb r1, [r1]
             add64 r1, -2
             call function_foo
-            exit
+            return
             function_foo:
             jeq r1, 0, +2
             add64 r1, -1
@@ -2660,7 +2736,7 @@ declare_builtin_function!(
                 ldxb r2, [r1+1]
                 ldxb r1, [r1]
                 syscall nested_vm_syscall
-                exit",
+                return",
                 Arc::new(loader),
             )
             .unwrap();
@@ -2756,7 +2832,7 @@ fn test_instruction_count_syscall() {
         mov64 r2, 0x5
         syscall bpf_syscall_string
         mov64 r0, 0x0
-        exit",
+        return",
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2773,7 +2849,7 @@ fn test_err_instruction_count_syscall_capped() {
         mov64 r2, 0x5
         syscall bpf_syscall_string
         mov64 r0, 0x0
-        exit",
+        return",
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2856,7 +2932,7 @@ fn test_err_capped_before_exception() {
         add64 r0, 0x0
         udiv64 r1, r2
         add64 r0, 0x0
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(4),
@@ -2871,7 +2947,7 @@ fn test_err_capped_before_exception() {
         add64 r0, 0x0
         callx r2
         add64 r0, 0x0
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(4),
@@ -2887,9 +2963,9 @@ fn test_err_exit_capped() {
         lsh64 r1, 0x20
         or64 r1, 0x28
         callx r1
-        exit
+        return
         function_foo:
-        exit
+        return
         ",
         [],
         (),
@@ -2902,10 +2978,10 @@ fn test_err_exit_capped() {
         lsh64 r1, 0x20
         or64 r1, 0x28
         callx r1
-        exit
+        return
         function_foo:
         mov r0, r0
-        exit
+        return
         ",
         [],
         (),
@@ -2915,9 +2991,9 @@ fn test_err_exit_capped() {
     test_interpreter_and_jit_asm!(
         "
         call 1
-        exit
+        return
         mov r0, r0
-        exit
+        return
         ",
         [],
         (),
@@ -2931,17 +3007,17 @@ fn test_far_jumps() {
     test_interpreter_and_jit_asm!(
         "
         call function_c
-        exit
+        return
         function_a:
-        exit
+        return
         function_b:
         .fill 1024, 0x0F
-        exit
+        return
         function_c:
         mov32 r1, 0x00000010
         hor64 r1, 0x00000001
         callx r1
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(7),
@@ -2960,7 +3036,7 @@ fn test_symbol_relocation() {
         mov64 r2, 0x1
         syscall bpf_syscall_string
         mov64 r0, 0x0
-        exit",
+        return",
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -3149,7 +3225,7 @@ fn test_lmul_loop() {
         lmul r0, 0x7
         add r1, -1
         jne r1, 0x0, -3
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(37),
@@ -3176,7 +3252,7 @@ fn test_prime() {
         sub r4, r3
         mov r0, 0x0
         jne r4, 0x0, -10
-        exit",
+        return",
         [],
         (),
         TestContextObject::new(655),
@@ -3201,7 +3277,7 @@ fn test_subnet() {
         and r1, 0xffffff
         jeq r1, 0x1a8c0, +1
         mov r0, 0x0
-        exit",
+        return",
         [
             0x00, 0x00, 0xc0, 0x9f, 0xa0, 0x97, 0x00, 0xa0, //
             0xcc, 0x3b, 0xbf, 0xfa, 0x08, 0x00, 0x45, 0x10, //
@@ -4045,4 +4121,32 @@ fn test_mod() {
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::DivideByZero),
     );
+}
+
+#[test]
+fn test_invalid_exit_or_return() {
+    for sbf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let final_instr = if sbf_version == SBPFVersion::V1 {
+            "return"
+        } else {
+            "exit"
+        };
+
+        let config = Config {
+            enabled_sbpf_versions: sbf_version..=sbf_version,
+            enable_instruction_tracing: true,
+            ..Config::default()
+        };
+        let function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+        let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
+        let mut executable = assemble(final_instr, loader).unwrap();
+
+        test_interpreter_and_jit!(
+            false,
+            executable,
+            [],
+            TestContextObject::new(1),
+            ProgramResult::Err(EbpfError::UnsupportedInstruction),
+        );
+    }
 }
