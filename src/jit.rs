@@ -745,7 +745,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     };
                     self.emit_internal_call(Value::Register(target_pc));
                 },
-                ebpf::EXIT      => {
+                ebpf::RETURN
+                | ebpf::EXIT      => {
                     self.emit_validate_instruction_count(true, Some(self.pc));
 
                     let call_depth_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::CallDepth));

@@ -7,6 +7,7 @@
 // copied, modified, or distributed except according to those terms.
 
 extern crate solana_rbpf;
+use solana_rbpf::program::SBPFVersion;
 use solana_rbpf::{
     assembler::assemble,
     program::{BuiltinProgram, FunctionRegistry},
@@ -18,14 +19,15 @@ use std::sync::Arc;
 // Using a macro to keep actual line numbers in failure output
 macro_rules! disasm {
     ($src:expr) => {{
+        let config = Config {
+            enable_symbol_and_section_labels: true,
+            ..Config::default()
+        };
+        disasm!($src, config);
+    }};
+    ($src:expr, $config:expr) => {{
         let src = $src;
-        let loader = BuiltinProgram::new_loader(
-            Config {
-                enable_symbol_and_section_labels: true,
-                ..Config::default()
-            },
-            FunctionRegistry::default(),
-        );
+        let loader = BuiltinProgram::new_loader($config, FunctionRegistry::default());
         let executable = assemble::<TestContextObject>(src, Arc::new(loader)).unwrap();
         let analysis = Analysis::from_executable(&executable).unwrap();
         let mut reasm = Vec::new();
@@ -42,7 +44,20 @@ fn test_empty() {
 // Example for InstructionType::NoOperand.
 #[test]
 fn test_exit() {
-    disasm!("entrypoint:\n    exit\n");
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
+    disasm!("entrypoint:\n    exit\n", config);
+}
+
+#[test]
+fn test_return() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        ..Config::default()
+    };
+    disasm!("entrypoint:\n    return\n", config);
 }
 
 // Example for InstructionType::AluBinary.
@@ -80,7 +95,7 @@ fn test_ja() {
         "entrypoint:
     ja lbb_1
 lbb_1:
-    exit
+    return
 "
     );
 }
@@ -92,14 +107,14 @@ fn test_jeq() {
         "entrypoint:
     jeq r1, 4, lbb_1
 lbb_1:
-    exit
+    return
 "
     );
     disasm!(
         "entrypoint:
     jeq r1, r3, lbb_1
 lbb_1:
-    exit
+    return
 "
     );
 }
@@ -112,7 +127,7 @@ fn test_call() {
     call function_1
 
 function_1:
-    exit
+    return
 "
     );
 }
@@ -301,7 +316,7 @@ fn test_jump_conditional() {
     jslt r1, r2, lbb_11
     jsle r1, r2, lbb_11
 lbb_11:
-    exit
+    return
 "
     );
 
@@ -319,7 +334,7 @@ lbb_11:
     jslt r1, 2, lbb_11
     jsle r1, 2, lbb_11
 lbb_11:
-    exit
+    return
 "
     );
 }

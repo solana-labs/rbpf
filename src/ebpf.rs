@@ -480,8 +480,10 @@ pub const JSLE_REG: u8 = BPF_JMP | BPF_X | BPF_JSLE;
 pub const CALL_IMM: u8 = BPF_JMP | BPF_CALL;
 /// BPF opcode: tail call.
 pub const CALL_REG: u8 = BPF_JMP | BPF_X | BPF_CALL;
-/// BPF opcode: `exit` /// `return r0`.
+/// BPF opcode: `exit` /// `return r0`. /// Valid only for SBPFv1
 pub const EXIT: u8 = BPF_JMP | BPF_EXIT;
+/// BPF opcode: `return` /// `return r0`. /// Valid only for SBPFv2
+pub const RETURN: u8 = BPF_JMP | BPF_X | BPF_EXIT;
 
 // Used in JIT
 /// Mask to extract the operation class from an operation code.

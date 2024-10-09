@@ -565,8 +565,8 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                     throw_error!(self, EbpfError::UnsupportedInstruction);
                 }
             }
-
-            ebpf::EXIT       => {
+            ebpf::RETURN
+            | ebpf::EXIT       => {
                 if self.vm.call_depth == 0 {
                     if config.enable_instruction_meter && self.vm.due_insn_count > self.vm.previous_instruction_meter {
                         throw_error!(self, EbpfError::ExceededMaxInstructions);

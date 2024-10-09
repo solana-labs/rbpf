@@ -8,12 +8,19 @@
 extern crate solana_rbpf;
 extern crate test_utils;
 
+use solana_rbpf::program::{FunctionRegistry, SBPFVersion};
+use solana_rbpf::vm::Config;
 use solana_rbpf::{assembler::assemble, ebpf, program::BuiltinProgram, vm::TestContextObject};
 use std::sync::Arc;
 use test_utils::{TCP_SACK_ASM, TCP_SACK_BIN};
 
 fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
-    let executable = assemble::<TestContextObject>(src, Arc::new(BuiltinProgram::new_mock()))?;
+    asm_with_config(src, Config::default())
+}
+
+fn asm_with_config(src: &str, config: Config) -> Result<Vec<ebpf::Insn>, String> {
+    let loader = BuiltinProgram::new_loader(config, FunctionRegistry::default());
+    let executable = assemble::<TestContextObject>(src, Arc::new(loader))?;
     let (_program_vm_addr, program) = executable.get_text_bytes();
     Ok((0..program.len() / ebpf::INSN_SIZE)
         .map(|insn_ptr| ebpf::get_insn(program, insn_ptr))
@@ -50,7 +57,34 @@ fn test_fill() {
 // Example for InstructionType::NoOperand.
 #[test]
 fn test_exit() {
-    assert_eq!(asm("exit"), Ok(vec![insn(0, ebpf::EXIT, 0, 0, 0, 0)]));
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
+    assert_eq!(
+        asm_with_config("exit", config.clone()),
+        Ok(vec![insn(0, ebpf::EXIT, 0, 0, 0, 0)])
+    );
+    assert_eq!(
+        asm_with_config("return", config),
+        Ok(vec![insn(0, ebpf::EXIT, 0, 0, 0, 0)])
+    );
+}
+
+#[test]
+fn test_return() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        ..Config::default()
+    };
+    assert_eq!(
+        asm_with_config("exit", config.clone()),
+        Ok(vec![insn(0, ebpf::RETURN, 0, 0, 0, 0)])
+    );
+    assert_eq!(
+        asm_with_config("return", config),
+        Ok(vec![insn(0, ebpf::RETURN, 0, 0, 0, 0)])
+    );
 }
 
 // Example for InstructionType::AluBinary.
@@ -471,8 +505,18 @@ fn test_large_immediate() {
 
 #[test]
 fn test_tcp_sack() {
-    let executable =
-        assemble::<TestContextObject>(TCP_SACK_ASM, Arc::new(BuiltinProgram::new_mock())).unwrap();
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        ..Config::default()
+    };
+    let executable = assemble::<TestContextObject>(
+        TCP_SACK_ASM,
+        Arc::new(BuiltinProgram::new_loader(
+            config,
+            FunctionRegistry::default(),
+        )),
+    )
+    .unwrap();
     let (_program_vm_addr, program) = executable.get_text_bytes();
     assert_eq!(program, TCP_SACK_BIN.to_vec());
 }

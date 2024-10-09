@@ -112,8 +112,15 @@ fn make_instruction_map(sbpf_version: SBPFVersion) -> HashMap<String, (Instructi
             result.insert(name.to_string(), (inst_type, opc))
         };
 
+        if sbpf_version == SBPFVersion::V1 {
+            entry("exit", NoOperand, ebpf::EXIT);
+            entry("return", NoOperand, ebpf::EXIT);
+        } else {
+            entry("exit", NoOperand, ebpf::RETURN);
+            entry("return", NoOperand, ebpf::RETURN);
+        }
+
         // Miscellaneous.
-        entry("exit", NoOperand, ebpf::EXIT);
         entry("ja", JumpUnconditional, ebpf::JA);
         entry("syscall", Syscall, ebpf::CALL_IMM);
         entry("call", CallImm, ebpf::CALL_IMM);
@@ -296,7 +303,7 @@ fn resolve_label(
 /// #              0xbf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 /// #              0xdc, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
 /// #              0x87, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-/// #              0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+/// #              0x9d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 /// ```
 ///
 /// This will produce the following output:

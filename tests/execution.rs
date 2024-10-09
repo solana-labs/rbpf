@@ -687,7 +687,7 @@ fn test_pqr() {
     prog[24] = ebpf::HOR64_IMM;
     prog[25] = 1; // dst = R1
     prog[33] = 16; // src = R1
-    prog[40] = ebpf::EXIT;
+    prog[40] = ebpf::RETURN;
     let loader = Arc::new(BuiltinProgram::new_mock());
     for (opc, dst, src, expected_result) in [
         (ebpf::UHMUL64_IMM, 13u64, 4u64, 0u64),
@@ -841,7 +841,7 @@ fn test_pqr() {
 fn test_err_divide_by_zero() {
     let mut prog = [0; 24];
     prog[0] = ebpf::MOV32_IMM;
-    prog[16] = ebpf::EXIT;
+    prog[16] = ebpf::RETURN;
     let loader = Arc::new(BuiltinProgram::new_mock());
     for opc in [
         ebpf::UDIV32_REG,
@@ -882,7 +882,7 @@ fn test_err_divide_overflow() {
     LittleEndian::write_i32(&mut prog[20..], -1);
     prog[25] = 16; // src = R1
     LittleEndian::write_i32(&mut prog[28..], -1);
-    prog[32] = ebpf::EXIT;
+    prog[32] = ebpf::RETURN;
     let loader = Arc::new(BuiltinProgram::new_mock());
     for opc in [
         ebpf::SDIV32_IMM,
@@ -2261,7 +2261,7 @@ fn test_err_mem_access_out_of_bound() {
     prog[0] = ebpf::MOV32_IMM;
     prog[8] = ebpf::HOR64_IMM;
     prog[16] = ebpf::ST_1B_IMM;
-    prog[24] = ebpf::EXIT;
+    prog[24] = ebpf::RETURN;
     let loader = Arc::new(BuiltinProgram::new_mock());
     for address in [0x2u64, 0x8002u64, 0x80000002u64, 0x8000000000000002u64] {
         LittleEndian::write_u32(&mut prog[4..], address as u32);
