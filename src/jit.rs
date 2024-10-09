@@ -1736,7 +1736,7 @@ mod tests {
     }
 
     fn create_mockup_executable(config: Config, program: &[u8]) -> Executable<TestContextObject> {
-        let sbpf_version = config.enabled_sbpf_versions.end().clone();
+        let sbpf_version = *config.enabled_sbpf_versions.end();
         let mut function_registry =
             FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry
@@ -1769,7 +1769,7 @@ mod tests {
             let empty_program_machine_code_length = {
                 let config = Config {
                     noop_instruction_rate: 0,
-                    enabled_sbpf_versions: sbpf_version.clone()..=sbpf_version.clone(),
+                    enabled_sbpf_versions: sbpf_version..=sbpf_version,
                     ..Config::default()
                 };
                 let mut executable = create_mockup_executable(config, &prog[0..0]);
@@ -1780,7 +1780,7 @@ mod tests {
                     .machine_code_length()
             };
             assert!(empty_program_machine_code_length <= MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH);
-            empty_program_machine_code_length_per_version[sbpf_version.clone() as usize] =
+            empty_program_machine_code_length_per_version[sbpf_version as usize] =
                 empty_program_machine_code_length;
         }
 
@@ -1814,7 +1814,7 @@ mod tests {
 
         for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
             let empty_program_machine_code_length =
-                empty_program_machine_code_length_per_version[sbpf_version.clone() as usize];
+                empty_program_machine_code_length_per_version[sbpf_version as usize];
 
             for mut opcode in 0x00..=0xFF {
                 let (registers, immediate) = match opcode {
@@ -1841,7 +1841,7 @@ mod tests {
                 }
                 let config = Config {
                     noop_instruction_rate: 0,
-                    enabled_sbpf_versions: sbpf_version.clone()..=sbpf_version.clone(),
+                    enabled_sbpf_versions: sbpf_version..=sbpf_version,
                     ..Config::default()
                 };
                 let mut executable = create_mockup_executable(config, &prog);

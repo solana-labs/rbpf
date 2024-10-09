@@ -919,7 +919,7 @@ fn test_err_divide_overflow() {
 fn test_memory_instructions() {
     for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
         let config = Config {
-            enabled_sbpf_versions: sbpf_version.clone()..=sbpf_version,
+            enabled_sbpf_versions: sbpf_version..=sbpf_version,
             ..Config::default()
         };
 

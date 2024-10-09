@@ -47,7 +47,7 @@ enum InstructionType {
     NoOperand,
 }
 
-fn make_instruction_map(sbpf_version: &SBPFVersion) -> HashMap<String, (InstructionType, u8)> {
+fn make_instruction_map(sbpf_version: SBPFVersion) -> HashMap<String, (InstructionType, u8)> {
     let mut result = HashMap::new();
 
     let alu_binary_ops = [
@@ -313,10 +313,10 @@ pub fn assemble<C: ContextObject>(
     src: &str,
     loader: Arc<BuiltinProgram<C>>,
 ) -> Result<Executable<C>, String> {
-    let sbpf_version = loader.get_config().enabled_sbpf_versions.end().clone();
+    let sbpf_version = *loader.get_config().enabled_sbpf_versions.end();
 
     let statements = parse(src)?;
-    let instruction_map = make_instruction_map(&sbpf_version);
+    let instruction_map = make_instruction_map(sbpf_version);
     let mut insn_ptr = 0;
     let mut function_registry = FunctionRegistry::default();
     let mut labels = HashMap::new();

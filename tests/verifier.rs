@@ -409,7 +409,7 @@ fn test_sdiv_disabled() {
                 &assembly,
                 Arc::new(BuiltinProgram::new_loader(
                     Config {
-                        enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version.clone(),
+                        enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version,
                         ..Config::default()
                     },
                     FunctionRegistry::default(),
