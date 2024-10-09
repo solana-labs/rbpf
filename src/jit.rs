@@ -747,6 +747,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 },
                 ebpf::RETURN
                 | ebpf::EXIT      => {
+                    if (insn.opc == ebpf::EXIT && self.executable.get_sbpf_version().static_syscalls())
+                        || (insn.opc == ebpf::RETURN && !self.executable.get_sbpf_version().static_syscalls()) {
+                        return Err(EbpfError::UnsupportedInstruction);
+                    }
                     self.emit_validate_instruction_count(true, Some(self.pc));
 
                     let call_depth_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::CallDepth));

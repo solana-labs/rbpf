@@ -425,3 +425,64 @@ fn test_sdiv_disabled() {
         }
     }
 }
+
+#[test]
+fn return_instr() {
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let prog = &[
+            0xbf, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov64 r0, 2
+            0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+            0x9d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // return
+        ];
+
+        let executable = Executable::<TestContextObject>::from_text_bytes(
+            prog,
+            Arc::new(BuiltinProgram::new_mock()),
+            sbpf_version,
+            FunctionRegistry::default(),
+        )
+        .unwrap();
+        let result = executable.verify::<RequisiteVerifier>();
+        if sbpf_version == SBPFVersion::V2 {
+            assert_error!(result, "VerifierError(UnknownOpCode(149, 1))");
+        } else {
+            assert_error!(result, "VerifierError(UnknownOpCode(157, 2))");
+        }
+    }
+}
+
+#[test]
+fn return_in_v2() {
+    let executable = assemble::<TestContextObject>(
+        "mov r0, 2
+                 return",
+        Arc::new(BuiltinProgram::new_loader(
+            Config {
+                enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+                ..Config::default()
+            },
+            FunctionRegistry::default(),
+        )),
+    )
+    .unwrap();
+    let result = executable.verify::<RequisiteVerifier>();
+    assert!(result.is_ok());
+}
+
+#[test]
+fn function_without_return() {
+    let executable = assemble::<TestContextObject>(
+        "mov r0, 2
+                add64 r0, 5",
+        Arc::new(BuiltinProgram::new_loader(
+            Config {
+                enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+                ..Config::default()
+            },
+            FunctionRegistry::default(),
+        )),
+    )
+    .unwrap();
+    let result = executable.verify::<RequisiteVerifier>();
+    assert_error!(result, "VerifierError(InvalidFunction(1))");
+}

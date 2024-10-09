@@ -95,8 +95,8 @@ macro_rules! test_interpreter_and_jit {
                 None
             );
             match compilation_result {
-                Err(err) => assert_eq!(
-                    format!("{:?}", err),
+                Err(_) => assert_eq!(
+                    format!("{:?}", compilation_result),
                     expected_result,
                     "Unexpected result for JIT compilation"
                 ),
@@ -1436,54 +1436,86 @@ fn test_stxb_chain() {
 
 #[test]
 fn test_exit_capped() {
-    test_interpreter_and_jit_asm!(
-        "
-        exit",
-        [],
-        (),
-        TestContextObject::new(0),
-        ProgramResult::Err(EbpfError::ExceededMaxInstructions),
-    );
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let config = Config {
+            enabled_sbpf_versions: sbpf_version..=sbpf_version,
+            ..Config::default()
+        };
+
+        test_interpreter_and_jit_asm!(
+            "
+            exit",
+            config,
+            [],
+            (),
+            TestContextObject::new(0),
+            ProgramResult::Err(EbpfError::ExceededMaxInstructions),
+        );
+    }
 }
 
 #[test]
 fn test_exit_without_value() {
-    test_interpreter_and_jit_asm!(
-        "
-        exit",
-        [],
-        (),
-        TestContextObject::new(1),
-        ProgramResult::Ok(0x0),
-    );
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let config = Config {
+            enabled_sbpf_versions: sbpf_version..=sbpf_version,
+            ..Config::default()
+        };
+
+        test_interpreter_and_jit_asm!(
+            "
+            exit",
+            config,
+            [],
+            (),
+            TestContextObject::new(1),
+            ProgramResult::Ok(0x0),
+        );
+    }
 }
 
 #[test]
 fn test_exit() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 0
-        exit",
-        [],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Ok(0x0),
-    );
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let config = Config {
+            enabled_sbpf_versions: sbpf_version..=sbpf_version,
+            ..Config::default()
+        };
+
+        test_interpreter_and_jit_asm!(
+            "
+            mov r0, 0
+            exit",
+            config,
+            [],
+            (),
+            TestContextObject::new(2),
+            ProgramResult::Ok(0x0),
+        );
+    }
 }
 
 #[test]
 fn test_early_exit() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov r0, 3
-        exit
-        mov r0, 4
-        exit",
-        [],
-        (),
-        TestContextObject::new(2),
-        ProgramResult::Ok(0x3),
-    );
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let config = Config {
+            enabled_sbpf_versions: sbpf_version..=sbpf_version,
+            ..Config::default()
+        };
+
+        test_interpreter_and_jit_asm!(
+            "
+            mov r0, 3
+            exit
+            mov r0, 4
+            exit",
+            config,
+            [],
+            (),
+            TestContextObject::new(2),
+            ProgramResult::Ok(0x3),
+        );
+    }
 }
 
 #[test]
@@ -4045,4 +4077,43 @@ fn test_mod() {
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::DivideByZero),
     );
+}
+
+#[test]
+fn test_invalid_exit_or_return() {
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let inst = if sbpf_version == SBPFVersion::V1 {
+            0x9d
+        } else {
+            0x95
+        };
+
+        let prog = &[
+            0xbf, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov64 r0, 2
+            inst, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit/return
+        ];
+
+        let config = Config {
+            enabled_sbpf_versions: sbpf_version..=sbpf_version,
+            enable_instruction_tracing: true,
+            ..Config::default()
+        };
+        let function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+        let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
+        let mut executable = Executable::<TestContextObject>::from_text_bytes(
+            prog,
+            loader,
+            sbpf_version,
+            FunctionRegistry::default(),
+        )
+        .unwrap();
+
+        test_interpreter_and_jit!(
+            false,
+            executable,
+            [],
+            TestContextObject::new(2),
+            ProgramResult::Err(EbpfError::UnsupportedInstruction),
+        );
+    }
 }
