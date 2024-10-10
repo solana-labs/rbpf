@@ -526,7 +526,8 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
 
             // Do not delegate the check to the verifier, since self.registered functions can be
             // changed after the program has been verified.
-            ebpf::CALL_IMM   => {
+            ebpf::CALL_IMM
+            | ebpf::SYSCALL if insn.opc == ebpf::CALL_IMM || self.executable.get_sbpf_version().static_syscalls() => {
                 let mut resolved = false;
                 let (external, internal) = if self.executable.get_sbpf_version().static_syscalls() {
                     (insn.src == 0, insn.src != 0)

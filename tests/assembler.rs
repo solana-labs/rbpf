@@ -72,6 +72,19 @@ fn test_exit() {
 }
 
 #[test]
+fn test_static_syscall() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        ..Config::default()
+    };
+
+    assert_eq!(
+        asm_with_config("syscall 3", config),
+        Ok(vec![insn(0, ebpf::SYSCALL, 0, 0, 0, 3)])
+    );
+}
+
+#[test]
 fn test_return() {
     let config = Config {
         enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,

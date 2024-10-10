@@ -265,14 +265,7 @@ pub fn disassemble_instruction<C: ContextObject>(
         ebpf::JSLE_IMM   => { name = "jsle"; desc = jmp_imm_str(name, insn, cfg_nodes); },
         ebpf::JSLE_REG   => { name = "jsle"; desc = jmp_reg_str(name, insn, cfg_nodes); },
         ebpf::CALL_IMM   => {
-            let mut function_name = None;
-            if sbpf_version.static_syscalls() {
-                if insn.src != 0 {
-                    function_name = Some(resolve_label(cfg_nodes, insn.imm as usize).to_string());
-                }
-            } else {
-                function_name = function_registry.lookup_by_key(insn.imm as u32).map(|(function_name, _)| String::from_utf8_lossy(function_name).to_string());
-            }
+            let function_name = function_registry.lookup_by_key(insn.imm as u32).map(|(function_name, _)| String::from_utf8_lossy(function_name).to_string());
             let function_name = if let Some(function_name) = function_name {
                 name = "call";
                 function_name
@@ -284,9 +277,9 @@ pub fn disassemble_instruction<C: ContextObject>(
         },
         ebpf::CALL_REG   => { name = "callx"; desc = format!("{} r{}", name, if sbpf_version.callx_uses_src_reg() { insn.src } else { insn.imm as u8 }); },
         ebpf::EXIT
-        | ebpf::RETURN   if !sbpf_version.static_syscalls() => { name = "exit"; desc = name.to_string(); },
-        ebpf::EXIT
-        | ebpf::RETURN   if sbpf_version.static_syscalls() =>  { name = "return"; desc = name.to_string(); },
+        | ebpf::RETURN if !sbpf_version.static_syscalls() => { name = "exit"; desc = name.to_string(); },
+        ebpf::RETURN   if sbpf_version.static_syscalls() =>  { name = "return"; desc = name.to_string(); },
+        ebpf::SYSCALL  if sbpf_version.static_syscalls() =>  { desc = format!("syscall {}", insn.imm); },
 
         _                => { name = "unknown"; desc = format!("{} opcode={:#x}", name, insn.opc); },
     };

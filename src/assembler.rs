@@ -122,7 +122,11 @@ fn make_instruction_map(sbpf_version: SBPFVersion) -> HashMap<String, (Instructi
 
         // Miscellaneous.
         entry("ja", JumpUnconditional, ebpf::JA);
-        entry("syscall", Syscall, ebpf::CALL_IMM);
+        if sbpf_version == SBPFVersion::V1 {
+            entry("syscall", Syscall, ebpf::CALL_IMM);
+        } else {
+            entry("syscall", Syscall, ebpf::SYSCALL);
+        }
         entry("call", CallImm, ebpf::CALL_IMM);
         entry("callx", CallReg, ebpf::CALL_REG);
         entry("lddw", LoadDwImm, ebpf::LD_DW_IMM);
@@ -450,6 +454,7 @@ pub fn assemble<C: ContextObject>(
                                 0,
                                 ebpf::hash_symbol_name(label.as_bytes()) as i32 as i64,
                             ),
+                            (Syscall, [Integer(imm)]) => insn(opc, 0, 0, 0, *imm),
                             (CallImm, [Label(label)]) => {
                                 let label: &str = label;
                                 let target_pc = *labels
