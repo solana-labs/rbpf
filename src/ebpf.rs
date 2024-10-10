@@ -195,8 +195,8 @@ pub const BPF_JSGT: u8 = 0x60;
 pub const BPF_JSGE: u8 = 0x70;
 /// BPF JMP operation code: syscall function call.
 pub const BPF_CALL: u8 = 0x80;
-/// BPF JMP operation code: return from program.
-pub const BPF_EXIT: u8 = 0x90;
+/// BPF JMP operation code: return from program (V1) or syscall (V2).
+pub const BPF_EXIT_SYSCALL: u8 = 0x90;
 /// BPF JMP operation code: jump if lower than.
 pub const BPF_JLT: u8 = 0xa0;
 /// BPF JMP operation code: jump if lower or equal.
@@ -481,9 +481,11 @@ pub const CALL_IMM: u8 = BPF_JMP | BPF_CALL;
 /// BPF opcode: tail call.
 pub const CALL_REG: u8 = BPF_JMP | BPF_X | BPF_CALL;
 /// BPF opcode: `exit` /// `return r0`. /// Valid only for SBPFv1
-pub const EXIT: u8 = BPF_JMP | BPF_EXIT;
+pub const EXIT: u8 = BPF_JMP | BPF_EXIT_SYSCALL;
 /// BPF opcode: `return` /// `return r0`. /// Valid only for SBPFv2
-pub const RETURN: u8 = BPF_JMP | BPF_X | BPF_EXIT;
+pub const RETURN: u8 = BPF_JMP | BPF_X | BPF_EXIT_SYSCALL;
+/// BPF opcode: `syscall` /// `syscall imm`. /// Valid only for SBPFv2
+pub const SYSCALL: u8 = BPF_JMP | BPF_EXIT_SYSCALL;
 
 // Used in JIT
 /// Mask to extract the operation class from an operation code.

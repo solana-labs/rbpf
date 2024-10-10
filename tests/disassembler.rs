@@ -60,6 +60,15 @@ fn test_return() {
     disasm!("entrypoint:\n    return\n", config);
 }
 
+#[test]
+fn test_static_syscall() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        ..Config::default()
+    };
+    disasm!("entrypoint:\n    syscall 5\n", config);
+}
+
 // Example for InstructionType::AluBinary.
 #[test]
 fn test_add64() {
