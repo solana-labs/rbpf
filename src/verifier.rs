@@ -392,6 +392,7 @@ impl Verifier for RequisiteVerifier {
                 ebpf::CALL_REG   => { check_callx_register(&insn, insn_ptr, sbpf_version)?; },
                 ebpf::EXIT       if !sbpf_version.static_syscalls()   => {},
                 ebpf::RETURN     if sbpf_version.static_syscalls()    => {},
+                ebpf::SYSCALL    if sbpf_version.static_syscalls()    => {},
 
                 _                => {
                     return Err(VerifierError::UnknownOpCode(insn.opc, insn_ptr));

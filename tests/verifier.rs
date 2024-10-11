@@ -431,7 +431,7 @@ fn return_instr() {
     for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
         let prog = &[
             0xbf, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov64 r0, 2
-            0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+            0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit (v1), syscall (v2)
             0x9d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // return
         ];
 
@@ -444,7 +444,7 @@ fn return_instr() {
         .unwrap();
         let result = executable.verify::<RequisiteVerifier>();
         if sbpf_version == SBPFVersion::V2 {
-            assert_error!(result, "VerifierError(UnknownOpCode(149, 1))");
+            assert!(result.is_ok());
         } else {
             assert_error!(result, "VerifierError(UnknownOpCode(157, 2))");
         }
