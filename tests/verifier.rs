@@ -138,6 +138,7 @@ fn test_verifier_err_endian_size() {
 #[should_panic(expected = "IncompleteLDDW(0)")]
 fn test_verifier_err_incomplete_lddw() {
     // Note: ubpf has test-err-incomplete-lddw2, which is the same
+    // lddw r0, 0x55667788
     let prog = &[
         0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, //
         0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
@@ -150,6 +151,28 @@ fn test_verifier_err_incomplete_lddw() {
     )
     .unwrap();
     executable.verify::<RequisiteVerifier>().unwrap();
+}
+
+#[test]
+#[should_panic(expected = "LDDWCannotBeLast")]
+fn test_verifier_err_lddw_cannot_be_last() {
+    for highest_sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let prog = &[0x18, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55];
+        let executable = Executable::<TestContextObject>::from_text_bytes(
+            prog,
+            Arc::new(BuiltinProgram::new_loader(
+                Config {
+                    enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version,
+                    ..Config::default()
+                },
+                FunctionRegistry::default(),
+            )),
+            SBPFVersion::V1,
+            FunctionRegistry::default(),
+        )
+        .unwrap();
+        executable.verify::<RequisiteVerifier>().unwrap();
+    }
 }
 
 #[test]
@@ -243,6 +266,28 @@ fn test_verifier_err_call_lddw() {
     )
     .unwrap();
     executable.verify::<RequisiteVerifier>().unwrap();
+}
+
+#[test]
+#[should_panic(expected = "InvalidRegister(0)")]
+fn test_verifier_err_callx_cannot_use_r10() {
+    for highest_sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let executable = assemble::<TestContextObject>(
+            "
+        callx r10
+        exit
+        ",
+            Arc::new(BuiltinProgram::new_loader(
+                Config {
+                    enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version,
+                    ..Config::default()
+                },
+                FunctionRegistry::default(),
+            )),
+        )
+        .unwrap();
+        executable.verify::<RequisiteVerifier>().unwrap();
+    }
 }
 
 #[test]
