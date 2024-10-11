@@ -293,7 +293,7 @@ Verification
 ------------
 
 ### all
-- The bytecode must be divisible by the instruction slot size (64 bits / 8 bytes)
+- The length of the bytecode must be evenly divisible by the instruction slot size (64 bits or 8 bytes)
 - The bytecode must contain at least one instruction
 - `lddw` (opcode `0x18`) is two slots long and must be followed by a slot with opcode `0x00`
 - Immediate values of quotient and remainder instructions must be imm ≠ 0
@@ -310,6 +310,7 @@ Verification
 ### until v2
 - Opcodes from the product / quotient / remainder instruction class are forbiden
 - `le` is allowed
+- `hor64` is forbidden
 - `callx` source register is encoded in the imm field
 - The targets of `call` instructions is checked at runtime not verification time
 - The offset of jump instructions must be limited to the range of the bytecode
