@@ -616,7 +616,7 @@ impl<'i> Exit<'i> {
 
 impl Instruction for Exit<'_> {
     fn opt_code_byte(&self) -> u8 {
-        BPF_EXIT_SYSCALL | BPF_JMP
+        BPF_EXIT | BPF_JMP
     }
 
     fn get_insn_mut(&mut self) -> &mut Insn {

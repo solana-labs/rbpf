@@ -122,11 +122,15 @@ fn make_instruction_map(sbpf_version: SBPFVersion) -> HashMap<String, (Instructi
 
         // Miscellaneous.
         entry("ja", JumpUnconditional, ebpf::JA);
-        if sbpf_version == SBPFVersion::V1 {
-            entry("syscall", Syscall, ebpf::CALL_IMM);
-        } else {
-            entry("syscall", Syscall, ebpf::SYSCALL);
-        }
+        entry(
+            "syscall",
+            Syscall,
+            if sbpf_version == SBPFVersion::V1 {
+                ebpf::CALL_IMM
+            } else {
+                ebpf::SYSCALL
+            },
+        );
         entry("call", CallImm, ebpf::CALL_IMM);
         entry("callx", CallReg, ebpf::CALL_REG);
         entry("lddw", LoadDwImm, ebpf::LD_DW_IMM);
