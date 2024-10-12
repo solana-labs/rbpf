@@ -167,7 +167,7 @@ fn test_verifier_err_lddw_cannot_be_last() {
                 },
                 FunctionRegistry::default(),
             )),
-            SBPFVersion::V1,
+            highest_sbpf_version,
             FunctionRegistry::default(),
         )
         .unwrap();
