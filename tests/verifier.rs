@@ -22,6 +22,7 @@
 extern crate solana_rbpf;
 extern crate thiserror;
 
+use solana_rbpf::program::SyscallRegistry;
 use solana_rbpf::{
     assembler::assemble,
     ebpf,
@@ -34,7 +35,6 @@ use solana_rbpf::{
 use std::sync::Arc;
 use test_utils::{assert_error, create_vm};
 use thiserror::Error;
-use solana_rbpf::program::SyscallRegistry;
 
 /// Error definitions
 #[derive(Debug, Error)]
@@ -329,9 +329,8 @@ fn test_verifier_known_syscall() {
         0x95, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // syscall 1
         0x9d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // return
     ];
-    let syscalls : Vec<(Vec<u8>, BuiltinFunction<TestContextObject>)> = vec![
-        (b"my_syscall".to_vec(), syscalls::SyscallString::vm)
-    ];
+    let syscalls: Vec<(Vec<u8>, BuiltinFunction<TestContextObject>)> =
+        vec![(b"my_syscall".to_vec(), syscalls::SyscallString::vm)];
     let syscall_registry = SyscallRegistry::<BuiltinFunction<TestContextObject>>::new(syscalls);
 
     let executable = Executable::<TestContextObject>::from_text_bytes(

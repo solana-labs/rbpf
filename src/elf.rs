@@ -1147,6 +1147,7 @@ pub(crate) fn get_ro_region(ro_section: &Section, elf: &[u8]) -> MemoryRegion {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::program::SyscallRegistry;
     use crate::{
         elf_parser::{
             // FIXME consts::{ELFCLASS32, ELFDATA2MSB, ET_REL},
@@ -1163,6 +1164,7 @@ mod test {
     use rand::{distributions::Uniform, Rng};
     use std::{fs::File, io::Read};
     use test_utils::assert_error;
+
     type ElfExecutable = Executable<TestContextObject>;
 
     fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
@@ -1177,6 +1179,7 @@ mod test {
         Arc::new(BuiltinProgram::new_loader(
             Config::default(),
             function_registry,
+            SyscallRegistry::default(),
         ))
     }
 
@@ -1932,6 +1935,7 @@ mod test {
                 ..Config::default()
             },
             FunctionRegistry::default(),
+            SyscallRegistry::default(),
         );
         let elf_bytes = std::fs::read("tests/elfs/syscall_reloc_64_32_sbpfv1.so")
             .expect("failed to read elf file");

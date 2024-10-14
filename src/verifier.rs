@@ -12,13 +12,13 @@
 
 //! Verifies that the bytecode is valid for the given config.
 
+use crate::program::SyscallRegistry;
 use crate::{
     ebpf,
     program::{BuiltinFunction, FunctionRegistry, SBPFVersion},
     vm::{Config, ContextObject},
 };
 use thiserror::Error;
-use crate::program::SyscallRegistry;
 
 /// Error definitions
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -214,12 +214,11 @@ fn check_callx_register(
 fn check_syscall<C: ContextObject>(
     code: usize,
     pc: usize,
-    registry: &SyscallRegistry<BuiltinFunction<C>>
+    registry: &SyscallRegistry<BuiltinFunction<C>>,
 ) -> Result<(), VerifierError> {
-    registry.lookup_syscall(code).map_or(
-        Err(VerifierError::InvalidFunction(pc)),
-        |_| Ok(())
-    )
+    registry
+        .lookup_syscall(code)
+        .map_or(Err(VerifierError::InvalidFunction(pc)), |_| Ok(()))
 }
 
 /// Mandatory verifier for solana programs to run on-chain

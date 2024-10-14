@@ -1,5 +1,5 @@
 #![allow(clippy::arithmetic_side_effects)]
-// #![cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
+#![cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 // Copyright 2020 Solana Maintainers <maintainers@solana.com>
 //
 // Licensed under the Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0> or
@@ -15,6 +15,7 @@ extern crate thiserror;
 use byteorder::{ByteOrder, LittleEndian};
 #[cfg(all(not(windows), target_arch = "x86_64"))]
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
+use solana_rbpf::program::SyscallRegistry;
 use solana_rbpf::{
     assembler::assemble,
     declare_builtin_function, ebpf,
@@ -31,7 +32,6 @@ use std::{fs::File, io::Read, sync::Arc};
 use test_utils::{
     assert_error, create_vm, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH,
 };
-use solana_rbpf::program::SyscallRegistry;
 
 const INSTRUCTION_METER_BUDGET: u64 = 1024;
 
@@ -2035,6 +2035,10 @@ fn test_stack2() {
 
 #[test]
 fn test_string_stack() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov r1, 0x78636261
@@ -2065,6 +2069,7 @@ fn test_string_stack() {
         jeq r1, r6, +1
         mov r0, 0x0
         exit",
+        config,
         [],
         (
             "bpf_str_cmp" => syscalls::SyscallStrCmp::vm,
@@ -2373,6 +2378,10 @@ fn test_bpf_to_bpf_scratch_registers() {
 
 #[test]
 fn test_syscall_parameter_on_stack() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, r10
@@ -2381,6 +2390,7 @@ fn test_syscall_parameter_on_stack() {
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2588,12 +2598,17 @@ fn test_err_syscall_string() {
 
 #[test]
 fn test_syscall_string() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2605,6 +2620,10 @@ fn test_syscall_string() {
 
 #[test]
 fn test_syscall() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0xAA
@@ -2615,6 +2634,7 @@ fn test_syscall() {
         syscall bpf_syscall_u64
         mov64 r0, 0x0
         exit",
+        config,
         [],
         (
             "bpf_syscall_u64" => syscalls::SyscallU64::vm,
@@ -2706,7 +2726,11 @@ declare_builtin_function!(
             function_registry
                 .register_function_hashed(*b"nested_vm_syscall", SyscallNestedVm::vm)
                 .unwrap();
-            let loader = BuiltinProgram::new_loader(Config::default(), function_registry, SyscallRegistry::default());
+            let config = Config {
+                enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+                ..Config::default()
+            };
+            let loader = BuiltinProgram::new_loader(config, function_registry, SyscallRegistry::default());
             let mem = [depth as u8 - 1, throw as u8];
             let mut executable = assemble::<TestContextObject>(
                 "
@@ -3022,6 +3046,10 @@ fn test_far_jumps() {
 
 #[test]
 fn test_symbol_relocation() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, r10
@@ -3030,6 +3058,7 @@ fn test_symbol_relocation() {
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -4136,7 +4165,11 @@ fn test_invalid_exit_or_return() {
             ..Config::default()
         };
         let function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
-        let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry, SyscallRegistry::default()));
+        let loader = Arc::new(BuiltinProgram::new_loader(
+            config,
+            function_registry,
+            SyscallRegistry::default(),
+        ));
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             prog,
             loader,
