@@ -3454,6 +3454,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
                 ..Config::default()
             },
             FunctionRegistry::default(),
+            SyscallRegistry::default(),
         )),
         SBPFVersion::V2,
         FunctionRegistry::default(),

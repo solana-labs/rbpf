@@ -216,7 +216,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
     }
 }
 
-/// A syscall registry to operate with static syscalls represented by integers.
+/// A registry to operate with static syscalls represented by integers.
 #[derive(PartialEq, Eq)]
 pub struct SyscallRegistry<T> {
     look_up: Vec<(Vec<u8>, T)>,
