@@ -61,9 +61,13 @@ impl SBPFVersion {
         self != &SBPFVersion::V1
     }
 
-    /// Allow sh_addr != sh_offset in elf sections. Used in V2 to align
-    /// section vaddrs to MM_RODATA_START.
+    /// Allow sh_addr != sh_offset in elf sections.
     pub fn enable_elf_vaddr(&self) -> bool {
+        self != &SBPFVersion::V1
+    }
+
+    /// Separates the bytecode from the read only data in virtual address space
+    pub fn enable_lower_bytecode_vaddr(&self) -> bool {
         self != &SBPFVersion::V1
     }
 

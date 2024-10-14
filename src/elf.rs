@@ -356,7 +356,11 @@ impl<C: ContextObject> Executable<C> {
             elf_bytes,
             sbpf_version,
             ro_section: Section::Borrowed(ebpf::MM_RODATA_START as usize, 0..text_bytes.len()),
-            text_section_vaddr: ebpf::MM_RODATA_START,
+            text_section_vaddr: if sbpf_version.enable_lower_bytecode_vaddr() {
+                ebpf::MM_BYTECODE_START
+            } else {
+                ebpf::MM_RODATA_START
+            },
             text_section_range: 0..text_bytes.len(),
             entry_pc,
             function_registry,

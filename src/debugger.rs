@@ -153,7 +153,12 @@ fn get_host_ptr<C: ContextObject>(
     interpreter: &mut Interpreter<C>,
     mut vm_addr: u64,
 ) -> Result<*mut u8, EbpfError> {
-    if vm_addr < ebpf::MM_RODATA_START {
+    if !interpreter
+        .executable
+        .get_sbpf_version()
+        .enable_lower_bytecode_vaddr()
+        && vm_addr < ebpf::MM_RODATA_START
+    {
         vm_addr += ebpf::MM_RODATA_START;
     }
     match interpreter.vm.memory_mapping.map(

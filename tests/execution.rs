@@ -2389,9 +2389,7 @@ fn test_callx() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r0, 0x0
-        mov64 r8, 0x1
-        lsh64 r8, 0x20
-        or64 r8, 0x30
+        or64 r8, 0x20
         callx r8
         exit
         function_foo:
@@ -2399,7 +2397,7 @@ fn test_callx() {
         exit",
         [],
         (),
-        TestContextObject::new(8),
+        TestContextObject::new(6),
         ProgramResult::Ok(42),
     );
 }
@@ -2409,27 +2407,30 @@ fn test_err_callx_unregistered() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r0, 0x0
-        mov64 r8, 0x1
-        lsh64 r8, 0x20
-        or64 r8, 0x30
+        or64 r8, 0x20
         callx r8
         exit
         mov64 r0, 0x2A
         exit",
         [],
         (),
-        TestContextObject::new(6),
+        TestContextObject::new(4),
         ProgramResult::Err(EbpfError::UnsupportedInstruction),
     );
 }
 
 #[test]
 fn test_err_callx_oob_low() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r0, 0x3
         callx r0
         exit",
+        config,
         [],
         (),
         TestContextObject::new(2),
@@ -2518,14 +2519,12 @@ fn test_err_reg_stack_depth() {
         };
         test_interpreter_and_jit_asm!(
             "
-            mov64 r0, 0x1
-            lsh64 r0, 0x20
             callx r0
             exit",
             config,
             [],
             (),
-            TestContextObject::new(max_call_depth as u64 * 3),
+            TestContextObject::new(max_call_depth as u64),
             ProgramResult::Err(EbpfError::CallDepthExceeded),
         );
     }
@@ -2765,9 +2764,7 @@ fn test_tight_infinite_recursion() {
 fn test_tight_infinite_recursion_callx() {
     test_interpreter_and_jit_asm!(
         "
-        mov64 r8, 0x1
-        lsh64 r8, 0x20
-        or64 r8, 0x28
+        or64 r8, 0x18
         call function_foo
         exit
         function_foo:
@@ -2776,7 +2773,7 @@ fn test_tight_infinite_recursion_callx() {
         exit",
         [],
         (),
-        TestContextObject::new(8),
+        TestContextObject::new(6),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
 }
@@ -2812,27 +2809,6 @@ fn test_err_instruction_count_syscall_capped() {
         ),
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
-    );
-}
-
-#[test]
-fn test_non_terminate_early() {
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r6, 0x0
-        mov64 r1, 0x0
-        mov64 r2, 0x0
-        mov64 r3, 0x0
-        mov64 r4, 0x0
-        mov64 r5, r6
-        callx r6
-        add64 r6, 0x1
-        ja -0x8
-        exit",
-        [],
-        (),
-        TestContextObject::new(7),
-        ProgramResult::Err(EbpfError::CallOutsideTextSegment),
     );
 }
 
@@ -2896,7 +2872,7 @@ fn test_err_capped_before_exception() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x0
-        hor64 r2, 0x1
+        mov64 r2, 0x0
         callx r2
         mov64 r0, 0x0
         exit",
@@ -2911,25 +2887,21 @@ fn test_err_capped_before_exception() {
 fn test_err_exit_capped() {
     test_interpreter_and_jit_asm!(
         "
-        mov64 r1, 0x1
-        lsh64 r1, 0x20
-        or64 r1, 0x28
-        callx r1
+        or64 r0, 0x18
+        callx r0
         exit
         function_foo:
         exit
         ",
         [],
         (),
-        TestContextObject::new(5),
+        TestContextObject::new(3),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
     test_interpreter_and_jit_asm!(
         "
-        mov64 r1, 0x1
-        lsh64 r1, 0x20
-        or64 r1, 0x28
-        callx r1
+        or64 r0, 0x18
+        callx r0
         exit
         function_foo:
         mov r0, r0
@@ -2937,7 +2909,7 @@ fn test_err_exit_capped() {
         ",
         [],
         (),
-        TestContextObject::new(6),
+        TestContextObject::new(4),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
     test_interpreter_and_jit_asm!(
@@ -2966,13 +2938,12 @@ fn test_far_jumps() {
         .fill 1024, 0x0F
         exit
         function_c:
-        mov32 r1, 0x00000010
-        hor64 r1, 0x00000001
+        mov32 r1, 0x10
         callx r1
         exit",
         [],
         (),
-        TestContextObject::new(7),
+        TestContextObject::new(6),
         ProgramResult::Ok(0),
     );
 }
