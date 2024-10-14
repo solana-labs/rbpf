@@ -1,5 +1,5 @@
 #![allow(clippy::arithmetic_side_effects)]
-#![cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
+// #![cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 // Copyright 2020 Solana Maintainers <maintainers@solana.com>
 //
 // Licensed under the Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0> or
@@ -31,6 +31,7 @@ use std::{fs::File, io::Read, sync::Arc};
 use test_utils::{
     assert_error, create_vm, PROG_TCP_PORT_80, TCP_SACK_ASM, TCP_SACK_MATCH, TCP_SACK_NOMATCH,
 };
+use solana_rbpf::program::SyscallRegistry;
 
 const INSTRUCTION_METER_BUDGET: u64 = 1024;
 
@@ -150,7 +151,7 @@ macro_rules! test_interpreter_and_jit_asm {
             config.enable_instruction_tracing = true;
             let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
             $(test_interpreter_and_jit!(register, function_registry, $location => $syscall_function);)*
-            let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
+            let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry, SyscallRegistry::default()));
             let mut executable = assemble($source, loader).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $expected_result);
         }
@@ -172,7 +173,7 @@ macro_rules! test_interpreter_and_jit_elf {
         {
             let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
             $(test_interpreter_and_jit!(register, function_registry, $location => $syscall_function);)*
-            let loader = Arc::new(BuiltinProgram::new_loader($config, function_registry));
+            let loader = Arc::new(BuiltinProgram::new_loader($config, function_registry, SyscallRegistry::default()));
             let mut executable = Executable::<TestContextObject>::from_elf(&elf, loader).unwrap();
             test_interpreter_and_jit!($verify, executable, $mem, $context_object, $expected_result);
         }
@@ -1999,6 +2000,10 @@ fn test_stack1() {
 
 #[test]
 fn test_stack2() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         stb [r10-4], 0x01
@@ -2017,6 +2022,7 @@ fn test_stack2() {
         syscall bpf_gather_bytes
         xor r0, 0x2a2a2a2a
         exit",
+        config,
         [],
         (
             "bpf_mem_frob" => syscalls::SyscallMemFrob::vm,
@@ -2560,12 +2566,17 @@ fn test_call_save() {
 
 #[test]
 fn test_err_syscall_string() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x0
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2615,6 +2626,10 @@ fn test_syscall() {
 
 #[test]
 fn test_call_gather_bytes() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov r1, 1
@@ -2624,6 +2639,7 @@ fn test_call_gather_bytes() {
         mov r5, 5
         syscall bpf_gather_bytes
         exit",
+        config,
         [],
         (
             "bpf_gather_bytes" => syscalls::SyscallGatherBytes::vm,
@@ -2635,6 +2651,10 @@ fn test_call_gather_bytes() {
 
 #[test]
 fn test_call_memfrob() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov r6, r1
@@ -2644,6 +2664,7 @@ fn test_call_memfrob() {
         ldxdw r0, [r6]
         be64 r0
         exit",
+        config,
         [
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, //
         ],
@@ -2685,7 +2706,7 @@ declare_builtin_function!(
             function_registry
                 .register_function_hashed(*b"nested_vm_syscall", SyscallNestedVm::vm)
                 .unwrap();
-            let loader = BuiltinProgram::new_loader(Config::default(), function_registry);
+            let loader = BuiltinProgram::new_loader(Config::default(), function_registry, SyscallRegistry::default());
             let mem = [depth as u8 - 1, throw as u8];
             let mut executable = assemble::<TestContextObject>(
                 "
@@ -2783,12 +2804,17 @@ fn test_tight_infinite_recursion_callx() {
 
 #[test]
 fn test_instruction_count_syscall() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2800,12 +2826,17 @@ fn test_instruction_count_syscall() {
 
 #[test]
 fn test_err_instruction_count_syscall_capped() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2838,6 +2869,10 @@ fn test_non_terminate_early() {
 
 #[test]
 fn test_err_non_terminate_capped() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r6, 0x0
@@ -2850,6 +2885,7 @@ fn test_err_non_terminate_capped() {
         add64 r6, 0x1
         ja -0x8
         exit",
+        config.clone(),
         [],
         (
             "bpf_trace_printf" => syscalls::SyscallTracePrintf::vm,
@@ -2869,6 +2905,7 @@ fn test_err_non_terminate_capped() {
         add64 r6, 0x1
         ja -0x8
         exit",
+        config,
         [],
         (
             "bpf_trace_printf" => syscalls::SyscallTracePrintf::vm,
@@ -4099,7 +4136,7 @@ fn test_invalid_exit_or_return() {
             ..Config::default()
         };
         let function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
-        let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
+        let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry, SyscallRegistry::default()));
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             prog,
             loader,

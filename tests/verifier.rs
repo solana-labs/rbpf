@@ -34,6 +34,7 @@ use solana_rbpf::{
 use std::sync::Arc;
 use test_utils::{assert_error, create_vm};
 use thiserror::Error;
+use solana_rbpf::program::SyscallRegistry;
 
 /// Error definitions
 #[derive(Debug, Error)]
@@ -49,7 +50,7 @@ impl Verifier for TautologyVerifier {
         _config: &Config,
         _sbpf_version: &SBPFVersion,
         _function_registry: &FunctionRegistry<usize>,
-        _syscall_registry: &FunctionRegistry<BuiltinFunction<C>>,
+        _syscall_registry: &SyscallRegistry<BuiltinFunction<C>>,
     ) -> std::result::Result<(), VerifierError> {
         Ok(())
     }
@@ -62,7 +63,7 @@ impl Verifier for ContradictionVerifier {
         _config: &Config,
         _sbpf_version: &SBPFVersion,
         _function_registry: &FunctionRegistry<usize>,
-        _syscall_registry: &FunctionRegistry<BuiltinFunction<C>>,
+        _syscall_registry: &SyscallRegistry<BuiltinFunction<C>>,
     ) -> std::result::Result<(), VerifierError> {
         Err(VerifierError::NoProgram)
     }
@@ -167,6 +168,7 @@ fn test_verifier_err_invalid_reg_dst() {
                     ..Config::default()
                 },
                 FunctionRegistry::default(),
+                SyscallRegistry::default(),
             )),
         )
         .unwrap();
@@ -190,6 +192,7 @@ fn test_verifier_err_invalid_reg_src() {
                     ..Config::default()
                 },
                 FunctionRegistry::default(),
+                SyscallRegistry::default(),
             )),
         )
         .unwrap();
@@ -211,6 +214,7 @@ fn test_verifier_resize_stack_ptr_success() {
                 ..Config::default()
             },
             FunctionRegistry::default(),
+            SyscallRegistry::default(),
         )),
     )
     .unwrap();
@@ -303,10 +307,10 @@ fn test_verifier_err_unknown_opcode() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidFunction(1811268606)")]
+#[should_panic(expected = "InvalidFunction(2)")]
 fn test_verifier_unknown_sycall() {
     let prog = &[
-        0x85, 0x00, 0x00, 0x00, 0xfe, 0xc3, 0xf5, 0x6b, // call 0x6bf5c3fe
+        0x85, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // syscall 2
         0x9d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // return
     ];
     let executable = Executable::<TestContextObject>::from_text_bytes(
@@ -322,18 +326,20 @@ fn test_verifier_unknown_sycall() {
 #[test]
 fn test_verifier_known_syscall() {
     let prog = &[
-        0x85, 0x00, 0x00, 0x00, 0xfe, 0xc3, 0xf5, 0x6b, // call 0x6bf5c3fe
+        0x95, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // syscall 1
         0x9d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // return
     ];
-    let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
-    function_registry
-        .register_function(0x6bf5c3fe, b"my_syscall", syscalls::SyscallString::vm)
-        .unwrap();
+    let syscalls : Vec<(Vec<u8>, BuiltinFunction<TestContextObject>)> = vec![
+        (b"my_syscall".to_vec(), syscalls::SyscallString::vm)
+    ];
+    let syscall_registry = SyscallRegistry::<BuiltinFunction<TestContextObject>>::new(syscalls);
+
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         Arc::new(BuiltinProgram::new_loader(
             Config::default(),
-            function_registry,
+            FunctionRegistry::default(),
+            syscall_registry,
         )),
         SBPFVersion::V2,
         FunctionRegistry::default(),
@@ -413,6 +419,7 @@ fn test_sdiv_disabled() {
                         ..Config::default()
                     },
                     FunctionRegistry::default(),
+                    SyscallRegistry::default(),
                 )),
             )
             .unwrap();
@@ -444,7 +451,7 @@ fn return_instr() {
         .unwrap();
         let result = executable.verify::<RequisiteVerifier>();
         if sbpf_version == SBPFVersion::V2 {
-            assert!(result.is_ok());
+            assert_error!(result, "VerifierError(InvalidFunction(1))");
         } else {
             assert_error!(result, "VerifierError(UnknownOpCode(157, 2))");
         }
@@ -462,6 +469,7 @@ fn return_in_v2() {
                 ..Config::default()
             },
             FunctionRegistry::default(),
+            SyscallRegistry::default(),
         )),
     )
     .unwrap();
@@ -480,6 +488,7 @@ fn function_without_return() {
                 ..Config::default()
             },
             FunctionRegistry::default(),
+            SyscallRegistry::default(),
         )),
     )
     .unwrap();

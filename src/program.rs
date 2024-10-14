@@ -216,6 +216,39 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
     }
 }
 
+/// A syscall registry to operate with static syscalls represented by integers.
+#[derive(PartialEq, Eq)]
+pub struct SyscallRegistry<T> {
+    look_up: Vec<(Vec<u8>, T)>,
+}
+
+impl<T: Copy + PartialEq> Default for SyscallRegistry<T> {
+    fn default() -> Self {
+        SyscallRegistry::new(Vec::new())
+    }
+}
+
+impl <T: Copy + PartialEq> SyscallRegistry<T> {
+    /// Create a new registry based on a previously created vector of registrations.
+    /// We expect the vector to be dense, containing one function per position.
+    pub fn new(registry: Vec<(Vec<u8>, T)>) -> Self {
+        SyscallRegistry {
+            look_up: registry,
+        }
+    }
+
+    /// Retrieve a syscall from the registry
+    pub fn lookup_syscall(&self, code: usize) -> Result<(&[u8], T), ElfError> {
+        if code == 0 {
+            return Err(ElfError::InvalidSyscallCode);
+        }
+
+        self.look_up.get(code-1).as_ref()
+            .map_or(Err(ElfError::InvalidSyscallCode),
+                    |(name, value)| Ok((name.as_slice(), *value)))
+    }
+}
+
 /// Syscall function without context
 pub type BuiltinFunction<C> = fn(*mut EbpfVm<C>, u64, u64, u64, u64, u64);
 
@@ -226,6 +259,8 @@ pub struct BuiltinProgram<C: ContextObject> {
     config: Option<Box<Config>>,
     /// Function pointers by symbol
     functions: FunctionRegistry<BuiltinFunction<C>>,
+    /// Syscalls registry for this loader
+    syscalls: SyscallRegistry<BuiltinFunction<C>>,
 }
 
 impl<C: ContextObject> PartialEq for BuiltinProgram<C> {
@@ -236,18 +271,20 @@ impl<C: ContextObject> PartialEq for BuiltinProgram<C> {
 
 impl<C: ContextObject> BuiltinProgram<C> {
     /// Constructs a loader built-in program
-    pub fn new_loader(config: Config, functions: FunctionRegistry<BuiltinFunction<C>>) -> Self {
+    pub fn new_loader(config: Config, functions: FunctionRegistry<BuiltinFunction<C>>, syscalls: SyscallRegistry<BuiltinFunction<C>>) -> Self {
         Self {
             config: Some(Box::new(config)),
             functions,
+            syscalls,
         }
     }
 
     /// Constructs a built-in program
-    pub fn new_builtin(functions: FunctionRegistry<BuiltinFunction<C>>) -> Self {
+    pub fn new_builtin(functions: FunctionRegistry<BuiltinFunction<C>>, syscalls: SyscallRegistry<BuiltinFunction<C>>) -> Self {
         Self {
             config: None,
             functions,
+            syscalls,
         }
     }
 
@@ -256,6 +293,7 @@ impl<C: ContextObject> BuiltinProgram<C> {
         Self {
             config: Some(Box::default()),
             functions: FunctionRegistry::default(),
+            syscalls: SyscallRegistry::default(),
         }
     }
 
@@ -267,6 +305,11 @@ impl<C: ContextObject> BuiltinProgram<C> {
     /// Get the function registry
     pub fn get_function_registry(&self) -> &FunctionRegistry<BuiltinFunction<C>> {
         &self.functions
+    }
+
+    /// Get the syscall registry
+    pub fn get_syscall_registry(&self) -> &SyscallRegistry<BuiltinFunction<C>> {
+        &self.syscalls
     }
 
     /// Calculate memory size
@@ -383,5 +426,22 @@ mod tests {
         assert_eq!(builtin_program_a, builtin_program_b);
         let builtin_program_c = BuiltinProgram::new_loader(Config::default(), function_registry_c);
         assert_ne!(builtin_program_a, builtin_program_c);
+    }
+
+    #[test]
+    fn test_syscall_registry() {
+        let registry_vec = vec![
+            (b"log".to_vec(), syscalls::SyscallString::vm)
+        ];
+        let registry = SyscallRegistry::new(registry_vec);
+
+        let lookup_result = registry.lookup_syscall(0);
+        assert_eq!(lookup_result.err().unwrap(), ElfError::InvalidSyscallCode);
+
+        let lookup_result = registry.lookup_syscall(3);
+        assert_eq!(lookup_result.err().unwrap(), ElfError::InvalidSyscallCode);
+
+        let lookup_result = registry.lookup_syscall(1);
+        assert!(lookup_result.is_ok());
     }
 }

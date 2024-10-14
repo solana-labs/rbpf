@@ -107,6 +107,9 @@ pub enum ElfError {
     /// Invalid program header
     #[error("Invalid ELF program header")]
     InvalidProgramHeader,
+    /// Invalid syscall code
+    #[error("Invalid syscall code")]
+    InvalidSyscallCode,
 }
 
 impl From<ElfParserError> for ElfError {
@@ -315,7 +318,7 @@ impl<C: ContextObject> Executable<C> {
             self.get_config(),
             self.get_sbpf_version(),
             self.get_function_registry(),
-            self.loader.get_function_registry(),
+            self.loader.get_syscall_registry(),
         )?;
         Ok(())
     }
