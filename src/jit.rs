@@ -407,7 +407,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
             // Regular instruction meter checkpoints to prevent long linear runs from exceeding their budget
             if self.last_instruction_meter_validation_pc + self.config.instruction_meter_checkpoint_distance <= self.pc {
-                self.emit_validate_instruction_count(true, Some(self.pc));
+                self.emit_validate_instruction_count(Some(self.pc));
             }
 
             if self.config.enable_instruction_tracing {
@@ -751,7 +751,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                         || (insn.opc == ebpf::RETURN && !self.executable.get_sbpf_version().static_syscalls()) {
                         return Err(EbpfError::UnsupportedInstruction);
                     }
-                    self.emit_validate_instruction_count(true, Some(self.pc));
+                    self.emit_validate_instruction_count(Some(self.pc));
 
                     let call_depth_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::CallDepth));
                     self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[FRAME_PTR_REG], call_depth_access));
@@ -934,20 +934,22 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     }
 
     #[inline]
-    fn emit_validate_instruction_count(&mut self, exclusive: bool, pc: Option<usize>) {
+    fn emit_validate_instruction_count(&mut self, pc: Option<usize>) {
         if !self.config.enable_instruction_meter {
             return;
         }
         // Update `MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT` if you change the code generation here
-        if let Some(pc) = pc {
+        let opcode = if let Some(pc) = pc {
             // instruction_meter.cmp(self.pc + 1)
             self.last_instruction_meter_validation_pc = pc;
             self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, REGISTER_INSTRUCTION_METER, pc as i64 + 1, None));
+            0x82 // exclusive
         } else {
             // instruction_meter.cmp(scratch_register)
             self.emit_ins(X86Instruction::cmp(OperandSize::S64, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, None));
-        }
-        self.emit_ins(X86Instruction::conditional_jump_immediate(if exclusive { 0x82 } else { 0x86 }, self.relative_to_anchor(ANCHOR_THROW_EXCEEDED_MAX_INSTRUCTIONS, 6)));
+            0x86 // inclusive
+        };
+        self.emit_ins(X86Instruction::conditional_jump_immediate(opcode, self.relative_to_anchor(ANCHOR_THROW_EXCEEDED_MAX_INSTRUCTIONS, 6)));
     }
 
     #[inline]
@@ -974,7 +976,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
     #[inline]
     fn emit_validate_and_profile_instruction_count(&mut self, user_provided: bool, target_pc: Option<usize>) {
-        self.emit_validate_instruction_count(true, Some(self.pc));
+        self.emit_validate_instruction_count(Some(self.pc));
         self.emit_profile_instruction_count(user_provided, target_pc);
     }
 
@@ -1448,7 +1450,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Handler for exceptions which report their pc
         self.set_anchor(ANCHOR_THROW_EXCEPTION);
         // Validate that we did not reach the instruction meter limit before the exception occured
-        self.emit_validate_instruction_count(false, None);
+        self.emit_validate_instruction_count(None);
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_THROW_EXCEPTION_UNCHECKED, 5)));
 
         // Handler for EbpfError::CallDepthExceeded
@@ -1508,7 +1510,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Routine for prologue of emit_internal_call()
         self.set_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE);
-        self.emit_validate_instruction_count(false, None);
+        self.emit_validate_instruction_count(None);
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, RSP, 8 * (SCRATCH_REGS + 1) as i64, None)); // alloca
         self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_SCRATCH, RSP, X86IndirectAccess::OffsetIndexShift(0, RSP, 0))); // Save original REGISTER_SCRATCH
         self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, REGISTER_SCRATCH, X86IndirectAccess::OffsetIndexShift(8 * (SCRATCH_REGS + 1) as i32, RSP, 0))); // Load return address
