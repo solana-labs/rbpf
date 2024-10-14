@@ -217,14 +217,14 @@ impl BpfRelocationType {
 pub(crate) enum Section {
     /// Owned section data.
     ///
-    /// The first field is the offset of the section from MM_PROGRAM_START. The
-    /// second field is the actual section data.
+    /// The first field is virtual address of the section.
+    /// The second field is the actual section data.
     Owned(usize, Vec<u8>),
     /// Borrowed section data.
     ///
-    /// The first field is the offset of the section from MM_PROGRAM_START. The
-    /// second field an be used to index the input ELF buffer to retrieve the
-    /// section data.
+    /// The first field is virtual address of the section.
+    /// The second field can be used to index the input ELF buffer to
+    /// retrieve the section data.
     Borrowed(usize, Range<usize>),
 }
 
