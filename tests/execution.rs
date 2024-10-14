@@ -2884,29 +2884,25 @@ fn test_err_capped_before_exception() {
         "
         mov64 r1, 0x0
         mov64 r2, 0x0
-        add64 r0, 0x0
-        add64 r0, 0x0
         udiv64 r1, r2
-        add64 r0, 0x0
+        mov64 r0, 0x0
         exit",
         [],
         (),
-        TestContextObject::new(4),
+        TestContextObject::new(2),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
 
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x0
-        mov64 r2, 0x0
-        add64 r0, 0x0
-        add64 r0, 0x0
+        hor64 r2, 0x1
         callx r2
-        add64 r0, 0x0
+        mov64 r0, 0x0
         exit",
         [],
         (),
-        TestContextObject::new(4),
+        TestContextObject::new(2),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
 }
