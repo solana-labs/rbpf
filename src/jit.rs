@@ -940,10 +940,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         }
         // Update `MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT` if you change the code generation here
         let opcode = if let Some(pc) = pc {
-            // instruction_meter.cmp(self.pc + 1)
+            // instruction_meter.cmp(self.pc)
             self.last_instruction_meter_validation_pc = pc;
-            self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, REGISTER_INSTRUCTION_METER, pc as i64 + 1, None));
-            0x82 // exclusive
+            self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, REGISTER_INSTRUCTION_METER, pc as i64, None));
+            0x86 // inclusive
         } else {
             // instruction_meter.cmp(scratch_register)
             self.emit_ins(X86Instruction::cmp(OperandSize::S64, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, None));
