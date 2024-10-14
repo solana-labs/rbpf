@@ -939,17 +939,15 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             return;
         }
         // Update `MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT` if you change the code generation here
-        let opcode = if let Some(pc) = pc {
-            // instruction_meter.cmp(self.pc)
+        if let Some(pc) = pc {
             self.last_instruction_meter_validation_pc = pc;
+            // instruction_meter >= self.pc
             self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, REGISTER_INSTRUCTION_METER, pc as i64, None));
-            0x86 // inclusive
         } else {
-            // instruction_meter.cmp(scratch_register)
+            // instruction_meter >= scratch_register
             self.emit_ins(X86Instruction::cmp(OperandSize::S64, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, None));
-            0x86 // inclusive
-        };
-        self.emit_ins(X86Instruction::conditional_jump_immediate(opcode, self.relative_to_anchor(ANCHOR_THROW_EXCEEDED_MAX_INSTRUCTIONS, 6)));
+        }
+        self.emit_ins(X86Instruction::conditional_jump_immediate(0x86, self.relative_to_anchor(ANCHOR_THROW_EXCEEDED_MAX_INSTRUCTIONS, 6)));
     }
 
     #[inline]
