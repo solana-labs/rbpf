@@ -5,7 +5,7 @@ use solana_rbpf::{
     ebpf,
     elf::Executable,
     memory_region::{MemoryMapping, MemoryRegion},
-    program::{BuiltinProgram, FunctionRegistry},
+    program::{BuiltinProgram, FunctionRegistry, SyscallRegistry},
     static_analysis::Analysis,
     verifier::RequisiteVerifier,
     vm::{Config, DynamicAnalysis, EbpfVm, TestContextObject},
@@ -101,6 +101,7 @@ fn main() {
             ..Config::default()
         },
         FunctionRegistry::default(),
+        SyscallRegistry::default(),
     ));
     #[allow(unused_mut)]
     let mut executable = match matches.value_of("assembler") {
