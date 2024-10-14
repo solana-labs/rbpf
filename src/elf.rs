@@ -355,8 +355,8 @@ impl<C: ContextObject> Executable<C> {
         Ok(Self {
             elf_bytes,
             sbpf_version,
-            ro_section: Section::Borrowed(ebpf::MM_PROGRAM_START as usize, 0..text_bytes.len()),
-            text_section_vaddr: ebpf::MM_PROGRAM_START,
+            ro_section: Section::Borrowed(ebpf::MM_RODATA_START as usize, 0..text_bytes.len()),
+            text_section_vaddr: ebpf::MM_RODATA_START,
             text_section_range: 0..text_bytes.len(),
             entry_pc,
             function_registry,
@@ -400,10 +400,10 @@ impl<C: ContextObject> Executable<C> {
         // calculate the text section info
         let text_section = get_section(elf, b".text")?;
         let text_section_vaddr =
-            if sbpf_version.enable_elf_vaddr() && text_section.sh_addr >= ebpf::MM_PROGRAM_START {
+            if sbpf_version.enable_elf_vaddr() && text_section.sh_addr >= ebpf::MM_RODATA_START {
                 text_section.sh_addr
             } else {
-                text_section.sh_addr.saturating_add(ebpf::MM_PROGRAM_START)
+                text_section.sh_addr.saturating_add(ebpf::MM_RODATA_START)
             };
         let vaddr_end = if sbpf_version.reject_rodata_stack_overlap() {
             text_section_vaddr.saturating_add(text_section.sh_size)
@@ -640,7 +640,7 @@ impl<C: ContextObject> Executable<C> {
             // If sbpf_version.enable_elf_vaddr()=true, we allow section_addr >
             // sh_offset, if section_addr - sh_offset is constant across all
             // sections. That is, we allow the linker to align rodata to a
-            // positive base address (MM_PROGRAM_START) as long as the mapping
+            // positive base address (MM_RODATA_START) as long as the mapping
             // to sh_offset(s) stays linear.
             //
             // If sbpf_version.enable_elf_vaddr()=false, section_addr must match
@@ -667,10 +667,10 @@ impl<C: ContextObject> Executable<C> {
             }
 
             let mut vaddr_end =
-                if sbpf_version.enable_elf_vaddr() && section_addr >= ebpf::MM_PROGRAM_START {
+                if sbpf_version.enable_elf_vaddr() && section_addr >= ebpf::MM_RODATA_START {
                     section_addr
                 } else {
-                    section_addr.saturating_add(ebpf::MM_PROGRAM_START)
+                    section_addr.saturating_add(ebpf::MM_RODATA_START)
                 };
             if sbpf_version.reject_rodata_stack_overlap() {
                 vaddr_end = vaddr_end.saturating_add(section_header.sh_size);
@@ -715,17 +715,17 @@ impl<C: ContextObject> Executable<C> {
             let buf_offset_end =
                 highest_addr.saturating_sub(addr_file_offset.unwrap_or(0) as usize);
 
-            let addr_offset = if lowest_addr >= ebpf::MM_PROGRAM_START as usize {
+            let addr_offset = if lowest_addr >= ebpf::MM_RODATA_START as usize {
                 // The first field of Section::Borrowed is an offset from
-                // ebpf::MM_PROGRAM_START so if the linker has already put the
-                // sections within ebpf::MM_PROGRAM_START, we need to subtract
+                // ebpf::MM_RODATA_START so if the linker has already put the
+                // sections within ebpf::MM_RODATA_START, we need to subtract
                 // it now.
                 lowest_addr
             } else {
                 if sbpf_version.enable_elf_vaddr() {
                     return Err(ElfError::ValueOutOfBounds);
                 }
-                lowest_addr.saturating_add(ebpf::MM_PROGRAM_START as usize)
+                lowest_addr.saturating_add(ebpf::MM_RODATA_START as usize)
             };
 
             Section::Borrowed(addr_offset, buf_offset_start..buf_offset_end)
@@ -734,14 +734,14 @@ impl<C: ContextObject> Executable<C> {
             // sections and and copy the ro ones at their intended offsets.
 
             if config.optimize_rodata {
-                // The rodata region starts at MM_PROGRAM_START + offset,
-                // [MM_PROGRAM_START, MM_PROGRAM_START + offset) is not
+                // The rodata region starts at MM_RODATA_START + offset,
+                // [MM_RODATA_START, MM_RODATA_START + offset) is not
                 // mappable. We only need to allocate highest_addr - lowest_addr
                 // bytes.
                 highest_addr = highest_addr.saturating_sub(lowest_addr);
             } else {
-                // For backwards compatibility, the whole [MM_PROGRAM_START,
-                // MM_PROGRAM_START + highest_addr) range is mappable. We need
+                // For backwards compatibility, the whole [MM_RODATA_START,
+                // MM_RODATA_START + highest_addr) range is mappable. We need
                 // to allocate the whole address range.
                 lowest_addr = 0;
             };
@@ -758,10 +758,10 @@ impl<C: ContextObject> Executable<C> {
                     .copy_from_slice(slice);
             }
 
-            let addr_offset = if lowest_addr >= ebpf::MM_PROGRAM_START as usize {
+            let addr_offset = if lowest_addr >= ebpf::MM_RODATA_START as usize {
                 lowest_addr
             } else {
-                lowest_addr.saturating_add(ebpf::MM_PROGRAM_START as usize)
+                lowest_addr.saturating_add(ebpf::MM_RODATA_START as usize)
             };
             Section::Owned(addr_offset, ro_section)
         };
@@ -880,11 +880,11 @@ impl<C: ContextObject> Executable<C> {
                     let mut addr = symbol.st_value.saturating_add(refd_addr);
 
                     // The "physical address" from the VM's perspective is rooted
-                    // at `MM_PROGRAM_START`. If the linker hasn't already put
-                    // the symbol within `MM_PROGRAM_START`, we need to do so
+                    // at `MM_RODATA_START`. If the linker hasn't already put
+                    // the symbol within `MM_RODATA_START`, we need to do so
                     // now.
-                    if addr < ebpf::MM_PROGRAM_START {
-                        addr = ebpf::MM_PROGRAM_START.saturating_add(addr);
+                    if addr < ebpf::MM_RODATA_START {
+                        addr = ebpf::MM_RODATA_START.saturating_add(addr);
                     }
 
                     if text_section
@@ -970,10 +970,10 @@ impl<C: ContextObject> Executable<C> {
                             return Err(ElfError::InvalidVirtualAddress(refd_addr));
                         }
 
-                        if refd_addr < ebpf::MM_PROGRAM_START {
+                        if refd_addr < ebpf::MM_RODATA_START {
                             // The linker hasn't already placed rodata within
-                            // MM_PROGRAM_START, so we do so now
-                            refd_addr = ebpf::MM_PROGRAM_START.saturating_add(refd_addr);
+                            // MM_RODATA_START, so we do so now
+                            refd_addr = ebpf::MM_RODATA_START.saturating_add(refd_addr);
                         }
 
                         // Write back the low half
@@ -1005,9 +1005,9 @@ impl<C: ContextObject> Executable<C> {
                                 .get(r_offset..r_offset.saturating_add(mem::size_of::<u64>()))
                                 .ok_or(ElfError::ValueOutOfBounds)?;
                             let mut refd_addr = LittleEndian::read_u64(addr_slice);
-                            if refd_addr < ebpf::MM_PROGRAM_START {
-                                // Not within MM_PROGRAM_START, do it now
-                                refd_addr = ebpf::MM_PROGRAM_START.saturating_add(refd_addr);
+                            if refd_addr < ebpf::MM_RODATA_START {
+                                // Not within MM_RODATA_START, do it now
+                                refd_addr = ebpf::MM_RODATA_START.saturating_add(refd_addr);
                             }
                             refd_addr
                         } else {
@@ -1020,7 +1020,7 @@ impl<C: ContextObject> Executable<C> {
                                 .get(imm_offset..imm_offset.saturating_add(BYTE_LENGTH_IMMEDIATE))
                                 .ok_or(ElfError::ValueOutOfBounds)?;
                             let refd_addr = LittleEndian::read_u32(addr_slice) as u64;
-                            ebpf::MM_PROGRAM_START.saturating_add(refd_addr)
+                            ebpf::MM_RODATA_START.saturating_add(refd_addr)
                         };
 
                         let addr_slice = elf_bytes
@@ -1135,8 +1135,8 @@ pub(crate) fn get_ro_region(ro_section: &Section, elf: &[u8]) -> MemoryRegion {
         Section::Borrowed(offset, byte_range) => (*offset, &elf[byte_range.clone()]),
     };
 
-    // If offset > 0, the region will start at MM_PROGRAM_START + the offset of
-    // the first read only byte. [MM_PROGRAM_START, MM_PROGRAM_START + offset)
+    // If offset > 0, the region will start at MM_RODATA_START + the offset of
+    // the first read only byte. [MM_RODATA_START, MM_RODATA_START + offset)
     // will be unmappable, see MemoryRegion::vm_to_host.
     MemoryRegion::new_readonly(ro_data, offset as u64)
 }
@@ -1381,7 +1381,7 @@ mod test {
         Elf64Shdr {
             sh_addr,
             sh_offset: sh_addr
-                .checked_sub(ebpf::MM_PROGRAM_START)
+                .checked_sub(ebpf::MM_RODATA_START)
                 .unwrap_or(sh_addr),
             sh_size,
             sh_name: 0,
@@ -1416,7 +1416,7 @@ mod test {
                 sections,
                 &elf_bytes,
             ),
-            Ok(Section::Owned(offset, data)) if offset == ebpf::MM_PROGRAM_START as usize + 10 && data.len() == 30
+            Ok(Section::Owned(offset, data)) if offset == ebpf::MM_RODATA_START as usize + 10 && data.len() == 30
         ));
     }
 
@@ -1443,7 +1443,7 @@ mod test {
                 sections,
                 &elf_bytes,
             ),
-            Ok(Section::Owned(offset, data)) if offset == ebpf::MM_PROGRAM_START as usize + 10 && data.len() == 20
+            Ok(Section::Owned(offset, data)) if offset == ebpf::MM_RODATA_START as usize + 10 && data.len() == 20
         ));
     }
 
@@ -1506,8 +1506,8 @@ mod test {
         };
         let elf_bytes = [0u8; 512];
 
-        let mut s1 = new_section(ebpf::MM_PROGRAM_START + 10, 10);
-        let mut s2 = new_section(ebpf::MM_PROGRAM_START + 20, 10);
+        let mut s1 = new_section(ebpf::MM_RODATA_START + 10, 10);
+        let mut s2 = new_section(ebpf::MM_RODATA_START + 20, 10);
         // The sections don't have a constant offset. This is rejected since it
         // makes it impossible to efficiently map virtual addresses to byte
         // offsets
@@ -1530,8 +1530,8 @@ mod test {
         };
         let elf_bytes = [0u8; 512];
 
-        let mut s1 = new_section(ebpf::MM_PROGRAM_START + 10, 10);
-        let mut s2 = new_section(ebpf::MM_PROGRAM_START + 20, 10);
+        let mut s1 = new_section(ebpf::MM_RODATA_START + 10, 10);
+        let mut s2 = new_section(ebpf::MM_RODATA_START + 20, 10);
         // the sections have a constant offset (100)
         s1.sh_offset = 100;
         s2.sh_offset = 110;
@@ -1541,7 +1541,7 @@ mod test {
         assert_eq!(
             ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V2, sections, &elf_bytes),
             Ok(Section::Borrowed(
-                ebpf::MM_PROGRAM_START as usize + 10,
+                ebpf::MM_RODATA_START as usize + 10,
                 100..120
             ))
         );
@@ -1573,15 +1573,15 @@ mod test {
 
         // [0..s3.sh_addr + s3.sh_size] is the valid ro memory area
         assert!(matches!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START, s3.sh_addr + s3.sh_size),
+            ro_region.vm_to_host(ebpf::MM_RODATA_START, s3.sh_addr + s3.sh_size),
             ProgramResult::Ok(ptr) if ptr == owned_section.as_ptr() as u64,
         ));
 
         // one byte past the ro section is not mappable
         assert_error!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+            ro_region.vm_to_host(ebpf::MM_RODATA_START + s3.sh_addr + s3.sh_size, 1),
             "InvalidVirtualAddress({})",
-            ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+            ebpf::MM_RODATA_START + s3.sh_addr + s3.sh_size
         );
     }
 
@@ -1617,15 +1617,15 @@ mod test {
         // But for backwards compatibility (config.optimize_rodata=false)
         // [0..s1.sh_addr] is mappable too (and zeroed).
         assert!(matches!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START, s3.sh_addr + s3.sh_size),
+            ro_region.vm_to_host(ebpf::MM_RODATA_START, s3.sh_addr + s3.sh_size),
             ProgramResult::Ok(ptr) if ptr == owned_section.as_ptr() as u64,
         ));
 
         // one byte past the ro section is not mappable
         assert_error!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+            ro_region.vm_to_host(ebpf::MM_RODATA_START + s3.sh_addr + s3.sh_size, 1),
             "InvalidVirtualAddress({})",
-            ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+            ebpf::MM_RODATA_START + s3.sh_addr + s3.sh_size
         );
     }
 
@@ -1653,26 +1653,26 @@ mod test {
         };
         let ro_region = get_ro_region(&ro_section, &elf_bytes);
 
-        // s1 starts at sh_addr=10 so [MM_PROGRAM_START..MM_PROGRAM_START + 10] is not mappable
+        // s1 starts at sh_addr=10 so [MM_RODATA_START..MM_RODATA_START + 10] is not mappable
 
         // the low bound of the initial gap is not mappable
         assert_error!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START, 1),
+            ro_region.vm_to_host(ebpf::MM_RODATA_START, 1),
             "InvalidVirtualAddress({})",
-            ebpf::MM_PROGRAM_START
+            ebpf::MM_RODATA_START
         );
 
         // the hi bound of the initial gap is not mappable
         assert_error!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s1.sh_addr - 1, 1),
+            ro_region.vm_to_host(ebpf::MM_RODATA_START + s1.sh_addr - 1, 1),
             "InvalidVirtualAddress({})",
-            ebpf::MM_PROGRAM_START + 9
+            ebpf::MM_RODATA_START + 9
         );
 
         // [s1.sh_addr..s3.sh_addr + s3.sh_size] is the valid ro memory area
         assert!(matches!(
             ro_region.vm_to_host(
-                ebpf::MM_PROGRAM_START + s1.sh_addr,
+                ebpf::MM_RODATA_START + s1.sh_addr,
                 s3.sh_addr + s3.sh_size - s1.sh_addr
             ),
             ProgramResult::Ok(ptr) if ptr == owned_section.as_ptr() as u64,
@@ -1680,9 +1680,9 @@ mod test {
 
         // one byte past the ro section is not mappable
         assert_error!(
-            ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size, 1),
+            ro_region.vm_to_host(ebpf::MM_RODATA_START + s3.sh_addr + s3.sh_size, 1),
             "InvalidVirtualAddress({})",
-            ebpf::MM_PROGRAM_START + s3.sh_addr + s3.sh_size
+            ebpf::MM_RODATA_START + s3.sh_addr + s3.sh_size
         );
     }
 
@@ -1708,7 +1708,7 @@ mod test {
                 sections,
                 &elf_bytes,
             ),
-            Ok(Section::Owned(offset, data)) if offset == ebpf::MM_PROGRAM_START as usize && data.len() == 20
+            Ok(Section::Owned(offset, data)) if offset == ebpf::MM_RODATA_START as usize && data.len() == 20
         ));
     }
 
@@ -1718,7 +1718,7 @@ mod test {
         let elf_bytes = [0u8; 512];
         for (vaddr_base, sbpf_version) in [
             (0, SBPFVersion::V1),
-            (ebpf::MM_PROGRAM_START, SBPFVersion::V2),
+            (ebpf::MM_RODATA_START, SBPFVersion::V2),
         ] {
             let s1 = new_section(vaddr_base, 10);
             let s2 = new_section(vaddr_base + 20, 10);
@@ -1733,7 +1733,7 @@ mod test {
             assert_eq!(
                 ElfExecutable::parse_ro_sections(&config, &sbpf_version, sections, &elf_bytes),
                 Ok(Section::Borrowed(
-                    ebpf::MM_PROGRAM_START as usize + 20,
+                    ebpf::MM_RODATA_START as usize + 20,
                     20..50
                 ))
             );
@@ -1746,7 +1746,7 @@ mod test {
         let elf_bytes = [0u8; 512];
         for (vaddr_base, sbpf_version) in [
             (0, SBPFVersion::V1),
-            (ebpf::MM_PROGRAM_START, SBPFVersion::V2),
+            (ebpf::MM_RODATA_START, SBPFVersion::V2),
         ] {
             let s1 = new_section(vaddr_base, 10);
             let s2 = new_section(vaddr_base + 10, 10);
@@ -1764,15 +1764,15 @@ mod test {
             // s1 starts at sh_offset=0 so [0..s2.sh_offset + s2.sh_size]
             // is the valid ro memory area
             assert!(matches!(
-                ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s1.sh_offset, s2.sh_offset + s2.sh_size),
+                ro_region.vm_to_host(ebpf::MM_RODATA_START + s1.sh_offset, s2.sh_offset + s2.sh_size),
                 ProgramResult::Ok(ptr) if ptr == elf_bytes.as_ptr() as u64,
             ));
 
             // one byte past the ro section is not mappable
             assert_error!(
-                ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_offset, 1),
+                ro_region.vm_to_host(ebpf::MM_RODATA_START + s3.sh_offset, 1),
                 "InvalidVirtualAddress({})",
-                ebpf::MM_PROGRAM_START + s3.sh_offset
+                ebpf::MM_RODATA_START + s3.sh_offset
             );
         }
     }
@@ -1783,7 +1783,7 @@ mod test {
         let elf_bytes = [0u8; 512];
         for (vaddr_base, sbpf_version) in [
             (0, SBPFVersion::V1),
-            (ebpf::MM_PROGRAM_START, SBPFVersion::V2),
+            (ebpf::MM_RODATA_START, SBPFVersion::V2),
         ] {
             let s1 = new_section(vaddr_base, 10);
             let s2 = new_section(vaddr_base + 10, 10);
@@ -1802,22 +1802,22 @@ mod test {
 
             // the low bound of the initial gap is not mappable
             assert_error!(
-                ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s1.sh_offset, 1),
+                ro_region.vm_to_host(ebpf::MM_RODATA_START + s1.sh_offset, 1),
                 "InvalidVirtualAddress({})",
-                ebpf::MM_PROGRAM_START + s1.sh_offset
+                ebpf::MM_RODATA_START + s1.sh_offset
             );
 
             // the hi bound of the initial gap is not mappable
             assert_error!(
-                ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s2.sh_offset - 1, 1),
+                ro_region.vm_to_host(ebpf::MM_RODATA_START + s2.sh_offset - 1, 1),
                 "InvalidVirtualAddress({})",
-                ebpf::MM_PROGRAM_START + s2.sh_offset - 1
+                ebpf::MM_RODATA_START + s2.sh_offset - 1
             );
 
             // [s2.sh_offset..s3.sh_offset + s3.sh_size] is the valid ro memory area
             assert!(matches!(
                 ro_region.vm_to_host(
-                    ebpf::MM_PROGRAM_START + s2.sh_offset,
+                    ebpf::MM_RODATA_START + s2.sh_offset,
                     s3.sh_offset + s3.sh_size - s2.sh_offset
                 ),
                 ProgramResult::Ok(ptr) if ptr == elf_bytes[s2.sh_offset as usize..].as_ptr() as u64,
@@ -1825,9 +1825,9 @@ mod test {
 
             // one byte past the ro section is not mappable
             assert_error!(
-                ro_region.vm_to_host(ebpf::MM_PROGRAM_START + s3.sh_offset + s3.sh_size, 1),
+                ro_region.vm_to_host(ebpf::MM_RODATA_START + s3.sh_offset + s3.sh_size, 1),
                 "InvalidVirtualAddress({})",
-                ebpf::MM_PROGRAM_START + s3.sh_offset + s3.sh_size
+                ebpf::MM_RODATA_START + s3.sh_offset + s3.sh_size
             );
         }
     }

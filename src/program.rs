@@ -62,7 +62,7 @@ impl SBPFVersion {
     }
 
     /// Allow sh_addr != sh_offset in elf sections. Used in V2 to align
-    /// section vaddrs to MM_PROGRAM_START.
+    /// section vaddrs to MM_RODATA_START.
     pub fn enable_elf_vaddr(&self) -> bool {
         self != &SBPFVersion::V1
     }

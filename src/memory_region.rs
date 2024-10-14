@@ -888,8 +888,8 @@ fn generate_access_violation(
             stack_frame,
         ))
     } else {
-        let region_name = match vm_addr & (!ebpf::MM_PROGRAM_START.saturating_sub(1)) {
-            ebpf::MM_PROGRAM_START => "program",
+        let region_name = match vm_addr & (!ebpf::MM_RODATA_START.saturating_sub(1)) {
+            ebpf::MM_RODATA_START => "program",
             ebpf::MM_STACK_START => "stack",
             ebpf::MM_HEAP_START => "heap",
             ebpf::MM_INPUT_START => "input",
@@ -1049,7 +1049,7 @@ mod test {
             let mut mem1 = vec![0xff; 8];
             let m = MemoryMapping::new(
                 vec![
-                    MemoryRegion::new_readonly(&[0; 8], ebpf::MM_PROGRAM_START),
+                    MemoryRegion::new_readonly(&[0; 8], ebpf::MM_RODATA_START),
                     MemoryRegion::new_writable_gapped(&mut mem1, ebpf::MM_STACK_START, 2),
                 ],
                 &config,
@@ -1247,7 +1247,7 @@ mod test {
         let mem2 = vec![0xDD; 4];
         let m = MemoryMapping::new(
             vec![
-                MemoryRegion::new_writable(&mut mem1, ebpf::MM_PROGRAM_START),
+                MemoryRegion::new_writable(&mut mem1, ebpf::MM_RODATA_START),
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_STACK_START),
             ],
             &config,
@@ -1255,25 +1255,25 @@ mod test {
         )
         .unwrap();
         assert_error!(
-            m.region(AccessType::Load, ebpf::MM_PROGRAM_START - 1),
+            m.region(AccessType::Load, ebpf::MM_RODATA_START - 1),
             "AccessViolation"
         );
         assert_eq!(
-            m.region(AccessType::Load, ebpf::MM_PROGRAM_START)
+            m.region(AccessType::Load, ebpf::MM_RODATA_START)
                 .unwrap()
                 .host_addr
                 .get(),
             mem1.as_ptr() as u64
         );
         assert_eq!(
-            m.region(AccessType::Load, ebpf::MM_PROGRAM_START + 3)
+            m.region(AccessType::Load, ebpf::MM_RODATA_START + 3)
                 .unwrap()
                 .host_addr
                 .get(),
             mem1.as_ptr() as u64
         );
         assert_error!(
-            m.region(AccessType::Load, ebpf::MM_PROGRAM_START + 4),
+            m.region(AccessType::Load, ebpf::MM_RODATA_START + 4),
             "AccessViolation"
         );
 
@@ -1627,7 +1627,7 @@ mod test {
         let mem3 = [33, 33];
         let mut m = AlignedMemoryMapping::new(
             vec![
-                MemoryRegion::new_readonly(&mem1, ebpf::MM_PROGRAM_START),
+                MemoryRegion::new_readonly(&mem1, ebpf::MM_RODATA_START),
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_STACK_START),
             ],
             &config,
@@ -1682,7 +1682,7 @@ mod test {
 
             let c = Rc::clone(&copied);
             let m = MemoryMapping::new_with_cow(
-                vec![MemoryRegion::new_cow(&original, ebpf::MM_PROGRAM_START, 42)],
+                vec![MemoryRegion::new_cow(&original, ebpf::MM_RODATA_START, 42)],
                 Box::new(move |_| {
                     c.borrow_mut().extend_from_slice(&original);
                     Ok(c.borrow().as_slice().as_ptr() as u64)
@@ -1693,11 +1693,11 @@ mod test {
             .unwrap();
 
             assert_eq!(
-                m.map(AccessType::Load, ebpf::MM_PROGRAM_START, 1).unwrap(),
+                m.map(AccessType::Load, ebpf::MM_RODATA_START, 1).unwrap(),
                 original.as_ptr() as u64
             );
             assert_eq!(
-                m.map(AccessType::Store, ebpf::MM_PROGRAM_START, 1).unwrap(),
+                m.map(AccessType::Store, ebpf::MM_RODATA_START, 1).unwrap(),
                 copied.borrow().as_ptr() as u64
             );
         }
@@ -1715,7 +1715,7 @@ mod test {
 
             let c = Rc::clone(&copied);
             let m = MemoryMapping::new_with_cow(
-                vec![MemoryRegion::new_cow(&original, ebpf::MM_PROGRAM_START, 42)],
+                vec![MemoryRegion::new_cow(&original, ebpf::MM_RODATA_START, 42)],
                 Box::new(move |_| {
                     c.borrow_mut().extend_from_slice(&original);
                     Ok(c.borrow().as_slice().as_ptr() as u64)
@@ -1726,18 +1726,18 @@ mod test {
             .unwrap();
 
             assert_eq!(
-                m.map(AccessType::Load, ebpf::MM_PROGRAM_START, 1).unwrap(),
+                m.map(AccessType::Load, ebpf::MM_RODATA_START, 1).unwrap(),
                 original.as_ptr() as u64
             );
 
-            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START).unwrap(), 11);
-            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START + 1).unwrap(), 22);
+            assert_eq!(m.load::<u8>(ebpf::MM_RODATA_START).unwrap(), 11);
+            assert_eq!(m.load::<u8>(ebpf::MM_RODATA_START + 1).unwrap(), 22);
             assert!(copied.borrow().is_empty());
 
-            m.store(33u8, ebpf::MM_PROGRAM_START).unwrap();
+            m.store(33u8, ebpf::MM_RODATA_START).unwrap();
             assert_eq!(original[0], 11);
-            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START).unwrap(), 33);
-            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START + 1).unwrap(), 22);
+            assert_eq!(m.load::<u8>(ebpf::MM_RODATA_START).unwrap(), 33);
+            assert_eq!(m.load::<u8>(ebpf::MM_RODATA_START + 1).unwrap(), 22);
         }
     }
 
@@ -1755,8 +1755,8 @@ mod test {
             let c = Rc::clone(&copied);
             let m = MemoryMapping::new_with_cow(
                 vec![
-                    MemoryRegion::new_cow(&original1, ebpf::MM_PROGRAM_START, 42),
-                    MemoryRegion::new_cow(&original2, ebpf::MM_PROGRAM_START + 0x100000000, 24),
+                    MemoryRegion::new_cow(&original1, ebpf::MM_RODATA_START, 42),
+                    MemoryRegion::new_cow(&original2, ebpf::MM_RODATA_START + 0x100000000, 24),
                 ],
                 Box::new(move |id| {
                     // check that the argument passed to MemoryRegion::new_cow is then passed to the
@@ -1770,9 +1770,9 @@ mod test {
             )
             .unwrap();
 
-            m.store(55u8, ebpf::MM_PROGRAM_START).unwrap();
+            m.store(55u8, ebpf::MM_RODATA_START).unwrap();
             assert_eq!(original1[0], 11);
-            assert_eq!(m.load::<u8>(ebpf::MM_PROGRAM_START).unwrap(), 55);
+            assert_eq!(m.load::<u8>(ebpf::MM_RODATA_START).unwrap(), 55);
         }
     }
 
@@ -1783,14 +1783,14 @@ mod test {
         let original = [11, 22];
 
         let m = MemoryMapping::new_with_cow(
-            vec![MemoryRegion::new_cow(&original, ebpf::MM_PROGRAM_START, 42)],
+            vec![MemoryRegion::new_cow(&original, ebpf::MM_RODATA_START, 42)],
             Box::new(|_| Err(())),
             &config,
             &SBPFVersion::V2,
         )
         .unwrap();
 
-        m.map(AccessType::Store, ebpf::MM_PROGRAM_START, 1).unwrap();
+        m.map(AccessType::Store, ebpf::MM_RODATA_START, 1).unwrap();
     }
 
     #[test]
@@ -1800,13 +1800,13 @@ mod test {
         let original = [11, 22];
 
         let m = MemoryMapping::new_with_cow(
-            vec![MemoryRegion::new_cow(&original, ebpf::MM_PROGRAM_START, 42)],
+            vec![MemoryRegion::new_cow(&original, ebpf::MM_RODATA_START, 42)],
             Box::new(|_| Err(())),
             &config,
             &SBPFVersion::V2,
         )
         .unwrap();
 
-        m.store(33u8, ebpf::MM_PROGRAM_START).unwrap();
+        m.store(33u8, ebpf::MM_RODATA_START).unwrap();
     }
 }

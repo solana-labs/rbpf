@@ -3050,7 +3050,7 @@ fn test_reloc_64_64_sbpfv1() {
         [],
         (),
         TestContextObject::new(2),
-        ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x120),
+        ProgramResult::Ok(ebpf::MM_RODATA_START + 0x120),
     );
 }
 
@@ -3070,7 +3070,7 @@ fn test_reloc_64_relative_sbpfv1() {
         [],
         (),
         TestContextObject::new(2),
-        ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x138),
+        ProgramResult::Ok(ebpf::MM_RODATA_START + 0x138),
     );
 }
 
@@ -3093,7 +3093,7 @@ fn test_reloc_64_relative_data_sbfv1() {
         [],
         (),
         TestContextObject::new(3),
-        ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x108),
+        ProgramResult::Ok(ebpf::MM_RODATA_START + 0x108),
     );
 }
 
@@ -3122,7 +3122,7 @@ fn test_reloc_64_relative_data_sbpfv1() {
         [],
         (),
         TestContextObject::new(3),
-        ProgramResult::Ok(ebpf::MM_PROGRAM_START + 0x108),
+        ProgramResult::Ok(ebpf::MM_RODATA_START + 0x108),
     );
 }
 

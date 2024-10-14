@@ -41,17 +41,18 @@ pub const HOST_ALIGN: usize = 16;
 /// Upper half of a pointer is the region index, lower half the virtual address inside that region.
 pub const VIRTUAL_ADDRESS_BITS: usize = 32;
 
-// Memory map regions virtual addresses need to be (1 << VIRTUAL_ADDRESS_BITS) bytes apart.
-// Also the region at index 0 should be skipped to catch NULL ptr accesses.
-
-/// Start of the program bits (text and ro segments) in the memory map
-pub const MM_PROGRAM_START: u64 = 0x100000000;
-/// Start of the stack in the memory map
-pub const MM_STACK_START: u64 = 0x200000000;
-/// Start of the heap in the memory map
-pub const MM_HEAP_START: u64 = 0x300000000;
-/// Start of the input buffers in the memory map
-pub const MM_INPUT_START: u64 = 0x400000000;
+/// Size (and alignment) of a memory region
+pub const MM_REGION_SIZE: u64 = 1 << VIRTUAL_ADDRESS_BITS;
+/// Virtual address of the bytecode region (not available in SBPFv1)
+pub const MM_BYTECODE_START: u64 = 0;
+/// Virtual address of the readonly data region (also contains the bytecode in SBPFv1)
+pub const MM_RODATA_START: u64 = MM_REGION_SIZE;
+/// Virtual address of the stack region
+pub const MM_STACK_START: u64 = MM_REGION_SIZE * 2;
+/// Virtual address of the heap region
+pub const MM_HEAP_START: u64 = MM_REGION_SIZE * 3;
+/// Virtual address of the input region
+pub const MM_INPUT_START: u64 = MM_REGION_SIZE * 4;
 
 // eBPF op codes.
 // See also https://www.kernel.org/doc/Documentation/networking/filter.txt
