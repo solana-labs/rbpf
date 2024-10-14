@@ -15,14 +15,13 @@ extern crate thiserror;
 use byteorder::{ByteOrder, LittleEndian};
 #[cfg(all(not(windows), target_arch = "x86_64"))]
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
-use solana_rbpf::program::SyscallRegistry;
 use solana_rbpf::{
     assembler::assemble,
     declare_builtin_function, ebpf,
     elf::Executable,
     error::{EbpfError, ProgramResult},
     memory_region::{AccessType, MemoryMapping, MemoryRegion},
-    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
+    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion, SyscallRegistry},
     static_analysis::Analysis,
     syscalls,
     verifier::RequisiteVerifier,

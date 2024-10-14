@@ -10,10 +10,9 @@ extern crate solana_rbpf;
 extern crate test;
 extern crate test_utils;
 
-use solana_rbpf::program::SyscallRegistry;
 use solana_rbpf::{
     elf::Executable,
-    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry},
+    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SyscallRegistry},
     syscalls,
     vm::{Config, TestContextObject},
 };

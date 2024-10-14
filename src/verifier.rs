@@ -12,10 +12,9 @@
 
 //! Verifies that the bytecode is valid for the given config.
 
-use crate::program::SyscallRegistry;
 use crate::{
     ebpf,
-    program::{BuiltinFunction, FunctionRegistry, SBPFVersion},
+    program::{BuiltinFunction, FunctionRegistry, SBPFVersion, SyscallRegistry},
     vm::{Config, ContextObject},
 };
 use thiserror::Error;
