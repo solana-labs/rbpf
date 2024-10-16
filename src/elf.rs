@@ -383,7 +383,7 @@ impl<C: ContextObject> Executable<C> {
             aligned = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
             aligned.as_slice()
         };
-        let elf = Elf64::parse(bytes)?;
+        let mut elf = Elf64::parse(bytes)?;
         let enabled_sbpf_versions = loader.get_config().enabled_sbpf_versions.clone();
         let sbpf_version = if *enabled_sbpf_versions.end() == SBPFVersion::V1 {
             // Emulates a bug in the version dispatcher until we enable the first other version
@@ -403,6 +403,8 @@ impl<C: ContextObject> Executable<C> {
             return Err(ElfError::UnsupportedSBPFVersion);
         }
         if sbpf_version == SBPFVersion::V1 {
+            elf.parse_sections()?;
+            elf.parse_dynamic()?;
             Self::load_with_lenient_parser(&elf, bytes, loader)
         } else {
             Self::load_with_strict_parser(&elf, bytes, loader).map_err(|err| err.into())
