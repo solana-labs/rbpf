@@ -25,7 +25,6 @@ use crate::{
     declare_builtin_function,
     error::EbpfError,
     memory_region::{AccessType, MemoryMapping},
-    vm::TestContextObject,
 };
 use std::{slice::from_raw_parts, str::from_utf8};
 
@@ -33,8 +32,8 @@ declare_builtin_function!(
     /// Prints its **last three** arguments to standard output. The **first two** arguments are
     /// **unused**. Returns the number of bytes written.
     SyscallTracePrintf,
-    fn rust(
-        _context_object: &mut TestContextObject,
+    fn rust<T>(
+        _context_object: &mut T,
         _arg1: u64,
         _arg2: u64,
         arg3: u64,
@@ -61,8 +60,8 @@ declare_builtin_function!(
     /// The idea is to assemble five bytes into a single `u64`. For compatibility with the syscalls API,
     /// each argument must be a `u64`.
     SyscallGatherBytes,
-    fn rust(
-        _context_object: &mut TestContextObject,
+    fn rust<T>(
+        _context_object: &mut T,
         arg1: u64,
         arg2: u64,
         arg3: u64,
@@ -85,8 +84,8 @@ declare_builtin_function!(
     /// The memory is directly modified, and the syscall returns 0 in all
     /// cases. Arguments 3 to 5 are unused.
     SyscallMemFrob,
-    fn rust(
-        _context_object: &mut TestContextObject,
+    fn rust<T>(
+        _context_object: &mut T,
         vm_addr: u64,
         len: u64,
         _arg3: u64,
@@ -110,8 +109,8 @@ declare_builtin_function!(
 declare_builtin_function!(
     /// C-like `strcmp`, return 0 if the strings are equal, and a non-null value otherwise.
     SyscallStrCmp,
-    fn rust(
-        _context_object: &mut TestContextObject,
+    fn rust<T>(
+        _context_object: &mut T,
         arg1: u64,
         arg2: u64,
         _arg3: u64,
@@ -148,8 +147,8 @@ declare_builtin_function!(
 declare_builtin_function!(
     /// Prints a NULL-terminated UTF-8 string.
     SyscallString,
-    fn rust(
-        _context_object: &mut TestContextObject,
+    fn rust<T>(
+        _context_object: &mut T,
         vm_addr: u64,
         len: u64,
         _arg3: u64,
@@ -173,8 +172,8 @@ declare_builtin_function!(
 declare_builtin_function!(
     /// Prints the five arguments formated as u64 in decimal.
     SyscallU64,
-    fn rust(
-        _context_object: &mut TestContextObject,
+    fn rust<T>(
+        _context_object: &mut T,
         arg1: u64,
         arg2: u64,
         arg3: u64,

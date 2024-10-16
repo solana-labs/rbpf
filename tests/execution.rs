@@ -2658,8 +2658,8 @@ fn test_call_memfrob() {
 declare_builtin_function!(
     /// For test_nested_vm_syscall()
     SyscallNestedVm,
-    fn rust(
-        _context_object: &mut TestContextObject,
+    fn rust<T>(
+        _context_object: &mut T,
         depth: u64,
         throw: u64,
         _arg3: u64,

@@ -296,8 +296,8 @@ impl<C: ContextObject> std::fmt::Debug for BuiltinProgram<C> {
 /// Generates an adapter for a BuiltinFunction between the Rust and the VM interface
 #[macro_export]
 macro_rules! declare_builtin_function {
-    ($(#[$attr:meta])* $name:ident $(<$($generic_ident:tt : $generic_type:tt),+>)?, fn rust(
-        $vm:ident : &mut $ContextObject:ty,
+    ($(#[$attr:meta])* $name:ident $(<$($generic_ident:tt : $generic_type:tt),+>)?, fn rust<$generic_ctx:tt>(
+        $vm:ident : &mut $generic_ctx_arg:tt,
         $arg_a:ident : u64,
         $arg_b:ident : u64,
         $arg_c:ident : u64,
@@ -309,8 +309,8 @@ macro_rules! declare_builtin_function {
         pub struct $name {}
         impl $name {
             /// Rust interface
-            pub fn rust $(<$($generic_ident : $generic_type),+>)? (
-                $vm: &mut $ContextObject,
+            pub fn rust<$generic_ctx: $crate::vm::ContextObject, $($($generic_ident : $generic_type),+)?> (
+                $vm: &mut $generic_ctx,
                 $arg_a: u64,
                 $arg_b: u64,
                 $arg_c: u64,
@@ -322,17 +322,16 @@ macro_rules! declare_builtin_function {
             }
             /// VM interface
             #[allow(clippy::too_many_arguments)]
-            pub fn vm $(<$($generic_ident : $generic_type),+>)? (
-                $vm: *mut $crate::vm::EbpfVm<$ContextObject>,
+            pub fn vm<$generic_ctx: $crate::vm::ContextObject, $($($generic_ident : $generic_type),+)?> (
+                $vm: *mut $crate::vm::EbpfVm<$generic_ctx>,
                 $arg_a: u64,
                 $arg_b: u64,
                 $arg_c: u64,
                 $arg_d: u64,
                 $arg_e: u64,
             ) {
-                use $crate::vm::ContextObject;
                 let vm = unsafe {
-                    &mut *($vm.cast::<u64>().offset(-($crate::vm::get_runtime_environment_key() as isize)).cast::<$crate::vm::EbpfVm<$ContextObject>>())
+                    &mut *($vm.cast::<u64>().offset(-($crate::vm::get_runtime_environment_key() as isize)).cast::<$crate::vm::EbpfVm<$generic_ctx>>())
                 };
                 let config = vm.loader.get_config();
                 if config.enable_instruction_meter {
