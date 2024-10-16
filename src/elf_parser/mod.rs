@@ -39,9 +39,9 @@ pub enum ElfParserError {
     /// Headers, tables or sections do overlap in the file
     #[error("values overlap")]
     Overlap,
-    /// Sections are not sorted in ascending order
-    #[error("sections not in ascending order")]
-    SectionNotInOrder,
+    /// Tables or sections are not sorted in ascending order
+    #[error("values not in ascending order")]
+    NotInOrder,
     /// No section name string table present in the file
     #[error("no section name string table found")]
     NoSectionNameStringTable,
@@ -230,7 +230,7 @@ impl<'a> Elf64<'a> {
             check_that_there_is_no_overlap(&section_range, &program_header_table_range)?;
             check_that_there_is_no_overlap(&section_range, &section_header_table_range)?;
             if section_range.start < offset {
-                return Err(ElfParserError::SectionNotInOrder);
+                return Err(ElfParserError::NotInOrder);
             }
             if section_range.end > elf_bytes.len() {
                 return Err(ElfParserError::OutOfBounds);
