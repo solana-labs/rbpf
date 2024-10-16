@@ -117,7 +117,7 @@ impl From<ElfParserError> for ElfError {
             | ElfParserError::InvalidString
             | ElfParserError::InvalidSize
             | ElfParserError::Overlap
-            | ElfParserError::SectionNotInOrder
+            | ElfParserError::NotInOrder
             | ElfParserError::NoSectionNameStringTable
             | ElfParserError::InvalidDynamicSectionTable
             | ElfParserError::InvalidRelocationTable
@@ -475,7 +475,7 @@ impl<C: ContextObject> Executable<C> {
                 return Err(ElfParserError::InvalidSize);
             }
             if symbol.st_value != expected_symbol_address {
-                return Err(ElfParserError::SectionNotInOrder);
+                return Err(ElfParserError::NotInOrder);
             }
             if symbol.st_value.checked_rem(ebpf::INSN_SIZE as u64) != Some(0) {
                 return Err(ElfParserError::InvalidAlignment);
