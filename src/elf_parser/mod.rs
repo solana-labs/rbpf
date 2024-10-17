@@ -39,9 +39,9 @@ pub enum ElfParserError {
     /// Headers, tables or sections do overlap in the file
     #[error("values overlap")]
     Overlap,
-    /// Sections are not sorted in ascending order
-    #[error("sections not in ascending order")]
-    SectionNotInOrder,
+    /// Tables or sections are not sorted in ascending order
+    #[error("values not in ascending order")]
+    NotInOrder,
     /// No section name string table present in the file
     #[error("no section name string table found")]
     NoSectionNameStringTable,
@@ -63,6 +63,14 @@ pub enum ElfParserError {
 }
 
 impl Elf64Phdr {
+    /// Returns the byte range the section spans in the file.
+    pub fn file_range(&self) -> Option<Range<usize>> {
+        (self.p_type == PT_LOAD).then(|| {
+            let offset = self.p_offset as usize;
+            offset..offset.saturating_add(self.p_filesz as usize)
+        })
+    }
+
     /// Returns the segment virtual address range.
     pub fn vm_range(&self) -> Range<Elf64Addr> {
         let addr = self.p_vaddr;
@@ -222,7 +230,7 @@ impl<'a> Elf64<'a> {
             check_that_there_is_no_overlap(&section_range, &program_header_table_range)?;
             check_that_there_is_no_overlap(&section_range, &section_header_table_range)?;
             if section_range.start < offset {
-                return Err(ElfParserError::SectionNotInOrder);
+                return Err(ElfParserError::NotInOrder);
             }
             if section_range.end > elf_bytes.len() {
                 return Err(ElfParserError::OutOfBounds);
@@ -238,7 +246,7 @@ impl<'a> Elf64<'a> {
             })
             .transpose()?;
 
-        let mut parser = Self {
+        let parser = Self {
             elf_bytes,
             file_header,
             program_header_table,
@@ -251,9 +259,6 @@ impl<'a> Elf64<'a> {
             dynamic_symbol_table: None,
             dynamic_symbol_names_section_header: None,
         };
-
-        parser.parse_sections()?;
-        parser.parse_dynamic()?;
 
         Ok(parser)
     }
@@ -283,7 +288,8 @@ impl<'a> Elf64<'a> {
         self.dynamic_relocations_table
     }
 
-    fn parse_sections(&mut self) -> Result<(), ElfParserError> {
+    /// Parses the section header table.
+    pub fn parse_sections(&mut self) -> Result<(), ElfParserError> {
         macro_rules! section_header_by_name {
             ($self:expr, $section_header:expr, $section_name:expr,
              $($name:literal => $field:ident,)*) => {
@@ -318,7 +324,8 @@ impl<'a> Elf64<'a> {
         Ok(())
     }
 
-    fn parse_dynamic(&mut self) -> Result<(), ElfParserError> {
+    /// Parses the dynamic section.
+    pub fn parse_dynamic(&mut self) -> Result<(), ElfParserError> {
         let mut dynamic_table: Option<&[Elf64Dyn]> = None;
 
         // try to parse PT_DYNAMIC
