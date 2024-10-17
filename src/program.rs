@@ -93,15 +93,10 @@ pub enum FunctionRegistry<T> {
     Dense(Vec<(Vec<u8>, T)>),
 }
 
-impl<T> FunctionRegistry<T> {
-    /// Create an empty sparse function registry
-    pub fn default_sparse() -> Self {
+impl<T> Default for FunctionRegistry<T> {
+    /// Default for FunctionRegistry returns a sparse registry
+    fn default() -> Self {
         FunctionRegistry::Sparse(BTreeMap::new())
-    }
-
-    /// Create and empty dense function registry
-    pub fn default_dense() -> Self {
-        FunctionRegistry::Dense(Vec::new())
     }
 }
 
@@ -325,7 +320,7 @@ impl<C: ContextObject> BuiltinProgram<C> {
     pub fn new_mock() -> Self {
         Self {
             config: Some(Box::default()),
-            functions: FunctionRegistry::default_sparse(),
+            functions: FunctionRegistry::default(),
         }
     }
 
@@ -463,7 +458,7 @@ mod tests {
     #[test]
     fn test_builtin_program_eq() {
         let mut function_registry_a =
-            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry_a
             .register_function_hashed(*b"log", syscalls::SyscallString::vm)
             .unwrap();
@@ -471,7 +466,7 @@ mod tests {
             .register_function_hashed(*b"log_64", syscalls::SyscallU64::vm)
             .unwrap();
         let mut function_registry_b =
-            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry_b
             .register_function_hashed(*b"log_64", syscalls::SyscallU64::vm)
             .unwrap();
@@ -479,7 +474,7 @@ mod tests {
             .register_function_hashed(*b"log", syscalls::SyscallString::vm)
             .unwrap();
         let mut function_registry_c =
-            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry_c
             .register_function_hashed(*b"log_64", syscalls::SyscallU64::vm)
             .unwrap();

@@ -148,7 +148,7 @@ macro_rules! test_interpreter_and_jit_asm {
         {
             let mut config = $config;
             config.enable_instruction_tracing = true;
-            let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+            let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
             $(test_interpreter_and_jit!(register, function_registry, $location => $syscall_function);)*
             let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
             let mut executable = assemble($source, loader).unwrap();
@@ -170,7 +170,7 @@ macro_rules! test_interpreter_and_jit_elf {
         file.read_to_end(&mut elf).unwrap();
         #[allow(unused_mut)]
         {
-            let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+            let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
             $(test_interpreter_and_jit!(register, function_registry, $location => $syscall_function);)*
             let loader = Arc::new(BuiltinProgram::new_loader($config, function_registry));
             let mut executable = Executable::<TestContextObject>::from_elf(&elf, loader).unwrap();
@@ -810,7 +810,7 @@ fn test_pqr() {
             &prog,
             loader.clone(),
             SBPFVersion::V2,
-            FunctionRegistry::default_sparse(),
+            FunctionRegistry::default(),
         )
         .unwrap();
         test_interpreter_and_jit!(
@@ -825,7 +825,7 @@ fn test_pqr() {
             &prog,
             loader.clone(),
             SBPFVersion::V2,
-            FunctionRegistry::default_sparse(),
+            FunctionRegistry::default(),
         )
         .unwrap();
         test_interpreter_and_jit!(
@@ -859,7 +859,7 @@ fn test_err_divide_by_zero() {
             &prog,
             loader.clone(),
             SBPFVersion::V2,
-            FunctionRegistry::default_sparse(),
+            FunctionRegistry::default(),
         )
         .unwrap();
         test_interpreter_and_jit!(
@@ -901,7 +901,7 @@ fn test_err_divide_overflow() {
             &prog,
             loader.clone(),
             SBPFVersion::V2,
-            FunctionRegistry::default_sparse(),
+            FunctionRegistry::default(),
         )
         .unwrap();
         test_interpreter_and_jit!(
@@ -2303,7 +2303,7 @@ fn test_err_mem_access_out_of_bound() {
             &prog,
             loader.clone(),
             SBPFVersion::V2,
-            FunctionRegistry::default_sparse(),
+            FunctionRegistry::default(),
         )
         .unwrap();
         test_interpreter_and_jit!(
@@ -2681,7 +2681,7 @@ declare_builtin_function!(
         #[allow(unused_mut)]
         if depth > 0 {
             let mut function_registry =
-                FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+                FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
             function_registry
                 .register_function_hashed(*b"nested_vm_syscall", SyscallNestedVm::vm)
                 .unwrap();
@@ -3383,10 +3383,10 @@ fn execute_generated_program(prog: &[u8]) -> bool {
                 enable_instruction_tracing: true,
                 ..Config::default()
             },
-            FunctionRegistry::default_sparse(),
+            FunctionRegistry::default(),
         )),
         SBPFVersion::V2,
-        FunctionRegistry::default_sparse(),
+        FunctionRegistry::default(),
     );
     let mut executable = if let Ok(executable) = executable {
         executable
@@ -4094,14 +4094,13 @@ fn test_invalid_exit_or_return() {
             enable_instruction_tracing: true,
             ..Config::default()
         };
-        let function_registry =
-            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+        let function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             prog,
             loader,
             sbpf_version,
-            FunctionRegistry::default_sparse(),
+            FunctionRegistry::default(),
         )
         .unwrap();
 

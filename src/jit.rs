@@ -1744,12 +1744,12 @@ mod tests {
     fn create_mockup_executable(config: Config, program: &[u8]) -> Executable<TestContextObject> {
         let sbpf_version = *config.enabled_sbpf_versions.end();
         let mut function_registry =
-            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry
             .register_function_hashed(*b"gather_bytes", syscalls::SyscallGatherBytes::vm)
             .unwrap();
         let loader = BuiltinProgram::new_loader(config, function_registry);
-        let mut function_registry = FunctionRegistry::default_sparse();
+        let mut function_registry = FunctionRegistry::default();
         function_registry
             .register_function(8, *b"function_foo", 8)
             .unwrap();

@@ -36,7 +36,7 @@ fn main() {
         program,
         loader,
         SBPFVersion::V2,
-        FunctionRegistry::default_sparse(),
+        FunctionRegistry::default(),
     )
     .unwrap();
     let analysis = Analysis::from_executable(&executable).unwrap();

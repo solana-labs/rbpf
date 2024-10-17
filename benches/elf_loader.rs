@@ -20,8 +20,7 @@ use std::{fs::File, io::Read, sync::Arc};
 use test::Bencher;
 
 fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
-    let mut function_registry =
-        FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+    let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
     function_registry
         .register_function_hashed(*b"log", syscalls::SyscallString::vm)
         .unwrap();

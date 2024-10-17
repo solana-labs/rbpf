@@ -100,7 +100,7 @@ fn main() {
             enable_symbol_and_section_labels: true,
             ..Config::default()
         },
-        FunctionRegistry::default_dense(),
+        FunctionRegistry::default(),
     ));
     #[allow(unused_mut)]
     let mut executable = match matches.value_of("assembler") {

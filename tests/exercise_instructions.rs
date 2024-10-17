@@ -122,7 +122,7 @@ macro_rules! test_interpreter_and_jit_asm {
         {
             let mut config = $config;
             config.enable_instruction_tracing = true;
-            let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+            let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
             $(test_interpreter_and_jit!(register, function_registry, $location => $syscall_function);)*
             let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
             let mut executable = assemble($source, loader).unwrap();

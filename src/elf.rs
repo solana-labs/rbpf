@@ -422,7 +422,7 @@ impl<C: ContextObject> Executable<C> {
         }
 
         // relocate symbols
-        let mut function_registry = FunctionRegistry::default_sparse();
+        let mut function_registry = FunctionRegistry::default();
         Self::relocate(
             &mut function_registry,
             &loader,
@@ -1167,7 +1167,7 @@ mod test {
 
     fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
         let mut function_registry =
-            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
+            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
         function_registry
             .register_function_hashed(*b"log", syscalls::SyscallString::vm)
             .unwrap();
@@ -1931,7 +1931,7 @@ mod test {
                 reject_broken_elfs: true,
                 ..Config::default()
             },
-            FunctionRegistry::default_sparse(),
+            FunctionRegistry::default(),
         );
         let elf_bytes = std::fs::read("tests/elfs/syscall_reloc_64_32_sbpfv1.so")
             .expect("failed to read elf file");
