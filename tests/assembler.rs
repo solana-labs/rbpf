@@ -19,7 +19,7 @@ fn asm(src: &str) -> Result<Vec<ebpf::Insn>, String> {
 }
 
 fn asm_with_config(src: &str, config: Config) -> Result<Vec<ebpf::Insn>, String> {
-    let loader = BuiltinProgram::new_loader(config, FunctionRegistry::default());
+    let loader = BuiltinProgram::new_loader(config, FunctionRegistry::default_sparse());
     let executable = assemble::<TestContextObject>(src, Arc::new(loader))?;
     let (_program_vm_addr, program) = executable.get_text_bytes();
     Ok((0..program.len() / ebpf::INSN_SIZE)
@@ -526,7 +526,7 @@ fn test_tcp_sack() {
         TCP_SACK_ASM,
         Arc::new(BuiltinProgram::new_loader(
             config,
-            FunctionRegistry::default(),
+            FunctionRegistry::default_sparse(),
         )),
     )
     .unwrap();

@@ -27,7 +27,7 @@ macro_rules! disasm {
     }};
     ($src:expr, $config:expr) => {{
         let src = $src;
-        let loader = BuiltinProgram::new_loader($config, FunctionRegistry::default());
+        let loader = BuiltinProgram::new_loader($config, FunctionRegistry::default_sparse());
         let executable = assemble::<TestContextObject>(src, Arc::new(loader)).unwrap();
         let analysis = Analysis::from_executable(&executable).unwrap();
         let mut reasm = Vec::new();

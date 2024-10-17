@@ -250,7 +250,7 @@ pub struct CallFrame {
 /// ];
 ///
 /// let loader = std::sync::Arc::new(BuiltinProgram::new_mock());
-/// let function_registry = FunctionRegistry::default();
+/// let function_registry = FunctionRegistry::default_sparse();
 /// let mut executable = Executable::<TestContextObject>::from_text_bytes(prog, loader.clone(), SBPFVersion::V2, function_registry).unwrap();
 /// executable.verify::<RequisiteVerifier>().unwrap();
 /// let mut context_object = TestContextObject::new(1);

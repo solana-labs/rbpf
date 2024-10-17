@@ -32,8 +32,8 @@ struct FuzzData {
 fuzz_target!(|data: FuzzData| {
     let prog = make_program(&data.prog, data.arch);
     let config = data.template.into();
-    let function_registry = FunctionRegistry::default();
-    let syscall_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+    let function_registry = FunctionRegistry::default_sparse();
+    let syscall_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
 
     if RequisiteVerifier::verify(
         prog.into_bytes(),
@@ -52,7 +52,7 @@ fuzz_target!(|data: FuzzData| {
         prog.into_bytes(),
         std::sync::Arc::new(BuiltinProgram::new_loader(
             config,
-            FunctionRegistry::default(),
+            FunctionRegistry::default_sparse(),
         )),
         SBPFVersion::V2,
         function_registry,

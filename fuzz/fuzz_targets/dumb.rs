@@ -28,8 +28,8 @@ struct DumbFuzzData {
 fuzz_target!(|data: DumbFuzzData| {
     let prog = data.prog;
     let config = data.template.into();
-    let function_registry = FunctionRegistry::default();
-    let syscall_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+    let function_registry = FunctionRegistry::default_sparse();
+    let syscall_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
 
     if RequisiteVerifier::verify(&prog, &config, &SBPFVersion::V2, &function_registry, &syscall_registry).is_err() {
         // verify please
@@ -40,7 +40,7 @@ fuzz_target!(|data: DumbFuzzData| {
         &prog,
         std::sync::Arc::new(BuiltinProgram::new_loader(
             config,
-            FunctionRegistry::default(),
+            FunctionRegistry::default_sparse(),
         )),
         SBPFVersion::V2,
         function_registry,

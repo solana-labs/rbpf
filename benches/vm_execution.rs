@@ -87,7 +87,7 @@ fn bench_jit_vs_interpreter(
         assembly,
         Arc::new(BuiltinProgram::new_loader(
             config,
-            FunctionRegistry::default(),
+            FunctionRegistry::default_sparse(),
         )),
     )
     .unwrap();

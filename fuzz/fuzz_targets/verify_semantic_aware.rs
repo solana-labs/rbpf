@@ -24,8 +24,8 @@ struct FuzzData {
 fuzz_target!(|data: FuzzData| {
     let prog = make_program(&data.prog);
     let config = data.template.into();
-    let function_registry = FunctionRegistry::default();
-    let syscall_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+    let function_registry = FunctionRegistry::default_sparse();
+    let syscall_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default_sparse();
 
     RequisiteVerifier::verify(
         prog.into_bytes(),

@@ -32,7 +32,7 @@ fn to_json(program: &[u8]) -> String {
         program,
         Arc::new(BuiltinProgram::new_mock()),
         SBPFVersion::V2,
-        FunctionRegistry::default(),
+        FunctionRegistry::default_sparse(),
     )
     .unwrap();
     let analysis = Analysis::from_executable(&executable).unwrap();

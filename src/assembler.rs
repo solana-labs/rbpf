@@ -333,7 +333,7 @@ pub fn assemble<C: ContextObject>(
     let statements = parse(src)?;
     let instruction_map = make_instruction_map(sbpf_version);
     let mut insn_ptr = 0;
-    let mut function_registry = FunctionRegistry::default();
+    let mut function_registry = FunctionRegistry::default_sparse();
     let mut labels = HashMap::new();
     labels.insert("entrypoint", 0);
     for statement in statements.iter() {
