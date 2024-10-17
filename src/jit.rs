@@ -1696,7 +1696,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 mod tests {
     use super::*;
     use crate::{
-        program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
+        program::{
+            BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion, SyscallRegistry,
+        },
         syscalls,
         vm::TestContextObject,
     };
@@ -1748,7 +1750,8 @@ mod tests {
         function_registry
             .register_function_hashed(*b"gather_bytes", syscalls::SyscallGatherBytes::vm)
             .unwrap();
-        let loader = BuiltinProgram::new_loader(config, function_registry);
+        let syscall_registry = SyscallRegistry::default();
+        let loader = BuiltinProgram::new_loader(config, function_registry, syscall_registry);
         let mut function_registry = FunctionRegistry::default();
         function_registry
             .register_function(8, *b"function_foo", 8)

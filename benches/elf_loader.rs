@@ -12,7 +12,7 @@ extern crate test_utils;
 
 use solana_rbpf::{
     elf::Executable,
-    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry},
+    program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SyscallRegistry},
     syscalls,
     vm::{Config, TestContextObject},
 };
@@ -27,6 +27,7 @@ fn loader() -> Arc<BuiltinProgram<TestContextObject>> {
     Arc::new(BuiltinProgram::new_loader(
         Config::default(),
         function_registry,
+        SyscallRegistry::default(),
     ))
 }
 
