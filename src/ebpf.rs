@@ -19,8 +19,8 @@
 //! the list of the operation codes: <https://github.com/iovisor/bpf-docs/blob/master/eBPF.md>
 
 use byteorder::{ByteOrder, LittleEndian};
-use hash32::{Hash, Hasher, Murmur3Hasher};
-use std::fmt;
+use hash32::{Hasher, Murmur3Hasher};
+use std::{fmt, hash::Hash};
 
 /// Solana BPF version flag
 pub const EF_SBPF_V2: u32 = 0x20;
@@ -656,5 +656,5 @@ pub fn augment_lddw_unchecked(prog: &[u8], insn: &mut Insn) {
 pub fn hash_symbol_name(name: &[u8]) -> u32 {
     let mut hasher = Murmur3Hasher::default();
     Hash::hash_slice(name, &mut hasher);
-    hasher.finish()
+    hasher.finish32()
 }

@@ -23,7 +23,7 @@ arbitrary = { version = "1.0", optional = true, features = ["derive"] }
 byteorder = "1.2"
 combine = "3.8.1"
 gdbstub = { version = "0.6.2", optional = true }
-hash32 = "0.2.0"
+hash32 = "0.3.1"
 log = "0.4.2"
 rand = { version = "0.8.5", features = ["small_rng"]}
 rustc-demangle = "0.1"
