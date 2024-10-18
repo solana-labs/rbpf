@@ -274,8 +274,8 @@ impl<C: ContextObject> BuiltinProgram<C> {
         }
     }
 
-    /// Create a new loader with both dense and sparse function registrations
-    /// Use `BuiltinProgram::register_function` to register.
+    /// Create a new loader with both dense and sparse function indexation
+    /// Use `BuiltinProgram::register_function` for registrations.
     pub fn new_loader_with_dense_registration(config: Config) -> Self {
         Self {
             config: Some(Box::new(config)),
