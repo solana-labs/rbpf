@@ -1999,6 +1999,10 @@ fn test_stack1() {
 
 #[test]
 fn test_stack2() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         stb [r10-4], 0x01
@@ -2017,6 +2021,7 @@ fn test_stack2() {
         syscall bpf_gather_bytes
         xor r0, 0x2a2a2a2a
         exit",
+        config,
         [],
         (
             "bpf_mem_frob" => syscalls::SyscallMemFrob::vm,
@@ -2029,6 +2034,10 @@ fn test_stack2() {
 
 #[test]
 fn test_string_stack() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov r1, 0x78636261
@@ -2059,6 +2068,7 @@ fn test_string_stack() {
         jeq r1, r6, +1
         mov r0, 0x0
         exit",
+        config,
         [],
         (
             "bpf_str_cmp" => syscalls::SyscallStrCmp::vm,
@@ -2367,6 +2377,10 @@ fn test_bpf_to_bpf_scratch_registers() {
 
 #[test]
 fn test_syscall_parameter_on_stack() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, r10
@@ -2375,6 +2389,7 @@ fn test_syscall_parameter_on_stack() {
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2559,12 +2574,17 @@ fn test_call_save() {
 
 #[test]
 fn test_err_syscall_string() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0x0
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2576,12 +2596,17 @@ fn test_err_syscall_string() {
 
 #[test]
 fn test_syscall_string() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2593,6 +2618,10 @@ fn test_syscall_string() {
 
 #[test]
 fn test_syscall() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, 0xAA
@@ -2603,6 +2632,7 @@ fn test_syscall() {
         syscall bpf_syscall_u64
         mov64 r0, 0x0
         exit",
+        config,
         [],
         (
             "bpf_syscall_u64" => syscalls::SyscallU64::vm,
@@ -2614,6 +2644,10 @@ fn test_syscall() {
 
 #[test]
 fn test_call_gather_bytes() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov r1, 1
@@ -2623,6 +2657,7 @@ fn test_call_gather_bytes() {
         mov r5, 5
         syscall bpf_gather_bytes
         exit",
+        config,
         [],
         (
             "bpf_gather_bytes" => syscalls::SyscallGatherBytes::vm,
@@ -2634,6 +2669,10 @@ fn test_call_gather_bytes() {
 
 #[test]
 fn test_call_memfrob() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov r6, r1
@@ -2643,6 +2682,7 @@ fn test_call_memfrob() {
         ldxdw r0, [r6]
         be64 r0
         exit",
+        config,
         [
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, //
         ],
@@ -2684,7 +2724,11 @@ declare_builtin_function!(
             function_registry
                 .register_function_hashed(*b"nested_vm_syscall", SyscallNestedVm::vm)
                 .unwrap();
-            let loader = BuiltinProgram::new_loader(Config::default(), function_registry);
+            let config = Config {
+                enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+                ..Config::default()
+            };
+            let loader = BuiltinProgram::new_loader(config, function_registry);
             let mem = [depth as u8 - 1, throw as u8];
             let mut executable = assemble::<TestContextObject>(
                 "
@@ -2780,12 +2824,17 @@ fn test_tight_infinite_recursion_callx() {
 
 #[test]
 fn test_instruction_count_syscall() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2797,12 +2846,17 @@ fn test_instruction_count_syscall() {
 
 #[test]
 fn test_err_instruction_count_syscall_capped() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r2, 0x5
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,
@@ -2814,6 +2868,10 @@ fn test_err_instruction_count_syscall_capped() {
 
 #[test]
 fn test_err_non_terminate_capped() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r6, 0x0
@@ -2826,6 +2884,7 @@ fn test_err_non_terminate_capped() {
         add64 r6, 0x1
         ja -0x8
         exit",
+        config.clone(),
         [],
         (
             "bpf_trace_printf" => syscalls::SyscallTracePrintf::vm,
@@ -2845,6 +2904,7 @@ fn test_err_non_terminate_capped() {
         add64 r6, 0x1
         ja -0x8
         exit",
+        config,
         [],
         (
             "bpf_trace_printf" => syscalls::SyscallTracePrintf::vm,
@@ -2952,6 +3012,10 @@ fn test_far_jumps() {
 
 #[test]
 fn test_symbol_relocation() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r1, r10
@@ -2960,6 +3024,7 @@ fn test_symbol_relocation() {
         syscall bpf_syscall_string
         mov64 r0, 0x0
         exit",
+        config,
         [72, 101, 108, 108, 111],
         (
             "bpf_syscall_string" => syscalls::SyscallString::vm,

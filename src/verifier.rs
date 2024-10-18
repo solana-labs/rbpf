@@ -73,6 +73,9 @@ pub enum VerifierError {
     /// Invalid function
     #[error("Invalid function at instruction {0}")]
     InvalidFunction(usize),
+    /// Invalid syscall
+    #[error("Invalid syscall code {0}")]
+    InvalidSyscall(u32),
 }
 
 /// eBPF Verifier
@@ -157,6 +160,7 @@ fn check_jmp_offset(
 fn check_call_target<T>(
     key: u32,
     function_registry: &FunctionRegistry<T>,
+    error: VerifierError,
 ) -> Result<(), VerifierError>
 where
     T: Copy,
@@ -165,7 +169,7 @@ where
     function_registry
         .lookup_by_key(key)
         .map(|_| ())
-        .ok_or(VerifierError::InvalidFunction(key as usize))
+        .ok_or(error)
 }
 
 fn check_registers(
@@ -386,13 +390,23 @@ impl Verifier for RequisiteVerifier {
                 ebpf::JSLT_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
-                ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src != 0 => { check_call_target(insn.imm as u32, function_registry)?; },
-                ebpf::CALL_IMM   if sbpf_version.static_syscalls() && insn.src == 0 => { check_call_target(insn.imm as u32, syscall_registry)?; },
+                ebpf::CALL_IMM   if sbpf_version.static_syscalls() => {
+                    check_call_target(
+                        insn.imm as u32,
+                        function_registry,
+                        VerifierError::InvalidFunction(insn.imm as usize)
+                    )?;
+                },
                 ebpf::CALL_IMM   => {},
                 ebpf::CALL_REG   => { check_callx_register(&insn, insn_ptr, sbpf_version)?; },
                 ebpf::EXIT       if !sbpf_version.static_syscalls()   => {},
                 ebpf::RETURN     if sbpf_version.static_syscalls()    => {},
-                ebpf::SYSCALL    if sbpf_version.static_syscalls()    => {},
+                ebpf::SYSCALL    if sbpf_version.static_syscalls()    => {
+                    check_call_target(
+                        insn.imm as u32,
+                        syscall_registry,
+                        VerifierError::InvalidSyscall(insn.imm as u32))?;
+                },
 
                 _                => {
                     return Err(VerifierError::UnknownOpCode(insn.opc, insn_ptr));

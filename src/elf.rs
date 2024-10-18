@@ -315,7 +315,7 @@ impl<C: ContextObject> Executable<C> {
             self.get_config(),
             self.get_sbpf_version(),
             self.get_function_registry(),
-            self.loader.get_sparse_function_registry(),
+            self.loader.get_dense_function_registry(),
         )?;
         Ok(())
     }

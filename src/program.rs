@@ -289,9 +289,14 @@ impl<C: ContextObject> BuiltinProgram<C> {
         self.config.as_ref().unwrap()
     }
 
-    /// Get the function registry
+    /// Get the sparse function registry
     pub fn get_sparse_function_registry(&self) -> &FunctionRegistry<BuiltinFunction<C>> {
         &self.sparse_registry
+    }
+
+    /// Get the dense function registry
+    pub fn get_dense_function_registry(&self) -> &FunctionRegistry<BuiltinFunction<C>> {
+        &self.dense_registry
     }
 
     /// Calculate memory size
