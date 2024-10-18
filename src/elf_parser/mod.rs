@@ -246,7 +246,7 @@ impl<'a> Elf64<'a> {
             })
             .transpose()?;
 
-        let mut parser = Self {
+        let parser = Self {
             elf_bytes,
             file_header,
             program_header_table,
@@ -259,9 +259,6 @@ impl<'a> Elf64<'a> {
             dynamic_symbol_table: None,
             dynamic_symbol_names_section_header: None,
         };
-
-        parser.parse_sections()?;
-        parser.parse_dynamic()?;
 
         Ok(parser)
     }
@@ -291,7 +288,8 @@ impl<'a> Elf64<'a> {
         self.dynamic_relocations_table
     }
 
-    fn parse_sections(&mut self) -> Result<(), ElfParserError> {
+    /// Parses the section header table.
+    pub fn parse_sections(&mut self) -> Result<(), ElfParserError> {
         macro_rules! section_header_by_name {
             ($self:expr, $section_header:expr, $section_name:expr,
              $($name:literal => $field:ident,)*) => {
@@ -326,7 +324,8 @@ impl<'a> Elf64<'a> {
         Ok(())
     }
 
-    fn parse_dynamic(&mut self) -> Result<(), ElfParserError> {
+    /// Parses the dynamic section.
+    pub fn parse_dynamic(&mut self) -> Result<(), ElfParserError> {
         let mut dynamic_table: Option<&[Elf64Dyn]> = None;
 
         // try to parse PT_DYNAMIC

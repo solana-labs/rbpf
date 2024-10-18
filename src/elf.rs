@@ -382,7 +382,7 @@ impl<C: ContextObject> Executable<C> {
             .as_ref()
             .map(|aligned_memory| aligned_memory.as_slice())
             .unwrap_or(bytes);
-        let elf = Elf64::parse(aligned_bytes)?;
+        let mut elf = Elf64::parse(aligned_bytes)?;
 
         let enabled_sbpf_versions = loader.get_config().enabled_sbpf_versions.clone();
         let sbpf_version = if *enabled_sbpf_versions.end() == SBPFVersion::V1 {
@@ -404,6 +404,8 @@ impl<C: ContextObject> Executable<C> {
         }
 
         let mut elf = if sbpf_version == SBPFVersion::V1 {
+            elf.parse_sections()?;
+            elf.parse_dynamic()?;
             Self::load_with_lenient_parser(&elf, aligned_bytes, loader)?
         } else {
             let elf: Result<Self, ElfError> =
