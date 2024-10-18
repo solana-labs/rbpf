@@ -236,7 +236,7 @@ impl<'a> Analysis<'a> {
                     if let Some((function_name, _function)) = self
                         .executable
                         .get_loader()
-                        .get_function_registry()
+                        .get_sparse_function_registry()
                         .lookup_by_key(insn.imm as u32)
                     {
                         if function_name == b"abort" {
