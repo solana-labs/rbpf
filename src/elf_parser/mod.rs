@@ -168,28 +168,20 @@ impl<'a> Elf64<'a> {
             .filter(|section_header| section_header.sh_type == SHT_NULL)
             .ok_or(ElfParserError::InvalidSectionHeader)?;
 
-        let mut prev_program_header: Option<&Elf64Phdr> = None;
+        let mut vaddr = 0usize;
         for program_header in program_header_table {
             if program_header.p_type != PT_LOAD {
                 continue;
             }
-
-            if let Some(prev_program_header) = prev_program_header {
-                // program headers must be ascending
-                if program_header.p_vaddr < prev_program_header.p_vaddr {
-                    return Err(ElfParserError::InvalidProgramHeader);
-                }
+            if (program_header.p_vaddr as usize) < vaddr {
+                return Err(ElfParserError::InvalidProgramHeader);
             }
-
-            if program_header
+            vaddr = program_header
                 .p_offset
-                .err_checked_add(program_header.p_filesz)? as usize
-                > elf_bytes.len()
-            {
+                .err_checked_add(program_header.p_filesz)? as usize;
+            if vaddr > elf_bytes.len() {
                 return Err(ElfParserError::OutOfBounds);
             }
-
-            prev_program_header = Some(program_header)
         }
 
         let mut offset = 0usize;
@@ -206,10 +198,10 @@ impl<'a> Elf64<'a> {
             if section_range.start < offset {
                 return Err(ElfParserError::SectionNotInOrder);
             }
-            if section_range.end > elf_bytes.len() {
+            offset = section_range.end;
+            if offset > elf_bytes.len() {
                 return Err(ElfParserError::OutOfBounds);
             }
-            offset = section_range.end;
         }
 
         let section_names_section_header = (file_header.e_shstrndx != SHN_UNDEF)
