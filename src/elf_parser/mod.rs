@@ -138,19 +138,7 @@ pub struct Elf64<'a> {
 impl<'a> Elf64<'a> {
     /// Parse from the given byte slice
     pub fn parse(elf_bytes: &'a [u8]) -> Result<Self, ElfParserError> {
-        let file_header_range = 0..mem::size_of::<Elf64Ehdr>();
-        let file_header_bytes = elf_bytes
-            .get(file_header_range.clone())
-            .ok_or(ElfParserError::OutOfBounds)?;
-        let ptr = file_header_bytes.as_ptr();
-        if (ptr as usize)
-            .checked_rem(mem::align_of::<Elf64Ehdr>())
-            .map(|remaining| remaining != 0)
-            .unwrap_or(true)
-        {
-            return Err(ElfParserError::InvalidAlignment);
-        }
-        let file_header = unsafe { &*ptr.cast::<Elf64Ehdr>() };
+        let (file_header_range, file_header) = Self::parse_file_header(elf_bytes)?;
 
         if file_header.e_ident.ei_mag != ELFMAG
             || file_header.e_ident.ei_class != ELFCLASS64
@@ -281,6 +269,26 @@ impl<'a> Elf64<'a> {
     /// Returns the dynamic relocations table.
     pub fn dynamic_relocations_table(&self) -> Option<&[Elf64Rel]> {
         self.dynamic_relocations_table
+    }
+
+    /// Parses the file header.
+    pub fn parse_file_header(
+        elf_bytes: &'a [u8],
+    ) -> Result<(std::ops::Range<usize>, &'a Elf64Ehdr), ElfParserError> {
+        let file_header_range = 0..mem::size_of::<Elf64Ehdr>();
+        let file_header_bytes = elf_bytes
+            .get(file_header_range.clone())
+            .ok_or(ElfParserError::OutOfBounds)?;
+        let ptr = file_header_bytes.as_ptr();
+        if (ptr as usize)
+            .checked_rem(mem::align_of::<Elf64Ehdr>())
+            .map(|remaining| remaining != 0)
+            .unwrap_or(true)
+        {
+            return Err(ElfParserError::InvalidAlignment);
+        }
+        let file_header = unsafe { &*ptr.cast::<Elf64Ehdr>() };
+        Ok((file_header_range, file_header))
     }
 
     fn parse_sections(&mut self) -> Result<(), ElfParserError> {
