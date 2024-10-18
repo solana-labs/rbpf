@@ -372,25 +372,21 @@ impl<C: ContextObject> Executable<C> {
 
     /// Fully loads an ELF, including validation and relocation
     pub fn load(bytes: &[u8], loader: Arc<BuiltinProgram<C>>) -> Result<Self, ElfError> {
-        // The new parser creates references from the input byte slice, so
-        // it must be properly aligned. We assume that HOST_ALIGN is a
-        // multiple of the ELF "natural" alignment. See test_load_unaligned.
-        let aligned;
-        let bytes = if is_memory_aligned(bytes.as_ptr() as usize, HOST_ALIGN) {
-            bytes
-        } else {
-            aligned = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
-            aligned.as_slice()
-        };
-        Self::load_with_parser(&Elf64::parse(bytes)?, bytes, loader)
+        Self::load_with_parser(bytes, loader)
     }
 
-    fn load_with_parser(
-        elf: &Elf64,
-        bytes: &[u8],
-        loader: Arc<BuiltinProgram<C>>,
-    ) -> Result<Self, ElfError> {
-        let mut elf_bytes = AlignedMemory::from_slice(bytes);
+    fn load_with_parser(bytes: &[u8], loader: Arc<BuiltinProgram<C>>) -> Result<Self, ElfError> {
+        // We always need one memory copy to take ownership and for relocations
+        let aligned_memory = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
+        let (mut elf_bytes, unrelocated_elf_bytes) =
+            if is_memory_aligned(bytes.as_ptr() as usize, HOST_ALIGN) {
+                (aligned_memory, bytes)
+            } else {
+                // We might need another memory copy to ensure alignment
+                (aligned_memory.clone(), aligned_memory.as_slice())
+            };
+        let elf = Elf64::parse(unrelocated_elf_bytes)?;
+
         let config = loader.get_config();
         let header = elf.file_header();
         let sbpf_version = if header.e_flags == EF_SBPF_V2 {
@@ -399,10 +395,10 @@ impl<C: ContextObject> Executable<C> {
             SBPFVersion::V1
         };
 
-        Self::validate(config, elf, elf_bytes.as_slice())?;
+        Self::validate(config, &elf, elf_bytes.as_slice())?;
 
         // calculate the text section info
-        let text_section = get_section(elf, b".text")?;
+        let text_section = get_section(&elf, b".text")?;
         let text_section_vaddr =
             if sbpf_version.enable_elf_vaddr() && text_section.sh_addr >= ebpf::MM_RODATA_START {
                 text_section.sh_addr
@@ -427,7 +423,7 @@ impl<C: ContextObject> Executable<C> {
         Self::relocate(
             &mut function_registry,
             &loader,
-            elf,
+            &elf,
             elf_bytes.as_slice_mut(),
         )?;
 
