@@ -12,6 +12,7 @@
 
 //! Interpreter for eBPF programs.
 
+use crate::program::BuiltinFunction;
 use crate::{
     ebpf::{self, STACK_PTR_REG},
     elf::Executable,
@@ -526,32 +527,14 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
 
             // Do not delegate the check to the verifier, since self.registered functions can be
             // changed after the program has been verified.
-            ebpf::CALL_IMM
-            | ebpf::SYSCALL if insn.opc == ebpf::CALL_IMM || self.executable.get_sbpf_version().static_syscalls() => {
-                let mut resolved = false;
-                let (external, internal) = if self.executable.get_sbpf_version().static_syscalls() {
-                    (insn.src == 0, insn.src != 0)
-                } else {
-                    (true, true)
-                };
-
-                if external {
-                    if let Some((_function_name, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
-                        resolved = true;
-
-                        self.vm.due_insn_count = self.vm.previous_instruction_meter - self.vm.due_insn_count;
-                        self.vm.registers[0..6].copy_from_slice(&self.reg[0..6]);
-                        self.vm.invoke_function(function);
-                        self.vm.due_insn_count = 0;
-                        self.reg[0] = match &self.vm.program_result {
-                            ProgramResult::Ok(value) => *value,
-                            ProgramResult::Err(_err) => return false,
-                        };
-                    }
-                }
-
-                if internal && !resolved {
-                    if let Some((_function_name, target_pc)) =
+            ebpf::CALL_IMM => {
+                if let Some((_, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
+                    // SBPFv1 syscall
+                    self.reg[0] = match self.dispatch_syscall(function) {
+                        ProgramResult::Ok(value) => *value,
+                        ProgramResult::Err(_err) => return false,
+                    };
+                } else if let Some((_, target_pc)) =
                         self.executable
                             .get_function_registry()
                             .lookup_by_key(
@@ -559,22 +542,27 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                                     .executable
                                     .get_sbpf_version()
                                     .calculate_call_imm_target_pc(self.reg[11] as usize, insn.imm)
-                            )
-                    {
-                        resolved = true;
-
-                        // make BPF to BPF call
-                        if !self.push_frame(config) {
-                            return false;
-                        }
-                        check_pc!(self, next_pc, target_pc as u64);
+                        ) {
+                    // make BPF to BPF call
+                    if !self.push_frame(config) {
+                        return false;
                     }
-                }
-
-                if !resolved {
+                    check_pc!(self, next_pc, target_pc as u64);
+                } else {
                     throw_error!(self, EbpfError::UnsupportedInstruction);
                 }
             }
+            ebpf::SYSCALL if self.executable.get_sbpf_version().static_syscalls() => {
+                if let Some((_, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
+                    // SBPFv2 syscall
+                    self.reg[0] = match self.dispatch_syscall(function) {
+                        ProgramResult::Ok(value) => *value,
+                        ProgramResult::Err(_err) => return false,
+                    };
+                } else {
+                    throw_error!(self, EbpfError::UnsupportedInstruction);
+                }
+            },
             ebpf::RETURN
             | ebpf::EXIT       => {
                 if (insn.opc == ebpf::EXIT && self.executable.get_sbpf_version().static_syscalls())
@@ -608,5 +596,13 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
 
         self.reg[11] = next_pc;
         true
+    }
+
+    fn dispatch_syscall(&mut self, function: BuiltinFunction<C>) -> &ProgramResult {
+        self.vm.due_insn_count = self.vm.previous_instruction_meter - self.vm.due_insn_count;
+        self.vm.registers[0..6].copy_from_slice(&self.reg[0..6]);
+        self.vm.invoke_function(function);
+        self.vm.due_insn_count = 0;
+        &self.vm.program_result
     }
 }

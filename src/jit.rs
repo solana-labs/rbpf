@@ -23,6 +23,7 @@ use rand::{
 };
 use std::{fmt::Debug, mem, ptr};
 
+use crate::program::BuiltinFunction;
 use crate::{
     ebpf::{self, FIRST_SCRATCH_REG, FRAME_PTR_REG, INSN_SIZE, SCRATCH_REGS, STACK_PTR_REG},
     elf::Executable,
@@ -705,29 +706,12 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::JSLT_REG   => self.emit_conditional_branch_reg(0x8c, false, src, dst, target_pc),
                 ebpf::JSLE_IMM   => self.emit_conditional_branch_imm(0x8e, false, insn.imm, dst, target_pc),
                 ebpf::JSLE_REG   => self.emit_conditional_branch_reg(0x8e, false, src, dst, target_pc),
-                ebpf::CALL_IMM | ebpf::SYSCALL
-                if insn.opc == ebpf::CALL_IMM || self.executable.get_sbpf_version().static_syscalls() => {
+                ebpf::CALL_IMM => {
                     // For JIT, external functions MUST be registered at compile time.
-
-                    let mut resolved = false;
-                    let (external, internal) = if self.executable.get_sbpf_version().static_syscalls() {
-                        (insn.src == 0, insn.src != 0)
-                    } else {
-                        (true, true)
-                    };
-
-                    if external {
-                        if let Some((_function_name, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
-                            self.emit_validate_and_profile_instruction_count(false, Some(0));
-                            self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, function as usize as i64));
-                            self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL, 5)));
-                            self.emit_undo_profile_instruction_count(0);
-                            resolved = true;
-                        }
-                    }
-
-                    if internal {
-                        if let Some((_function_name, target_pc)) =
+                    if let Some((_, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
+                        // SBPFv1 syscall
+                        self.emit_syscall_dispatch(function);
+                    } else if let Some((_function_name, target_pc)) =
                             self.executable
                                 .get_function_registry()
                                 .lookup_by_key(
@@ -735,16 +719,18 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                                         .executable
                                         .get_sbpf_version()
                                         .calculate_call_imm_target_pc(self.pc, insn.imm)
-                                )
-                        {
-                                self.emit_internal_call(Value::Constant64(target_pc as i64, true));
-                                resolved = true;
-                        }
+                            ) {
+                        // BPF to BPF call
+                        self.emit_internal_call(Value::Constant64(target_pc as i64, true));
+                    } else {
+                        self.emit_throw_unsupported_instruction();
                     }
-
-                    if !resolved {
-                        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64));
-                        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)));
+                },
+                ebpf::SYSCALL if self.executable.get_sbpf_version().static_syscalls() => {
+                    if let Some((_, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
+                        self.emit_syscall_dispatch(function);
+                    } else {
+                        self.emit_throw_unsupported_instruction();
                     }
                 },
                 ebpf::CALL_REG  => {
@@ -1142,6 +1128,20 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS).rev() {
             self.emit_ins(X86Instruction::pop(*reg));
         }
+    }
+
+    #[inline]
+    fn emit_syscall_dispatch(&mut self, function: BuiltinFunction<C>) {
+        self.emit_validate_and_profile_instruction_count(false, Some(0));
+        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, function as usize as i64));
+        self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL, 5)));
+        self.emit_undo_profile_instruction_count(0);
+    }
+
+    #[inline]
+    fn emit_throw_unsupported_instruction(&mut self) {
+        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64));
+        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)));
     }
 
     #[inline]
