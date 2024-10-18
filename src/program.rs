@@ -87,21 +87,40 @@ impl SBPFVersion {
     }
 }
 
+/// Operand modes of the FunctionRegistry
+#[derive(Debug, PartialEq, Eq)]
+enum IndexMode {
+    /// Allows sparse keys
+    Sparse,
+    /// Only allows keys within the range between 1 and a maximum value (u32).
+    Dense(u32),
+}
+
 /// Holds the function symbols of an Executable
 #[derive(Debug, PartialEq, Eq)]
 pub struct FunctionRegistry<T> {
     pub(crate) map: BTreeMap<u32, (Vec<u8>, T)>,
+    mode: IndexMode,
 }
 
 impl<T> Default for FunctionRegistry<T> {
     fn default() -> Self {
         Self {
             map: BTreeMap::new(),
+            mode: IndexMode::Sparse,
         }
     }
 }
 
 impl<T: Copy + PartialEq> FunctionRegistry<T> {
+    /// Create a function registry with dense indexing
+    pub fn new_dense(size: u32) -> Self {
+        Self {
+            map: BTreeMap::new(),
+            mode: IndexMode::Dense(size),
+        }
+    }
+
     /// Register a symbol with an explicit key
     pub fn register_function(
         &mut self,
@@ -109,6 +128,12 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
         name: impl Into<Vec<u8>>,
         value: T,
     ) -> Result<(), ElfError> {
+        if let IndexMode::Dense(size) = self.mode {
+            if key == 0 || key > size {
+                return Err(ElfError::InvalidDenseFunctionIndex);
+            }
+        }
+
         match self.map.entry(key) {
             Entry::Vacant(entry) => {
                 entry.insert((name.into(), value));
@@ -128,6 +153,9 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
         name: impl Into<Vec<u8>>,
         value: T,
     ) -> Result<u32, ElfError> {
+        if matches!(self.mode, IndexMode::Dense(_)) {
+            return Err(ElfError::InvalidDenseFunctionIndex);
+        }
         let name = name.into();
         let key = ebpf::hash_symbol_name(name.as_slice());
         self.register_function(key, name, value)?;
@@ -145,6 +173,9 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
     where
         usize: From<T>,
     {
+        if matches!(self.mode, IndexMode::Dense(_)) {
+            return Err(ElfError::InvalidDenseFunctionIndex);
+        }
         let name = name.into();
         let config = loader.get_config();
         let key = if hash_symbol_name {
@@ -228,22 +259,36 @@ pub type BuiltinFunction<C> = fn(*mut EbpfVm<C>, u64, u64, u64, u64, u64);
 pub struct BuiltinProgram<C: ContextObject> {
     /// Holds the Config if this is a loader program
     config: Option<Box<Config>>,
-    /// Function pointers by symbol
-    functions: FunctionRegistry<BuiltinFunction<C>>,
+    /// Function pointers by symbol with sparse indexing
+    sparse_registry: FunctionRegistry<BuiltinFunction<C>>,
+    /// Function pointers by symbol with dense indexing
+    dense_registry: FunctionRegistry<BuiltinFunction<C>>,
 }
 
 impl<C: ContextObject> PartialEq for BuiltinProgram<C> {
     fn eq(&self, other: &Self) -> bool {
-        self.config.eq(&other.config) && self.functions.eq(&other.functions)
+        self.config.eq(&other.config)
+            && self.sparse_registry.eq(&other.sparse_registry)
+            && self.dense_registry.eq(&other.dense_registry)
     }
 }
 
 impl<C: ContextObject> BuiltinProgram<C> {
+    /// Creates a loader containing simultaneously a sparse and a dense function registry.
+    pub fn new_loader_with_dense_registry(config: Config, dense_size: u32) -> Self {
+        Self {
+            config: Some(Box::new(config)),
+            sparse_registry: FunctionRegistry::default(),
+            dense_registry: FunctionRegistry::new_dense(dense_size),
+        }
+    }
+
     /// Constructs a loader built-in program
     pub fn new_loader(config: Config, functions: FunctionRegistry<BuiltinFunction<C>>) -> Self {
         Self {
             config: Some(Box::new(config)),
-            functions,
+            sparse_registry: functions,
+            dense_registry: FunctionRegistry::new_dense(0),
         }
     }
 
@@ -251,7 +296,8 @@ impl<C: ContextObject> BuiltinProgram<C> {
     pub fn new_builtin(functions: FunctionRegistry<BuiltinFunction<C>>) -> Self {
         Self {
             config: None,
-            functions,
+            sparse_registry: functions,
+            dense_registry: FunctionRegistry::new_dense(0),
         }
     }
 
@@ -259,7 +305,8 @@ impl<C: ContextObject> BuiltinProgram<C> {
     pub fn new_mock() -> Self {
         Self {
             config: Some(Box::default()),
-            functions: FunctionRegistry::default(),
+            sparse_registry: FunctionRegistry::default(),
+            dense_registry: FunctionRegistry::new_dense(0),
         }
     }
 
@@ -270,7 +317,7 @@ impl<C: ContextObject> BuiltinProgram<C> {
 
     /// Get the function registry
     pub fn get_function_registry(&self) -> &FunctionRegistry<BuiltinFunction<C>> {
-        &self.functions
+        &self.sparse_registry
     }
 
     /// Calculate memory size
@@ -281,7 +328,19 @@ impl<C: ContextObject> BuiltinProgram<C> {
             } else {
                 0
             })
-            .saturating_add(self.functions.mem_size())
+            .saturating_add(self.sparse_registry.mem_size())
+    }
+
+    /// Register a function both in the sparse and dense registries
+    pub fn register_function(
+        &mut self,
+        name: &str,
+        value: BuiltinFunction<C>,
+        dense_key: u32,
+    ) -> Result<(), ElfError> {
+        self.sparse_registry.register_function_hashed(name, value)?;
+        self.dense_registry
+            .register_function(dense_key, name, value)
     }
 }
 
@@ -290,7 +349,7 @@ impl<C: ContextObject> std::fmt::Debug for BuiltinProgram<C> {
         writeln!(f, "{:?}", unsafe {
             // `derive(Debug)` does not know that `C: ContextObject` does not need to implement `Debug`
             std::mem::transmute::<&FunctionRegistry<BuiltinFunction<C>>, &FunctionRegistry<usize>>(
-                &self.functions,
+                &self.sparse_registry,
             )
         })?;
         Ok(())
@@ -387,5 +446,52 @@ mod tests {
         assert_eq!(builtin_program_a, builtin_program_b);
         let builtin_program_c = BuiltinProgram::new_loader(Config::default(), function_registry_c);
         assert_ne!(builtin_program_a, builtin_program_c);
+    }
+
+    #[test]
+    fn dense_registry() {
+        let mut dense_registry =
+            FunctionRegistry::<BuiltinFunction<TestContextObject>>::new_dense(2);
+        let res = dense_registry.register_function(0, b"syscall_u64", syscalls::SyscallU64::vm);
+        assert_eq!(res.err(), Some(ElfError::InvalidDenseFunctionIndex));
+
+        let res = dense_registry.register_function(5, b"syscall_u64", syscalls::SyscallU64::vm);
+        assert_eq!(res.err(), Some(ElfError::InvalidDenseFunctionIndex));
+
+        let res =
+            dense_registry.register_function(1, b"syscall_string", syscalls::SyscallString::vm);
+        assert!(res.is_ok());
+
+        let res = dense_registry.lookup_by_key(0);
+        assert!(res.is_none());
+        let res = dense_registry.lookup_by_key(3);
+        assert!(res.is_none());
+        let res = dense_registry.lookup_by_key(1);
+        assert_eq!(res.unwrap().0, b"syscall_string");
+
+        let res = dense_registry.register_function_hashed("syscall_u64", syscalls::SyscallU64::vm);
+        assert_eq!(res.err(), Some(ElfError::InvalidDenseFunctionIndex));
+
+        let mut dense_reg_usize = FunctionRegistry::<usize>::new_dense(2);
+        let res = dense_reg_usize.register_function_hashed_legacy(
+            &BuiltinProgram::<TestContextObject>::new_mock(),
+            false,
+            "syscall_u64",
+            4,
+        );
+        assert_eq!(res.err(), Some(ElfError::InvalidDenseFunctionIndex));
+    }
+
+    #[test]
+    fn loader_registry() {
+        let mut loader = BuiltinProgram::new_loader_with_dense_registry(Config::default(), 2);
+        let res = loader.register_function("syscall_u64", syscalls::SyscallU64::vm, 0);
+        assert!(res.is_err());
+
+        let res = loader.register_function("syscall_u64", syscalls::SyscallU64::vm, 5);
+        assert!(res.is_err());
+
+        let res = loader.register_function("syscall_u64", syscalls::SyscallU64::vm, 2);
+        assert!(res.is_ok());
     }
 }

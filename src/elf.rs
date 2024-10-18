@@ -107,6 +107,9 @@ pub enum ElfError {
     /// Invalid program header
     #[error("Invalid ELF program header")]
     InvalidProgramHeader,
+    /// Invalid syscall code
+    #[error("Invalid function index")]
+    InvalidDenseFunctionIndex,
 }
 
 impl From<ElfParserError> for ElfError {
