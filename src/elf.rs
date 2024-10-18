@@ -370,7 +370,7 @@ impl<C: ContextObject> Executable<C> {
         })
     }
 
-    /// Fully loads an ELF, including validation and relocation
+    /// Fully loads an ELF
     pub fn load(bytes: &[u8], loader: Arc<BuiltinProgram<C>>) -> Result<Self, ElfError> {
         const E_FLAGS_OFFSET: usize = 48;
         let e_flags = LittleEndian::read_u32(
@@ -396,10 +396,16 @@ impl<C: ContextObject> Executable<C> {
             return Err(ElfError::UnsupportedSBPFVersion);
         }
 
-        Self::load_with_parser(bytes, loader)
+        let mut executable = Self::load_with_lenient_parser(bytes, loader)?;
+        executable.sbpf_version = sbpf_version;
+        Ok(executable)
     }
 
-    fn load_with_parser(bytes: &[u8], loader: Arc<BuiltinProgram<C>>) -> Result<Self, ElfError> {
+    /// Loads an ELF with relocation
+    fn load_with_lenient_parser(
+        bytes: &[u8],
+        loader: Arc<BuiltinProgram<C>>,
+    ) -> Result<Self, ElfError> {
         // We always need one memory copy to take ownership and for relocations
         let aligned_memory = AlignedMemory::<{ HOST_ALIGN }>::from_slice(bytes);
         let (mut elf_bytes, unrelocated_elf_bytes) =
