@@ -184,7 +184,11 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
             } else {
                 ebpf::hash_symbol_name(&usize::from(value).to_le_bytes())
             };
-            if loader.get_function_registry().lookup_by_key(hash).is_some() {
+            if loader
+                .get_sparse_function_registry()
+                .lookup_by_key(hash)
+                .is_some()
+            {
                 return Err(ElfError::SymbolHashCollision(hash));
             }
             hash
@@ -315,8 +319,8 @@ impl<C: ContextObject> BuiltinProgram<C> {
         self.config.as_ref().unwrap()
     }
 
-    /// Get the function registry
-    pub fn get_function_registry(&self) -> &FunctionRegistry<BuiltinFunction<C>> {
+    /// Get the sparse function registry
+    pub fn get_sparse_function_registry(&self) -> &FunctionRegistry<BuiltinFunction<C>> {
         &self.sparse_registry
     }
 

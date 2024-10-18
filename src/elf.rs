@@ -318,7 +318,7 @@ impl<C: ContextObject> Executable<C> {
             self.get_config(),
             self.get_sbpf_version(),
             self.get_function_registry(),
-            self.loader.get_function_registry(),
+            self.loader.get_sparse_function_registry(),
         )?;
         Ok(())
     }
@@ -1074,7 +1074,10 @@ impl<C: ContextObject> Executable<C> {
                             .entry(symbol.st_name)
                             .or_insert_with(|| ebpf::hash_symbol_name(name));
                         if config.reject_broken_elfs
-                            && loader.get_function_registry().lookup_by_key(hash).is_none()
+                            && loader
+                                .get_sparse_function_registry()
+                                .lookup_by_key(hash)
+                                .is_none()
                         {
                             return Err(ElfError::UnresolvedSymbol(
                                 String::from_utf8_lossy(name).to_string(),
