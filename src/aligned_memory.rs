@@ -15,30 +15,67 @@ impl Pod for i16 {}
 impl Pod for i32 {}
 impl Pod for i64 {}
 
+#[derive(Debug, PartialEq, Eq)]
+struct TlsVecU8(Vec<u8>, usize, bool);
+
+thread_local! {
+    static VECS: std::cell::RefCell<std::collections::BTreeMap<usize, Vec<Vec<u8>>>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
+}
+
+impl Drop for TlsVecU8 {
+    fn drop(&mut self) {
+        if !self.2 {
+            return;
+        }
+        let mut vec = std::mem::take(&mut self.0);
+        VECS.with_borrow_mut(|vecs| {
+            vec.fill(0);
+            vecs.entry(self.1).or_default().push(vec);
+        });
+    }
+}
+
+impl std::ops::Deref for TlsVecU8 {
+    type Target = Vec<u8>;
+    fn deref(&self) -> &<Self as std::ops::Deref>::Target { &self.0 }
+}
+
+impl std::ops::DerefMut for TlsVecU8 {
+    fn deref_mut(&mut self) -> &mut <Self as std::ops::Deref>::Target { &mut self.0 }
+}
+
 /// Provides u8 slices at a specified alignment
 #[derive(Debug, PartialEq, Eq)]
 pub struct AlignedMemory<const ALIGN: usize> {
     max_len: usize,
     align_offset: usize,
-    mem: Vec<u8>,
+    mem: TlsVecU8,
     zero_up_to_max_len: bool,
 }
 
 impl<const ALIGN: usize> AlignedMemory<ALIGN> {
-    fn get_mem(max_len: usize) -> (Vec<u8>, usize) {
+    fn get_mem(max_len: usize) -> (TlsVecU8, usize) {
         let mut mem: Vec<u8> = Vec::with_capacity(max_len.saturating_add(ALIGN));
         let align_offset = mem.as_ptr().align_offset(ALIGN);
         mem.resize(align_offset, 0);
-        (mem, align_offset)
+        (TlsVecU8(mem, max_len, false), align_offset)
     }
-    fn get_mem_zeroed(max_len: usize) -> (Vec<u8>, usize) {
+    fn get_mem_zeroed(max_len: usize) -> (TlsVecU8, usize) {
         // use calloc() to get zeroed memory from the OS instead of using
         // malloc() + memset(), see
         // https://github.com/rust-lang/rust/issues/54628
-        let mut mem = vec![0; max_len];
-        let align_offset = mem.as_ptr().align_offset(ALIGN);
-        mem.resize(max_len.saturating_add(align_offset), 0);
-        (mem, align_offset)
+        let (mem, align_offset) = VECS.with_borrow_mut(|vecs| {
+            vecs.entry(max_len).or_default().pop().map(|mem| {
+                let align_offset = mem.as_ptr().align_offset(ALIGN);
+                (mem, align_offset)
+            }).unwrap_or_else(|| {
+                let mut mem = vec![0; max_len];
+                let align_offset = mem.as_ptr().align_offset(ALIGN);
+                mem.resize(max_len.saturating_add(align_offset), 0);
+                (mem, align_offset)
+            })
+        });
+        (TlsVecU8(mem, max_len, true), align_offset)
     }
     /// Returns a filled AlignedMemory by copying the given slice
     pub fn from_slice(data: &[u8]) -> Self {
