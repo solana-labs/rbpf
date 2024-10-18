@@ -372,6 +372,30 @@ impl<C: ContextObject> Executable<C> {
 
     /// Fully loads an ELF, including validation and relocation
     pub fn load(bytes: &[u8], loader: Arc<BuiltinProgram<C>>) -> Result<Self, ElfError> {
+        const E_FLAGS_OFFSET: usize = 48;
+        let e_flags = LittleEndian::read_u32(
+            bytes
+                .get(E_FLAGS_OFFSET..E_FLAGS_OFFSET.saturating_add(std::mem::size_of::<u32>()))
+                .ok_or(ElfParserError::OutOfBounds)?,
+        );
+        let config = loader.get_config();
+        let sbpf_version = if config.enabled_sbpf_versions.end() == &SBPFVersion::V1 {
+            if e_flags == EF_SBPF_V2 {
+                SBPFVersion::V2
+            } else {
+                SBPFVersion::V1
+            }
+        } else {
+            match e_flags {
+                0 => SBPFVersion::V1,
+                EF_SBPF_V2 => SBPFVersion::V2,
+                _ => SBPFVersion::Reserved,
+            }
+        };
+        if !config.enabled_sbpf_versions.contains(&sbpf_version) {
+            return Err(ElfError::UnsupportedSBPFVersion);
+        }
+
         Self::load_with_parser(bytes, loader)
     }
 
