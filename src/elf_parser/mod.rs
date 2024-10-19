@@ -330,7 +330,8 @@ impl<'a> Elf64<'a> {
             .section_names_section_header
             .ok_or(ElfParserError::NoSectionNameStringTable)?;
         for section_header in self.section_header_table.iter() {
-            let section_name = self.get_string_in_section(
+            let section_name = Self::get_string_in_section(
+                self.elf_bytes,
                 section_names_section_header,
                 section_header.sh_name,
                 SECTION_NAME_LENGTH_MAXIMUM,
@@ -454,7 +455,7 @@ impl<'a> Elf64<'a> {
 
     /// Query a single string from a section which is marked as SHT_STRTAB
     pub fn get_string_in_section(
-        &self,
+        elf_bytes: &'a [u8],
         section_header: &Elf64Shdr,
         offset_in_section: Elf64Word,
         maximum_length: usize,
@@ -468,8 +469,7 @@ impl<'a> Elf64<'a> {
             ..(section_header.sh_offset as usize)
                 .err_checked_add(section_header.sh_size as usize)?
                 .min(offset_in_file.err_checked_add(maximum_length)?);
-        let unterminated_string_bytes = self
-            .elf_bytes
+        let unterminated_string_bytes = elf_bytes
             .get(string_range)
             .ok_or(ElfParserError::OutOfBounds)?;
         unterminated_string_bytes
@@ -486,7 +486,8 @@ impl<'a> Elf64<'a> {
 
     /// Returns the string corresponding to the given `sh_name`
     pub fn section_name(&self, sh_name: Elf64Word) -> Result<&'a [u8], ElfParserError> {
-        self.get_string_in_section(
+        Self::get_string_in_section(
+            self.elf_bytes,
             self.section_names_section_header
                 .ok_or(ElfParserError::NoSectionNameStringTable)?,
             sh_name,
@@ -496,7 +497,8 @@ impl<'a> Elf64<'a> {
 
     /// Returns the name of the `st_name` symbol
     pub fn symbol_name(&self, st_name: Elf64Word) -> Result<&'a [u8], ElfParserError> {
-        self.get_string_in_section(
+        Self::get_string_in_section(
+            self.elf_bytes,
             self.symbol_names_section_header
                 .ok_or(ElfParserError::NoStringTable)?,
             st_name,
@@ -513,7 +515,8 @@ impl<'a> Elf64<'a> {
 
     /// Returns the name of the `st_name` dynamic symbol
     pub fn dynamic_symbol_name(&self, st_name: Elf64Word) -> Result<&'a [u8], ElfParserError> {
-        self.get_string_in_section(
+        Self::get_string_in_section(
+            self.elf_bytes,
             self.dynamic_symbol_names_section_header
                 .ok_or(ElfParserError::NoDynamicStringTable)?,
             st_name,
@@ -620,16 +623,14 @@ impl fmt::Debug for Elf64<'_> {
             writeln!(f, "{program_header:#X?}")?;
         }
         for section_header in self.section_header_table.iter() {
-            let section_name = self
-                .get_string_in_section(
-                    self.section_names_section_header.unwrap(),
-                    section_header.sh_name,
-                    SECTION_NAME_LENGTH_MAXIMUM,
-                )
-                .and_then(|name| {
-                    std::str::from_utf8(name).map_err(|_| ElfParserError::InvalidString)
-                })
-                .unwrap();
+            let section_name = Self::get_string_in_section(
+                self.elf_bytes,
+                self.section_names_section_header.unwrap(),
+                section_header.sh_name,
+                SECTION_NAME_LENGTH_MAXIMUM,
+            )
+            .and_then(|name| std::str::from_utf8(name).map_err(|_| ElfParserError::InvalidString))
+            .unwrap();
             writeln!(f, "{section_name}")?;
             writeln!(f, "{section_header:#X?}")?;
         }
@@ -638,16 +639,16 @@ impl fmt::Debug for Elf64<'_> {
             writeln!(f, "{symbol_table:#X?}")?;
             for symbol in symbol_table.iter() {
                 if symbol.st_name != 0 {
-                    let symbol_name = self
-                        .get_string_in_section(
-                            self.symbol_names_section_header.unwrap(),
-                            symbol.st_name,
-                            SYMBOL_NAME_LENGTH_MAXIMUM,
-                        )
-                        .and_then(|name| {
-                            std::str::from_utf8(name).map_err(|_| ElfParserError::InvalidString)
-                        })
-                        .unwrap();
+                    let symbol_name = Self::get_string_in_section(
+                        self.elf_bytes,
+                        self.symbol_names_section_header.unwrap(),
+                        symbol.st_name,
+                        SYMBOL_NAME_LENGTH_MAXIMUM,
+                    )
+                    .and_then(|name| {
+                        std::str::from_utf8(name).map_err(|_| ElfParserError::InvalidString)
+                    })
+                    .unwrap();
                     writeln!(f, "{symbol_name}")?;
                 }
             }
