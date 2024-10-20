@@ -23,7 +23,6 @@ use rand::{
 };
 use std::{fmt::Debug, mem, ptr};
 
-use crate::program::BuiltinFunction;
 use crate::{
     ebpf::{self, FIRST_SCRATCH_REG, FRAME_PTR_REG, INSN_SIZE, SCRATCH_REGS, STACK_PTR_REG},
     elf::Executable,
@@ -32,6 +31,7 @@ use crate::{
         allocate_pages, free_pages, get_system_page_size, protect_pages, round_to_page_size,
     },
     memory_region::{AccessType, MemoryMapping},
+    program::BuiltinFunction,
     vm::{get_runtime_environment_key, Config, ContextObject, EbpfVm},
     x86::*,
 };

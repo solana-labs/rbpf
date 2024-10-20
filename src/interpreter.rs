@@ -12,11 +12,11 @@
 
 //! Interpreter for eBPF programs.
 
-use crate::program::BuiltinFunction;
 use crate::{
     ebpf::{self, STACK_PTR_REG},
     elf::Executable,
     error::{EbpfError, ProgramResult},
+    program::BuiltinFunction,
     vm::{Config, ContextObject, EbpfVm},
 };
 

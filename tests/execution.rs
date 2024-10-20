@@ -2990,7 +2990,7 @@ fn test_far_jumps() {
 #[test]
 fn test_symbol_relocation() {
     let config = Config {
-        // No relocations are necessary in SBFPv2
+        // No relocation is necessary in SBFPv2
         enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
