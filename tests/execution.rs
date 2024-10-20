@@ -4127,3 +4127,35 @@ fn test_invalid_exit_or_return() {
         );
     }
 }
+
+#[test]
+fn test_unregistered_syscall() {
+    let prog = &[
+        0xbf, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov64 r0, 2
+        0x95, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // syscall 2
+        0x9d, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // return
+    ];
+
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        enable_instruction_tracing: true,
+        ..Config::default()
+    };
+
+    let loader = Arc::new(BuiltinProgram::new_loader_with_dense_registration(config));
+    let mut executable = Executable::<TestContextObject>::from_text_bytes(
+        prog,
+        loader,
+        SBPFVersion::V2,
+        FunctionRegistry::default(),
+    )
+    .unwrap();
+
+    test_interpreter_and_jit!(
+        false,
+        executable,
+        [],
+        TestContextObject::new(2),
+        ProgramResult::Err(EbpfError::UnsupportedInstruction),
+    );
+}
