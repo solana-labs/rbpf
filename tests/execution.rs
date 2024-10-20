@@ -163,6 +163,31 @@ macro_rules! test_interpreter_and_jit_asm {
     };
 }
 
+macro_rules! test_syscall_asm {
+    (register, $loader:expr, $syscall_number:literal => $syscall_name:expr => $syscall_function:expr) => {
+        let _ = $loader.register_function($syscall_name, $syscall_number, $syscall_function).unwrap();
+    };
+
+    ($source:tt, $mem:tt, ($($syscall_number:literal => $syscall_name:expr => $syscall_function:expr),*$(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
+        let mut config = Config {
+            enable_instruction_tracing: true,
+            ..Config::default()
+        };
+        for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+            config.enabled_sbpf_versions = sbpf_version..=sbpf_version;
+            let src = if sbpf_version == SBPFVersion::V1 {
+                format!($source, $($syscall_name, )*)
+            } else {
+                format!($source, $($syscall_number, )*)
+            };
+            let mut loader = BuiltinProgram::new_loader_with_dense_registration(config.clone());
+            $(test_syscall_asm!(register, loader, $syscall_number => $syscall_name => $syscall_function);)*
+            let mut executable = assemble(src.as_str(), Arc::new(loader)).unwrap();
+            test_interpreter_and_jit!(executable, $mem, $context_object, $expected_result);
+        }
+    };
+}
+
 macro_rules! test_interpreter_and_jit_elf {
     ($verify:literal, $source:tt, $config:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
         let mut file = File::open($source).unwrap();
@@ -1999,12 +2024,8 @@ fn test_stack1() {
 
 #[test]
 fn test_stack2() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
-        "
+    test_syscall_asm!(
+         "
         stb [r10-4], 0x01
         stb [r10-3], 0x02
         stb [r10-2], 0x03
@@ -2012,20 +2033,19 @@ fn test_stack2() {
         mov r1, r10
         mov r2, 0x4
         sub r1, r2
-        syscall bpf_mem_frob
+        syscall {}
         mov r1, 0
         ldxb r2, [r10-4]
         ldxb r3, [r10-3]
         ldxb r4, [r10-2]
         ldxb r5, [r10-1]
-        syscall bpf_gather_bytes
+        syscall {}
         xor r0, 0x2a2a2a2a
         exit",
-        config,
         [],
         (
-            "bpf_mem_frob" => syscalls::SyscallMemFrob::vm,
-            "bpf_gather_bytes" => syscalls::SyscallGatherBytes::vm,
+               1 => "bpf_mem_frob" => syscalls::SyscallMemFrob::vm,
+               2 => "bpf_gather_bytes" => syscalls::SyscallGatherBytes::vm,
         ),
         TestContextObject::new(16),
         ProgramResult::Ok(0x01020304),
@@ -2034,11 +2054,7 @@ fn test_stack2() {
 
 #[test]
 fn test_string_stack() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
+    test_syscall_asm!(
         "
         mov r1, 0x78636261
         stxw [r10-8], r1
@@ -2050,7 +2066,7 @@ fn test_string_stack() {
         mov r1, r10
         add r1, -8
         mov r2, r1
-        syscall bpf_str_cmp
+        syscall {}
         mov r1, r0
         mov r0, 0x1
         lsh r1, 0x20
@@ -2060,7 +2076,7 @@ fn test_string_stack() {
         add r1, -8
         mov r2, r10
         add r2, -16
-        syscall bpf_str_cmp
+        syscall {}
         mov r1, r0
         lsh r1, 0x20
         rsh r1, 0x20
@@ -2068,10 +2084,10 @@ fn test_string_stack() {
         jeq r1, r6, +1
         mov r0, 0x0
         exit",
-        config,
         [],
         (
-            "bpf_str_cmp" => syscalls::SyscallStrCmp::vm,
+            3 => "bpf_str_cmp" => syscalls::SyscallStrCmp::vm,
+            3 => "bpf_str_cmp" => syscalls::SyscallStrCmp::vm,
         ),
         TestContextObject::new(28),
         ProgramResult::Ok(0x0),
@@ -2377,22 +2393,17 @@ fn test_bpf_to_bpf_scratch_registers() {
 
 #[test]
 fn test_syscall_parameter_on_stack() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
+    test_syscall_asm!(
         "
         mov64 r1, r10
         add64 r1, -0x100
         mov64 r2, 0x1
-        syscall bpf_syscall_string
+        syscall {}
         mov64 r0, 0x0
         exit",
-        config,
         [],
         (
-            "bpf_syscall_string" => syscalls::SyscallString::vm,
+            1 => "bpf_syscall_string" => syscalls::SyscallString::vm,
         ),
         TestContextObject::new(6),
         ProgramResult::Ok(0),
@@ -2574,20 +2585,15 @@ fn test_call_save() {
 
 #[test]
 fn test_err_syscall_string() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
+    test_syscall_asm!(
         "
         mov64 r1, 0x0
-        syscall bpf_syscall_string
+        syscall {}
         mov64 r0, 0x0
         exit",
-        config,
         [72, 101, 108, 108, 111],
         (
-            "bpf_syscall_string" => syscalls::SyscallString::vm,
+            2 => "bpf_syscall_string" => syscalls::SyscallString::vm,
         ),
         TestContextObject::new(2),
         ProgramResult::Err(EbpfError::SyscallError(Box::new(EbpfError::AccessViolation(AccessType::Load, 0, 0, "unknown")))),
@@ -2596,20 +2602,15 @@ fn test_err_syscall_string() {
 
 #[test]
 fn test_syscall_string() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
+    test_syscall_asm!(
         "
         mov64 r2, 0x5
-        syscall bpf_syscall_string
+        syscall {}
         mov64 r0, 0x0
         exit",
-        config,
         [72, 101, 108, 108, 111],
         (
-            "bpf_syscall_string" => syscalls::SyscallString::vm,
+            1 => "bpf_syscall_string" => syscalls::SyscallString::vm,
         ),
         TestContextObject::new(4),
         ProgramResult::Ok(0),
@@ -2618,24 +2619,19 @@ fn test_syscall_string() {
 
 #[test]
 fn test_syscall() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
+    test_syscall_asm!(
         "
         mov64 r1, 0xAA
         mov64 r2, 0xBB
         mov64 r3, 0xCC
         mov64 r4, 0xDD
         mov64 r5, 0xEE
-        syscall bpf_syscall_u64
+        syscall {}
         mov64 r0, 0x0
         exit",
-        config,
         [],
         (
-            "bpf_syscall_u64" => syscalls::SyscallU64::vm,
+            3 => "bpf_syscall_u64" => syscalls::SyscallU64::vm,
         ),
         TestContextObject::new(8),
         ProgramResult::Ok(0),
@@ -2644,23 +2640,18 @@ fn test_syscall() {
 
 #[test]
 fn test_call_gather_bytes() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
+    test_syscall_asm!(
         "
         mov r1, 1
         mov r2, 2
         mov r3, 3
         mov r4, 4
         mov r5, 5
-        syscall bpf_gather_bytes
+        syscall {}
         exit",
-        config,
         [],
         (
-            "bpf_gather_bytes" => syscalls::SyscallGatherBytes::vm,
+            1 => "bpf_gather_bytes" => syscalls::SyscallGatherBytes::vm,
         ),
         TestContextObject::new(7),
         ProgramResult::Ok(0x0102030405),
@@ -2669,25 +2660,20 @@ fn test_call_gather_bytes() {
 
 #[test]
 fn test_call_memfrob() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
+    test_syscall_asm!(
         "
         mov r6, r1
         add r1, 2
         mov r2, 4
-        syscall bpf_mem_frob
+        syscall {}
         ldxdw r0, [r6]
         be64 r0
         exit",
-        config,
         [
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, //
         ],
         (
-            "bpf_mem_frob" => syscalls::SyscallMemFrob::vm,
+            2 => "bpf_mem_frob" => syscalls::SyscallMemFrob::vm,
         ),
         TestContextObject::new(7),
         ProgramResult::Ok(0x102292e2f2c0708),
@@ -2701,7 +2687,7 @@ declare_builtin_function!(
         _context_object: &mut TestContextObject,
         depth: u64,
         throw: u64,
-        _arg3: u64,
+        version: u64,
         _arg4: u64,
         _arg5: u64,
         _memory_mapping: &mut MemoryMapping,
@@ -2719,23 +2705,27 @@ declare_builtin_function!(
             };
         #[allow(unused_mut)]
         if depth > 0 {
-            let mut function_registry =
-                FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
-            function_registry
-                .register_function_hashed(*b"nested_vm_syscall", SyscallNestedVm::vm)
-                .unwrap();
-            let config = Config {
-                enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-                ..Config::default()
+            let mut config = Config::default();
+            let syscall_name = if version == 1 {
+                config.enabled_sbpf_versions = SBPFVersion::V1..=SBPFVersion::V1;
+                "nested_vm_syscall"
+            } else {
+                config.enabled_sbpf_versions = SBPFVersion::V2..=SBPFVersion::V2;
+                "1"
             };
-            let loader = BuiltinProgram::new_loader(config, function_registry);
-            let mem = [depth as u8 - 1, throw as u8];
-            let mut executable = assemble::<TestContextObject>(
+            let mut loader = BuiltinProgram::new_loader_with_dense_registration(config);
+            loader.register_function("nested_vm_syscall", 1, SyscallNestedVm::vm).unwrap();
+            let source_code = format!(
                 "
                 ldxb r2, [r1+1]
                 ldxb r1, [r1]
-                syscall nested_vm_syscall
+                syscall {}
                 exit",
+                syscall_name
+            );
+            let mem = [depth as u8 - 1, throw as u8];
+            let mut executable = assemble::<TestContextObject>(
+                source_code.as_str(),
                 Arc::new(loader),
             )
             .unwrap();
@@ -2755,9 +2745,17 @@ fn test_nested_vm_syscall() {
     let config = Config::default();
     let mut context_object = TestContextObject::default();
     let mut memory_mapping = MemoryMapping::new(vec![], &config, SBPFVersion::V2).unwrap();
-    let result = SyscallNestedVm::rust(&mut context_object, 1, 0, 0, 0, 0, &mut memory_mapping);
-    assert!(result.unwrap() == 42);
-    let result = SyscallNestedVm::rust(&mut context_object, 1, 1, 0, 0, 0, &mut memory_mapping);
+
+    // SBPFv1
+    let result = SyscallNestedVm::rust(&mut context_object, 1, 0, 1, 0, 0, &mut memory_mapping);
+    assert_eq!(result.unwrap(), 42);
+    let result = SyscallNestedVm::rust(&mut context_object, 1, 1, 1, 0, 0, &mut memory_mapping);
+    assert_error!(result, "CallDepthExceeded");
+
+    // SBPFv2
+    let result = SyscallNestedVm::rust(&mut context_object, 1, 0, 2, 0, 0, &mut memory_mapping);
+    assert_eq!(result.unwrap(), 42);
+    let result = SyscallNestedVm::rust(&mut context_object, 1, 1, 2, 0, 0, &mut memory_mapping);
     assert_error!(result, "CallDepthExceeded");
 }
 
@@ -2824,20 +2822,15 @@ fn test_tight_infinite_recursion_callx() {
 
 #[test]
 fn test_instruction_count_syscall() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
+    test_syscall_asm!(
         "
         mov64 r2, 0x5
-        syscall bpf_syscall_string
+        syscall {}
         mov64 r0, 0x0
         exit",
-        config,
         [72, 101, 108, 108, 111],
         (
-            "bpf_syscall_string" => syscalls::SyscallString::vm,
+            1 => "bpf_syscall_string" => syscalls::SyscallString::vm,
         ),
         TestContextObject::new(4),
         ProgramResult::Ok(0),
@@ -2846,20 +2839,15 @@ fn test_instruction_count_syscall() {
 
 #[test]
 fn test_err_instruction_count_syscall_capped() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
+    test_syscall_asm!(
         "
         mov64 r2, 0x5
-        syscall bpf_syscall_string
+        syscall {}
         mov64 r0, 0x0
         exit",
-        config,
         [72, 101, 108, 108, 111],
         (
-            "bpf_syscall_string" => syscalls::SyscallString::vm,
+            1 => "bpf_syscall_string" => syscalls::SyscallString::vm,
         ),
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
@@ -3002,6 +2990,7 @@ fn test_far_jumps() {
 #[test]
 fn test_symbol_relocation() {
     let config = Config {
+        // No relocations are necessary in SBFPv2
         enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
         ..Config::default()
     };
