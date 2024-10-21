@@ -289,7 +289,7 @@ impl<'a> Elf64<'a> {
                 .err_checked_add(file_header.e_phoff as usize)?;
         check_that_there_is_no_overlap(&file_header_range, &program_header_table_range)?;
         let program_header_table =
-            slice_from_bytes::<Elf64Phdr>(elf_bytes, program_header_table_range.clone())?;
+            Self::slice_from_bytes::<Elf64Phdr>(elf_bytes, program_header_table_range.clone())?;
         Ok((program_header_table_range, program_header_table))
     }
 
@@ -307,7 +307,7 @@ impl<'a> Elf64<'a> {
         check_that_there_is_no_overlap(&file_header_range, &section_header_table_range)?;
         check_that_there_is_no_overlap(&program_header_table_range, &section_header_table_range)?;
         let section_header_table =
-            slice_from_bytes::<Elf64Shdr>(elf_bytes, section_header_table_range.clone())?;
+            Self::slice_from_bytes::<Elf64Shdr>(elf_bytes, section_header_table_range.clone())?;
         Ok((section_header_table_range, section_header_table))
     }
 
@@ -355,7 +355,8 @@ impl<'a> Elf64<'a> {
             .iter()
             .find(|program_header| program_header.p_type == PT_DYNAMIC)
         {
-            dynamic_table = self.slice_from_program_header(dynamic_program_header).ok();
+            dynamic_table =
+                Self::slice_from_program_header(self.elf_bytes, dynamic_program_header).ok();
         }
 
         // if PT_DYNAMIC does not exist or is invalid (some of our tests have this),
@@ -367,7 +368,7 @@ impl<'a> Elf64<'a> {
                 .find(|section_header| section_header.sh_type == SHT_DYNAMIC)
             {
                 dynamic_table = Some(
-                    self.slice_from_section_header(dynamic_section_header)
+                    Self::slice_from_section_header(self.elf_bytes, dynamic_section_header)
                         .map_err(|_| ElfParserError::InvalidDynamicSectionTable)?,
                 );
             }
@@ -430,7 +431,7 @@ impl<'a> Elf64<'a> {
                 .sh_offset
         } as usize;
 
-        self.slice_from_bytes(offset..offset.err_checked_add(size)?)
+        Self::slice_from_bytes(self.elf_bytes, offset..offset.err_checked_add(size)?)
             .map(Some)
             .map_err(|_| ElfParserError::InvalidDynamicSectionTable)
     }
@@ -529,18 +530,19 @@ impl<'a> Elf64<'a> {
             return Err(ElfParserError::InvalidSectionHeader);
         }
 
-        self.slice_from_section_header(section_header)
+        Self::slice_from_section_header(self.elf_bytes, section_header)
     }
 
     /// Returns the `&[T]` contained in the data described by the given program
     /// header
     pub fn slice_from_program_header<T: 'static>(
-        &self,
+        bytes: &'a [u8],
         &Elf64Phdr {
             p_offset, p_filesz, ..
         }: &Elf64Phdr,
     ) -> Result<&'a [T], ElfParserError> {
-        self.slice_from_bytes(
+        Self::slice_from_bytes(
+            bytes,
             (p_offset as usize)..(p_offset as usize).err_checked_add(p_filesz as usize)?,
         )
     }
@@ -548,19 +550,50 @@ impl<'a> Elf64<'a> {
     /// Returns the `&[T]` contained in the section data described by the given
     /// section header
     pub fn slice_from_section_header<T: 'static>(
-        &self,
+        bytes: &'a [u8],
         &Elf64Shdr {
             sh_offset, sh_size, ..
         }: &Elf64Shdr,
     ) -> Result<&'a [T], ElfParserError> {
-        self.slice_from_bytes(
+        Self::slice_from_bytes(
+            bytes,
             (sh_offset as usize)..(sh_offset as usize).err_checked_add(sh_size as usize)?,
         )
     }
 
-    /// Returns the `&[T]` contained at `elf_bytes[offset..size]`
-    fn slice_from_bytes<T: 'static>(&self, range: Range<usize>) -> Result<&'a [T], ElfParserError> {
-        slice_from_bytes(self.elf_bytes, range)
+    /// Returns the `&[T]` contained at `bytes[range]`
+    fn slice_from_bytes<T: 'static>(
+        bytes: &[u8],
+        range: Range<usize>,
+    ) -> Result<&[T], ElfParserError> {
+        if range
+            .len()
+            .checked_rem(mem::size_of::<T>())
+            .map(|remainder| remainder != 0)
+            .unwrap_or(true)
+        {
+            return Err(ElfParserError::InvalidSize);
+        }
+
+        let bytes = bytes
+            .get(range.clone())
+            .ok_or(ElfParserError::OutOfBounds)?;
+
+        let ptr = bytes.as_ptr();
+        if (ptr as usize)
+            .checked_rem(mem::align_of::<T>())
+            .map(|remaining| remaining != 0)
+            .unwrap_or(true)
+        {
+            return Err(ElfParserError::InvalidAlignment);
+        }
+
+        Ok(unsafe {
+            slice::from_raw_parts(
+                ptr.cast(),
+                range.len().checked_div(mem::size_of::<T>()).unwrap_or(0),
+            )
+        })
     }
 
     fn program_header_for_vaddr(
@@ -621,37 +654,6 @@ impl fmt::Debug for Elf64<'_> {
         }
         Ok(())
     }
-}
-
-fn slice_from_bytes<T: 'static>(bytes: &[u8], range: Range<usize>) -> Result<&[T], ElfParserError> {
-    if range
-        .len()
-        .checked_rem(mem::size_of::<T>())
-        .map(|remainder| remainder != 0)
-        .unwrap_or(true)
-    {
-        return Err(ElfParserError::InvalidSize);
-    }
-
-    let bytes = bytes
-        .get(range.clone())
-        .ok_or(ElfParserError::OutOfBounds)?;
-
-    let ptr = bytes.as_ptr();
-    if (ptr as usize)
-        .checked_rem(mem::align_of::<T>())
-        .map(|remaining| remaining != 0)
-        .unwrap_or(true)
-    {
-        return Err(ElfParserError::InvalidAlignment);
-    }
-
-    Ok(unsafe {
-        slice::from_raw_parts(
-            ptr.cast(),
-            range.len().checked_div(mem::size_of::<T>()).unwrap_or(0),
-        )
-    })
 }
 
 impl From<ArithmeticOverflow> for ElfParserError {
