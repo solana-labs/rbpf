@@ -153,13 +153,8 @@ impl<'a> Elf64<'a> {
             return Err(ElfParserError::InvalidFileHeader);
         }
 
-        let program_header_table_range = file_header.e_phoff as usize
-            ..mem::size_of::<Elf64Phdr>()
-                .err_checked_mul(file_header.e_phnum as usize)?
-                .err_checked_add(file_header.e_phoff as usize)?;
-        check_that_there_is_no_overlap(&file_header_range, &program_header_table_range)?;
-        let program_header_table =
-            slice_from_bytes::<Elf64Phdr>(elf_bytes, program_header_table_range.clone())?;
+        let (program_header_table_range, program_header_table) =
+            Self::parse_program_header_table(elf_bytes, file_header_range.clone(), file_header)?;
 
         let section_header_table_range = file_header.e_shoff as usize
             ..mem::size_of::<Elf64Shdr>()
@@ -289,6 +284,22 @@ impl<'a> Elf64<'a> {
         }
         let file_header = unsafe { &*ptr.cast::<Elf64Ehdr>() };
         Ok((file_header_range, file_header))
+    }
+
+    /// Parses the program header table.
+    pub fn parse_program_header_table(
+        elf_bytes: &'a [u8],
+        file_header_range: std::ops::Range<usize>,
+        file_header: &Elf64Ehdr,
+    ) -> Result<(std::ops::Range<usize>, &'a [Elf64Phdr]), ElfParserError> {
+        let program_header_table_range = file_header.e_phoff as usize
+            ..mem::size_of::<Elf64Phdr>()
+                .err_checked_mul(file_header.e_phnum as usize)?
+                .err_checked_add(file_header.e_phoff as usize)?;
+        check_that_there_is_no_overlap(&file_header_range, &program_header_table_range)?;
+        let program_header_table =
+            slice_from_bytes::<Elf64Phdr>(elf_bytes, program_header_table_range.clone())?;
+        Ok((program_header_table_range, program_header_table))
     }
 
     fn parse_sections(&mut self) -> Result<(), ElfParserError> {
