@@ -315,7 +315,7 @@ impl<C: ContextObject> Executable<C> {
             self.get_config(),
             self.get_sbpf_version(),
             self.get_function_registry(),
-            self.loader.get_dense_function_registry(),
+            self.loader.get_function_registry(self.get_sbpf_version()),
         )?;
         Ok(())
     }
@@ -1072,7 +1072,7 @@ impl<C: ContextObject> Executable<C> {
                             .or_insert_with(|| ebpf::hash_symbol_name(name));
                         if config.reject_broken_elfs
                             && loader
-                                .get_sparse_function_registry()
+                                .get_function_registry(&SBPFVersion::V1)
                                 .lookup_by_key(hash)
                                 .is_none()
                         {

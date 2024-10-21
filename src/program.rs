@@ -154,7 +154,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
                 ebpf::hash_symbol_name(&usize::from(value).to_le_bytes())
             };
             if loader
-                .get_sparse_function_registry()
+                .get_function_registry(&SBPFVersion::V1)
                 .lookup_by_key(hash)
                 .is_some()
             {
@@ -289,14 +289,16 @@ impl<C: ContextObject> BuiltinProgram<C> {
         self.config.as_ref().unwrap()
     }
 
-    /// Get the sparse function registry
-    pub fn get_sparse_function_registry(&self) -> &FunctionRegistry<BuiltinFunction<C>> {
-        &self.sparse_registry
-    }
-
-    /// Get the dense function registry
-    pub fn get_dense_function_registry(&self) -> &FunctionRegistry<BuiltinFunction<C>> {
-        &self.dense_registry
+    /// Get the function registry depending on the SBPF version
+    pub fn get_function_registry(
+        &self,
+        sbpf_version: &SBPFVersion,
+    ) -> &FunctionRegistry<BuiltinFunction<C>> {
+        if sbpf_version == &SBPFVersion::V1 {
+            &self.sparse_registry
+        } else {
+            &self.dense_registry
+        }
     }
 
     /// Calculate memory size

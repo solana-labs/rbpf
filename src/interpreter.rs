@@ -536,7 +536,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 };
 
                 if external {
-                    if let Some((_function_name, function)) = self.executable.get_loader().get_sparse_function_registry().lookup_by_key(insn.imm as u32) {
+                    if let Some((_function_name, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
                         resolved = true;
 
                         self.vm.due_insn_count = self.vm.previous_instruction_meter - self.vm.due_insn_count;

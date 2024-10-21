@@ -6,6 +6,7 @@ use crate::{
     ebpf,
     elf::Executable,
     error::EbpfError,
+    program::SBPFVersion,
     vm::{ContextObject, DynamicAnalysis, TestContextObject},
 };
 use rustc_demangle::demangle;
@@ -192,7 +193,7 @@ impl<'a> Analysis<'a> {
             dfg_forward_edges: BTreeMap::new(),
             dfg_reverse_edges: BTreeMap::new(),
         };
-        result.split_into_basic_blocks(false);
+        result.split_into_basic_blocks(false, executable.get_sbpf_version());
         result.control_flow_graph_tarjan();
         result.control_flow_graph_dominance_hierarchy();
         result.label_basic_blocks();
@@ -223,7 +224,11 @@ impl<'a> Analysis<'a> {
     /// Splits the sequence of instructions into basic blocks
     ///
     /// Also links the control-flow graph edges between the basic blocks.
-    pub fn split_into_basic_blocks(&mut self, flatten_call_graph: bool) {
+    pub fn split_into_basic_blocks(
+        &mut self,
+        flatten_call_graph: bool,
+        sbpf_version: &SBPFVersion,
+    ) {
         self.cfg_nodes.insert(0, CfgNode::default());
         for pc in self.functions.keys() {
             self.cfg_nodes.entry(*pc).or_default();
@@ -236,7 +241,7 @@ impl<'a> Analysis<'a> {
                     if let Some((function_name, _function)) = self
                         .executable
                         .get_loader()
-                        .get_sparse_function_registry()
+                        .get_function_registry(sbpf_version)
                         .lookup_by_key(insn.imm as u32)
                     {
                         if function_name == b"abort" {

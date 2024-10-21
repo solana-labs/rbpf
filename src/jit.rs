@@ -717,7 +717,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     };
 
                     if external {
-                        if let Some((_function_name, function)) = self.executable.get_loader().get_sparse_function_registry().lookup_by_key(insn.imm as u32) {
+                        if let Some((_function_name, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
                             self.emit_validate_and_profile_instruction_count(false, Some(0));
                             self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, function as usize as i64));
                             self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL, 5)));
