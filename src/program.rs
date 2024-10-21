@@ -317,8 +317,8 @@ impl<C: ContextObject> BuiltinProgram<C> {
     pub fn register_function(
         &mut self,
         name: &str,
-        value: BuiltinFunction<C>,
         dense_key: u32,
+        value: BuiltinFunction<C>,
     ) -> Result<(), ElfError> {
         self.sparse_registry.register_function_hashed(name, value)?;
         self.dense_registry

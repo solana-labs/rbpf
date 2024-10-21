@@ -373,7 +373,7 @@ fn test_verifier_known_syscall() {
 
     let mut loader = BuiltinProgram::new_loader_with_dense_registration(Config::default());
     loader
-        .register_function("my_syscall", syscalls::SyscallString::vm, 2)
+        .register_function("my_syscall", 2, syscalls::SyscallString::vm)
         .unwrap();
     let executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
