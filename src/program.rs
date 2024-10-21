@@ -294,10 +294,10 @@ impl<C: ContextObject> BuiltinProgram<C> {
         &self,
         sbpf_version: SBPFVersion,
     ) -> &FunctionRegistry<BuiltinFunction<C>> {
-        if sbpf_version == SBPFVersion::V1 {
-            &self.sparse_registry
-        } else {
+        if sbpf_version.static_syscalls() {
             &self.dense_registry
+        } else {
+            &self.sparse_registry
         }
     }
 
