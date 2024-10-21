@@ -156,14 +156,13 @@ impl<'a> Elf64<'a> {
         let (program_header_table_range, program_header_table) =
             Self::parse_program_header_table(elf_bytes, file_header_range.clone(), file_header)?;
 
-        let section_header_table_range = file_header.e_shoff as usize
-            ..mem::size_of::<Elf64Shdr>()
-                .err_checked_mul(file_header.e_shnum as usize)?
-                .err_checked_add(file_header.e_shoff as usize)?;
-        check_that_there_is_no_overlap(&file_header_range, &section_header_table_range)?;
-        check_that_there_is_no_overlap(&program_header_table_range, &section_header_table_range)?;
-        let section_header_table =
-            slice_from_bytes::<Elf64Shdr>(elf_bytes, section_header_table_range.clone())?;
+        let (section_header_table_range, section_header_table) = Self::parse_section_header_table(
+            elf_bytes,
+            file_header_range.clone(),
+            file_header,
+            program_header_table_range.clone(),
+        )?;
+
         section_header_table
             .first()
             .filter(|section_header| section_header.sh_type == SHT_NULL)
@@ -300,6 +299,24 @@ impl<'a> Elf64<'a> {
         let program_header_table =
             slice_from_bytes::<Elf64Phdr>(elf_bytes, program_header_table_range.clone())?;
         Ok((program_header_table_range, program_header_table))
+    }
+
+    /// Parses the section header table.
+    pub fn parse_section_header_table(
+        elf_bytes: &'a [u8],
+        file_header_range: std::ops::Range<usize>,
+        file_header: &Elf64Ehdr,
+        program_header_table_range: std::ops::Range<usize>,
+    ) -> Result<(std::ops::Range<usize>, &'a [Elf64Shdr]), ElfParserError> {
+        let section_header_table_range = file_header.e_shoff as usize
+            ..mem::size_of::<Elf64Shdr>()
+                .err_checked_mul(file_header.e_shnum as usize)?
+                .err_checked_add(file_header.e_shoff as usize)?;
+        check_that_there_is_no_overlap(&file_header_range, &section_header_table_range)?;
+        check_that_there_is_no_overlap(&program_header_table_range, &section_header_table_range)?;
+        let section_header_table =
+            slice_from_bytes::<Elf64Shdr>(elf_bytes, section_header_table_range.clone())?;
+        Ok((section_header_table_range, section_header_table))
     }
 
     fn parse_sections(&mut self) -> Result<(), ElfParserError> {
