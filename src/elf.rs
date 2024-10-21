@@ -1072,7 +1072,7 @@ impl<C: ContextObject> Executable<C> {
                             .or_insert_with(|| ebpf::hash_symbol_name(name));
                         if config.reject_broken_elfs
                             && loader
-                                .get_function_registry(&SBPFVersion::V1)
+                                .get_function_registry(SBPFVersion::V1)
                                 .lookup_by_key(hash)
                                 .is_none()
                         {

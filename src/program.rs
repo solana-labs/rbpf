@@ -154,7 +154,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
                 ebpf::hash_symbol_name(&usize::from(value).to_le_bytes())
             };
             if loader
-                .get_function_registry(&SBPFVersion::V1)
+                .get_function_registry(SBPFVersion::V1)
                 .lookup_by_key(hash)
                 .is_some()
             {
@@ -292,9 +292,9 @@ impl<C: ContextObject> BuiltinProgram<C> {
     /// Get the function registry depending on the SBPF version
     pub fn get_function_registry(
         &self,
-        sbpf_version: &SBPFVersion,
+        sbpf_version: SBPFVersion,
     ) -> &FunctionRegistry<BuiltinFunction<C>> {
-        if sbpf_version == &SBPFVersion::V1 {
+        if sbpf_version == SBPFVersion::V1 {
             &self.sparse_registry
         } else {
             &self.dense_registry

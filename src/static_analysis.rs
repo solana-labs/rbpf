@@ -224,11 +224,7 @@ impl<'a> Analysis<'a> {
     /// Splits the sequence of instructions into basic blocks
     ///
     /// Also links the control-flow graph edges between the basic blocks.
-    pub fn split_into_basic_blocks(
-        &mut self,
-        flatten_call_graph: bool,
-        sbpf_version: &SBPFVersion,
-    ) {
+    pub fn split_into_basic_blocks(&mut self, flatten_call_graph: bool, sbpf_version: SBPFVersion) {
         self.cfg_nodes.insert(0, CfgNode::default());
         for pc in self.functions.keys() {
             self.cfg_nodes.entry(*pc).or_default();
