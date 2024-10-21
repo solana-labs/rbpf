@@ -2868,10 +2868,6 @@ fn test_err_instruction_count_syscall_capped() {
 
 #[test]
 fn test_err_non_terminate_capped() {
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
     test_interpreter_and_jit_asm!(
         "
         mov64 r6, 0x0
@@ -2880,15 +2876,11 @@ fn test_err_non_terminate_capped() {
         mov64 r3, 0x0
         mov64 r4, 0x0
         mov64 r5, r6
-        syscall bpf_trace_printf
         add64 r6, 0x1
         ja -0x8
         exit",
-        config.clone(),
         [],
-        (
-            "bpf_trace_printf" => syscalls::SyscallTracePrintf::vm,
-        ),
+        (),
         TestContextObject::new(7),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2900,15 +2892,11 @@ fn test_err_non_terminate_capped() {
         mov64 r3, 0x0
         mov64 r4, 0x0
         mov64 r5, r6
-        syscall bpf_trace_printf
         add64 r6, 0x1
         ja -0x8
         exit",
-        config,
         [],
-        (
-            "bpf_trace_printf" => syscalls::SyscallTracePrintf::vm,
-        ),
+        (),
         TestContextObject::new(1000),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
