@@ -259,8 +259,8 @@ impl<C: ContextObject> Executable<C> {
     }
 
     /// Get the executable sbpf_version
-    pub fn get_sbpf_version(&self) -> &SBPFVersion {
-        &self.sbpf_version
+    pub fn get_sbpf_version(&self) -> SBPFVersion {
+        self.sbpf_version
     }
 
     /// Get the .text section virtual address and bytes

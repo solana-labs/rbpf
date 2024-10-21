@@ -21,69 +21,69 @@ pub enum SBPFVersion {
 
 impl SBPFVersion {
     /// Implicitly perform sign extension of results
-    pub fn implicit_sign_extension_of_results(&self) -> bool {
-        self == &SBPFVersion::V1
+    pub fn implicit_sign_extension_of_results(self) -> bool {
+        self == SBPFVersion::V1
     }
 
     /// Enable the little-endian byte swap instructions
-    pub fn enable_le(&self) -> bool {
-        self == &SBPFVersion::V1
+    pub fn enable_le(self) -> bool {
+        self == SBPFVersion::V1
     }
 
     /// Enable the negation instruction
-    pub fn enable_neg(&self) -> bool {
-        self == &SBPFVersion::V1
+    pub fn enable_neg(self) -> bool {
+        self == SBPFVersion::V1
     }
 
     /// Swaps the reg and imm operands of the subtraction instruction
-    pub fn swap_sub_reg_imm_operands(&self) -> bool {
-        self != &SBPFVersion::V1
+    pub fn swap_sub_reg_imm_operands(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Enable the only two slots long instruction: LD_DW_IMM
-    pub fn enable_lddw(&self) -> bool {
-        self == &SBPFVersion::V1
+    pub fn enable_lddw(self) -> bool {
+        self == SBPFVersion::V1
     }
 
     /// Enable the BPF_PQR instruction class
-    pub fn enable_pqr(&self) -> bool {
-        self != &SBPFVersion::V1
+    pub fn enable_pqr(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Use src reg instead of imm in callx
-    pub fn callx_uses_src_reg(&self) -> bool {
-        self != &SBPFVersion::V1
+    pub fn callx_uses_src_reg(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Ensure that rodata sections don't exceed their maximum allowed size and
     /// overlap with the stack
-    pub fn reject_rodata_stack_overlap(&self) -> bool {
-        self != &SBPFVersion::V1
+    pub fn reject_rodata_stack_overlap(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Allow sh_addr != sh_offset in elf sections.
-    pub fn enable_elf_vaddr(&self) -> bool {
-        self != &SBPFVersion::V1
+    pub fn enable_elf_vaddr(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Separates the bytecode from the read only data in virtual address space
-    pub fn enable_lower_bytecode_vaddr(&self) -> bool {
-        self != &SBPFVersion::V1
+    pub fn enable_lower_bytecode_vaddr(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Use dynamic stack frame sizes
-    pub fn dynamic_stack_frames(&self) -> bool {
-        self != &SBPFVersion::V1
+    pub fn dynamic_stack_frames(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Support syscalls via pseudo calls (insn.src = 0)
-    pub fn static_syscalls(&self) -> bool {
-        self != &SBPFVersion::V1
+    pub fn static_syscalls(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Move opcodes of memory instructions into ALU instruction classes
-    pub fn move_memory_instruction_classes(&self) -> bool {
-        self != &SBPFVersion::V1
+    pub fn move_memory_instruction_classes(self) -> bool {
+        self != SBPFVersion::V1
     }
 }
 

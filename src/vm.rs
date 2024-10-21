@@ -323,7 +323,7 @@ impl<'a, C: ContextObject> EbpfVm<'a, C> {
     /// Creates a new virtual machine instance.
     pub fn new(
         loader: Arc<BuiltinProgram<C>>,
-        sbpf_version: &SBPFVersion,
+        sbpf_version: SBPFVersion,
         context_object: &'a mut C,
         mut memory_mapping: MemoryMapping<'a>,
         stack_len: usize,

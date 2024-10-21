@@ -115,7 +115,7 @@ pub fn disassemble_instruction<C: ContextObject>(
     cfg_nodes: &BTreeMap<usize, CfgNode>,
     function_registry: &FunctionRegistry<usize>,
     loader: &BuiltinProgram<C>,
-    sbpf_version: &SBPFVersion,
+    sbpf_version: SBPFVersion,
 ) -> String {
     let name;
     let desc;

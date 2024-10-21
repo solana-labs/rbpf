@@ -2710,7 +2710,7 @@ declare_builtin_function!(
 fn test_nested_vm_syscall() {
     let config = Config::default();
     let mut context_object = TestContextObject::default();
-    let mut memory_mapping = MemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
+    let mut memory_mapping = MemoryMapping::new(vec![], &config, SBPFVersion::V2).unwrap();
     let result = SyscallNestedVm::rust(&mut context_object, 1, 0, 0, 0, 0, &mut memory_mapping);
     assert!(result.unwrap() == 42);
     let result = SyscallNestedVm::rust(&mut context_object, 1, 1, 0, 0, 0, &mut memory_mapping);

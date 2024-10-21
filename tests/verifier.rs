@@ -47,7 +47,7 @@ impl Verifier for TautologyVerifier {
     fn verify<C: ContextObject>(
         _prog: &[u8],
         _config: &Config,
-        _sbpf_version: &SBPFVersion,
+        _sbpf_version: SBPFVersion,
         _function_registry: &FunctionRegistry<usize>,
         _syscall_registry: &FunctionRegistry<BuiltinFunction<C>>,
     ) -> std::result::Result<(), VerifierError> {
@@ -60,7 +60,7 @@ impl Verifier for ContradictionVerifier {
     fn verify<C: ContextObject>(
         _prog: &[u8],
         _config: &Config,
-        _sbpf_version: &SBPFVersion,
+        _sbpf_version: SBPFVersion,
         _function_registry: &FunctionRegistry<usize>,
         _syscall_registry: &FunctionRegistry<BuiltinFunction<C>>,
     ) -> std::result::Result<(), VerifierError> {

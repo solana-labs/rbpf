@@ -190,7 +190,7 @@ pub struct UnalignedMemoryMapping<'a> {
     /// VM configuration
     config: &'a Config,
     /// Executable sbpf_version
-    sbpf_version: &'a SBPFVersion,
+    sbpf_version: SBPFVersion,
     /// CoW callback
     cow_cb: Option<MemoryCowCallback>,
 }
@@ -242,7 +242,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         mut regions: Vec<MemoryRegion>,
         cow_cb: Option<MemoryCowCallback>,
         config: &'a Config,
-        sbpf_version: &'a SBPFVersion,
+        sbpf_version: SBPFVersion,
     ) -> Result<Self, EbpfError> {
         regions.sort();
         for index in 1..regions.len() {
@@ -272,7 +272,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
     pub fn new(
         regions: Vec<MemoryRegion>,
         config: &'a Config,
-        sbpf_version: &'a SBPFVersion,
+        sbpf_version: SBPFVersion,
     ) -> Result<Self, EbpfError> {
         Self::new_internal(regions, None, config, sbpf_version)
     }
@@ -284,7 +284,7 @@ impl<'a> UnalignedMemoryMapping<'a> {
         regions: Vec<MemoryRegion>,
         cow_cb: MemoryCowCallback,
         config: &'a Config,
-        sbpf_version: &'a SBPFVersion,
+        sbpf_version: SBPFVersion,
     ) -> Result<Self, EbpfError> {
         Self::new_internal(regions, Some(cow_cb), config, sbpf_version)
     }
@@ -554,7 +554,7 @@ pub struct AlignedMemoryMapping<'a> {
     /// VM configuration
     config: &'a Config,
     /// Executable sbpf_version
-    sbpf_version: &'a SBPFVersion,
+    sbpf_version: SBPFVersion,
     /// CoW callback
     cow_cb: Option<MemoryCowCallback>,
 }
@@ -581,7 +581,7 @@ impl<'a> AlignedMemoryMapping<'a> {
         mut regions: Vec<MemoryRegion>,
         cow_cb: Option<MemoryCowCallback>,
         config: &'a Config,
-        sbpf_version: &'a SBPFVersion,
+        sbpf_version: SBPFVersion,
     ) -> Result<Self, EbpfError> {
         regions.insert(0, MemoryRegion::new_readonly(&[], 0));
         regions.sort();
@@ -607,7 +607,7 @@ impl<'a> AlignedMemoryMapping<'a> {
     pub fn new(
         regions: Vec<MemoryRegion>,
         config: &'a Config,
-        sbpf_version: &'a SBPFVersion,
+        sbpf_version: SBPFVersion,
     ) -> Result<Self, EbpfError> {
         Self::new_internal(regions, None, config, sbpf_version)
     }
@@ -619,7 +619,7 @@ impl<'a> AlignedMemoryMapping<'a> {
         regions: Vec<MemoryRegion>,
         cow_cb: MemoryCowCallback,
         config: &'a Config,
-        sbpf_version: &'a SBPFVersion,
+        sbpf_version: SBPFVersion,
     ) -> Result<Self, EbpfError> {
         Self::new_internal(regions, Some(cow_cb), config, sbpf_version)
     }
@@ -750,7 +750,7 @@ impl<'a> MemoryMapping<'a> {
     pub fn new(
         regions: Vec<MemoryRegion>,
         config: &'a Config,
-        sbpf_version: &'a SBPFVersion,
+        sbpf_version: SBPFVersion,
     ) -> Result<Self, EbpfError> {
         if config.aligned_memory_mapping {
             AlignedMemoryMapping::new(regions, config, sbpf_version).map(MemoryMapping::Aligned)
@@ -767,7 +767,7 @@ impl<'a> MemoryMapping<'a> {
         regions: Vec<MemoryRegion>,
         cow_cb: MemoryCowCallback,
         config: &'a Config,
-        sbpf_version: &'a SBPFVersion,
+        sbpf_version: SBPFVersion,
     ) -> Result<Self, EbpfError> {
         if config.aligned_memory_mapping {
             AlignedMemoryMapping::new_with_cow(regions, cow_cb, config, sbpf_version)
@@ -869,7 +869,7 @@ fn ensure_writable_region(region: &MemoryRegion, cow_cb: &Option<MemoryCowCallba
 /// Helper for map to generate errors
 fn generate_access_violation(
     config: &Config,
-    sbpf_version: &SBPFVersion,
+    sbpf_version: SBPFVersion,
     access_type: AccessType,
     vm_addr: u64,
     len: u64,
@@ -1026,13 +1026,13 @@ mod test {
     #[test]
     fn test_map_empty() {
         let config = Config::default();
-        let m = UnalignedMemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
+        let m = UnalignedMemoryMapping::new(vec![], &config, SBPFVersion::V2).unwrap();
         assert_error!(
             m.map(AccessType::Load, ebpf::MM_INPUT_START, 8),
             "AccessViolation"
         );
 
-        let m = AlignedMemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
+        let m = AlignedMemoryMapping::new(vec![], &config, SBPFVersion::V2).unwrap();
         assert_error!(
             m.map(AccessType::Load, ebpf::MM_INPUT_START, 8),
             "AccessViolation"
@@ -1053,7 +1053,7 @@ mod test {
                     MemoryRegion::new_writable_gapped(&mut mem1, ebpf::MM_STACK_START, 2),
                 ],
                 &config,
-                &SBPFVersion::V2,
+                SBPFVersion::V2,
             )
             .unwrap();
             for frame in 0..4 {
@@ -1081,7 +1081,7 @@ mod test {
                     MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64 - 1),
                 ],
                 &config,
-                &SBPFVersion::V2,
+                SBPFVersion::V2,
             ),
             "InvalidMemoryRegion(1)"
         );
@@ -1091,7 +1091,7 @@ mod test {
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .is_ok());
     }
@@ -1117,7 +1117,7 @@ mod test {
                 ),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
 
@@ -1191,7 +1191,7 @@ mod test {
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + 4),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
         assert_error!(
@@ -1251,7 +1251,7 @@ mod test {
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_STACK_START),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
         assert_error!(
@@ -1325,7 +1325,7 @@ mod test {
                 ),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
 
@@ -1367,7 +1367,7 @@ mod test {
                 ),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
         m.store(0x1122u16, ebpf::MM_INPUT_START).unwrap();
@@ -1394,7 +1394,7 @@ mod test {
         let m = MemoryMapping::new(
             vec![MemoryRegion::new_writable(&mut mem1, ebpf::MM_INPUT_START)],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
 
@@ -1428,7 +1428,7 @@ mod test {
                 MemoryRegion::new_writable(&mut mem2, ebpf::MM_INPUT_START + 7),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
 
@@ -1456,7 +1456,7 @@ mod test {
         let m = MemoryMapping::new(
             vec![MemoryRegion::new_writable(&mut mem1, ebpf::MM_INPUT_START)],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
         m.store(0x11u8, ebpf::MM_INPUT_START).unwrap();
@@ -1474,7 +1474,7 @@ mod test {
                 MemoryRegion::new_writable(&mut mem2, ebpf::MM_INPUT_START + 4),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
         m.store(0x1122334455667788u64, ebpf::MM_INPUT_START)
@@ -1500,7 +1500,7 @@ mod test {
         let m = MemoryMapping::new(
             vec![MemoryRegion::new_readonly(&mem1, ebpf::MM_INPUT_START)],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
         assert_eq!(m.load::<u8>(ebpf::MM_INPUT_START).unwrap(), 0xff);
@@ -1516,7 +1516,7 @@ mod test {
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + 4),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
         assert_eq!(
@@ -1541,7 +1541,7 @@ mod test {
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
         m.store(0x11223344, ebpf::MM_INPUT_START).unwrap();
@@ -1559,7 +1559,7 @@ mod test {
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_INPUT_START + mem1.len() as u64),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
 
@@ -1631,7 +1631,7 @@ mod test {
                 MemoryRegion::new_readonly(&mem2, ebpf::MM_STACK_START),
             ],
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
 
@@ -1688,7 +1688,7 @@ mod test {
                     Ok(c.borrow().as_slice().as_ptr() as u64)
                 }),
                 &config,
-                &SBPFVersion::V2,
+                SBPFVersion::V2,
             )
             .unwrap();
 
@@ -1721,7 +1721,7 @@ mod test {
                     Ok(c.borrow().as_slice().as_ptr() as u64)
                 }),
                 &config,
-                &SBPFVersion::V2,
+                SBPFVersion::V2,
             )
             .unwrap();
 
@@ -1766,7 +1766,7 @@ mod test {
                     Ok(c.borrow().as_slice().as_ptr() as u64)
                 }),
                 &config,
-                &SBPFVersion::V2,
+                SBPFVersion::V2,
             )
             .unwrap();
 
@@ -1786,7 +1786,7 @@ mod test {
             vec![MemoryRegion::new_cow(&original, ebpf::MM_RODATA_START, 42)],
             Box::new(|_| Err(())),
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
 
@@ -1803,7 +1803,7 @@ mod test {
             vec![MemoryRegion::new_cow(&original, ebpf::MM_RODATA_START, 42)],
             Box::new(|_| Err(())),
             &config,
-            &SBPFVersion::V2,
+            SBPFVersion::V2,
         )
         .unwrap();
 

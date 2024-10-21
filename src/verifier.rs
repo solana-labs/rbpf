@@ -88,7 +88,7 @@ pub trait Verifier {
     fn verify<C: ContextObject>(
         prog: &[u8],
         config: &Config,
-        sbpf_version: &SBPFVersion,
+        sbpf_version: SBPFVersion,
         function_registry: &FunctionRegistry<usize>,
         syscall_registry: &FunctionRegistry<BuiltinFunction<C>>,
     ) -> Result<(), VerifierError>;
@@ -172,7 +172,7 @@ fn check_registers(
     insn: &ebpf::Insn,
     store: bool,
     insn_ptr: usize,
-    sbpf_version: &SBPFVersion,
+    sbpf_version: SBPFVersion,
 ) -> Result<(), VerifierError> {
     if insn.src > 10 {
         return Err(VerifierError::InvalidSourceRegister(insn_ptr));
@@ -201,7 +201,7 @@ fn check_imm_shift(insn: &ebpf::Insn, insn_ptr: usize, imm_bits: u64) -> Result<
 fn check_callx_register(
     insn: &ebpf::Insn,
     insn_ptr: usize,
-    sbpf_version: &SBPFVersion,
+    sbpf_version: SBPFVersion,
 ) -> Result<(), VerifierError> {
     let reg = if sbpf_version.callx_uses_src_reg() {
         insn.src as i64
@@ -220,7 +220,7 @@ pub struct RequisiteVerifier {}
 impl Verifier for RequisiteVerifier {
     /// Check the program against the verifier's rules
     #[rustfmt::skip]
-    fn verify<C: ContextObject>(prog: &[u8], _config: &Config, sbpf_version: &SBPFVersion, function_registry: &FunctionRegistry<usize>, syscall_registry: &FunctionRegistry<BuiltinFunction<C>>) -> Result<(), VerifierError> {
+    fn verify<C: ContextObject>(prog: &[u8], _config: &Config, sbpf_version: SBPFVersion, function_registry: &FunctionRegistry<usize>, syscall_registry: &FunctionRegistry<BuiltinFunction<C>>) -> Result<(), VerifierError> {
         check_prog_len(prog)?;
 
         let program_range = 0..prog.len() / ebpf::INSN_SIZE;

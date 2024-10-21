@@ -31,7 +31,7 @@ fuzz_target!(|data: DumbFuzzData| {
     let function_registry = FunctionRegistry::default();
     let syscall_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
 
-    if RequisiteVerifier::verify(&prog, &config, &SBPFVersion::V2, &function_registry, &syscall_registry).is_err() {
+    if RequisiteVerifier::verify(&prog, &config, SBPFVersion::V2, &function_registry, &syscall_registry).is_err() {
         // verify please
         return;
     }
