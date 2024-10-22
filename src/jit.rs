@@ -723,14 +723,15 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                         // BPF to BPF call
                         self.emit_internal_call(Value::Constant64(target_pc as i64, true));
                     } else {
-                        self.emit_throw_unsupported_instruction();
+                        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64));
+                        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)));
                     }
                 },
                 ebpf::SYSCALL if self.executable.get_sbpf_version().static_syscalls() => {
                     if let Some((_, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
                         self.emit_syscall_dispatch(function);
                     } else {
-                        self.emit_throw_unsupported_instruction();
+                        debug_assert!(false, "Invalid syscall should have been detected in the verifier.")
                     }
                 },
                 ebpf::CALL_REG  => {
@@ -1136,12 +1137,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, function as usize as i64));
         self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL, 5)));
         self.emit_undo_profile_instruction_count(0);
-    }
-
-    #[inline]
-    fn emit_throw_unsupported_instruction(&mut self) {
-        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64));
-        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)));
     }
 
     #[inline]
@@ -1705,7 +1700,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 mod tests {
     use super::*;
     use crate::{
-        program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
+        program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
         syscalls,
         vm::TestContextObject,
     };
@@ -1752,12 +1747,10 @@ mod tests {
 
     fn create_mockup_executable(config: Config, program: &[u8]) -> Executable<TestContextObject> {
         let sbpf_version = *config.enabled_sbpf_versions.end();
-        let mut function_registry =
-            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
-        function_registry
-            .register_function_hashed(*b"gather_bytes", syscalls::SyscallGatherBytes::vm)
+        let mut loader = BuiltinProgram::new_loader_with_dense_registration(config);
+        loader
+            .register_function("gather_bytes", 1, syscalls::SyscallGatherBytes::vm)
             .unwrap();
-        let loader = BuiltinProgram::new_loader(config, function_registry);
         let mut function_registry = FunctionRegistry::default();
         function_registry
             .register_function(8, *b"function_foo", 8)
@@ -1843,6 +1836,10 @@ mod tests {
                         // Put invalid function calls on a separate loop iteration
                         opcode = 0x85;
                         (0x88, 0x91020CDD)
+                    }
+                    0x95 => {
+                        // Put a valid syscall
+                        (0, 1)
                     }
                     0xD4 | 0xDC => (0x88, 16),
                     _ => (0x88, 0xFFFFFFFF),

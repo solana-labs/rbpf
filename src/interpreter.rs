@@ -560,7 +560,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                         ProgramResult::Err(_err) => return false,
                     };
                 } else {
-                    throw_error!(self, EbpfError::UnsupportedInstruction);
+                    debug_assert!(false, "Invalid syscall should have been detected in the verifier.");
                 }
             },
             ebpf::RETURN

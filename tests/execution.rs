@@ -4090,6 +4090,7 @@ fn test_mod() {
 }
 
 #[test]
+#[should_panic(expected = "Invalid syscall should have been detected in the verifier.")]
 fn test_invalid_exit_or_return() {
     for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
         let inst = if sbpf_version == SBPFVersion::V1 {
@@ -4129,6 +4130,7 @@ fn test_invalid_exit_or_return() {
 }
 
 #[test]
+#[should_panic(expected = "Invalid syscall should have been detected in the verifier.")]
 fn test_unregistered_syscall() {
     let prog = &[
         0xbf, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov64 r0, 2
