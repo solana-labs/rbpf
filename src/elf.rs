@@ -1381,7 +1381,7 @@ mod test {
         elf_parser::{
             // FIXME consts::{ELFCLASS32, ELFDATA2MSB, ET_REL},
             consts::{ELFCLASS32, ELFDATA2MSB, ET_REL},
-            types::{Elf64Ehdr, Elf64Shdr},
+            types::{Elf64Ehdr, Elf64Shdr, Elf64Sym},
             SECTION_NAME_LENGTH_MAXIMUM,
         },
         error::ProgramResult,
@@ -1408,6 +1408,137 @@ mod test {
             Config::default(),
             function_registry,
         ))
+    }
+
+    #[test]
+    fn test_strict_header() {
+        let elf_bytes =
+            std::fs::read("tests/elfs/strict_header.so").expect("failed to read elf file");
+        let loader = loader();
+
+        // Check that the unmodified file can be parsed
+        {
+            let loader = Arc::new(BuiltinProgram::new_loader(
+                Config {
+                    enable_symbol_and_section_labels: true,
+                    ..Config::default()
+                },
+                FunctionRegistry::<BuiltinFunction<TestContextObject>>::default(),
+            ));
+            let executable = ElfExecutable::load(&elf_bytes, loader.clone()).unwrap();
+            let (name, _pc) = executable.get_function_registry().lookup_by_key(4).unwrap();
+            assert_eq!(name, b"entrypoint");
+        }
+
+        // Check that using a reserved SBPF version fails
+        {
+            let mut elf_bytes = elf_bytes.clone();
+            elf_bytes[0x0030] = 0xFF;
+            let err = ElfExecutable::load(&elf_bytes, loader.clone()).unwrap_err();
+            assert_eq!(err, ElfError::UnsupportedSBPFVersion);
+        }
+
+        // Check that an empty file fails
+        let err = ElfExecutable::load_with_strict_parser(&[], loader.clone()).unwrap_err();
+        assert_eq!(err, ElfParserError::OutOfBounds);
+
+        // Break the file header one byte at a time
+        let expected_results = std::iter::repeat(&Err(ElfParserError::InvalidFileHeader))
+            .take(40)
+            .chain(std::iter::repeat(&Ok(())).take(12))
+            .chain(std::iter::repeat(&Err(ElfParserError::InvalidFileHeader)).take(4))
+            .chain(std::iter::repeat(&Err(ElfParserError::InvalidProgramHeader)).take(1))
+            .chain(std::iter::repeat(&Err(ElfParserError::InvalidFileHeader)).take(3))
+            .chain(std::iter::repeat(&Ok(())).take(2))
+            .chain(std::iter::repeat(&Err(ElfParserError::InvalidFileHeader)).take(2));
+        for (offset, expected) in (0..std::mem::size_of::<Elf64Ehdr>()).zip(expected_results) {
+            let mut elf_bytes = elf_bytes.clone();
+            elf_bytes[offset] = 0xAF;
+            let result =
+                ElfExecutable::load_with_strict_parser(&elf_bytes, loader.clone()).map(|_| ());
+            assert_eq!(&result, expected);
+        }
+
+        // Break the program header table one byte at a time
+        let expected_results_readonly =
+            std::iter::repeat(&Err(ElfParserError::InvalidProgramHeader))
+                .take(48)
+                .chain(std::iter::repeat(&Ok(())).take(8))
+                .collect::<Vec<_>>();
+        let expected_results_writable =
+            std::iter::repeat(&Err(ElfParserError::InvalidProgramHeader))
+                .take(40)
+                .chain(std::iter::repeat(&Ok(())).take(4))
+                .chain(std::iter::repeat(&Err(ElfParserError::InvalidProgramHeader)).take(4))
+                .chain(std::iter::repeat(&Ok(())).take(8))
+                .collect::<Vec<_>>();
+        let expected_results = vec![
+            expected_results_readonly.iter(),
+            expected_results_readonly.iter(),
+            expected_results_writable.iter(),
+            expected_results_writable.iter(),
+            expected_results_readonly.iter(),
+        ];
+        for (header_index, expected_results) in expected_results.into_iter().enumerate() {
+            for (offset, expected) in (std::mem::size_of::<Elf64Ehdr>()
+                + std::mem::size_of::<Elf64Phdr>() * header_index
+                ..std::mem::size_of::<Elf64Ehdr>()
+                    + std::mem::size_of::<Elf64Phdr>() * (header_index + 1))
+                .zip(expected_results)
+            {
+                let mut elf_bytes = elf_bytes.clone();
+                elf_bytes[offset] = 0xAF;
+                let result =
+                    ElfExecutable::load_with_strict_parser(&elf_bytes, loader.clone()).map(|_| ());
+                assert_eq!(&&result, expected);
+            }
+        }
+
+        // Break the dynamic symbol table one byte at a time
+        for index in 1..3 {
+            let expected_results = std::iter::repeat(&Ok(()))
+                .take(8)
+                .chain(std::iter::repeat(&Err(ElfParserError::OutOfBounds)).take(8))
+                .chain(std::iter::repeat(&Err(ElfParserError::InvalidSize)).take(1))
+                .chain(std::iter::repeat(&Err(ElfParserError::OutOfBounds)).take(7));
+            for (offset, expected) in (0x3000 + std::mem::size_of::<Elf64Sym>() * index
+                ..0x3000 + std::mem::size_of::<Elf64Sym>() * (index + 1))
+                .zip(expected_results)
+            {
+                let mut elf_bytes = elf_bytes.clone();
+                elf_bytes[offset] = 0xAF;
+                let result =
+                    ElfExecutable::load_with_strict_parser(&elf_bytes, loader.clone()).map(|_| ());
+                assert_eq!(&result, expected);
+            }
+        }
+
+        // Check that an empty function symbol fails
+        {
+            let mut elf_bytes = elf_bytes.clone();
+            elf_bytes[0x3040] = 0x00;
+            let err =
+                ElfExecutable::load_with_strict_parser(&elf_bytes, loader.clone()).unwrap_err();
+            assert_eq!(err, ElfParserError::InvalidSize);
+        }
+
+        // Check that bytecode not covered by function symbols fails
+        {
+            let mut elf_bytes = elf_bytes.clone();
+            elf_bytes[0x3040] = 0x08;
+            let err =
+                ElfExecutable::load_with_strict_parser(&elf_bytes, loader.clone()).unwrap_err();
+            assert_eq!(err, ElfParserError::OutOfBounds);
+        }
+
+        // Check that an entrypoint not covered by function symbols fails
+        {
+            let mut elf_bytes = elf_bytes.clone();
+            elf_bytes[0x0018] = 0x10;
+            let err =
+                ElfExecutable::load_with_strict_parser(&elf_bytes, loader.clone()).unwrap_err();
+            assert_eq!(err, ElfParserError::InvalidFileHeader);
+        }
     }
 
     #[test]

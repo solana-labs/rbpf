@@ -3187,6 +3187,17 @@ fn test_struct_func_pointer() {
     );
 }
 
+#[test]
+fn test_strict_header() {
+    test_interpreter_and_jit_elf!(
+        "tests/elfs/strict_header.so",
+        [],
+        (),
+        TestContextObject::new(6),
+        ProgramResult::Ok(42),
+    );
+}
+
 // Programs
 
 #[test]
