@@ -31,6 +31,7 @@ use crate::{
         allocate_pages, free_pages, get_system_page_size, protect_pages, round_to_page_size,
     },
     memory_region::{AccessType, MemoryMapping},
+    program::BuiltinFunction,
     vm::{get_runtime_environment_key, Config, ContextObject, EbpfVm},
     x86::*,
 };
@@ -705,37 +706,24 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::JSLT_REG   => self.emit_conditional_branch_reg(0x8c, false, src, dst, target_pc),
                 ebpf::JSLE_IMM   => self.emit_conditional_branch_imm(0x8e, false, insn.imm, dst, target_pc),
                 ebpf::JSLE_REG   => self.emit_conditional_branch_reg(0x8e, false, src, dst, target_pc),
-                ebpf::CALL_IMM | ebpf::SYSCALL
-                if insn.opc == ebpf::CALL_IMM || self.executable.get_sbpf_version().static_syscalls() => {
+                ebpf::CALL_IMM => {
                     // For JIT, external functions MUST be registered at compile time.
-
-                    let mut resolved = false;
-                    let (external, internal) = if self.executable.get_sbpf_version().static_syscalls() {
-                        (insn.src == 0, insn.src != 0)
+                    if let Some((_, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
+                        // SBPFv1 syscall
+                        self.emit_syscall_dispatch(function);
+                    } else if let Some((_function_name, target_pc)) = self.executable.get_function_registry().lookup_by_key(insn.imm as u32) {
+                        // BPF to BPF call
+                        self.emit_internal_call(Value::Constant64(target_pc as i64, true));
                     } else {
-                        (true, true)
-                    };
-
-                    if external {
-                        if let Some((_function_name, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
-                            self.emit_validate_and_profile_instruction_count(false, Some(0));
-                            self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, function as usize as i64));
-                            self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL, 5)));
-                            self.emit_undo_profile_instruction_count(0);
-                            resolved = true;
-                        }
-                    }
-
-                    if internal {
-                        if let Some((_function_name, target_pc)) = self.executable.get_function_registry().lookup_by_key(insn.imm as u32) {
-                            self.emit_internal_call(Value::Constant64(target_pc as i64, true));
-                            resolved = true;
-                        }
-                    }
-
-                    if !resolved {
                         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64));
                         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)));
+                    }
+                },
+                ebpf::SYSCALL if self.executable.get_sbpf_version().static_syscalls() => {
+                    if let Some((_, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
+                        self.emit_syscall_dispatch(function);
+                    } else {
+                        debug_assert!(false, "Invalid syscall should have been detected in the verifier.")
                     }
                 },
                 ebpf::CALL_REG  => {
@@ -1133,6 +1121,14 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         for reg in REGISTER_MAP.iter().skip(FIRST_SCRATCH_REG).take(SCRATCH_REGS).rev() {
             self.emit_ins(X86Instruction::pop(*reg));
         }
+    }
+
+    #[inline]
+    fn emit_syscall_dispatch(&mut self, function: BuiltinFunction<C>) {
+        self.emit_validate_and_profile_instruction_count(false, Some(0));
+        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, function as usize as i64));
+        self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL, 5)));
+        self.emit_undo_profile_instruction_count(0);
     }
 
     #[inline]
@@ -1696,7 +1692,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 mod tests {
     use super::*;
     use crate::{
-        program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
+        program::{BuiltinProgram, FunctionRegistry, SBPFVersion},
         syscalls,
         vm::TestContextObject,
     };
@@ -1743,12 +1739,10 @@ mod tests {
 
     fn create_mockup_executable(config: Config, program: &[u8]) -> Executable<TestContextObject> {
         let sbpf_version = *config.enabled_sbpf_versions.end();
-        let mut function_registry =
-            FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
-        function_registry
-            .register_function_hashed(*b"gather_bytes", syscalls::SyscallGatherBytes::vm)
+        let mut loader = BuiltinProgram::new_loader_with_dense_registration(config);
+        loader
+            .register_function("gather_bytes", 1, syscalls::SyscallGatherBytes::vm)
             .unwrap();
-        let loader = BuiltinProgram::new_loader(config, function_registry);
         let mut function_registry = FunctionRegistry::default();
         function_registry
             .register_function(8, *b"function_foo", 8)
@@ -1834,6 +1828,10 @@ mod tests {
                         // Put invalid function calls on a separate loop iteration
                         opcode = 0x85;
                         (0x88, 0x91020CDD)
+                    }
+                    0x95 => {
+                        // Put a valid syscall
+                        (0, 1)
                     }
                     0xD4 | 0xDC => (0x88, 16),
                     _ => (0x88, 0xFFFFFFFF),
