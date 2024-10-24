@@ -15,8 +15,8 @@ pub enum SBPFVersion {
     V1,
     /// The current format
     V2,
-    /// The future format with BTF support
-    V3,
+    /// Used for future versions
+    Reserved,
 }
 
 impl SBPFVersion {
