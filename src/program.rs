@@ -95,6 +95,11 @@ impl SBPFVersion {
     pub fn move_memory_instruction_classes(self) -> bool {
         self != SBPFVersion::V1
     }
+
+    /// Constrain ELF format to ignore section headers and relocations
+    pub fn enable_stricter_elf_headers(self) -> bool {
+        self != SBPFVersion::V1
+    }
 }
 
 /// Holds the function symbols of an Executable

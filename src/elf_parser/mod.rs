@@ -573,7 +573,7 @@ impl<'a> Elf64<'a> {
     }
 
     /// Returns the `&[T]` contained at `bytes[range]`
-    fn slice_from_bytes<T: 'static>(
+    pub fn slice_from_bytes<T: 'static>(
         bytes: &[u8],
         range: Range<usize>,
     ) -> Result<&[T], ElfParserError> {
