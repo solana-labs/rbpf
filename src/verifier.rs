@@ -391,10 +391,11 @@ impl Verifier for RequisiteVerifier {
                 ebpf::JSLE_IMM   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::JSLE_REG   => { check_jmp_offset(prog, insn_ptr, &function_range)?; },
                 ebpf::CALL_IMM   if sbpf_version.static_syscalls() => {
+                    let target_pc = sbpf_version.calculate_call_imm_target_pc(insn_ptr, insn.imm);
                     check_call_target(
-                        insn.imm as u32,
+                        target_pc,
                         function_registry,
-                        VerifierError::InvalidFunction(insn.imm as usize)
+                        VerifierError::InvalidFunction(target_pc as usize)
                     )?;
                 },
                 ebpf::CALL_IMM   => {},

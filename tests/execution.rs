@@ -2962,8 +2962,9 @@ fn test_err_exit_capped() {
     );
     test_interpreter_and_jit_asm!(
         "
-        call 1
+        call function_foo
         exit
+        function_foo:
         mov r0, r0
         exit
         ",

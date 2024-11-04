@@ -417,6 +417,11 @@ pub fn assemble<C: ContextObject>(
                                 insn(opc, 0, 0, resolve_label(insn_ptr, &labels, label)?, 0)
                             }
                             (CallImm, [Integer(imm)]) => {
+                                let instr_imm = if sbpf_version.static_syscalls() {
+                                    *imm
+                                } else {
+                                    *imm + insn_ptr as i64 + 1
+                                };
                                 let target_pc = *imm + insn_ptr as i64 + 1;
                                 let label = format!("function_{}", target_pc as usize);
                                 function_registry
@@ -426,7 +431,7 @@ pub fn assemble<C: ContextObject>(
                                         target_pc as usize,
                                     )
                                     .map_err(|_| format!("Label hash collision {name}"))?;
-                                insn(opc, 0, 1, 0, target_pc)
+                                insn(opc, 0, 1, 0, instr_imm)
                             }
                             (CallReg, [Register(dst)]) => {
                                 if sbpf_version.callx_uses_src_reg() {
@@ -461,10 +466,14 @@ pub fn assemble<C: ContextObject>(
                             (Syscall, [Integer(imm)]) => insn(opc, 0, 0, 0, *imm),
                             (CallImm, [Label(label)]) => {
                                 let label: &str = label;
-                                let target_pc = *labels
+                                let mut target_pc = *labels
                                     .get(label)
-                                    .ok_or_else(|| format!("Label not found {label}"))?;
-                                insn(opc, 0, 1, 0, target_pc as i64)
+                                    .ok_or_else(|| format!("Label not found {label}"))?
+                                    as i64;
+                                if sbpf_version.static_syscalls() {
+                                    target_pc = target_pc - insn_ptr as i64 - 1;
+                                }
+                                insn(opc, 0, 1, 0, target_pc)
                             }
                             (Endian(size), [Register(dst)]) => insn(opc, *dst, 0, 0, size),
                             (LoadDwImm, [Register(dst), Integer(imm)]) => {

@@ -799,10 +799,7 @@ impl<C: ContextObject> Executable<C> {
             .ok_or(ElfError::ValueOutOfBounds)?;
         for i in 0..instruction_count {
             let insn = ebpf::get_insn(text_bytes, i);
-            if insn.opc == ebpf::CALL_IMM
-                && insn.imm != -1
-                && !(sbpf_version.static_syscalls() && insn.src == 0)
-            {
+            if insn.opc == ebpf::CALL_IMM && insn.imm != -1 {
                 let target_pc = (i as isize)
                     .saturating_add(1)
                     .saturating_add(insn.imm as isize);
@@ -820,11 +817,13 @@ impl<C: ContextObject> Executable<C> {
                     name.as_bytes(),
                     target_pc as usize,
                 )?;
-                let offset = i.saturating_mul(ebpf::INSN_SIZE).saturating_add(4);
-                let checked_slice = text_bytes
-                    .get_mut(offset..offset.saturating_add(4))
-                    .ok_or(ElfError::ValueOutOfBounds)?;
-                LittleEndian::write_u32(checked_slice, key);
+                if !sbpf_version.static_syscalls() {
+                    let offset = i.saturating_mul(ebpf::INSN_SIZE).saturating_add(4);
+                    let checked_slice = text_bytes
+                        .get_mut(offset..offset.saturating_add(4))
+                        .ok_or(ElfError::ValueOutOfBounds)?;
+                    LittleEndian::write_u32(checked_slice, key);
+                }
             }
         }
 

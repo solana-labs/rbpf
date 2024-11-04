@@ -348,7 +348,7 @@ fn test_verifier_err_unknown_opcode() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidFunction(1811268606)")]
+#[should_panic(expected = "InvalidFunction(1811268607)")]
 fn test_verifier_unknown_sycall() {
     let prog = &[
         0x85, 0x00, 0x00, 0x00, 0xfe, 0xc3, 0xf5, 0x6b, // call 0x6bf5c3fe

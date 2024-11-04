@@ -81,6 +81,16 @@ impl SBPFVersion {
         self != SBPFVersion::V1
     }
 
+    /// Calculate the target program counter for a CALL_IMM instruction depending on
+    /// the SBPF version.
+    pub fn calculate_call_imm_target_pc(self, pc: usize, imm: i64) -> u32 {
+        if self.static_syscalls() {
+            (pc as i64).saturating_add(imm).saturating_add(1) as u32
+        } else {
+            imm as u32
+        }
+    }
+
     /// Move opcodes of memory instructions into ALU instruction classes
     pub fn move_memory_instruction_classes(self) -> bool {
         self != SBPFVersion::V1

@@ -727,9 +727,18 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     }
 
                     if internal {
-                        if let Some((_function_name, target_pc)) = self.executable.get_function_registry().lookup_by_key(insn.imm as u32) {
-                            self.emit_internal_call(Value::Constant64(target_pc as i64, true));
-                            resolved = true;
+                        if let Some((_function_name, target_pc)) =
+                            self.executable
+                                .get_function_registry()
+                                .lookup_by_key(
+                                    self
+                                        .executable
+                                        .get_sbpf_version()
+                                        .calculate_call_imm_target_pc(self.pc, insn.imm)
+                                )
+                        {
+                                self.emit_internal_call(Value::Constant64(target_pc as i64, true));
+                                resolved = true;
                         }
                     }
 

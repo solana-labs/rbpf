@@ -111,7 +111,8 @@ fn jmp_reg_str(name: &str, insn: &ebpf::Insn, cfg_nodes: &BTreeMap<usize, CfgNod
 /// Disassemble an eBPF instruction
 #[rustfmt::skip]
 pub fn disassemble_instruction<C: ContextObject>(
-    insn: &ebpf::Insn, 
+    insn: &ebpf::Insn,
+    pc: usize,
     cfg_nodes: &BTreeMap<usize, CfgNode>,
     function_registry: &FunctionRegistry<usize>,
     loader: &BuiltinProgram<C>,
@@ -265,7 +266,8 @@ pub fn disassemble_instruction<C: ContextObject>(
         ebpf::JSLE_IMM   => { name = "jsle"; desc = jmp_imm_str(name, insn, cfg_nodes); },
         ebpf::JSLE_REG   => { name = "jsle"; desc = jmp_reg_str(name, insn, cfg_nodes); },
         ebpf::CALL_IMM   => {
-            let function_name = function_registry.lookup_by_key(insn.imm as u32).map(|(function_name, _)| String::from_utf8_lossy(function_name).to_string());
+            let key = sbpf_version.calculate_call_imm_target_pc(pc, insn.imm);
+            let function_name = function_registry.lookup_by_key(key).map(|(function_name, _)| String::from_utf8_lossy(function_name).to_string());
             let function_name = if let Some(function_name) = function_name {
                 name = "call";
                 function_name

@@ -442,9 +442,10 @@ impl<'a> Analysis<'a> {
     }
 
     /// Generates assembler code for a single instruction
-    pub fn disassemble_instruction(&self, insn: &ebpf::Insn) -> String {
+    pub fn disassemble_instruction(&self, insn: &ebpf::Insn, pc: usize) -> String {
         disassemble_instruction(
             insn,
+            pc,
             &self.cfg_nodes,
             self.executable.get_function_registry(),
             self.executable.get_loader(),
@@ -455,14 +456,14 @@ impl<'a> Analysis<'a> {
     /// Generates assembler code for the analyzed executable
     pub fn disassemble<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
         let mut last_basic_block = usize::MAX;
-        for insn in self.instructions.iter() {
+        for (pc, insn) in self.instructions.iter().enumerate() {
             self.disassemble_label(
                 output,
                 Some(insn) == self.instructions.first(),
                 insn.ptr,
                 &mut last_basic_block,
             )?;
-            writeln!(output, "    {}", self.disassemble_instruction(insn))?;
+            writeln!(output, "    {}", self.disassemble_instruction(insn, pc))?;
         }
         Ok(())
     }
@@ -493,7 +494,7 @@ impl<'a> Analysis<'a> {
                 index,
                 &entry[0..11],
                 pc,
-                self.disassemble_instruction(insn),
+                self.disassemble_instruction(insn, pc),
             )?;
         }
         Ok(())
@@ -545,9 +546,9 @@ impl<'a> Analysis<'a> {
             writeln!(output, "    lbb_{} [label=<<table border=\"0\" cellborder=\"0\" cellpadding=\"3\">{}</table>>];",
                 cfg_node_start,
                 analysis.instructions[cfg_node.instructions.clone()].iter()
-                .map(|insn| {
+                .enumerate().map(|(pc, insn)| {
                     let desc = analysis.disassemble_instruction(
-                        insn
+                        insn, pc
                     );
                     if let Some(split_index) = desc.find(' ') {
                         let mut rest = desc[split_index+1..].to_string();

@@ -551,7 +551,16 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 }
 
                 if internal && !resolved {
-                    if let Some((_function_name, target_pc)) = self.executable.get_function_registry().lookup_by_key(insn.imm as u32) {
+                    if let Some((_function_name, target_pc)) =
+                        self.executable
+                            .get_function_registry()
+                            .lookup_by_key(
+                                self
+                                    .executable
+                                    .get_sbpf_version()
+                                    .calculate_call_imm_target_pc(self.reg[11] as usize, insn.imm)
+                            )
+                    {
                         resolved = true;
 
                         // make BPF to BPF call
