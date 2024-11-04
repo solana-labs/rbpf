@@ -30,7 +30,7 @@ pub enum ElfParserError {
     /// Section or symbol name is too long
     #[error("Section or symbol name `{0}` is longer than `{1}` bytes")]
     StringTooLong(String, usize),
-    /// An index or memory range does exeed its boundaries
+    /// An index or memory range does exceed its boundaries
     #[error("value out of bounds")]
     OutOfBounds,
     /// The size isn't valid

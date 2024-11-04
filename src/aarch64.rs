@@ -117,7 +117,7 @@ pub enum ARM64Instruction {
     LogicalRegister(ARM64InstructionLogicalShiftedRegister),
     AddSubRegister(ARM64InstructionLogicalShiftedRegister),
     AddSubImm(ARM64InstructionAddSubImm),
-    ConditionalBranch(ARM64InstructionConditonalBranch),
+    ConditionalBranch(ARM64InstructionConditionalBranch),
     LogicalImm(ARM64InstructionLogicalImm),
     BitfieldImm(ARM64InstructionLogicalImm),
     MovWideImm(ARM64InstructionWideImm),
@@ -255,7 +255,7 @@ impl Default for ARM64InstructionWideImm {
 }
 
 #[derive(Copy, Clone)]
-pub struct ARM64InstructionConditonalBranch {
+pub struct ARM64InstructionConditionalBranch {
     pub cond: u8,   // 4 bits
     pub imm19: i32, // offset from current instruction, divided by 4
 }
@@ -819,7 +819,7 @@ impl ARM64Instruction {
     // WARNING: You need to divide the byte offset by 4 before passing as imm19
     #[must_use]
     pub fn b_cond(cond: Condition, imm19: i32) -> Self {
-        Self::ConditionalBranch(ARM64InstructionConditonalBranch {
+        Self::ConditionalBranch(ARM64InstructionConditionalBranch {
             cond: cond as u8,
             imm19,
         })

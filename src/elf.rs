@@ -44,8 +44,8 @@ pub enum ElfError {
     /// Entrypoint out of bounds
     #[error("Entrypoint out of bounds")]
     EntrypointOutOfBounds,
-    /// Invaid entrypoint
-    #[error("Invaid entrypoint")]
+    /// Invalid entrypoint
+    #[error("Invalid entrypoint")]
     InvalidEntrypoint,
     /// Failed to get section
     #[error("Failed to get section {0}")]
@@ -68,7 +68,7 @@ pub enum ElfError {
     /// Incompatible ELF: wrong ABI
     #[error("Incompatible ELF: wrong ABI")]
     WrongAbi,
-    /// Incompatible ELF: wrong mchine
+    /// Incompatible ELF: wrong machine
     #[error("Incompatible ELF: wrong machine")]
     WrongMachine,
     /// Incompatible ELF: wrong class

@@ -264,7 +264,7 @@ enum RuntimeEnvironmentSlot {
     MemoryMapping = 28,
 }
 
-/* Explaination of the Instruction Meter
+/* Explanation of the Instruction Meter
 
     The instruction meter serves two purposes: First, measure how many BPF instructions are
     executed (profiling) and second, limit this number by stopping the program with an exception
