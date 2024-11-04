@@ -4090,6 +4090,40 @@ fn test_mod() {
 }
 
 #[test]
+fn test_invalid_call_imm() {
+    // In SBPFv2, `call_imm N` shall not be dispatched to a syscall.
+    let prog = &[
+        0x85, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // call_imm 2
+        0x9d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        enable_instruction_tracing: true,
+        ..Config::default()
+    };
+    let mut loader = BuiltinProgram::new_loader_with_dense_registration(config);
+    loader
+        .register_function("syscall_string", 2, syscalls::SyscallString::vm)
+        .unwrap();
+    let mut executable = Executable::<TestContextObject>::from_text_bytes(
+        prog,
+        Arc::new(loader),
+        SBPFVersion::V2,
+        FunctionRegistry::default(),
+    )
+    .unwrap();
+
+    test_interpreter_and_jit!(
+        false,
+        executable,
+        [],
+        TestContextObject::new(1),
+        ProgramResult::Err(EbpfError::UnsupportedInstruction),
+    );
+}
+
+#[test]
 #[should_panic(expected = "Invalid syscall should have been detected in the verifier.")]
 fn test_invalid_exit_or_return() {
     for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {

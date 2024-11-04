@@ -708,7 +708,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::JSLE_REG   => self.emit_conditional_branch_reg(0x8e, false, src, dst, target_pc),
                 ebpf::CALL_IMM => {
                     // For JIT, external functions MUST be registered at compile time.
-                    if let Some((_, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
+                    if let (false, Some((_, function))) =
+                            (self.executable.get_sbpf_version().static_syscalls(),
+                                self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32)) {
                         // SBPFv1 syscall
                         self.emit_syscall_dispatch(function);
                     } else if let Some((_function_name, target_pc)) =
