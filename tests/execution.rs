@@ -143,22 +143,28 @@ macro_rules! test_interpreter_and_jit {
 }
 
 macro_rules! test_interpreter_and_jit_asm {
-    ($source:tt, $config:expr, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
+    ($source:tt, $config:expr, $mem:tt, $context_object:expr, $expected_result:expr $(,)?) => {
         #[allow(unused_mut)]
         {
             let mut config = $config;
             config.enable_instruction_tracing = true;
-            let mut function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
-            $(test_interpreter_and_jit!(register, function_registry, $location => $syscall_function);)*
+            let mut function_registry =
+                FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
             let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
             let mut executable = assemble($source, loader).unwrap();
             test_interpreter_and_jit!(executable, $mem, $context_object, $expected_result);
         }
     };
-    ($source:tt, $mem:tt, ($($location:expr => $syscall_function:expr),* $(,)?), $context_object:expr, $expected_result:expr $(,)?) => {
+    ($source:tt, $mem:tt, $context_object:expr, $expected_result:expr $(,)?) => {
         #[allow(unused_mut)]
         {
-            test_interpreter_and_jit_asm!($source, Config::default(), $mem, ($($location => $syscall_function),*), $context_object, $expected_result);
+            test_interpreter_and_jit_asm!(
+                $source,
+                Config::default(),
+                $mem,
+                $context_object,
+                $expected_result
+            );
         }
     };
 }
@@ -223,7 +229,6 @@ fn test_mov32_imm() {
         mov32 r0, 1
         exit",
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Ok(1),
     );
@@ -232,7 +237,6 @@ fn test_mov32_imm() {
         mov32 r0, -1
         exit",
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Ok(0xffffffff),
     );
@@ -246,7 +250,6 @@ fn test_mov32_reg() {
         mov32 r0, r1
         exit",
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x1),
     );
@@ -256,7 +259,6 @@ fn test_mov32_reg() {
         mov32 r0, r1
         exit",
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0xffffffffffffffff),
     );
@@ -269,7 +271,6 @@ fn test_mov64_imm() {
         mov64 r0, 1
         exit",
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Ok(1),
     );
@@ -278,7 +279,6 @@ fn test_mov64_imm() {
         mov64 r0, -1
         exit",
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Ok(0xffffffffffffffff),
     );
@@ -292,7 +292,6 @@ fn test_mov64_reg() {
         mov64 r0, r1
         exit",
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x1),
     );
@@ -302,7 +301,6 @@ fn test_mov64_reg() {
         mov64 r0, r1
         exit",
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0xffffffffffffffff),
     );
@@ -320,7 +318,6 @@ fn test_bounce() {
         mov r0, r9
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -336,7 +333,6 @@ fn test_add32() {
         add32 r0, r1
         exit",
         [],
-        (),
         TestContextObject::new(5),
         ProgramResult::Ok(0x3),
     );
@@ -366,7 +362,6 @@ fn test_alu32_arithmetic() {
         udiv32 r0, r4
         exit",
         [],
-        (),
         TestContextObject::new(19),
         ProgramResult::Ok(110),
     );
@@ -396,7 +391,6 @@ fn test_alu64_arithmetic() {
         udiv r0, r4
         exit",
         [],
-        (),
         TestContextObject::new(19),
         ProgramResult::Ok(110),
     );
@@ -449,7 +443,6 @@ fn test_lmul128() {
         stxdw [r1+0x0], r0
         exit",
         [0; 16],
-        (),
         TestContextObject::new(42),
         ProgramResult::Ok(600),
     );
@@ -481,7 +474,6 @@ fn test_alu32_logic() {
         xor32 r0, r2
         exit",
         [],
-        (),
         TestContextObject::new(21),
         ProgramResult::Ok(0x11),
     );
@@ -515,7 +507,6 @@ fn test_alu64_logic() {
         xor r0, r2
         exit",
         [],
-        (),
         TestContextObject::new(23),
         ProgramResult::Ok(0x11),
     );
@@ -531,7 +522,6 @@ fn test_arsh32_high_shift() {
         arsh32 r0, r1
         exit",
         [],
-        (),
         TestContextObject::new(5),
         ProgramResult::Ok(0x4),
     );
@@ -546,7 +536,6 @@ fn test_arsh32_imm() {
         arsh32 r0, 16
         exit",
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0xffff8000),
     );
@@ -562,7 +551,6 @@ fn test_arsh32_reg() {
         arsh32 r0, r1
         exit",
         [],
-        (),
         TestContextObject::new(5),
         ProgramResult::Ok(0xffff8000),
     );
@@ -579,7 +567,6 @@ fn test_arsh64() {
         arsh r0, r1
         exit",
         [],
-        (),
         TestContextObject::new(6),
         ProgramResult::Ok(0xfffffffffffffff8),
     );
@@ -594,7 +581,6 @@ fn test_lsh64_reg() {
         lsh r0, r7
         exit",
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0x10),
     );
@@ -609,7 +595,6 @@ fn test_rhs32_imm() {
         rsh32 r0, 8
         exit",
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0x00ffffff),
     );
@@ -624,7 +609,6 @@ fn test_rsh64_reg() {
         rsh r0, r7
         exit",
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0x1),
     );
@@ -638,7 +622,6 @@ fn test_be16() {
         be16 r0
         exit",
         [0x11, 0x22],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x1122),
     );
@@ -652,7 +635,6 @@ fn test_be16_high() {
         be16 r0
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x1122),
     );
@@ -666,7 +648,6 @@ fn test_be32() {
         be32 r0
         exit",
         [0x11, 0x22, 0x33, 0x44],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x11223344),
     );
@@ -680,7 +661,6 @@ fn test_be32_high() {
         be32 r0
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x11223344),
     );
@@ -694,7 +674,6 @@ fn test_be64() {
         be64 r0
         exit",
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x1122334455667788),
     );
@@ -954,7 +933,6 @@ fn test_memory_instructions() {
             exit",
             config.clone(),
             [0xaa, 0xbb, 0x11, 0xcc, 0xdd],
-            (),
             TestContextObject::new(2),
             ProgramResult::Ok(0x11),
         );
@@ -964,7 +942,6 @@ fn test_memory_instructions() {
             exit",
             config.clone(),
             [0xaa, 0xbb, 0x11, 0x22, 0xcc, 0xdd],
-            (),
             TestContextObject::new(2),
             ProgramResult::Ok(0x2211),
         );
@@ -976,7 +953,6 @@ fn test_memory_instructions() {
             [
                 0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0xcc, 0xdd, //
             ],
-            (),
             TestContextObject::new(2),
             ProgramResult::Ok(0x44332211),
         );
@@ -989,7 +965,6 @@ fn test_memory_instructions() {
                 0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, //
                 0x77, 0x88, 0xcc, 0xdd, //
             ],
-            (),
             TestContextObject::new(2),
             ProgramResult::Ok(0x8877665544332211),
         );
@@ -1001,7 +976,6 @@ fn test_memory_instructions() {
             exit",
             config.clone(),
             [0xaa, 0xbb, 0xff, 0xcc, 0xdd],
-            (),
             TestContextObject::new(3),
             ProgramResult::Ok(0x11),
         );
@@ -1014,7 +988,6 @@ fn test_memory_instructions() {
             [
                 0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
             ],
-            (),
             TestContextObject::new(3),
             ProgramResult::Ok(0x2211),
         );
@@ -1027,7 +1000,6 @@ fn test_memory_instructions() {
             [
                 0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
             ],
-            (),
             TestContextObject::new(3),
             ProgramResult::Ok(0x44332211),
         );
@@ -1041,7 +1013,6 @@ fn test_memory_instructions() {
                 0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
                 0xff, 0xff, 0xcc, 0xdd, //
             ],
-            (),
             TestContextObject::new(3),
             ProgramResult::Ok(0x44332211),
         );
@@ -1056,7 +1027,6 @@ fn test_memory_instructions() {
             [
                 0xaa, 0xbb, 0xff, 0xcc, 0xdd, //
             ],
-            (),
             TestContextObject::new(4),
             ProgramResult::Ok(0x11),
         );
@@ -1070,7 +1040,6 @@ fn test_memory_instructions() {
             [
                 0xaa, 0xbb, 0xff, 0xff, 0xcc, 0xdd, //
             ],
-            (),
             TestContextObject::new(4),
             ProgramResult::Ok(0x2211),
         );
@@ -1084,7 +1053,6 @@ fn test_memory_instructions() {
             [
                 0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xcc, 0xdd, //
             ],
-            (),
             TestContextObject::new(4),
             ProgramResult::Ok(0x44332211),
         );
@@ -1101,7 +1069,6 @@ fn test_memory_instructions() {
                 0xaa, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
                 0xff, 0xff, 0xcc, 0xdd, //
             ],
-            (),
             TestContextObject::new(6),
             ProgramResult::Ok(0x8877665544332211),
         );
@@ -1116,7 +1083,6 @@ fn test_hor64() {
         hor64 r0, 0x01020304
         exit",
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x1122334400000000),
     );
@@ -1131,7 +1097,6 @@ fn test_ldxh_same_reg() {
         ldxh r0, [r0]
         exit",
         [0xff, 0xff],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0x1234),
     );
@@ -1147,7 +1112,6 @@ fn test_err_ldxdw_oob() {
             0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, //
             0x77, 0x88, 0xcc, 0xdd, //
         ],
-        (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::AccessViolation(
             AccessType::Load,
@@ -1165,7 +1129,6 @@ fn test_err_ldxdw_nomem() {
         ldxdw r0, [r1+6]
         exit",
         [],
-        (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::AccessViolation(
             AccessType::Load,
@@ -1215,7 +1178,6 @@ fn test_ldxb_all() {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, //
             0x08, 0x09, //
         ],
-        (),
         TestContextObject::new(31),
         ProgramResult::Ok(0x9876543210),
     );
@@ -1271,7 +1233,6 @@ fn test_ldxh_all() {
             0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, //
             0x00, 0x08, 0x00, 0x09, //
         ],
-        (),
         TestContextObject::new(41),
         ProgramResult::Ok(0x9876543210),
     );
@@ -1317,7 +1278,6 @@ fn test_ldxh_all2() {
             0x00, 0x10, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, //
             0x01, 0x00, 0x02, 0x00, //
         ],
-        (),
         TestContextObject::new(31),
         ProgramResult::Ok(0x3ff),
     );
@@ -1365,7 +1325,6 @@ fn test_ldxw_all() {
             0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x08, 0x00, //
             0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, //
         ],
-        (),
         TestContextObject::new(31),
         ProgramResult::Ok(0x030f0f),
     );
@@ -1397,7 +1356,6 @@ fn test_stxb_all() {
         [
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
         ],
-        (),
         TestContextObject::new(19),
         ProgramResult::Ok(0xf0f2f3f4f5f6f7f8),
     );
@@ -1416,7 +1374,6 @@ fn test_stxb_all2() {
         be16 r0
         exit",
         [0xff, 0xff],
-        (),
         TestContextObject::new(8),
         ProgramResult::Ok(0xf1f9),
     );
@@ -1451,7 +1408,6 @@ fn test_stxb_chain() {
             0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
             0x00, 0x00, //
         ],
-        (),
         TestContextObject::new(21),
         ProgramResult::Ok(0x2a),
     );
@@ -1472,7 +1428,6 @@ fn test_exit_capped() {
             exit",
             config,
             [],
-            (),
             TestContextObject::new(0),
             ProgramResult::Err(EbpfError::ExceededMaxInstructions),
         );
@@ -1492,7 +1447,6 @@ fn test_exit_without_value() {
             exit",
             config,
             [],
-            (),
             TestContextObject::new(1),
             ProgramResult::Ok(0x0),
         );
@@ -1513,7 +1467,6 @@ fn test_exit() {
             exit",
             config,
             [],
-            (),
             TestContextObject::new(2),
             ProgramResult::Ok(0x0),
         );
@@ -1536,7 +1489,6 @@ fn test_early_exit() {
             exit",
             config,
             [],
-            (),
             TestContextObject::new(2),
             ProgramResult::Ok(0x3),
         );
@@ -1552,7 +1504,6 @@ fn test_ja() {
         mov r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x1),
     );
@@ -1571,7 +1522,6 @@ fn test_jeq_imm() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -1591,7 +1541,6 @@ fn test_jeq_reg() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(8),
         ProgramResult::Ok(0x1),
     );
@@ -1610,7 +1559,6 @@ fn test_jge_imm() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -1630,7 +1578,6 @@ fn test_jge_reg() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(8),
         ProgramResult::Ok(0x1),
     );
@@ -1650,7 +1597,6 @@ fn test_jle_imm() {
         mov32 r0, 1
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -1672,7 +1618,6 @@ fn test_jle_reg() {
         mov r0, 1
         exit",
         [],
-        (),
         TestContextObject::new(9),
         ProgramResult::Ok(0x1),
     );
@@ -1691,7 +1636,6 @@ fn test_jgt_imm() {
         mov32 r0, 1
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -1712,7 +1656,6 @@ fn test_jgt_reg() {
         mov r0, 1
         exit",
         [],
-        (),
         TestContextObject::new(9),
         ProgramResult::Ok(0x1),
     );
@@ -1731,7 +1674,6 @@ fn test_jlt_imm() {
         mov32 r0, 1
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -1752,7 +1694,6 @@ fn test_jlt_reg() {
         mov r0, 1
         exit",
         [],
-        (),
         TestContextObject::new(9),
         ProgramResult::Ok(0x1),
     );
@@ -1771,7 +1712,6 @@ fn test_jne_imm() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -1791,7 +1731,6 @@ fn test_jne_reg() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(8),
         ProgramResult::Ok(0x1),
     );
@@ -1810,7 +1749,6 @@ fn test_jset_imm() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -1830,7 +1768,6 @@ fn test_jset_reg() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(8),
         ProgramResult::Ok(0x1),
     );
@@ -1850,7 +1787,6 @@ fn test_jsge_imm() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(8),
         ProgramResult::Ok(0x1),
     );
@@ -1872,7 +1808,6 @@ fn test_jsge_reg() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(10),
         ProgramResult::Ok(0x1),
     );
@@ -1892,7 +1827,6 @@ fn test_jsle_imm() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -1915,7 +1849,6 @@ fn test_jsle_reg() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(10),
         ProgramResult::Ok(0x1),
     );
@@ -1934,7 +1867,6 @@ fn test_jsgt_imm() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -1954,7 +1886,6 @@ fn test_jsgt_reg() {
         mov32 r0, 2
         exit",
         [],
-        (),
         TestContextObject::new(8),
         ProgramResult::Ok(0x1),
     );
@@ -1973,7 +1904,6 @@ fn test_jslt_imm() {
         mov32 r0, 1
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x1),
     );
@@ -1994,7 +1924,6 @@ fn test_jslt_reg() {
         mov32 r0, 1
         exit",
         [],
-        (),
         TestContextObject::new(9),
         ProgramResult::Ok(0x1),
     );
@@ -2016,7 +1945,6 @@ fn test_stack1() {
         ldxdw r0, [r2-16]
         exit",
         [],
-        (),
         TestContextObject::new(9),
         ProgramResult::Ok(0xcd),
     );
@@ -2111,7 +2039,6 @@ fn test_err_dynamic_stack_out_of_bound() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::AccessViolation(
             AccessType::Store,
@@ -2128,7 +2055,6 @@ fn test_err_dynamic_stack_out_of_bound() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::AccessViolation(
             AccessType::Store,
@@ -2158,7 +2084,6 @@ fn test_err_dynamic_stack_ptr_overflow() {
         stb [r10], 0
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Err(EbpfError::AccessViolation(
             AccessType::Store,
@@ -2183,7 +2108,6 @@ fn test_dynamic_stack_frames_empty() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(ebpf::MM_STACK_START + config.stack_size() as u64),
     );
@@ -2205,7 +2129,6 @@ fn test_dynamic_frame_ptr() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(5),
         ProgramResult::Ok(ebpf::MM_STACK_START + config.stack_size() as u64 - 8),
     );
@@ -2223,7 +2146,6 @@ fn test_dynamic_frame_ptr() {
         ",
         config.clone(),
         [],
-        (),
         TestContextObject::new(5),
         ProgramResult::Ok(ebpf::MM_STACK_START + config.stack_size() as u64),
     );
@@ -2256,7 +2178,6 @@ fn test_entrypoint_exit() {
             exit",
             config,
             [],
-            (),
             TestContextObject::new(5),
             ProgramResult::Ok(42),
         );
@@ -2286,7 +2207,6 @@ fn test_stack_call_depth_tracking() {
             ",
             config.clone(),
             [],
-            (),
             TestContextObject::new(5),
             ProgramResult::Ok(0),
         );
@@ -2305,7 +2225,6 @@ fn test_stack_call_depth_tracking() {
             ",
             config,
             [],
-            (),
             TestContextObject::new(2),
             ProgramResult::Err(EbpfError::CallDepthExceeded),
         );
@@ -2385,7 +2304,6 @@ fn test_bpf_to_bpf_scratch_registers() {
         mov64 r9, 0x00
         exit",
         [],
-        (),
         TestContextObject::new(15),
         ProgramResult::Ok(0xFF),
     );
@@ -2422,7 +2340,6 @@ fn test_callx() {
         mov64 r0, 0x2A
         exit",
         [],
-        (),
         TestContextObject::new(6),
         ProgramResult::Ok(42),
     );
@@ -2439,7 +2356,6 @@ fn test_err_callx_unregistered() {
         mov64 r0, 0x2A
         exit",
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Err(EbpfError::UnsupportedInstruction),
     );
@@ -2458,7 +2374,6 @@ fn test_err_callx_oob_low() {
         exit",
         config,
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Err(EbpfError::CallOutsideTextSegment),
     );
@@ -2474,7 +2389,6 @@ fn test_err_callx_oob_high() {
         callx r0
         exit",
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Err(EbpfError::CallOutsideTextSegment),
     );
@@ -2511,7 +2425,6 @@ fn test_bpf_to_bpf_depth() {
             exit",
             config.clone(),
             [max_call_depth as u8],
-            (),
             TestContextObject::new(max_call_depth as u64 * 4 - 2),
             ProgramResult::Ok(0),
         );
@@ -2529,7 +2442,6 @@ fn test_bpf_to_bpf_depth() {
             exit",
             config,
             [max_call_depth as u8 + 1],
-            (),
             TestContextObject::new(max_call_depth as u64 * 3),
             ProgramResult::Err(EbpfError::CallDepthExceeded),
         );
@@ -2549,7 +2461,6 @@ fn test_err_reg_stack_depth() {
             exit",
             config,
             [],
-            (),
             TestContextObject::new(max_call_depth as u64),
             ProgramResult::Err(EbpfError::CallDepthExceeded),
         );
@@ -2768,7 +2679,6 @@ fn test_tight_infinite_loop_conditional() {
         jsge r0, r0, -1
         exit",
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2781,7 +2691,6 @@ fn test_tight_infinite_loop_unconditional() {
         ja -1
         exit",
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2796,7 +2705,6 @@ fn test_tight_infinite_recursion() {
         call entrypoint
         exit",
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2814,7 +2722,6 @@ fn test_tight_infinite_recursion_callx() {
         callx r8
         exit",
         [],
-        (),
         TestContextObject::new(6),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2868,7 +2775,6 @@ fn test_err_non_terminate_capped() {
         ja -0x8
         exit",
         [],
-        (),
         TestContextObject::new(7),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2884,7 +2790,6 @@ fn test_err_non_terminate_capped() {
         ja -0x8
         exit",
         [],
-        (),
         TestContextObject::new(1000),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2900,7 +2805,6 @@ fn test_err_capped_before_exception() {
         mov64 r0, 0x0
         exit",
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2913,7 +2817,6 @@ fn test_err_capped_before_exception() {
         mov64 r0, 0x0
         exit",
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2930,7 +2833,6 @@ fn test_err_exit_capped() {
         exit
         ",
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2944,7 +2846,6 @@ fn test_err_exit_capped() {
         exit
         ",
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2957,7 +2858,6 @@ fn test_err_exit_capped() {
         exit
         ",
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -2979,7 +2879,6 @@ fn test_far_jumps() {
         callx r1
         exit",
         [],
-        (),
         TestContextObject::new(6),
         ProgramResult::Ok(0),
     );
@@ -3005,7 +2904,6 @@ fn test_err_call_unresolved() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(6),
         ProgramResult::Err(EbpfError::UnsupportedInstruction),
     );
@@ -3168,7 +3066,6 @@ fn test_lmul_loop() {
         jne r1, 0x0, -3
         exit",
         [],
-        (),
         TestContextObject::new(37),
         ProgramResult::Ok(0x75db9c97),
     );
@@ -3195,7 +3092,6 @@ fn test_prime() {
         jne r4, 0x0, -10
         exit",
         [],
-        (),
         TestContextObject::new(655),
         ProgramResult::Ok(0x1),
     );
@@ -3231,7 +3127,6 @@ fn test_subnet() {
             0x27, 0x24, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, //
             0x03, 0x00, //
         ],
-        (),
         TestContextObject::new(11),
         ProgramResult::Ok(0x1),
     );
@@ -3256,7 +3151,6 @@ fn test_tcp_port80_match() {
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
             0x44, 0x44, 0x44, 0x44, //
         ],
-        (),
         TestContextObject::new(17),
         ProgramResult::Ok(0x1),
     );
@@ -3281,7 +3175,6 @@ fn test_tcp_port80_nomatch() {
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
             0x44, 0x44, 0x44, 0x44, //
         ],
-        (),
         TestContextObject::new(18),
         ProgramResult::Ok(0x0),
     );
@@ -3306,7 +3199,6 @@ fn test_tcp_port80_nomatch_ethertype() {
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
             0x44, 0x44, 0x44, 0x44, //
         ],
-        (),
         TestContextObject::new(7),
         ProgramResult::Ok(0x0),
     );
@@ -3331,7 +3223,6 @@ fn test_tcp_port80_nomatch_proto() {
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
             0x44, 0x44, 0x44, 0x44, //
         ],
-        (),
         TestContextObject::new(9),
         ProgramResult::Ok(0x0),
     );
@@ -3342,7 +3233,6 @@ fn test_tcp_sack_match() {
     test_interpreter_and_jit_asm!(
         TCP_SACK_ASM,
         TCP_SACK_MATCH,
-        (),
         TestContextObject::new(79),
         ProgramResult::Ok(0x1),
     );
@@ -3353,7 +3243,6 @@ fn test_tcp_sack_nomatch() {
     test_interpreter_and_jit_asm!(
         TCP_SACK_ASM,
         TCP_SACK_NOMATCH,
-        (),
         TestContextObject::new(55),
         ProgramResult::Ok(0x0),
     );
@@ -3561,7 +3450,6 @@ fn test_err_fixed_stack_out_of_bound() {
         exit",
         config,
         [],
-        (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::AccessViolation(
             AccessType::Store,
@@ -3583,7 +3471,6 @@ fn test_execution_overrun() {
         add r1, 0",
         config.clone(),
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Err(EbpfError::ExecutionOverrun),
     );
@@ -3592,7 +3479,6 @@ fn test_execution_overrun() {
         add r1, 0",
         config.clone(),
         [],
-        (),
         TestContextObject::new(1),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -3601,7 +3487,6 @@ fn test_execution_overrun() {
         add r1, 0",
         config.clone(),
         [],
-        (),
         TestContextObject::new(0),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -3620,7 +3505,6 @@ fn test_mov32_reg_truncating() {
         exit",
         config,
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0xffffffff),
     );
@@ -3637,7 +3521,6 @@ fn test_lddw() {
         lddw r0, 0x1122334455667788",
         config.clone(),
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Err(EbpfError::ExecutionOverrun),
     );
@@ -3647,7 +3530,6 @@ fn test_lddw() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Ok(0x1122334455667788),
     );
@@ -3657,7 +3539,6 @@ fn test_lddw() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Ok(0x80000000),
     );
@@ -3676,7 +3557,6 @@ fn test_lddw() {
         ",
         config.clone(),
         [],
-        (),
         TestContextObject::new(9),
         ProgramResult::Ok(0x2),
     );
@@ -3690,7 +3570,6 @@ fn test_lddw() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -3704,7 +3583,6 @@ fn test_lddw() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(5),
         ProgramResult::Err(EbpfError::UnsupportedInstruction),
     );
@@ -3721,7 +3599,6 @@ fn test_lddw() {
         ",
         config.clone(),
         [],
-        (),
         TestContextObject::new(5),
         ProgramResult::Err(EbpfError::UnsupportedInstruction),
     );
@@ -3737,7 +3614,6 @@ fn test_lddw() {
         ",
         config.clone(),
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::UnsupportedInstruction),
     );
@@ -3750,7 +3626,6 @@ fn test_lddw() {
         ",
         config,
         [],
-        (),
         TestContextObject::new(2),
         ProgramResult::Err(EbpfError::ExceededMaxInstructions),
     );
@@ -3769,7 +3644,6 @@ fn test_le() {
         exit",
         config.clone(),
         [0x22, 0x11],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x1122),
     );
@@ -3780,7 +3654,6 @@ fn test_le() {
         exit",
         config.clone(),
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x2211),
     );
@@ -3791,7 +3664,6 @@ fn test_le() {
         exit",
         config.clone(),
         [0x44, 0x33, 0x22, 0x11],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x11223344),
     );
@@ -3802,7 +3674,6 @@ fn test_le() {
         exit",
         config.clone(),
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x44332211),
     );
@@ -3813,7 +3684,6 @@ fn test_le() {
         exit",
         config,
         [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x1122334455667788),
     );
@@ -3832,7 +3702,6 @@ fn test_neg() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0xfffffffe),
     );
@@ -3843,7 +3712,6 @@ fn test_neg() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0xfffffffffffffffe),
     );
@@ -3854,7 +3722,6 @@ fn test_neg() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(2),
     );
@@ -3865,7 +3732,6 @@ fn test_neg() {
         exit",
         config,
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(2),
     );
@@ -3890,7 +3756,6 @@ fn test_callx_imm() {
         exit",
         config,
         [],
-        (),
         TestContextObject::new(8),
         ProgramResult::Ok(42),
     );
@@ -3909,7 +3774,6 @@ fn test_mul() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0xc),
     );
@@ -3921,7 +3785,6 @@ fn test_mul() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0xc),
     );
@@ -3933,7 +3796,6 @@ fn test_mul() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0x4),
     );
@@ -3944,7 +3806,6 @@ fn test_mul() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x100000004),
     );
@@ -3956,7 +3817,6 @@ fn test_mul() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0x100000004),
     );
@@ -3967,7 +3827,6 @@ fn test_mul() {
         exit",
         config,
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0xFFFFFFFFFFFFFFFC),
     );
@@ -3987,7 +3846,6 @@ fn test_div() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0x3),
     );
@@ -3998,7 +3856,6 @@ fn test_div() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x3),
     );
@@ -4010,7 +3867,6 @@ fn test_div() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0x3),
     );
@@ -4022,7 +3878,6 @@ fn test_div() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(4),
         ProgramResult::Ok(0x300000000),
     );
@@ -4035,7 +3890,6 @@ fn test_div() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(5),
         ProgramResult::Ok(0x300000000),
     );
@@ -4047,7 +3901,6 @@ fn test_div() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::DivideByZero),
     );
@@ -4059,7 +3912,6 @@ fn test_div() {
         exit",
         config,
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::DivideByZero),
     );
@@ -4080,7 +3932,6 @@ fn test_mod() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(5),
         ProgramResult::Ok(0x5),
     );
@@ -4091,7 +3942,6 @@ fn test_mod() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Ok(0x0),
     );
@@ -4108,7 +3958,6 @@ fn test_mod() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(9),
         ProgramResult::Ok(0x30ba5a04),
     );
@@ -4120,7 +3969,6 @@ fn test_mod() {
         exit",
         config.clone(),
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::DivideByZero),
     );
@@ -4132,7 +3980,6 @@ fn test_mod() {
         exit",
         config,
         [],
-        (),
         TestContextObject::new(3),
         ProgramResult::Err(EbpfError::DivideByZero),
     );
