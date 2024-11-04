@@ -2988,31 +2988,6 @@ fn test_far_jumps() {
 // Symbols and Relocation
 
 #[test]
-fn test_symbol_relocation() {
-    let config = Config {
-        // No relocation is necessary in SBFPv2
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
-        ..Config::default()
-    };
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r1, r10
-        add64 r1, -0x1
-        mov64 r2, 0x1
-        syscall bpf_syscall_string
-        mov64 r0, 0x0
-        exit",
-        config,
-        [72, 101, 108, 108, 111],
-        (
-            "bpf_syscall_string" => syscalls::SyscallString::vm,
-        ),
-        TestContextObject::new(6),
-        ProgramResult::Ok(0),
-    );
-}
-
-#[test]
 fn test_err_call_unresolved() {
     let config = Config {
         enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
@@ -3494,6 +3469,80 @@ fn test_total_chaos() {
             program[index + 0x7] &= 0x77;
         }
         execute_generated_program(&program);
+    }
+}
+
+#[test]
+fn test_invalid_call_imm() {
+    // In SBPFv2, `call_imm` N shall not be dispatched a syscall.
+    let prog = &[
+        0x85, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // call_imm 2
+        0x9d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        enable_instruction_tracing: true,
+        ..Config::default()
+    };
+    let mut loader = BuiltinProgram::new_loader_with_dense_registration(config);
+    loader
+        .register_function("syscall_string", 2, syscalls::SyscallString::vm)
+        .unwrap();
+    let mut executable = Executable::<TestContextObject>::from_text_bytes(
+        prog,
+        Arc::new(loader),
+        SBPFVersion::V2,
+        FunctionRegistry::default(),
+    )
+    .unwrap();
+
+    test_interpreter_and_jit!(
+        false,
+        executable,
+        [],
+        TestContextObject::new(1),
+        ProgramResult::Err(EbpfError::UnsupportedInstruction),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Invalid syscall should have been detected in the verifier.")]
+fn test_invalid_exit_or_return() {
+    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let inst = if sbpf_version == SBPFVersion::V1 {
+            0x9d
+        } else {
+            0x95
+        };
+
+        let prog = &[
+            0xbf, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov64 r0, 2
+            inst, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit/return
+        ];
+
+        let config = Config {
+            enabled_sbpf_versions: sbpf_version..=sbpf_version,
+            enable_instruction_tracing: true,
+            ..Config::default()
+        };
+        let function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
+        let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
+        let mut executable = Executable::<TestContextObject>::from_text_bytes(
+            prog,
+            loader,
+            sbpf_version,
+            FunctionRegistry::default(),
+        )
+        .unwrap();
+
+        test_interpreter_and_jit!(
+            false,
+            executable,
+            [],
+            TestContextObject::new(2),
+            ProgramResult::Err(EbpfError::UnsupportedInstruction),
+        );
     }
 }
 
@@ -4090,75 +4139,21 @@ fn test_mod() {
 }
 
 #[test]
-fn test_invalid_call_imm() {
-    // In SBPFv2, `call_imm N` shall not be dispatched to a syscall.
-    let prog = &[
-        0x85, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // call_imm 2
-        0x9d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ];
-
-    let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
-        enable_instruction_tracing: true,
-        ..Config::default()
-    };
-    let mut loader = BuiltinProgram::new_loader_with_dense_registration(config);
-    loader
-        .register_function("syscall_string", 2, syscalls::SyscallString::vm)
-        .unwrap();
-    let mut executable = Executable::<TestContextObject>::from_text_bytes(
-        prog,
-        Arc::new(loader),
-        SBPFVersion::V2,
-        FunctionRegistry::default(),
-    )
-    .unwrap();
-
-    test_interpreter_and_jit!(
-        false,
-        executable,
-        [],
-        TestContextObject::new(1),
-        ProgramResult::Err(EbpfError::UnsupportedInstruction),
+fn test_symbol_relocation() {
+    // No relocation is necessary in SBFPv2
+    test_syscall_asm!(
+        "
+        mov64 r1, r10
+        add64 r1, -0x1
+        mov64 r2, 0x1
+        syscall {}
+        mov64 r0, 0x0
+        exit",
+        [72, 101, 108, 108, 111],
+        (
+            1 => "bpf_syscall_string" => syscalls::SyscallString::vm,
+        ),
+        TestContextObject::new(6),
+        ProgramResult::Ok(0),
     );
-}
-
-#[test]
-#[should_panic(expected = "Invalid syscall should have been detected in the verifier.")]
-fn test_invalid_exit_or_return() {
-    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
-        let inst = if sbpf_version == SBPFVersion::V1 {
-            0x9d
-        } else {
-            0x95
-        };
-
-        let prog = &[
-            0xbf, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // mov64 r0, 2
-            inst, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit/return
-        ];
-
-        let config = Config {
-            enabled_sbpf_versions: sbpf_version..=sbpf_version,
-            enable_instruction_tracing: true,
-            ..Config::default()
-        };
-        let function_registry = FunctionRegistry::<BuiltinFunction<TestContextObject>>::default();
-        let loader = Arc::new(BuiltinProgram::new_loader(config, function_registry));
-        let mut executable = Executable::<TestContextObject>::from_text_bytes(
-            prog,
-            loader,
-            sbpf_version,
-            FunctionRegistry::default(),
-        )
-        .unwrap();
-
-        test_interpreter_and_jit!(
-            false,
-            executable,
-            [],
-            TestContextObject::new(2),
-            ProgramResult::Err(EbpfError::UnsupportedInstruction),
-        );
-    }
 }
