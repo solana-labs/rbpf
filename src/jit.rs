@@ -196,8 +196,8 @@ const ANCHOR_DIV_BY_ZERO: usize = 8;
 const ANCHOR_DIV_OVERFLOW: usize = 9;
 const ANCHOR_CALL_UNSUPPORTED_INSTRUCTION: usize = 10;
 const ANCHOR_EXTERNAL_FUNCTION_CALL: usize = 11;
-const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE: usize = 12;
-const ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG: usize = 13;
+const ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE: usize = 12;
+const ANCHOR_INTERNAL_FUNCTION_CALL_REG: usize = 13;
 const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 21;
 const ANCHOR_COUNT: usize = 30; // Update me when adding or removing anchors
 
@@ -1099,13 +1099,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Store PC in case the bounds check fails
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64));
         self.last_instruction_meter_validation_pc = self.pc;
-        self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE, 5)));
+        self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE, 5)));
 
         match dst {
             Value::Register(reg) => {
                 // Move guest_target_address into REGISTER_MAP[FRAME_PTR_REG]
                 self.emit_ins(X86Instruction::mov(OperandSize::S64, reg, REGISTER_MAP[FRAME_PTR_REG]));
-                self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG, 5)));
+                self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_INTERNAL_FUNCTION_CALL_REG, 5)));
             },
             Value::Constant64(target_pc, user_provided) => {
                 debug_assert!(user_provided);
@@ -1514,7 +1514,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::return_near());
 
         // Routine for prologue of emit_internal_call()
-        self.set_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE);
+        self.set_anchor(ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE);
         self.emit_validate_instruction_count(None);
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, RSP, 8 * (SCRATCH_REGS + 1) as i64, None)); // alloca
         self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_SCRATCH, RSP, X86IndirectAccess::OffsetIndexShift(0, RSP, 0))); // Save original REGISTER_SCRATCH
@@ -1547,7 +1547,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Routine for emit_internal_call(Value::Register())
         // Inputs: Guest current pc in REGISTER_SCRATCH, Guest target address in REGISTER_MAP[FRAME_PTR_REG]
         // Outputs: Guest target pc in REGISTER_SCRATCH, Host target address in RIP
-        self.set_anchor(ANCHOR_ANCHOR_INTERNAL_FUNCTION_CALL_REG);
+        self.set_anchor(ANCHOR_INTERNAL_FUNCTION_CALL_REG);
         self.emit_ins(X86Instruction::push(REGISTER_MAP[0], None));
         self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0]));
         // Calculate offset relative to program_vm_addr
