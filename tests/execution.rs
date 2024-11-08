@@ -2347,6 +2347,7 @@ fn test_callx() {
 
 #[test]
 fn test_err_callx_unregistered() {
+    // We execute three instructions when callx errors out.
     test_interpreter_and_jit_asm!(
         "
         mov64 r0, 0x0
@@ -2356,7 +2357,7 @@ fn test_err_callx_unregistered() {
         mov64 r0, 0x2A
         exit",
         [],
-        TestContextObject::new(4),
+        TestContextObject::new(3),
         ProgramResult::Err(EbpfError::UnsupportedInstruction),
     );
 }
