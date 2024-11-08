@@ -41,14 +41,31 @@ macro_rules! test_interpreter_and_jit {
             .unwrap();
     };
     ($executable:expr, $mem:tt, $context_object:expr, $expected_result:expr $(,)?) => {
-        test_interpreter_and_jit!(true, $executable, $mem, $context_object, $expected_result)
+        test_interpreter_and_jit!(
+            false,
+            true,
+            $executable,
+            $mem,
+            $context_object,
+            $expected_result
+        )
     };
     ($verify:literal, $executable:expr, $mem:tt, $context_object:expr, $expected_result:expr $(,)?) => {
+        test_interpreter_and_jit!(
+            false,
+            $verify,
+            $executable,
+            $mem,
+            $context_object,
+            $expected_result
+        )
+    };
+    ($override_budget:literal, $verify:literal, $executable:expr, $mem:tt, $context_object:expr, $expected_result:expr $(,)?) => {
         let expected_instruction_count = $context_object.get_remaining();
         #[allow(unused_mut)]
         let mut context_object = $context_object;
         let expected_result = format!("{:?}", $expected_result);
-        if !expected_result.contains("ExceededMaxInstructions") {
+        if !$override_budget && !expected_result.contains("ExceededMaxInstructions") {
             context_object.remaining = INSTRUCTION_METER_BUDGET;
         }
         if $verify {
@@ -3445,6 +3462,52 @@ fn test_invalid_exit_or_return() {
             ProgramResult::Err(EbpfError::UnsupportedInstruction),
         );
     }
+}
+
+#[test]
+fn callx_unsupported_instruction_and_exceeded_max_instructions() {
+    test_interpreter_and_jit_asm!(
+        "
+        sub32 r7, r1
+        sub64 r5, 8
+        sub64 r7, 0
+        callx r5
+        callx r5
+        return
+        ",
+        [],
+        TestContextObject::new(4),
+        ProgramResult::Err(EbpfError::UnsupportedInstruction),
+    );
+
+    let prog = &[
+        0x1c, 0x17, 0x17, 0x95, 0x61, 0x61, 0x61, 0x61, // sub32
+        0x17, 0x55, 0x54, 0xff, 0x08, 0x00, 0x00, 0x00, // sub64
+        0x17, 0x17, 0x17, 0xff, 0x00, 0x00, 0x00, 0x00, // sub64
+        0x8d, 0x55, 0x54, 0xff, 0x09, 0x00, 0x00, 0x00, // callx
+        0x8d, 0x55, 0x54, 0x23, 0x08, 0x00, 0x11, 0x4e, // callx
+    ];
+
+    let loader = Arc::new(BuiltinProgram::new_loader(
+        Config::default(),
+        FunctionRegistry::default(),
+    ));
+    let mut executable = Executable::<TestContextObject>::from_text_bytes(
+        prog,
+        loader,
+        SBPFVersion::V2,
+        FunctionRegistry::default(),
+    )
+    .unwrap();
+
+    test_interpreter_and_jit!(
+        true,
+        false,
+        executable,
+        [],
+        TestContextObject::new(4),
+        ProgramResult::Err(EbpfError::UnsupportedInstruction)
+    );
 }
 
 // SBPFv1 only [DEPRECATED]
