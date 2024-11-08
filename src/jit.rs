@@ -1550,6 +1550,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Outputs: Guest target pc in REGISTER_SCRATCH, Host target address in RIP
         self.set_anchor(ANCHOR_INTERNAL_FUNCTION_CALL_REG);
         self.emit_ins(X86Instruction::push(REGISTER_MAP[0], None));
+        // REGISTER_SCRATCH contains the current program counter, and we must store it for proper
+        // error handling. We can discard the value if callx succeeds, so we are not incrementing
+        // the stack pointer (RSP).
+        self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_SCRATCH, RSP, X86IndirectAccess::OffsetIndexShift(-8, RSP, 0)));
         self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], REGISTER_MAP[0]));
         // Calculate offset relative to program_vm_addr
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], self.program_vm_addr as i64));
@@ -1582,6 +1586,17 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Restore the clobbered REGISTER_MAP[0]
         self.emit_ins(X86Instruction::xchg(OperandSize::S64, REGISTER_MAP[0], RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Swap REGISTER_MAP[0] and host_target_address
         self.emit_ins(X86Instruction::return_near()); // Tail call to host_target_address
+
+        // If callx lands in an invalid address, we must undo the changes in the instruction meter
+        // so that we can correctly calculate the number of executed instructions for error handling.
+        self.set_anchor(ANCHOR_CALL_REG_UNSUPPORTED_INSTRUCTION);
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter -= guest_target_pc
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_INSTRUCTION_METER, 1, None)); // instruction_meter += 1
+        // Retrieve the current program from the stack. `return_near` popped an element from the stack,
+        // so the offset is 16.
+        self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, REGISTER_SCRATCH, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0)));
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter += guest_current_pc
+        self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)));
 
         // Translates a vm memory address to a host memory address
         for (access_type, len) in &[
