@@ -3510,6 +3510,23 @@ fn callx_unsupported_instruction_and_exceeded_max_instructions() {
     );
 }
 
+#[test]
+fn test_maximum_after_callx() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r0, 0x0
+        or64 r8, 0x20
+        callx r8
+        exit
+        function_foo:
+        mov64 r0, 0x2A
+        exit",
+        [],
+        TestContextObject::new(3),
+        ProgramResult::Err(EbpfError::ExceededMaxInstructions),
+    );
+}
+
 // SBPFv1 only [DEPRECATED]
 
 #[test]
