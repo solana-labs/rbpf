@@ -198,6 +198,7 @@ const ANCHOR_CALL_UNSUPPORTED_INSTRUCTION: usize = 10;
 const ANCHOR_EXTERNAL_FUNCTION_CALL: usize = 11;
 const ANCHOR_INTERNAL_FUNCTION_CALL_PROLOGUE: usize = 12;
 const ANCHOR_INTERNAL_FUNCTION_CALL_REG: usize = 13;
+const ANCHOR_CALL_REG_UNSUPPORTED_INSTRUCTION: usize = 14;
 const ANCHOR_TRANSLATE_MEMORY_ADDRESS: usize = 21;
 const ANCHOR_COUNT: usize = 30; // Update me when adding or removing anchors
 
@@ -1678,8 +1679,8 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 - mem::size_of::<i32>() as i32; // Jump from end of instruction
             unsafe { ptr::write_unaligned(jump.location as *mut i32, offset_value); }
         }
-        // There is no `VerifierError::JumpToMiddleOfLDDW` for `call imm` so patch it here
-        let call_unsupported_instruction = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
+        // Patch addresses to which `callx` may raise an unsupported instruction error
+        let call_unsupported_instruction = self.anchors[ANCHOR_CALL_REG_UNSUPPORTED_INSTRUCTION] as usize;
         if self.executable.get_sbpf_version().static_syscalls() {
             let mut prev_pc = 0;
             for current_pc in self.executable.get_function_registry().keys() {
