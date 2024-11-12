@@ -3466,40 +3466,27 @@ fn test_invalid_exit_or_return() {
 
 #[test]
 fn callx_unsupported_instruction_and_exceeded_max_instructions() {
-    test_interpreter_and_jit_asm!(
-        "
+    let program = "
         sub32 r7, r1
         sub64 r5, 8
         sub64 r7, 0
         callx r5
         callx r5
         return
-        ",
+        ";
+    test_interpreter_and_jit_asm!(
+        program,
         [],
         TestContextObject::new(4),
         ProgramResult::Err(EbpfError::UnsupportedInstruction),
     );
 
-    let prog = &[
-        0x1c, 0x17, 0x17, 0x95, 0x61, 0x61, 0x61, 0x61, // sub32
-        0x17, 0x55, 0x54, 0xff, 0x08, 0x00, 0x00, 0x00, // sub64
-        0x17, 0x17, 0x17, 0xff, 0x00, 0x00, 0x00, 0x00, // sub64
-        0x8d, 0x55, 0x54, 0xff, 0x09, 0x00, 0x00, 0x00, // callx
-        0x8d, 0x55, 0x54, 0x23, 0x08, 0x00, 0x11, 0x4e, // callx
-    ];
-
     let loader = Arc::new(BuiltinProgram::new_loader(
         Config::default(),
         FunctionRegistry::default(),
     ));
-    let mut executable = Executable::<TestContextObject>::from_text_bytes(
-        prog,
-        loader,
-        SBPFVersion::V2,
-        FunctionRegistry::default(),
-    )
-    .unwrap();
 
+    let mut executable = assemble(program, loader).unwrap();
     test_interpreter_and_jit!(
         true,
         false,
