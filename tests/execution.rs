@@ -3511,7 +3511,7 @@ fn callx_unsupported_instruction_and_exceeded_max_instructions() {
 }
 
 #[test]
-fn test_maximum_after_callx() {
+fn test_capped_after_callx() {
     test_interpreter_and_jit_asm!(
         "
         mov64 r0, 0x0
