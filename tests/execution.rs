@@ -2364,19 +2364,33 @@ fn test_callx() {
 
 #[test]
 fn test_err_callx_unregistered() {
+    let versions = [SBPFVersion::V1, SBPFVersion::V2];
+    let expected_errors = [
+        EbpfError::CallOutsideTextSegment,
+        EbpfError::UnsupportedInstruction,
+    ];
+
     // We execute three instructions when callx errors out.
-    test_interpreter_and_jit_asm!(
-        "
-        mov64 r0, 0x0
-        or64 r8, 0x20
-        callx r8
-        exit
-        mov64 r0, 0x2A
-        exit",
-        [],
-        TestContextObject::new(3),
-        ProgramResult::Err(EbpfError::UnsupportedInstruction),
-    );
+    for (version, error) in versions.iter().zip(expected_errors) {
+        let config = Config {
+            enabled_sbpf_versions: *version..=*version,
+            ..Config::default()
+        };
+
+        test_interpreter_and_jit_asm!(
+            "
+            mov64 r0, 0x0
+            or64 r8, 0x20
+            callx r8
+            exit
+            mov64 r0, 0x2A
+            exit",
+            config,
+            [],
+            TestContextObject::new(3),
+            ProgramResult::Err(error),
+        );
+    }
 }
 
 #[test]
