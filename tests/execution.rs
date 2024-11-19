@@ -2364,6 +2364,46 @@ fn test_callx() {
 
 #[test]
 fn test_err_callx_unregistered() {
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        ..Config::default()
+    };
+
+    // Callx jumps to `mov64 r0, 0x2A`
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r0, 0x0
+        lddw r8, 0x100000028
+        callx r8
+        exit
+        mov64 r0, 0x2A
+        exit",
+        config,
+        [],
+        TestContextObject::new(6),
+        ProgramResult::Ok(42),
+    );
+
+    let config = Config {
+        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        ..Config::default()
+    };
+
+    // Callx jumps to `mov64 r0, 0x2A`
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r0, 0x0
+        or64 r8, 0x28
+        callx r8
+        exit
+        mov64 r0, 0x2A
+        exit",
+        config,
+        [],
+        TestContextObject::new(3),
+        ProgramResult::Err(EbpfError::UnsupportedInstruction),
+    );
+
     let versions = [SBPFVersion::V1, SBPFVersion::V2];
     let expected_errors = [
         EbpfError::CallOutsideTextSegment,
@@ -2377,6 +2417,7 @@ fn test_err_callx_unregistered() {
             ..Config::default()
         };
 
+        // Callx jumps to a location outside text segment
         test_interpreter_and_jit_asm!(
             "
             mov64 r0, 0x0
