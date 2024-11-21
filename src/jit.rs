@@ -985,13 +985,12 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 Value::Constant64(target_pc, _) => {
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_INSTRUCTION_METER, self.pc as i64 + 1 - target_pc, None)); // instruction_meter += (self.pc + 1) - target_pc;
                 }
-                Value::Register(reg) => {
-                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, reg, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter -= guest_target_pc
+                Value::Register(target_pc) => {
+                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, target_pc, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter -= guest_target_pc
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_INSTRUCTION_METER, 1, None)); // instruction_meter += 1
-                    self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, REGISTER_SCRATCH, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0)));
-                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter += guest_current_pc
+                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter += self.pc
                 }
-                _ => {},
+                _ => debug_assert!(false),
             }
         }
     }
@@ -1235,7 +1234,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc as i64));
         let jump_offset = self.relative_to_target_pc(target_pc, 6);
         self.emit_ins(X86Instruction::conditional_jump_immediate(op, jump_offset));
-        self.emit_undo_profile_instruction_count(Value::Constant64(target_pc as i64, false));
+        self.emit_undo_profile_instruction_count(Value::Constant64(target_pc as i64, true));
     }
 
     #[inline]
@@ -1256,7 +1255,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc as i64));
         let jump_offset = self.relative_to_target_pc(target_pc, 6);
         self.emit_ins(X86Instruction::conditional_jump_immediate(op, jump_offset));
-        self.emit_undo_profile_instruction_count(Value::Constant64(target_pc as i64, false));
+        self.emit_undo_profile_instruction_count(Value::Constant64(target_pc as i64, true));
     }
 
     fn emit_shift(&mut self, size: OperandSize, opcode_extension: u8, source: u8, destination: u8, immediate: Option<i64>) {
@@ -1602,7 +1601,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // so that we can correctly calculate the number of executed instructions for error handling.
         self.set_anchor(ANCHOR_CALL_REG_UNSUPPORTED_INSTRUCTION);
         self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_SCRATCH, REGISTER_MAP[0]));
-        // Retrieve the current program from the stack. `return_near` popped an element from the stack,
+        // Retrieve the current program counter from the stack. `return_near` popped an element from the stack,
         // so the offset is 16. Check `ANCHOR_INTERNAL_FUNCTION_CALL_REG` for more details.
         self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, REGISTER_SCRATCH, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0)));
         self.emit_undo_profile_instruction_count(Value::Register(REGISTER_MAP[0]));
