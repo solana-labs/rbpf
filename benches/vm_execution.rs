@@ -94,7 +94,7 @@ fn bench_jit_vs_interpreter(
     executable.verify::<RequisiteVerifier>().unwrap();
     executable.jit_compile().unwrap();
     let mut context_object = TestContextObject::default();
-    let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START);
+    let mem_region = MemoryRegion::new_writable(mem, ebpf::MM_INPUT_START, false);
     create_vm!(
         vm,
         &executable,

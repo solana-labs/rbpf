@@ -177,8 +177,9 @@ pub fn create_memory_mapping<'a, C: ContextObject>(
             } else {
                 0
             },
+            false,
         ),
-        MemoryRegion::new_writable(heap.as_slice_mut(), ebpf::MM_HEAP_START),
+        MemoryRegion::new_writable(heap.as_slice_mut(), ebpf::MM_HEAP_START, false),
     ]
     .into_iter()
     .chain(additional_regions.into_iter())

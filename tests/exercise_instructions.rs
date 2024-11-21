@@ -44,7 +44,7 @@ macro_rules! test_interpreter_and_jit {
             interpreter_mem,
         ) = {
             let mut mem = $mem.clone();
-            let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
+            let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START, false);
             let mut context_object = context_object.clone();
             create_vm!(
                 vm,
@@ -69,7 +69,7 @@ macro_rules! test_interpreter_and_jit {
             #[allow(unused_mut)]
             $executable.jit_compile().unwrap();
             let mut mem = $mem;
-            let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
+            let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START, false);
             create_vm!(
                 vm,
                 &$executable,

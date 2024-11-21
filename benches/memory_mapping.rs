@@ -109,7 +109,7 @@ macro_rules! bench_randomized_access_with_0001_entry {
         #[bench]
         fn $name(bencher: &mut Bencher) {
             let content = vec![0; 1024 * 2];
-            let memory_regions = vec![MemoryRegion::new_readonly(&content[..], 0x100000000)];
+            let memory_regions = vec![MemoryRegion::new_readonly(&content[..], 0x100000000, false)];
             let config = Config::default();
             let memory_mapping = $mem::new(memory_regions, &config, SBPFVersion::V2).unwrap();
             let mut prng = new_prng!();
@@ -297,8 +297,8 @@ fn do_bench_mapping_operation(bencher: &mut Bencher, op: MemoryOperation, vm_add
     let config = Config::default();
     let memory_mapping = UnalignedMemoryMapping::new(
         vec![
-            MemoryRegion::new_writable(&mut mem1, 0x100000000),
-            MemoryRegion::new_writable(&mut mem2, 0x100000000 + 8),
+            MemoryRegion::new_writable(&mut mem1, 0x100000000, false),
+            MemoryRegion::new_writable(&mut mem2, 0x100000000 + 8, false),
         ],
         &config,
         SBPFVersion::V2,

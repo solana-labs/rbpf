@@ -73,7 +73,7 @@ macro_rules! test_interpreter_and_jit {
         }
         let (instruction_count_interpreter, interpreter_final_pc, _tracer_interpreter) = {
             let mut mem = $mem;
-            let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
+            let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START, false);
             let mut context_object = context_object.clone();
             create_vm!(
                 vm,
@@ -101,7 +101,7 @@ macro_rules! test_interpreter_and_jit {
             #[allow(unused_mut)]
             let compilation_result = $executable.jit_compile();
             let mut mem = $mem;
-            let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
+            let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START, false);
             create_vm!(
                 vm,
                 &$executable,
@@ -3361,7 +3361,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     let (instruction_count_interpreter, tracer_interpreter, result_interpreter) = {
         let mut mem = vec![0u8; mem_size];
         let mut context_object = TestContextObject::new(max_instruction_count);
-        let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
+        let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START, false);
         create_vm!(
             vm,
             &executable,
@@ -3382,7 +3382,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
     };
     let mut mem = vec![0u8; mem_size];
     let mut context_object = TestContextObject::new(max_instruction_count);
-    let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START);
+    let mem_region = MemoryRegion::new_writable(&mut mem, ebpf::MM_INPUT_START, false);
     create_vm!(
         vm,
         &executable,
