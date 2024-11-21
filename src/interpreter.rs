@@ -157,11 +157,11 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
         if self
             .executable
             .get_sbpf_version()
-            .implicit_sign_extension_of_results()
+            .explicit_sign_extension_of_results()
         {
-            value as i64 as u64
-        } else {
             value as u32 as u64
+        } else {
+            value as i64 as u64
         }
     }
 
@@ -199,7 +199,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 self.vm.stack_pointer = self.vm.stack_pointer.overflowing_add(insn.imm as u64).0;
             }
 
-            ebpf::LD_DW_IMM if self.executable.get_sbpf_version().enable_lddw() => {
+            ebpf::LD_DW_IMM if !self.executable.get_sbpf_version().disable_lddw() => {
                 ebpf::augment_lddw_unchecked(self.program, &mut insn);
                 self.reg[dst] = insn.imm as u64;
                 self.reg[11] += 1;
@@ -292,7 +292,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
             ebpf::LSH32_REG  => self.reg[dst] = (self.reg[dst] as u32).wrapping_shl(self.reg[src] as u32) as u64,
             ebpf::RSH32_IMM  => self.reg[dst] = (self.reg[dst] as u32).wrapping_shr(insn.imm as u32)      as u64,
             ebpf::RSH32_REG  => self.reg[dst] = (self.reg[dst] as u32).wrapping_shr(self.reg[src] as u32) as u64,
-            ebpf::NEG32      if self.executable.get_sbpf_version().enable_neg() => self.reg[dst] = (self.reg[dst] as i32).wrapping_neg()                     as u64 & (u32::MAX as u64),
+            ebpf::NEG32      if !self.executable.get_sbpf_version().disable_neg() => self.reg[dst] = (self.reg[dst] as i32).wrapping_neg()                     as u64 & (u32::MAX as u64),
             ebpf::LD_4B_REG  if self.executable.get_sbpf_version().move_memory_instruction_classes() => {
                 let vm_addr = (self.reg[src] as i64).wrapping_add(insn.off as i64) as u64;
                 self.reg[dst] = translate_memory_access!(self, load, vm_addr, u32);
@@ -309,14 +309,14 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
             ebpf::XOR32_IMM  => self.reg[dst] = (self.reg[dst] as u32             ^ insn.imm as u32)      as u64,
             ebpf::XOR32_REG  => self.reg[dst] = (self.reg[dst] as u32             ^ self.reg[src] as u32) as u64,
             ebpf::MOV32_IMM  => self.reg[dst] = insn.imm as u32 as u64,
-            ebpf::MOV32_REG  => self.reg[dst] = if self.executable.get_sbpf_version().implicit_sign_extension_of_results() {
-                self.reg[src] as u32 as u64
-            } else {
+            ebpf::MOV32_REG  => self.reg[dst] = if self.executable.get_sbpf_version().explicit_sign_extension_of_results() {
                 self.reg[src] as i32 as i64 as u64
+            } else {
+                self.reg[src] as u32 as u64
             },
             ebpf::ARSH32_IMM => self.reg[dst] = (self.reg[dst] as i32).wrapping_shr(insn.imm as u32)      as u32 as u64,
             ebpf::ARSH32_REG => self.reg[dst] = (self.reg[dst] as i32).wrapping_shr(self.reg[src] as u32) as u32 as u64,
-            ebpf::LE if self.executable.get_sbpf_version().enable_le() => {
+            ebpf::LE if !self.executable.get_sbpf_version().disable_le() => {
                 self.reg[dst] = match insn.imm {
                     16 => (self.reg[dst] as u16).to_le() as u64,
                     32 => (self.reg[dst] as u32).to_le() as u64,
@@ -381,7 +381,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 let vm_addr = (self.reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
                 translate_memory_access!(self, store, insn.imm, vm_addr, u32);
             },
-            ebpf::NEG64      if self.executable.get_sbpf_version().enable_neg() => self.reg[dst] = (self.reg[dst] as i64).wrapping_neg() as u64,
+            ebpf::NEG64      if !self.executable.get_sbpf_version().disable_neg() => self.reg[dst] = (self.reg[dst] as i64).wrapping_neg() as u64,
             ebpf::ST_4B_REG  if self.executable.get_sbpf_version().move_memory_instruction_classes() => {
                 let vm_addr = (self.reg[dst] as i64).wrapping_add(insn.off as i64) as u64;
                 translate_memory_access!(self, store, self.reg[src], vm_addr, u32);
@@ -405,7 +405,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
             ebpf::MOV64_REG  => self.reg[dst] =  self.reg[src],
             ebpf::ARSH64_IMM => self.reg[dst] = (self.reg[dst] as i64).wrapping_shr(insn.imm as u32)      as u64,
             ebpf::ARSH64_REG => self.reg[dst] = (self.reg[dst] as i64).wrapping_shr(self.reg[src] as u32) as u64,
-            ebpf::HOR64_IMM if !self.executable.get_sbpf_version().enable_lddw() => {
+            ebpf::HOR64_IMM if self.executable.get_sbpf_version().disable_lddw() => {
                 self.reg[dst] |= (insn.imm as u64).wrapping_shl(32);
             }
 

@@ -342,7 +342,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
         // Scan through program to find actual number of instructions
         let mut pc = 0;
-        if executable.get_sbpf_version().enable_lddw() {
+        if !executable.get_sbpf_version().disable_lddw() {
             while (pc + 1) * ebpf::INSN_SIZE <= program.len() {
                 let insn = ebpf::get_insn_unchecked(program, pc);
                 pc += match insn.opc {
@@ -428,7 +428,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_PTR_TO_VM, insn.imm, Some(stack_ptr_access)));
                 }
 
-                ebpf::LD_DW_IMM if self.executable.get_sbpf_version().enable_lddw() => {
+                ebpf::LD_DW_IMM if !self.executable.get_sbpf_version().disable_lddw() => {
                     self.emit_validate_and_profile_instruction_count(false, Some(self.pc + 2));
                     self.pc += 1;
                     self.result.pc_section[self.pc] = self.anchors[ANCHOR_CALL_UNSUPPORTED_INSTRUCTION] as usize;
@@ -485,13 +485,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 // BPF_ALU32_LOAD class
                 ebpf::ADD32_IMM  => {
                     self.emit_sanitized_alu(OperandSize::S32, 0x01, 0, dst, insn.imm);
-                    if self.executable.get_sbpf_version().implicit_sign_extension_of_results() {
+                    if !self.executable.get_sbpf_version().explicit_sign_extension_of_results() {
                         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None)); // sign extend i32 to i64
                     }
                 },
                 ebpf::ADD32_REG  => {
                     self.emit_ins(X86Instruction::alu(OperandSize::S32, 0x01, src, dst, 0, None));
-                    if self.executable.get_sbpf_version().implicit_sign_extension_of_results() {
+                    if !self.executable.get_sbpf_version().explicit_sign_extension_of_results() {
                         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None)); // sign extend i32 to i64
                     }
                 },
@@ -504,13 +504,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     } else {
                         self.emit_sanitized_alu(OperandSize::S32, 0x29, 5, dst, insn.imm);
                     }
-                    if self.executable.get_sbpf_version().implicit_sign_extension_of_results() {
+                    if !self.executable.get_sbpf_version().explicit_sign_extension_of_results() {
                         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None)); // sign extend i32 to i64
                     }
                 },
                 ebpf::SUB32_REG  => {
                     self.emit_ins(X86Instruction::alu(OperandSize::S32, 0x29, src, dst, 0, None));
-                    if self.executable.get_sbpf_version().implicit_sign_extension_of_results() {
+                    if !self.executable.get_sbpf_version().explicit_sign_extension_of_results() {
                         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None)); // sign extend i32 to i64
                     }
                 },
@@ -532,7 +532,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::LSH32_REG  => self.emit_shift(OperandSize::S32, 4, src, dst, None),
                 ebpf::RSH32_IMM  => self.emit_shift(OperandSize::S32, 5, REGISTER_SCRATCH, dst, Some(insn.imm)),
                 ebpf::RSH32_REG  => self.emit_shift(OperandSize::S32, 5, src, dst, None),
-                ebpf::NEG32     if self.executable.get_sbpf_version().enable_neg() => self.emit_ins(X86Instruction::alu(OperandSize::S32, 0xf7, 3, dst, 0, None)),
+                ebpf::NEG32      if !self.executable.get_sbpf_version().disable_neg() => self.emit_ins(X86Instruction::alu(OperandSize::S32, 0xf7, 3, dst, 0, None)),
                 ebpf::LD_4B_REG  if self.executable.get_sbpf_version().move_memory_instruction_classes() => {
                     self.emit_address_translation(Some(dst), Value::RegisterPlusConstant64(src, insn.off as i64, true), 4, None);
                 },
@@ -549,15 +549,15 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     }
                 }
                 ebpf::MOV32_REG  => {
-                    if self.executable.get_sbpf_version().implicit_sign_extension_of_results() {
-                        self.emit_ins(X86Instruction::mov(OperandSize::S32, src, dst));
-                    } else {
+                    if self.executable.get_sbpf_version().explicit_sign_extension_of_results() {
                         self.emit_ins(X86Instruction::mov_with_sign_extension(OperandSize::S64, src, dst));
+                    } else {
+                        self.emit_ins(X86Instruction::mov(OperandSize::S32, src, dst));
                     }
                 }
                 ebpf::ARSH32_IMM => self.emit_shift(OperandSize::S32, 7, REGISTER_SCRATCH, dst, Some(insn.imm)),
                 ebpf::ARSH32_REG => self.emit_shift(OperandSize::S32, 7, src, dst, None),
-                ebpf::LE if self.executable.get_sbpf_version().enable_le() => {
+                ebpf::LE if !self.executable.get_sbpf_version().disable_le() => {
                     match insn.imm {
                         16 => {
                             self.emit_ins(X86Instruction::alu(OperandSize::S32, 0x81, 4, dst, 0xffff, None)); // Mask to 16 bit
@@ -626,7 +626,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::ST_4B_IMM  if self.executable.get_sbpf_version().move_memory_instruction_classes() => {
                     self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 4, Some(Value::Constant64(insn.imm, true)));
                 },
-                ebpf::NEG64     if self.executable.get_sbpf_version().enable_neg() => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0xf7, 3, dst, 0, None)),
+                ebpf::NEG64      if !self.executable.get_sbpf_version().disable_neg() => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0xf7, 3, dst, 0, None)),
                 ebpf::ST_4B_REG  if self.executable.get_sbpf_version().move_memory_instruction_classes() => {
                     self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 4, Some(Value::Register(src)));
                 },
@@ -648,7 +648,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::MOV64_REG  => self.emit_ins(X86Instruction::mov(OperandSize::S64, src, dst)),
                 ebpf::ARSH64_IMM => self.emit_shift(OperandSize::S64, 7, REGISTER_SCRATCH, dst, Some(insn.imm)),
                 ebpf::ARSH64_REG => self.emit_shift(OperandSize::S64, 7, src, dst, None),
-                ebpf::HOR64_IMM if !self.executable.get_sbpf_version().enable_lddw() => {
+                ebpf::HOR64_IMM if self.executable.get_sbpf_version().disable_lddw() => {
                     self.emit_sanitized_alu(OperandSize::S64, 0x09, 1, dst, (insn.imm as u64).wrapping_shl(32) as i64);
                 }
 
@@ -1374,7 +1374,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             self.emit_ins(X86Instruction::pop(RAX));
         }
         if let OperandSize::S32 = size {
-            if signed && self.executable.get_sbpf_version().implicit_sign_extension_of_results() {
+            if signed && !self.executable.get_sbpf_version().explicit_sign_extension_of_results() {
                 self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x63, dst, dst, 0, None)); // sign extend i32 to i64
             }
         }

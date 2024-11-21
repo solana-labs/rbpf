@@ -20,19 +20,19 @@ pub enum SBPFVersion {
 }
 
 impl SBPFVersion {
-    /// Implicitly perform sign extension of results
-    pub fn implicit_sign_extension_of_results(self) -> bool {
-        self == SBPFVersion::V1
+    /// Explicitly perform sign extension of results
+    pub fn explicit_sign_extension_of_results(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Enable the little-endian byte swap instructions
-    pub fn enable_le(self) -> bool {
-        self == SBPFVersion::V1
+    pub fn disable_le(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Enable the negation instruction
-    pub fn enable_neg(self) -> bool {
-        self == SBPFVersion::V1
+    pub fn disable_neg(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Swaps the reg and imm operands of the subtraction instruction
@@ -41,8 +41,8 @@ impl SBPFVersion {
     }
 
     /// Enable the only two slots long instruction: LD_DW_IMM
-    pub fn enable_lddw(self) -> bool {
-        self == SBPFVersion::V1
+    pub fn disable_lddw(self) -> bool {
+        self != SBPFVersion::V1
     }
 
     /// Enable the BPF_PQR instruction class
