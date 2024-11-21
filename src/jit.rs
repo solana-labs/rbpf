@@ -979,20 +979,19 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     }
 
     #[inline]
-    fn emit_undo_profile_instruction_count(&mut self, target_pc: Option<usize>) {
+    fn emit_undo_profile_instruction_count(&mut self, target_pc: Value) {
         if self.config.enable_instruction_meter {
             match target_pc {
-                Some(target_pc) => {
-                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_INSTRUCTION_METER, self.pc as i64 + 1 - target_pc as i64, None)); // instruction_meter += (self.pc + 1) - target_pc;
+                Value::Constant64(target_pc, _) => {
+                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_INSTRUCTION_METER, self.pc as i64 + 1 - target_pc, None)); // instruction_meter += (self.pc + 1) - target_pc;
                 }
-                None => {
-                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter -= guest_target_pc
+                Value::Register(reg) => {
+                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, reg, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter -= guest_target_pc
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_INSTRUCTION_METER, 1, None)); // instruction_meter += 1
-                    // Retrieve the current program from the stack. `return_near` popped an element from the stack,
-                    // so the offset is 16. Check `ANCHOR_INTERNAL_FUNCTION_CALL_REG` for more details.
                     self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, REGISTER_SCRATCH, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0)));
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x01, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, 0, None)); // instruction_meter += guest_current_pc
                 }
+                _ => {},
             }
         }
     }
@@ -1137,7 +1136,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             }
         }
 
-        self.emit_undo_profile_instruction_count(Some(0));
+        self.emit_undo_profile_instruction_count(Value::Constant64(0, false));
 
         // Restore the previous frame pointer
         self.emit_ins(X86Instruction::pop(REGISTER_MAP[FRAME_PTR_REG]));
@@ -1151,7 +1150,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_validate_and_profile_instruction_count(false, Some(0));
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, function as usize as i64));
         self.emit_ins(X86Instruction::call_immediate(self.relative_to_anchor(ANCHOR_EXTERNAL_FUNCTION_CALL, 5)));
-        self.emit_undo_profile_instruction_count(Some(0));
+        self.emit_undo_profile_instruction_count(Value::Constant64(0, false));
     }
 
     #[inline]
@@ -1236,7 +1235,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc as i64));
         let jump_offset = self.relative_to_target_pc(target_pc, 6);
         self.emit_ins(X86Instruction::conditional_jump_immediate(op, jump_offset));
-        self.emit_undo_profile_instruction_count(Some(target_pc));
+        self.emit_undo_profile_instruction_count(Value::Constant64(target_pc as i64, false));
     }
 
     #[inline]
@@ -1257,7 +1256,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, target_pc as i64));
         let jump_offset = self.relative_to_target_pc(target_pc, 6);
         self.emit_ins(X86Instruction::conditional_jump_immediate(op, jump_offset));
-        self.emit_undo_profile_instruction_count(Some(target_pc));
+        self.emit_undo_profile_instruction_count(Value::Constant64(target_pc as i64, false));
     }
 
     fn emit_shift(&mut self, size: OperandSize, opcode_extension: u8, source: u8, destination: u8, immediate: Option<i64>) {
@@ -1602,7 +1601,11 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // If callx lands in an invalid address, we must undo the changes in the instruction meter
         // so that we can correctly calculate the number of executed instructions for error handling.
         self.set_anchor(ANCHOR_CALL_REG_UNSUPPORTED_INSTRUCTION);
-        self.emit_undo_profile_instruction_count(None);
+        self.emit_ins(X86Instruction::mov(OperandSize::S64, REGISTER_SCRATCH, REGISTER_MAP[0]));
+        // Retrieve the current program from the stack. `return_near` popped an element from the stack,
+        // so the offset is 16. Check `ANCHOR_INTERNAL_FUNCTION_CALL_REG` for more details.
+        self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, REGISTER_SCRATCH, X86IndirectAccess::OffsetIndexShift(-16, RSP, 0)));
+        self.emit_undo_profile_instruction_count(Value::Register(REGISTER_MAP[0]));
         self.emit_ins(X86Instruction::jump_immediate(self.relative_to_anchor(ANCHOR_CALL_UNSUPPORTED_INSTRUCTION, 5)));
 
         // Translates a vm memory address to a host memory address
