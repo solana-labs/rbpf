@@ -251,17 +251,16 @@ fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
     jlt r6, 1024, -4
     exit
     function_foo:
-    add r11, -4
-    stw [r10-4], 0x11223344
+    add r10, -64
+    stw [r10+4], 0x11223344
     mov r6, r1
     jeq r6, 0, +3
     mov r1, r6
     add r1, -1
     call function_foo
-    add r11, 4
     exit",
         Config::default(),
-        176130,
+        156674,
         &mut [],
     );
 }

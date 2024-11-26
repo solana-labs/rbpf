@@ -2087,14 +2087,13 @@ fn test_err_dynamic_stack_ptr_overflow() {
     // See the comment in CallFrames::resize_stack() for the reason why it's
     // safe to let the stack pointer overflow
 
-    // stack_ptr -= stack_ptr + 1
     test_interpreter_and_jit_asm!(
         "
-        add r11, -0x7FFFFFFF
-        add r11, -0x7FFFFFFF
-        add r11, -0x7FFFFFFF
-        add r11, -0x7FFFFFFF
-        add r11, -0x40005
+        add r10, -0x7FFFFF00
+        add r10, -0x7FFFFF00
+        add r10, -0x7FFFFF00
+        add r10, -0x7FFFFF00
+        add r10, -0x40440
         call function_foo
         exit
         function_foo:
@@ -2104,7 +2103,7 @@ fn test_err_dynamic_stack_ptr_overflow() {
         TestContextObject::new(7),
         ProgramResult::Err(EbpfError::AccessViolation(
             AccessType::Store,
-            u64::MAX,
+            u64::MAX - 63,
             1,
             "unknown"
         )),
@@ -2138,7 +2137,7 @@ fn test_dynamic_frame_ptr() {
     // to the top of the stack
     test_interpreter_and_jit_asm!(
         "
-        add r11, -8
+        add r10, -64
         call function_foo
         exit
         function_foo:
@@ -2147,14 +2146,14 @@ fn test_dynamic_frame_ptr() {
         config.clone(),
         [],
         TestContextObject::new(5),
-        ProgramResult::Ok(ebpf::MM_STACK_START + config.stack_size() as u64 - 8),
+        ProgramResult::Ok(ebpf::MM_STACK_START + config.stack_size() as u64 - 64),
     );
 
     // And check that when exiting a function (foo) the caller's frame pointer
     // is restored
     test_interpreter_and_jit_asm!(
         "
-        add r11, -8
+        add r10, -64
         call function_foo
         mov r0, r10
         exit

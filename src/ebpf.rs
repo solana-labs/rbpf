@@ -30,8 +30,6 @@ pub const PROG_MAX_INSNS: usize = 65_536;
 pub const INSN_SIZE: usize = 8;
 /// Frame pointer register
 pub const FRAME_PTR_REG: usize = 10;
-/// Stack pointer register
-pub const STACK_PTR_REG: usize = 11;
 /// First scratch register
 pub const FIRST_SCRATCH_REG: usize = 6;
 /// Number of scratch registers

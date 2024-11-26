@@ -24,7 +24,7 @@ use rand::{
 use std::{fmt::Debug, mem, ptr};
 
 use crate::{
-    ebpf::{self, FIRST_SCRATCH_REG, FRAME_PTR_REG, INSN_SIZE, SCRATCH_REGS, STACK_PTR_REG},
+    ebpf::{self, FIRST_SCRATCH_REG, FRAME_PTR_REG, INSN_SIZE, SCRATCH_REGS},
     elf::Executable,
     error::{EbpfError, ProgramResult},
     memory_management::{
@@ -418,12 +418,12 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, 0));
             }
 
-            let dst = if insn.dst == STACK_PTR_REG as u8 { u8::MAX } else { REGISTER_MAP[insn.dst as usize] };
+            let dst = if insn.dst == FRAME_PTR_REG as u8 { u8::MAX } else { REGISTER_MAP[insn.dst as usize] };
             let src = REGISTER_MAP[insn.src as usize];
             let target_pc = (self.pc as isize + insn.off as isize + 1) as usize;
 
             match insn.opc {
-                ebpf::ADD64_IMM if insn.dst == STACK_PTR_REG as u8 && self.executable.get_sbpf_version().dynamic_stack_frames() => {
+                ebpf::ADD64_IMM if insn.dst == FRAME_PTR_REG as u8 && self.executable.get_sbpf_version().dynamic_stack_frames() => {
                     let stack_ptr_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::StackPointer));
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_PTR_TO_VM, insn.imm, Some(stack_ptr_access)));
                 }

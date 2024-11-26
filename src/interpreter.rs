@@ -13,7 +13,7 @@
 //! Interpreter for eBPF programs.
 
 use crate::{
-    ebpf::{self, STACK_PTR_REG},
+    ebpf::{self, FRAME_PTR_REG},
     elf::Executable,
     error::{EbpfError, ProgramResult},
     program::BuiltinFunction,
@@ -189,7 +189,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
         }
 
         match insn.opc {
-            ebpf::ADD64_IMM if dst == STACK_PTR_REG && self.executable.get_sbpf_version().dynamic_stack_frames() => {
+            ebpf::ADD64_IMM if dst == FRAME_PTR_REG && self.executable.get_sbpf_version().dynamic_stack_frames() => {
                 // Let the stack overflow. For legitimate programs, this is a nearly
                 // impossible condition to hit since programs are metered and we already
                 // enforce a maximum call depth. For programs that intentionally mess
