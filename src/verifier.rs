@@ -76,6 +76,9 @@ pub enum VerifierError {
     /// Invalid syscall
     #[error("Invalid syscall code {0}")]
     InvalidSyscall(u32),
+    /// Unaligned immediate
+    #[error("Unaligned immediate (insn #{0})")]
+    UnalignedImmediate(usize),
 }
 
 /// eBPF Verifier
@@ -118,6 +121,18 @@ fn check_imm_endian(insn: &ebpf::Insn, insn_ptr: usize) -> Result<(), VerifierEr
     match insn.imm {
         16 | 32 | 64 => Ok(()),
         _ => Err(VerifierError::UnsupportedLEBEArgument(insn_ptr)),
+    }
+}
+
+fn check_imm_aligned(
+    insn: &ebpf::Insn,
+    insn_ptr: usize,
+    alignment: i64,
+) -> Result<(), VerifierError> {
+    if (insn.imm & (alignment - 1)) == 0 {
+        Ok(())
+    } else {
+        Err(VerifierError::UnalignedImmediate(insn_ptr))
     }
 }
 
@@ -305,6 +320,9 @@ impl Verifier for RequisiteVerifier {
                 ebpf::BE         => { check_imm_endian(&insn, insn_ptr)?; },
 
                 // BPF_ALU64_STORE class
+                ebpf::ADD64_IMM  if insn.dst == ebpf::FRAME_PTR_REG as u8 && sbpf_version.dynamic_stack_frames() => {
+                    check_imm_aligned(&insn, insn_ptr, 64)?;
+                },
                 ebpf::ADD64_IMM  => {},
                 ebpf::ADD64_REG  => {},
                 ebpf::SUB64_IMM  => {},

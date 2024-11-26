@@ -225,8 +225,8 @@ fn test_verifier_err_invalid_reg_src() {
 fn test_verifier_resize_stack_ptr_success() {
     let executable = assemble::<TestContextObject>(
         "
-        add r11, -1
-        add r11, 1
+        add r10, -64
+        add r10, 64
         exit",
         Arc::new(BuiltinProgram::new_loader(
             Config {
@@ -235,6 +235,32 @@ fn test_verifier_resize_stack_ptr_success() {
             },
             FunctionRegistry::default(),
         )),
+    )
+    .unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
+}
+
+#[test]
+#[should_panic(expected = "UnalignedImmediate(0)")]
+fn test_verifier_negative_unaligned_stack() {
+    let executable = assemble::<TestContextObject>(
+        "
+        add r10, -63
+        exit",
+        Arc::new(BuiltinProgram::new_mock()),
+    )
+    .unwrap();
+    executable.verify::<RequisiteVerifier>().unwrap();
+}
+
+#[test]
+#[should_panic(expected = "UnalignedImmediate(0)")]
+fn test_verifier_positive_unaligned_stack() {
+    let executable = assemble::<TestContextObject>(
+        "
+        add r10, 63
+        exit",
+        Arc::new(BuiltinProgram::new_mock()),
     )
     .unwrap();
     executable.verify::<RequisiteVerifier>().unwrap();
