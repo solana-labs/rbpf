@@ -20,38 +20,56 @@ pub enum SBPFVersion {
 }
 
 impl SBPFVersion {
-    /// Explicitly perform sign extension of results
+    /// Enable SIMD-0166: SBPF dynamic stack frames
+    pub fn dynamic_stack_frames(self) -> bool {
+        self != SBPFVersion::V1
+    }
+
+    /// Enable SIMD-0174: SBPF arithmetics improvements
+    pub fn enable_pqr(self) -> bool {
+        self != SBPFVersion::V1
+    }
+    /// ... SIMD-0174
     pub fn explicit_sign_extension_of_results(self) -> bool {
         self != SBPFVersion::V1
     }
-
-    /// Enable the little-endian byte swap instructions
-    pub fn disable_le(self) -> bool {
+    /// ... SIMD-0174
+    pub fn swap_sub_reg_imm_operands(self) -> bool {
         self != SBPFVersion::V1
     }
-
-    /// Enable the negation instruction
+    /// ... SIMD-0174
     pub fn disable_neg(self) -> bool {
         self != SBPFVersion::V1
     }
 
-    /// Swaps the reg and imm operands of the subtraction instruction
-    pub fn swap_sub_reg_imm_operands(self) -> bool {
+    /// Enable SIMD-0173: SBPF instruction encoding improvements
+    pub fn callx_uses_src_reg(self) -> bool {
         self != SBPFVersion::V1
     }
-
-    /// Enable the only two slots long instruction: LD_DW_IMM
+    /// ... SIMD-0173
     pub fn disable_lddw(self) -> bool {
         self != SBPFVersion::V1
     }
-
-    /// Enable the BPF_PQR instruction class
-    pub fn enable_pqr(self) -> bool {
+    /// ... SIMD-0173
+    pub fn disable_le(self) -> bool {
+        self != SBPFVersion::V1
+    }
+    /// ... SIMD-0173
+    pub fn move_memory_instruction_classes(self) -> bool {
         self != SBPFVersion::V1
     }
 
-    /// Use src reg instead of imm in callx
-    pub fn callx_uses_src_reg(self) -> bool {
+    /// Enable SIMD-0178: SBPF Static Syscalls
+    /// Enable SIMD-0179: SBPF stricter verification constraints
+    pub fn static_syscalls(self) -> bool {
+        self != SBPFVersion::V1
+    }
+    /// Enable SIMD-0189: SBPF stricter ELF headers
+    pub fn enable_stricter_elf_headers(self) -> bool {
+        self != SBPFVersion::V1
+    }
+    /// ... SIMD-0189
+    pub fn enable_lower_bytecode_vaddr(self) -> bool {
         self != SBPFVersion::V1
     }
 
@@ -66,21 +84,6 @@ impl SBPFVersion {
         self != SBPFVersion::V1
     }
 
-    /// Separates the bytecode from the read only data in virtual address space
-    pub fn enable_lower_bytecode_vaddr(self) -> bool {
-        self != SBPFVersion::V1
-    }
-
-    /// Use dynamic stack frame sizes
-    pub fn dynamic_stack_frames(self) -> bool {
-        self != SBPFVersion::V1
-    }
-
-    /// Support syscalls via pseudo calls (insn.src = 0)
-    pub fn static_syscalls(self) -> bool {
-        self != SBPFVersion::V1
-    }
-
     /// Calculate the target program counter for a CALL_IMM instruction depending on
     /// the SBPF version.
     pub fn calculate_call_imm_target_pc(self, pc: usize, imm: i64) -> u32 {
@@ -89,16 +92,6 @@ impl SBPFVersion {
         } else {
             imm as u32
         }
-    }
-
-    /// Move opcodes of memory instructions into ALU instruction classes
-    pub fn move_memory_instruction_classes(self) -> bool {
-        self != SBPFVersion::V1
-    }
-
-    /// Constrain ELF format to ignore section headers and relocations
-    pub fn enable_stricter_elf_headers(self) -> bool {
-        self != SBPFVersion::V1
     }
 }
 
