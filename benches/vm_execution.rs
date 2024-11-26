@@ -25,7 +25,7 @@ use test_utils::create_vm;
 
 #[bench]
 fn bench_init_interpreter_start(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/rodata_section_sbpfv1.so").unwrap();
+    let mut file = File::open("tests/elfs/rodata_section_sbpfv0.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let executable =
@@ -51,7 +51,7 @@ fn bench_init_interpreter_start(bencher: &mut Bencher) {
 #[cfg(all(feature = "jit", not(target_os = "windows"), target_arch = "x86_64"))]
 #[bench]
 fn bench_init_jit_start(bencher: &mut Bencher) {
-    let mut file = File::open("tests/elfs/rodata_section_sbpfv1.so").unwrap();
+    let mut file = File::open("tests/elfs/rodata_section_sbpfv0.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     let mut executable =
@@ -171,7 +171,7 @@ fn bench_jit_vs_interpreter_address_translation_stack_fixed(bencher: &mut Benche
         bencher,
         ADDRESS_TRANSLATION_STACK_CODE,
         Config {
-            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+            enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
             ..Config::default()
         },
         524289,
@@ -185,10 +185,7 @@ fn bench_jit_vs_interpreter_address_translation_stack_dynamic(bencher: &mut Benc
     bench_jit_vs_interpreter(
         bencher,
         ADDRESS_TRANSLATION_STACK_CODE,
-        Config {
-            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
-            ..Config::default()
-        },
+        Config::default(),
         524289,
         &mut [],
     );
@@ -233,7 +230,7 @@ fn bench_jit_vs_interpreter_call_depth_fixed(bencher: &mut Bencher) {
     call function_foo
     exit",
         Config {
-            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+            enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
             ..Config::default()
         },
         137218,
@@ -263,10 +260,7 @@ fn bench_jit_vs_interpreter_call_depth_dynamic(bencher: &mut Bencher) {
     call function_foo
     add r11, 4
     exit",
-        Config {
-            enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
-            ..Config::default()
-        },
+        Config::default(),
         176130,
         &mut [],
     );

@@ -43,9 +43,9 @@ pub const VIRTUAL_ADDRESS_BITS: usize = 32;
 
 /// Size (and alignment) of a memory region
 pub const MM_REGION_SIZE: u64 = 1 << VIRTUAL_ADDRESS_BITS;
-/// Virtual address of the bytecode region (not available in SBPFv1)
+/// Virtual address of the bytecode region (in SBPFv3)
 pub const MM_BYTECODE_START: u64 = 0;
-/// Virtual address of the readonly data region (also contains the bytecode in SBPFv1)
+/// Virtual address of the readonly data region (also contains the bytecode until SBPFv3)
 pub const MM_RODATA_START: u64 = MM_REGION_SIZE;
 /// Virtual address of the stack region
 pub const MM_STACK_START: u64 = MM_REGION_SIZE * 2;
@@ -196,9 +196,9 @@ pub const BPF_JSGT: u8 = 0x60;
 pub const BPF_JSGE: u8 = 0x70;
 /// BPF JMP operation code: syscall function call.
 pub const BPF_CALL: u8 = 0x80;
-/// BPF JMP operation code: return from program (V1).
+/// BPF JMP operation code: return from program.
 pub const BPF_EXIT: u8 = 0x90;
-/// BPF JMP operation code: static syscall (V2).
+/// BPF JMP operation code: static syscall.
 pub const BPF_SYSCALL: u8 = 0x90;
 /// BPF JMP operation code: jump if lower than.
 pub const BPF_JLT: u8 = 0xa0;
@@ -483,11 +483,11 @@ pub const JSLE_REG: u8 = BPF_JMP | BPF_X | BPF_JSLE;
 pub const CALL_IMM: u8 = BPF_JMP | BPF_CALL;
 /// BPF opcode: tail call.
 pub const CALL_REG: u8 = BPF_JMP | BPF_X | BPF_CALL;
-/// BPF opcode: `exit` /// `return r0`. /// Valid only for SBPFv1
+/// BPF opcode: `exit` /// `return r0`. /// Valid only until SBPFv3
 pub const EXIT: u8 = BPF_JMP | BPF_EXIT;
-/// BPF opcode: `return` /// `return r0`. /// Valid only for SBPFv2
+/// BPF opcode: `return` /// `return r0`. /// Valid only since SBPFv3
 pub const RETURN: u8 = BPF_JMP | BPF_X | BPF_EXIT;
-/// BPF opcode: `syscall` /// `syscall imm`. /// Valid only for SBPFv2
+/// BPF opcode: `syscall` /// `syscall imm`. /// Valid only since SBPFv3
 pub const SYSCALL: u8 = BPF_JMP | BPF_SYSCALL;
 
 // Used in JIT

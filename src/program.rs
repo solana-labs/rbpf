@@ -12,9 +12,13 @@ use {
 #[derive(Debug, PartialEq, PartialOrd, Eq, Clone, Copy)]
 pub enum SBPFVersion {
     /// The legacy format
+    V0,
+    /// SIMD-0166
     V1,
-    /// The current format
+    /// SIMD-0174, SIMD-0173
     V2,
+    /// SIMD-0178, SIMD-0179, SIMD-0189
+    V3,
     /// Used for future versions
     Reserved,
 }
@@ -22,66 +26,66 @@ pub enum SBPFVersion {
 impl SBPFVersion {
     /// Enable SIMD-0166: SBPF dynamic stack frames
     pub fn dynamic_stack_frames(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V1
     }
 
     /// Enable SIMD-0174: SBPF arithmetics improvements
     pub fn enable_pqr(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V2
     }
     /// ... SIMD-0174
     pub fn explicit_sign_extension_of_results(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V2
     }
     /// ... SIMD-0174
     pub fn swap_sub_reg_imm_operands(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V2
     }
     /// ... SIMD-0174
     pub fn disable_neg(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V2
     }
 
     /// Enable SIMD-0173: SBPF instruction encoding improvements
     pub fn callx_uses_src_reg(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V2
     }
     /// ... SIMD-0173
     pub fn disable_lddw(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V2
     }
     /// ... SIMD-0173
     pub fn disable_le(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V2
     }
     /// ... SIMD-0173
     pub fn move_memory_instruction_classes(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V2
     }
 
     /// Enable SIMD-0178: SBPF Static Syscalls
     /// Enable SIMD-0179: SBPF stricter verification constraints
     pub fn static_syscalls(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V3
     }
     /// Enable SIMD-0189: SBPF stricter ELF headers
     pub fn enable_stricter_elf_headers(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V3
     }
     /// ... SIMD-0189
     pub fn enable_lower_bytecode_vaddr(self) -> bool {
-        self != SBPFVersion::V1
+        self >= SBPFVersion::V3
     }
 
     /// Ensure that rodata sections don't exceed their maximum allowed size and
     /// overlap with the stack
     pub fn reject_rodata_stack_overlap(self) -> bool {
-        self != SBPFVersion::V1
+        self != SBPFVersion::V0
     }
 
     /// Allow sh_addr != sh_offset in elf sections.
     pub fn enable_elf_vaddr(self) -> bool {
-        self != SBPFVersion::V1
+        self != SBPFVersion::V0
     }
 
     /// Calculate the target program counter for a CALL_IMM instruction depending on
@@ -142,7 +146,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
         Ok(key)
     }
 
-    /// Used for transitioning from SBPFv1 to SBPFv2
+    /// Used for transitioning from SBPFv0 to SBPFv3
     pub(crate) fn register_function_hashed_legacy<C: ContextObject>(
         &mut self,
         loader: &BuiltinProgram<C>,
@@ -162,7 +166,7 @@ impl<T: Copy + PartialEq> FunctionRegistry<T> {
                 ebpf::hash_symbol_name(&usize::from(value).to_le_bytes())
             };
             if loader
-                .get_function_registry(SBPFVersion::V1)
+                .get_function_registry(SBPFVersion::V0)
                 .lookup_by_key(hash)
                 .is_some()
             {

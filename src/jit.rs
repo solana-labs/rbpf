@@ -712,7 +712,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     if let (false, Some((_, function))) =
                             (self.executable.get_sbpf_version().static_syscalls(),
                                 self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32)) {
-                        // SBPFv1 syscall
+                        // SBPFv0 syscall
                         self.emit_syscall_dispatch(function);
                     } else if let Some((_function_name, target_pc)) =
                             self.executable
@@ -1799,8 +1799,8 @@ mod tests {
             prog[pc * ebpf::INSN_SIZE] = ebpf::ADD64_IMM;
         }
 
-        let mut empty_program_machine_code_length_per_version = [0; 2];
-        for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        let mut empty_program_machine_code_length_per_version = [0; 4];
+        for sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
             let empty_program_machine_code_length = {
                 let config = Config {
                     noop_instruction_rate: 0,
@@ -1827,7 +1827,7 @@ mod tests {
             let config = Config {
                 instruction_meter_checkpoint_distance: index * INSTRUCTION_COUNT * 2,
                 noop_instruction_rate: 0,
-                enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+                enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
                 ..Config::default()
             };
             let mut executable = create_mockup_executable(config, &prog);
@@ -1847,7 +1847,7 @@ mod tests {
             MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT
         );
 
-        for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        for sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
             let empty_program_machine_code_length =
                 empty_program_machine_code_length_per_version[sbpf_version as usize];
 

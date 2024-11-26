@@ -508,7 +508,7 @@ fn fuzz_alu() {
     }
 }
 
-fn test_ins(v1: bool, ins: String, prng: &mut SmallRng, cu: u64) {
+fn test_ins(v0: bool, ins: String, prng: &mut SmallRng, cu: u64) {
     let mut input = [0u8; 80];
 
     prng.fill_bytes(&mut input);
@@ -539,8 +539,8 @@ fn test_ins(v1: bool, ins: String, prng: &mut SmallRng, cu: u64) {
     );
 
     let mut config = Config::default();
-    if v1 {
-        config.enabled_sbpf_versions = SBPFVersion::V1..=SBPFVersion::V1;
+    if v0 {
+        config.enabled_sbpf_versions = SBPFVersion::V0..=SBPFVersion::V0;
     }
     test_interpreter_and_jit_asm!(asm.as_str(), config, input, (), TestContextObject::new(cu));
 }

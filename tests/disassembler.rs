@@ -45,7 +45,7 @@ fn test_empty() {
 #[test]
 fn test_exit() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     disasm!("entrypoint:\n    exit\n", config);
@@ -54,7 +54,7 @@ fn test_exit() {
 #[test]
 fn test_return() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        enabled_sbpf_versions: SBPFVersion::V3..=SBPFVersion::V3,
         ..Config::default()
     };
     disasm!("entrypoint:\n    return\n", config);
@@ -63,7 +63,7 @@ fn test_return() {
 #[test]
 fn test_static_syscall() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        enabled_sbpf_versions: SBPFVersion::V3..=SBPFVersion::V3,
         ..Config::default()
     };
     disasm!("entrypoint:\n    syscall 5\n", config);

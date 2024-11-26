@@ -35,7 +35,7 @@ fn main() {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         program,
         loader,
-        SBPFVersion::V2,
+        SBPFVersion::V3,
         FunctionRegistry::default(),
     )
     .unwrap();

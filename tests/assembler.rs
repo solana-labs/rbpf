@@ -58,7 +58,7 @@ fn test_fill() {
 #[test]
 fn test_exit() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     assert_eq!(
@@ -74,7 +74,7 @@ fn test_exit() {
 #[test]
 fn test_static_syscall() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        enabled_sbpf_versions: SBPFVersion::V3..=SBPFVersion::V3,
         ..Config::default()
     };
 
@@ -87,7 +87,7 @@ fn test_static_syscall() {
 #[test]
 fn test_return() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        enabled_sbpf_versions: SBPFVersion::V3..=SBPFVersion::V3,
         ..Config::default()
     };
     assert_eq!(
@@ -519,7 +519,7 @@ fn test_large_immediate() {
 #[test]
 fn test_tcp_sack() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        enabled_sbpf_versions: SBPFVersion::V3..=SBPFVersion::V3,
         ..Config::default()
     };
     let executable = assemble::<TestContextObject>(

@@ -529,7 +529,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                 if let (false, Some((_, function))) =
                         (self.executable.get_sbpf_version().static_syscalls(),
                             self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32)) {
-                    // SBPFv1 syscall
+                    // SBPFv0 syscall
                     self.reg[0] = match self.dispatch_syscall(function) {
                         ProgramResult::Ok(value) => *value,
                         ProgramResult::Err(_err) => return false,
@@ -554,7 +554,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
             }
             ebpf::SYSCALL if self.executable.get_sbpf_version().static_syscalls() => {
                 if let Some((_, function)) = self.executable.get_loader().get_function_registry(self.executable.get_sbpf_version()).lookup_by_key(insn.imm as u32) {
-                    // SBPFv2 syscall
+                    // SBPFv3 syscall
                     self.reg[0] = match self.dispatch_syscall(function) {
                         ProgramResult::Ok(value) => *value,
                         ProgramResult::Err(_err) => return false,

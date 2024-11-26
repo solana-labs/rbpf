@@ -30,7 +30,7 @@ fuzz_target!(|data: FuzzData| {
     RequisiteVerifier::verify(
         prog.into_bytes(),
         &config,
-        SBPFVersion::V2,
+        SBPFVersion::V3,
         &function_registry,
         &syscall_registry,
     )

@@ -112,7 +112,7 @@ fn make_instruction_map(sbpf_version: SBPFVersion) -> HashMap<String, (Instructi
             result.insert(name.to_string(), (inst_type, opc))
         };
 
-        if sbpf_version == SBPFVersion::V1 {
+        if sbpf_version == SBPFVersion::V0 {
             entry("exit", NoOperand, ebpf::EXIT);
             entry("return", NoOperand, ebpf::EXIT);
         } else {
@@ -125,7 +125,7 @@ fn make_instruction_map(sbpf_version: SBPFVersion) -> HashMap<String, (Instructi
         entry(
             "syscall",
             Syscall,
-            if sbpf_version == SBPFVersion::V1 {
+            if sbpf_version == SBPFVersion::V0 {
                 ebpf::CALL_IMM
             } else {
                 ebpf::SYSCALL

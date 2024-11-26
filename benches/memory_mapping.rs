@@ -73,7 +73,7 @@ macro_rules! bench_gapped_randomized_access_with_1024_entries {
                     )];
                     let config = Config::default();
                     let memory_mapping =
-                        $mem::new(memory_regions, &config, SBPFVersion::V2).unwrap();
+                        $mem::new(memory_regions, &config, SBPFVersion::V3).unwrap();
                     let mut prng = new_prng!();
                     bencher.iter(|| {
                         assert!(memory_mapping
@@ -111,7 +111,7 @@ macro_rules! bench_randomized_access_with_0001_entry {
             let content = vec![0; 1024 * 2];
             let memory_regions = vec![MemoryRegion::new_readonly(&content[..], 0x100000000)];
             let config = Config::default();
-            let memory_mapping = $mem::new(memory_regions, &config, SBPFVersion::V2).unwrap();
+            let memory_mapping = $mem::new(memory_regions, &config, SBPFVersion::V3).unwrap();
             let mut prng = new_prng!();
             bencher.iter(|| {
                 let _ = memory_mapping.map(
@@ -145,7 +145,7 @@ macro_rules! bench_randomized_access_with_n_entries {
             let (memory_regions, end_address) =
                 generate_memory_regions($n, MemoryState::Readable, Some(&mut prng));
             let config = Config::default();
-            let memory_mapping = $mem::new(memory_regions, &config, SBPFVersion::V2).unwrap();
+            let memory_mapping = $mem::new(memory_regions, &config, SBPFVersion::V3).unwrap();
             bencher.iter(|| {
                 let _ = memory_mapping.map(
                     AccessType::Load,
@@ -194,7 +194,7 @@ macro_rules! bench_randomized_mapping_with_n_entries {
             let (memory_regions, _end_address) =
                 generate_memory_regions($n, MemoryState::Readable, Some(&mut prng));
             let config = Config::default();
-            let memory_mapping = $mem::new(memory_regions, &config, SBPFVersion::V2).unwrap();
+            let memory_mapping = $mem::new(memory_regions, &config, SBPFVersion::V3).unwrap();
             bencher.iter(|| {
                 let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1);
             });
@@ -243,7 +243,7 @@ macro_rules! bench_mapping_with_n_entries {
             let (memory_regions, _end_address) =
                 generate_memory_regions($n, MemoryState::Readable, None);
             let config = Config::default();
-            let memory_mapping = $mem::new(memory_regions, &config, SBPFVersion::V2).unwrap();
+            let memory_mapping = $mem::new(memory_regions, &config, SBPFVersion::V3).unwrap();
             bencher.iter(|| {
                 let _ = memory_mapping.map(AccessType::Load, 0x100000000, 1);
             });
@@ -301,7 +301,7 @@ fn do_bench_mapping_operation(bencher: &mut Bencher, op: MemoryOperation, vm_add
             MemoryRegion::new_writable(&mut mem2, 0x100000000 + 8),
         ],
         &config,
-        SBPFVersion::V2,
+        SBPFVersion::V3,
     )
     .unwrap();
 

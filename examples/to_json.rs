@@ -31,7 +31,7 @@ fn to_json(program: &[u8]) -> String {
     let executable = Executable::<TestContextObject>::from_text_bytes(
         program,
         Arc::new(BuiltinProgram::new_mock()),
-        SBPFVersion::V2,
+        SBPFVersion::V3,
         FunctionRegistry::default(),
     )
     .unwrap();

@@ -196,9 +196,9 @@ macro_rules! test_syscall_asm {
             enable_instruction_tracing: true,
             ..Config::default()
         };
-        for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+        for sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
             config.enabled_sbpf_versions = sbpf_version..=sbpf_version;
-            let src = if sbpf_version == SBPFVersion::V1 {
+            let src = if sbpf_version == SBPFVersion::V0 {
                 format!($source, $($syscall_name, )*)
             } else {
                 format!($source, $($syscall_number, )*)
@@ -830,7 +830,7 @@ fn test_pqr() {
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             &prog,
             loader.clone(),
-            SBPFVersion::V2,
+            SBPFVersion::V3,
             FunctionRegistry::default(),
         )
         .unwrap();
@@ -845,7 +845,7 @@ fn test_pqr() {
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             &prog,
             loader.clone(),
-            SBPFVersion::V2,
+            SBPFVersion::V3,
             FunctionRegistry::default(),
         )
         .unwrap();
@@ -879,7 +879,7 @@ fn test_err_divide_by_zero() {
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             &prog,
             loader.clone(),
-            SBPFVersion::V2,
+            SBPFVersion::V3,
             FunctionRegistry::default(),
         )
         .unwrap();
@@ -921,7 +921,7 @@ fn test_err_divide_overflow() {
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             &prog,
             loader.clone(),
-            SBPFVersion::V2,
+            SBPFVersion::V3,
             FunctionRegistry::default(),
         )
         .unwrap();
@@ -938,7 +938,7 @@ fn test_err_divide_overflow() {
 
 #[test]
 fn test_memory_instructions() {
-    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+    for sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
         let config = Config {
             enabled_sbpf_versions: sbpf_version..=sbpf_version,
             ..Config::default()
@@ -1434,7 +1434,7 @@ fn test_stxb_chain() {
 
 #[test]
 fn test_exit_capped() {
-    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+    for sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
         let config = Config {
             enabled_sbpf_versions: sbpf_version..=sbpf_version,
             ..Config::default()
@@ -1453,7 +1453,7 @@ fn test_exit_capped() {
 
 #[test]
 fn test_exit_without_value() {
-    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+    for sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
         let config = Config {
             enabled_sbpf_versions: sbpf_version..=sbpf_version,
             ..Config::default()
@@ -1472,7 +1472,7 @@ fn test_exit_without_value() {
 
 #[test]
 fn test_exit() {
-    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+    for sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
         let config = Config {
             enabled_sbpf_versions: sbpf_version..=sbpf_version,
             ..Config::default()
@@ -1492,7 +1492,7 @@ fn test_exit() {
 
 #[test]
 fn test_early_exit() {
-    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+    for sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
         let config = Config {
             enabled_sbpf_versions: sbpf_version..=sbpf_version,
             ..Config::default()
@@ -2042,7 +2042,7 @@ fn test_string_stack() {
 #[test]
 fn test_err_dynamic_stack_out_of_bound() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V2,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V3,
         max_call_depth: 3,
         ..Config::default()
     };
@@ -2176,9 +2176,9 @@ fn test_entrypoint_exit() {
     // can't infer anything from the stack size so we track call depth
     // explicitly. Make sure exit still works with both fixed and dynamic
     // frames.
-    for highest_sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+    for highest_sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
         let config = Config {
-            enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version,
+            enabled_sbpf_versions: SBPFVersion::V0..=highest_sbpf_version,
             ..Config::default()
         };
 
@@ -2203,9 +2203,9 @@ fn test_entrypoint_exit() {
 
 #[test]
 fn test_stack_call_depth_tracking() {
-    for highest_sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
+    for highest_sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
         let config = Config {
-            enabled_sbpf_versions: SBPFVersion::V1..=highest_sbpf_version,
+            enabled_sbpf_versions: SBPFVersion::V0..=highest_sbpf_version,
             max_call_depth: 2,
             ..Config::default()
         };
@@ -2264,7 +2264,7 @@ fn test_err_mem_access_out_of_bound() {
         let mut executable = Executable::<TestContextObject>::from_text_bytes(
             &prog,
             loader.clone(),
-            SBPFVersion::V2,
+            SBPFVersion::V3,
             FunctionRegistry::default(),
         )
         .unwrap();
@@ -2287,11 +2287,11 @@ fn test_err_mem_access_out_of_bound() {
 #[test]
 fn test_relative_call() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_elf!(
-        "tests/elfs/relative_call_sbpfv1.so",
+        "tests/elfs/relative_call_sbpfv0.so",
         config,
         [1],
         (),
@@ -2365,7 +2365,7 @@ fn test_callx() {
 #[test]
 fn test_err_callx_unregistered() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
 
@@ -2385,7 +2385,7 @@ fn test_err_callx_unregistered() {
     );
 
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        enabled_sbpf_versions: SBPFVersion::V3..=SBPFVersion::V3,
         ..Config::default()
     };
 
@@ -2404,7 +2404,7 @@ fn test_err_callx_unregistered() {
         ProgramResult::Err(EbpfError::UnsupportedInstruction),
     );
 
-    let versions = [SBPFVersion::V1, SBPFVersion::V2];
+    let versions = [SBPFVersion::V0, SBPFVersion::V3];
     let expected_errors = [
         EbpfError::CallOutsideTextSegment,
         EbpfError::UnsupportedInstruction,
@@ -2437,7 +2437,7 @@ fn test_err_callx_unregistered() {
 #[test]
 fn test_err_callx_oob_low() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -2691,10 +2691,10 @@ declare_builtin_function!(
         if depth > 0 {
             let mut config = Config::default();
             let syscall_name = if version == 1 {
-                config.enabled_sbpf_versions = SBPFVersion::V1..=SBPFVersion::V1;
+                config.enabled_sbpf_versions = SBPFVersion::V0..=SBPFVersion::V0;
                 "nested_vm_syscall"
             } else {
-                config.enabled_sbpf_versions = SBPFVersion::V2..=SBPFVersion::V2;
+                config.enabled_sbpf_versions = SBPFVersion::V3..=SBPFVersion::V3;
                 "1"
             };
             let mut loader = BuiltinProgram::new_loader_with_dense_registration(config);
@@ -2728,15 +2728,15 @@ declare_builtin_function!(
 fn test_nested_vm_syscall() {
     let config = Config::default();
     let mut context_object = TestContextObject::default();
-    let mut memory_mapping = MemoryMapping::new(vec![], &config, SBPFVersion::V2).unwrap();
+    let mut memory_mapping = MemoryMapping::new(vec![], &config, SBPFVersion::V3).unwrap();
 
-    // SBPFv1
+    // SBPFv0
     let result = SyscallNestedVm::rust(&mut context_object, 1, 0, 1, 0, 0, &mut memory_mapping);
     assert_eq!(result.unwrap(), 42);
     let result = SyscallNestedVm::rust(&mut context_object, 1, 1, 1, 0, 0, &mut memory_mapping);
     assert_error!(result, "CallDepthExceeded");
 
-    // SBPFv2
+    // SBPFv3
     let result = SyscallNestedVm::rust(&mut context_object, 1, 0, 2, 0, 0, &mut memory_mapping);
     assert_eq!(result.unwrap(), 42);
     let result = SyscallNestedVm::rust(&mut context_object, 1, 1, 2, 0, 0, &mut memory_mapping);
@@ -2962,7 +2962,7 @@ fn test_far_jumps() {
 #[test]
 fn test_err_call_unresolved() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -2985,11 +2985,11 @@ fn test_err_call_unresolved() {
 #[test]
 fn test_syscall_reloc_64_32() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_elf!(
-        "tests/elfs/syscall_reloc_64_32_sbpfv1.so",
+        "tests/elfs/syscall_reloc_64_32_sbpfv0.so",
         config,
         [],
         (
@@ -3001,12 +3001,12 @@ fn test_syscall_reloc_64_32() {
 }
 
 #[test]
-fn test_reloc_64_64_sbpfv1() {
+fn test_reloc_64_64_sbpfv0() {
     // Tests the correctness of R_BPF_64_64 relocations. The program returns the
     // address of the entrypoint.
     //   [ 1] .text             PROGBITS        0000000000000120 000120 000018 00  AX  0   0  8
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_64_sbpfv1.so",
+        "tests/elfs/reloc_64_64_sbpfv0.so",
         [],
         (),
         TestContextObject::new(2),
@@ -3015,17 +3015,17 @@ fn test_reloc_64_64_sbpfv1() {
 }
 
 #[test]
-fn test_reloc_64_relative_sbpfv1() {
+fn test_reloc_64_relative_sbpfv0() {
     // Tests the correctness of R_BPF_64_RELATIVE relocations. The program
     // returns the address of the first .rodata byte.
     //   [ 1] .text             PROGBITS        0000000000000120 000120 000018 00  AX  0   0  8
     //   [ 2] .rodata           PROGBITS        0000000000000138 000138 00000a 01 AMS  0   0  1
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_relative_sbpfv1.so",
+        "tests/elfs/reloc_64_relative_sbpfv0.so",
         config,
         [],
         (),
@@ -3044,11 +3044,11 @@ fn test_reloc_64_relative_data_sbfv1() {
     // 00000000000001f8 <FILE>:
     // 63:       08 01 00 00 00 00 00 00
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_relative_data_sbpfv1.so",
+        "tests/elfs/reloc_64_relative_data_sbpfv0.so",
         config,
         [],
         (),
@@ -3058,13 +3058,13 @@ fn test_reloc_64_relative_data_sbfv1() {
 }
 
 #[test]
-fn test_reloc_64_relative_data_sbpfv1() {
+fn test_reloc_64_relative_data_sbpfv0() {
     // Before https://github.com/solana-labs/llvm-project/pull/35, we used to
     // generate invalid R_BPF_64_RELATIVE relocations in sections other than
     // .text.
     //
     // This test checks that the old behaviour is maintained for backwards
-    // compatibility when dealing with non-sbfv2 files. See also Elf::relocate().
+    // compatibility when dealing with non-sbpfv3 files. See also Elf::relocate().
     //
     // The program returns the address of the first .rodata byte.
     // [ 1] .text             PROGBITS        00000000000000e8 0000e8 000020 00  AX  0   0  8
@@ -3073,11 +3073,11 @@ fn test_reloc_64_relative_data_sbpfv1() {
     // 00000000000001f8 <FILE>:
     // 63:       00 00 00 00 08 01 00 00
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_elf!(
-        "tests/elfs/reloc_64_relative_data_sbpfv1.so",
+        "tests/elfs/reloc_64_relative_data_sbpfv0.so",
         config,
         [],
         (),
@@ -3087,14 +3087,14 @@ fn test_reloc_64_relative_data_sbpfv1() {
 }
 
 #[test]
-fn test_load_elf_rodata_sbpfv1() {
+fn test_load_elf_rodata_sbpfv0() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         optimize_rodata: false,
         ..Config::default()
     };
     test_interpreter_and_jit_elf!(
-        "tests/elfs/rodata_section_sbpfv1.so",
+        "tests/elfs/rodata_section_sbpfv0.so",
         config,
         [],
         (),
@@ -3109,11 +3109,11 @@ fn test_struct_func_pointer() {
     // which is a relocatable function pointer is not overwritten when
     // the function pointer is relocated at load time.
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_elf!(
-        "tests/elfs/struct_func_pointer_sbpfv1.so",
+        "tests/elfs/struct_func_pointer_sbpfv0.so",
         config,
         [],
         (),
@@ -3347,7 +3347,7 @@ fn execute_generated_program(prog: &[u8]) -> bool {
             },
             FunctionRegistry::default(),
         )),
-        SBPFVersion::V2,
+        SBPFVersion::V3,
         FunctionRegistry::default(),
     );
     let mut executable = if let Ok(executable) = executable {
@@ -3447,14 +3447,14 @@ fn test_total_chaos() {
 
 #[test]
 fn test_invalid_call_imm() {
-    // In SBPFv2, `call_imm` N shall not be dispatched a syscall.
+    // In SBPFv3, `call_imm` N shall not be dispatched a syscall.
     let prog = &[
         0x85, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // call_imm 2
         0x9d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V2..=SBPFVersion::V2,
+        enabled_sbpf_versions: SBPFVersion::V3..=SBPFVersion::V3,
         enable_instruction_tracing: true,
         ..Config::default()
     };
@@ -3465,7 +3465,7 @@ fn test_invalid_call_imm() {
     let mut executable = Executable::<TestContextObject>::from_text_bytes(
         prog,
         Arc::new(loader),
-        SBPFVersion::V2,
+        SBPFVersion::V3,
         FunctionRegistry::default(),
     )
     .unwrap();
@@ -3482,8 +3482,8 @@ fn test_invalid_call_imm() {
 #[test]
 #[should_panic(expected = "Invalid syscall should have been detected in the verifier.")]
 fn test_invalid_exit_or_return() {
-    for sbpf_version in [SBPFVersion::V1, SBPFVersion::V2] {
-        let inst = if sbpf_version == SBPFVersion::V1 {
+    for sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
+        let inst = if sbpf_version == SBPFVersion::V0 {
             0x9d
         } else {
             0x95
@@ -3569,12 +3569,12 @@ fn test_capped_after_callx() {
     );
 }
 
-// SBPFv1 only [DEPRECATED]
+// SBPFv0 only [DEPRECATED]
 
 #[test]
 fn test_err_fixed_stack_out_of_bound() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         max_call_depth: 3,
         ..Config::default()
     };
@@ -3597,7 +3597,7 @@ fn test_err_fixed_stack_out_of_bound() {
 #[test]
 fn test_execution_overrun() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3629,7 +3629,7 @@ fn test_execution_overrun() {
 #[test]
 fn test_mov32_reg_truncating() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3647,7 +3647,7 @@ fn test_mov32_reg_truncating() {
 #[test]
 fn test_lddw() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3768,7 +3768,7 @@ fn test_lddw() {
 #[test]
 fn test_le() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3826,7 +3826,7 @@ fn test_le() {
 #[test]
 fn test_neg() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3874,7 +3874,7 @@ fn test_neg() {
 #[test]
 fn test_callx_imm() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3898,7 +3898,7 @@ fn test_callx_imm() {
 #[test]
 fn test_mul() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -3969,7 +3969,7 @@ fn test_mul() {
 #[test]
 fn test_div() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -4054,7 +4054,7 @@ fn test_div() {
 #[test]
 fn test_mod() {
     let config = Config {
-        enabled_sbpf_versions: SBPFVersion::V1..=SBPFVersion::V1,
+        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V0,
         ..Config::default()
     };
     test_interpreter_and_jit_asm!(
@@ -4121,7 +4121,7 @@ fn test_mod() {
 
 #[test]
 fn test_symbol_relocation() {
-    // No relocation is necessary in SBFPv2
+    // No relocation is necessary in SBFPv3
     test_syscall_asm!(
         "
         mov64 r1, r10
