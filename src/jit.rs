@@ -255,15 +255,14 @@ struct Jump {
 enum RuntimeEnvironmentSlot {
     HostStackPointer = 0,
     CallDepth = 1,
-    StackPointer = 2,
-    ContextObjectPointer = 3,
-    PreviousInstructionMeter = 4,
-    DueInsnCount = 5,
-    StopwatchNumerator = 6,
-    StopwatchDenominator = 7,
-    Registers = 8,
-    ProgramResult = 20,
-    MemoryMapping = 28,
+    ContextObjectPointer = 2,
+    PreviousInstructionMeter = 3,
+    DueInsnCount = 4,
+    StopwatchNumerator = 5,
+    StopwatchDenominator = 6,
+    Registers = 7,
+    ProgramResult = 19,
+    MemoryMapping = 27,
 }
 
 /* Explanation of the Instruction Meter
@@ -1747,7 +1746,6 @@ mod tests {
 
         check_slot!(env, host_stack_pointer, HostStackPointer);
         check_slot!(env, call_depth, CallDepth);
-        check_slot!(env, stack_pointer, StackPointer);
         check_slot!(env, context_object_pointer, ContextObjectPointer);
         check_slot!(env, previous_instruction_meter, PreviousInstructionMeter);
         check_slot!(env, due_insn_count, DueInsnCount);
