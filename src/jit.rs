@@ -424,8 +424,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
 
             match insn.opc {
                 ebpf::ADD64_IMM if insn.dst == FRAME_PTR_REG as u8 && self.executable.get_sbpf_version().dynamic_stack_frames() => {
-                    let stack_ptr_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::StackPointer));
-                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_PTR_TO_VM, insn.imm, Some(stack_ptr_access)));
+                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_MAP[FRAME_PTR_REG], insn.imm, None));
                 }
 
                 ebpf::LD_DW_IMM if !self.executable.get_sbpf_version().disable_lddw() => {
@@ -767,12 +766,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     // else decrement and update CallDepth
                     self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_MAP[FRAME_PTR_REG], 1, None));
                     self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], REGISTER_PTR_TO_VM, call_depth_access));
-
-                    if !self.executable.get_sbpf_version().dynamic_stack_frames() {
-                        let stack_pointer_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::StackPointer));
-                        let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
-                        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_PTR_TO_VM, stack_frame_size, Some(stack_pointer_access))); // env.stack_pointer -= stack_frame_size;
-                    }
 
                     // and return
                     self.emit_profile_instruction_count(false, Some(0));
@@ -1540,7 +1533,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Push the caller's frame pointer. The code to restore it is emitted at the end of emit_internal_call().
         self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], RSP, X86IndirectAccess::OffsetIndexShift(8, RSP, 0)));
         self.emit_ins(X86Instruction::xchg(OperandSize::S64, REGISTER_SCRATCH, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Push return address and restore original REGISTER_SCRATCH
-
         // Increase CallDepth
         let call_depth_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::CallDepth));
         self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_PTR_TO_VM, 1, Some(call_depth_access)));
@@ -1548,15 +1540,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // If CallDepth == self.config.max_call_depth, stop and return CallDepthExceeded
         self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S32, REGISTER_MAP[FRAME_PTR_REG], self.config.max_call_depth as i64, None));
         self.emit_ins(X86Instruction::conditional_jump_immediate(0x83, self.relative_to_anchor(ANCHOR_CALL_DEPTH_EXCEEDED, 6)));
-
         // Setup the frame pointer for the new frame. What we do depends on whether we're using dynamic or fixed frames.
-        let stack_pointer_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::StackPointer));
+        self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, REGISTER_MAP[FRAME_PTR_REG], X86IndirectAccess::OffsetIndexShift(8, RSP, 0))); // Restore reg[ebpf::FRAME_PTR_REG]
         if !self.executable.get_sbpf_version().dynamic_stack_frames() {
             // With fixed frames we start the new frame at the next fixed offset
             let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
-            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_PTR_TO_VM, stack_frame_size, Some(stack_pointer_access))); // env.stack_pointer += stack_frame_size;
+            self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_MAP[FRAME_PTR_REG], stack_frame_size, None)); // REGISTER_MAP[FRAME_PTR_REG] += stack_frame_size;
         }
-        self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[FRAME_PTR_REG], stack_pointer_access)); // reg[ebpf::FRAME_PTR_REG] = env.stack_pointer;
         self.emit_ins(X86Instruction::return_near());
 
         // Routine for emit_internal_call(Value::Register())
