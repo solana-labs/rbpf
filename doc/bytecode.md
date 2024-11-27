@@ -19,7 +19,6 @@ All of them are 64 bit wide.
 |  `r8` | all         | GPR             | Call-preserved                    
 |  `r9` | all         | GPR             | Call-preserved                    
 | `r10` | all         | Frame pointer   | System register                   
-| `r11` | from v1     | Stack pointer   | System register                   
 |  `pc` | all         | Program counter | Hidden register                   
 
 
@@ -258,7 +257,6 @@ Except that the target location of `callx` is the src register, thus runtime dyn
 Call instructions (`call` and `callx` but not `syscall`) do:
 - Save the registers `r6`, `r7`, `r8`, `r9`, the frame pointer `r10` and the `pc` (pointing at the next instruction)
 - If < v1: Add one stack frame size to the frame pointer `r10`
-- If ≥ v1: Move the stack pointer `r11` into the frame pointer `r10`
 
 The `exit` (a.k.a. return) instruction does:
 - Restore the registers `r6`, `r7`, `r8`, `r9`, the frame pointer `r10` and the `pc`
@@ -324,13 +322,12 @@ Verification
 - For all instructions the source register must be `r0` ≤ src ≤ `r10`
 - For all instructions (except for memory writes) the destination register must be `r0` ≤ dst ≤ `r9`
 - For all instructions the opcode must be valid
-- Memory write instructions can use `r10` as destination register
 
 ### until v1
-- No instruction can use `r11` as destination register
+- Only memory write instruction can use `r10` as destination register
 
 ### from v1
-- `add64 reg, imm` can use `r11` as destination register
+- `add64 reg, imm` can also use `r10` as destination register
 
 ### until v2
 - Opcodes from the product / quotient / remainder instruction class are forbiden
