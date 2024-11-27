@@ -752,19 +752,16 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_validate_instruction_count(Some(self.pc));
 
                     let call_depth_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::CallDepth));
-                    self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[FRAME_PTR_REG], call_depth_access));
-
-                    // If CallDepth == 0, we've reached the exit instruction of the entry point
-                    self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S32, REGISTER_MAP[FRAME_PTR_REG], 0, None));
+                    // If env.call_depth == 0, we've reached the exit instruction of the entry point
+                    self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S32, REGISTER_PTR_TO_VM, 0, Some(call_depth_access)));
                     if self.config.enable_instruction_meter {
                         self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, self.pc as i64));
                     }
                     // we're done
                     self.emit_ins(X86Instruction::conditional_jump_immediate(0x84, self.relative_to_anchor(ANCHOR_EXIT, 6)));
 
-                    // else decrement and update CallDepth
-                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_MAP[FRAME_PTR_REG], 1, None));
-                    self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], REGISTER_PTR_TO_VM, call_depth_access));
+                    // else decrement and update env.call_depth
+                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 5, REGISTER_PTR_TO_VM, 1, Some(call_depth_access))); // env.call_depth -= 1;
 
                     // and return
                     self.emit_profile_instruction_count(false, Some(0));
@@ -1532,15 +1529,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Push the caller's frame pointer. The code to restore it is emitted at the end of emit_internal_call().
         self.emit_ins(X86Instruction::store(OperandSize::S64, REGISTER_MAP[FRAME_PTR_REG], RSP, X86IndirectAccess::OffsetIndexShift(8, RSP, 0)));
         self.emit_ins(X86Instruction::xchg(OperandSize::S64, REGISTER_SCRATCH, RSP, Some(X86IndirectAccess::OffsetIndexShift(0, RSP, 0)))); // Push return address and restore original REGISTER_SCRATCH
-        // Increase CallDepth
+        // Increase env.call_depth
         let call_depth_access = X86IndirectAccess::Offset(self.slot_in_vm(RuntimeEnvironmentSlot::CallDepth));
-        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_PTR_TO_VM, 1, Some(call_depth_access)));
-        self.emit_ins(X86Instruction::load(OperandSize::S64, REGISTER_PTR_TO_VM, REGISTER_MAP[FRAME_PTR_REG], call_depth_access));
-        // If CallDepth == self.config.max_call_depth, stop and return CallDepthExceeded
-        self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S32, REGISTER_MAP[FRAME_PTR_REG], self.config.max_call_depth as i64, None));
+        self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_PTR_TO_VM, 1, Some(call_depth_access))); // env.call_depth += 1;
+        // If env.call_depth == self.config.max_call_depth, throw CallDepthExceeded
+        self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S32, REGISTER_PTR_TO_VM, self.config.max_call_depth as i64, Some(call_depth_access)));
         self.emit_ins(X86Instruction::conditional_jump_immediate(0x83, self.relative_to_anchor(ANCHOR_CALL_DEPTH_EXCEEDED, 6)));
         // Setup the frame pointer for the new frame. What we do depends on whether we're using dynamic or fixed frames.
-        self.emit_ins(X86Instruction::load(OperandSize::S64, RSP, REGISTER_MAP[FRAME_PTR_REG], X86IndirectAccess::OffsetIndexShift(8, RSP, 0))); // Restore reg[ebpf::FRAME_PTR_REG]
         if !self.executable.get_sbpf_version().dynamic_stack_frames() {
             // With fixed frames we start the new frame at the next fixed offset
             let stack_frame_size = self.config.stack_frame_size as i64 * if self.config.enable_stack_frame_gaps { 2 } else { 1 };
