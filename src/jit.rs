@@ -422,10 +422,6 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             let target_pc = (self.pc as isize + insn.off as isize + 1) as usize;
 
             match insn.opc {
-                ebpf::ADD64_IMM if insn.dst == FRAME_PTR_REG as u8 && self.executable.get_sbpf_version().dynamic_stack_frames() => {
-                    self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x81, 0, REGISTER_MAP[FRAME_PTR_REG], insn.imm, None));
-                }
-
                 ebpf::LD_DW_IMM if !self.executable.get_sbpf_version().disable_lddw() => {
                     self.emit_validate_and_profile_instruction_count(false, Some(self.pc + 2));
                     self.pc += 1;
