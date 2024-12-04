@@ -537,9 +537,9 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::XOR32_REG  => self.emit_ins(X86Instruction::alu(OperandSize::S32, 0x31, src, dst, 0, None)),
                 ebpf::MOV32_IMM  => {
                     if self.should_sanitize_constant(insn.imm) {
-                        self.emit_sanitized_load_immediate(OperandSize::S32, dst, insn.imm);
+                        self.emit_sanitized_load_immediate(OperandSize::S64, dst, insn.imm as u32 as u64 as i64);
                     } else {
-                        self.emit_ins(X86Instruction::load_immediate(OperandSize::S32, dst, insn.imm));
+                        self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, dst, insn.imm as u32 as u64 as i64));
                     }
                 }
                 ebpf::MOV32_REG  => {
@@ -846,32 +846,27 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     #[inline]
     fn emit_sanitized_load_immediate(&mut self, size: OperandSize, destination: u8, value: i64) {
         match size {
-            OperandSize::S32 => {
-                let key = self.diversification_rng.gen::<i32>() as i64;
-                self.emit_ins(X86Instruction::load_immediate(size, destination, (value as i32).wrapping_sub(key as i32) as i64));
-                self.emit_ins(X86Instruction::alu(size, 0x81, 0, destination, key, None));
-            },
             OperandSize::S64 if value >= i32::MIN as i64 && value <= i32::MAX as i64 => {
                 let key = self.diversification_rng.gen::<i32>() as i64;
-                self.emit_ins(X86Instruction::load_immediate(size, destination, value.wrapping_sub(key)));
+                self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, destination, value.wrapping_sub(key)));
                 self.emit_ins(X86Instruction::alu(size, 0x81, 0, destination, key, None));
             },
             OperandSize::S64 if value as u64 & u32::MAX as u64 == 0 => {
                 let key = self.diversification_rng.gen::<i32>() as i64;
-                self.emit_ins(X86Instruction::load_immediate(size, destination, value.rotate_right(32).wrapping_sub(key)));
+                self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, destination, value.rotate_right(32).wrapping_sub(key)));
                 self.emit_ins(X86Instruction::alu(size, 0x81, 0, destination, key, None)); // wrapping_add(key)
                 self.emit_ins(X86Instruction::alu(size, 0xc1, 4, destination, 32, None)); // shift_left(32)
             },
             OperandSize::S64 => {
                 let key = self.diversification_rng.gen::<i64>();
                 if destination != REGISTER_SCRATCH {
-                    self.emit_ins(X86Instruction::load_immediate(size, destination, value.wrapping_sub(key)));
-                    self.emit_ins(X86Instruction::load_immediate(size, REGISTER_SCRATCH, key));
+                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, destination, value.wrapping_sub(key)));
+                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, key));
                     self.emit_ins(X86Instruction::alu(size, 0x01, REGISTER_SCRATCH, destination, 0, None));
                 } else {
                     let lower_key = key as i32 as i64;
                     let upper_key = (key >> 32) as i32 as i64;
-                    self.emit_ins(X86Instruction::load_immediate(size, destination, value.wrapping_sub(lower_key).rotate_right(32).wrapping_sub(upper_key)));
+                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, destination, value.wrapping_sub(lower_key).rotate_right(32).wrapping_sub(upper_key)));
                     self.emit_ins(X86Instruction::alu(size, 0x81, 0, destination, upper_key, None)); // wrapping_add(upper_key)
                     self.emit_ins(X86Instruction::alu(size, 0xc1, 1, destination, 32, None)); // rotate_right(32)
                     self.emit_ins(X86Instruction::alu(size, 0x81, 0, destination, lower_key, None)); // wrapping_add(lower_key)
@@ -887,12 +882,12 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     #[inline]
     fn emit_sanitized_alu(&mut self, size: OperandSize, opcode: u8, opcode_extension: u8, destination: u8, immediate: i64) {
         if self.should_sanitize_constant(immediate) {
-            self.emit_sanitized_load_immediate(size, REGISTER_SCRATCH, immediate);
+            self.emit_sanitized_load_immediate(OperandSize::S64, REGISTER_SCRATCH, immediate);
             self.emit_ins(X86Instruction::alu(size, opcode, REGISTER_SCRATCH, destination, 0, None));
         } else if immediate >= i32::MIN as i64 && immediate <= i32::MAX as i64 {
             self.emit_ins(X86Instruction::alu(size, 0x81, opcode_extension, destination, immediate, None));
         } else {
-            self.emit_ins(X86Instruction::load_immediate(size, REGISTER_SCRATCH, immediate));
+            self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, immediate));
             self.emit_ins(X86Instruction::alu(size, opcode, REGISTER_SCRATCH, destination, 0, None));
         }
     }
@@ -1249,7 +1244,7 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     fn emit_shift(&mut self, size: OperandSize, opcode_extension: u8, source: u8, destination: u8, immediate: Option<i64>) {
         if let Some(immediate) = immediate {
             if self.should_sanitize_constant(immediate) {
-                self.emit_sanitized_load_immediate(OperandSize::S32, source, immediate);
+                self.emit_sanitized_load_immediate(OperandSize::S64, source, immediate);
             } else {
                 self.emit_ins(X86Instruction::alu(size, 0xc1, opcode_extension, destination, immediate, None));
                 return;
@@ -1303,14 +1298,14 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
             // Signed division overflows with MIN / -1.
             // If we have an immediate and it's not -1, we can skip the following check.
             if signed && imm.unwrap_or(-1) == -1 {
-                self.emit_ins(X86Instruction::load_immediate(size, REGISTER_SCRATCH, if let OperandSize::S64 = size { i64::MIN } else { i32::MIN as i64 }));
+                self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, if let OperandSize::S64 = size { i64::MIN } else { i32::MIN as i64 }));
                 self.emit_ins(X86Instruction::cmp(size, dst, REGISTER_SCRATCH, None)); // dst == MIN
 
                 if imm.is_none() {
                     // The exception case is: dst == MIN && src == -1
                     // Via De Morgan's law becomes: !(dst != MIN || src != -1)
                     // Also, we know that src != 0 in here, so we can use it to set REGISTER_SCRATCH to something not zero
-                    self.emit_ins(X86Instruction::load_immediate(size, REGISTER_SCRATCH, 0)); // No XOR here because we need to keep the status flags
+                    self.emit_ins(X86Instruction::load_immediate(OperandSize::S64, REGISTER_SCRATCH, 0)); // No XOR here because we need to keep the status flags
                     self.emit_ins(X86Instruction::cmov(size, 0x45, src, REGISTER_SCRATCH)); // if dst != MIN { REGISTER_SCRATCH = src; }
                     self.emit_ins(X86Instruction::cmp_immediate(size, src, -1, None)); // src == -1
                     self.emit_ins(X86Instruction::cmov(size, 0x45, src, REGISTER_SCRATCH)); // if src != -1 { REGISTER_SCRATCH = src; }
