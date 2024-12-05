@@ -486,12 +486,30 @@ impl X86Instruction {
     /// Load destination from immediate
     #[inline]
     pub const fn load_immediate(destination: u8, immediate: i64) -> Self {
+        let mut size = OperandSize::S64;
+        if immediate >= 0 {
+            if immediate <= u32::MAX as i64 {
+                // Zero extend u32 imm to u64 reg
+                size = OperandSize::S32;
+            }
+        } else if immediate >= i32::MIN as i64 {
+            // Sign extend i32 imm to i64 reg
+            return Self {
+                size: OperandSize::S64,
+                opcode: 0xc7,
+                second_operand: destination,
+                immediate_size: OperandSize::S32,
+                immediate,
+                ..Self::DEFAULT
+            };
+        }
+        // Load full u64 imm into u64 reg
         Self {
-            size: OperandSize::S64,
+            size,
             opcode: 0xb8 | (destination & 0b111),
             modrm: false,
             second_operand: destination,
-            immediate_size: OperandSize::S64,
+            immediate_size: size,
             immediate,
             ..Self::DEFAULT
         }
