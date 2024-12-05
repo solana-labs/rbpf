@@ -403,7 +403,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
             ebpf::LMUL32_REG if self.executable.get_sbpf_version().enable_pqr() => self.reg[dst] = (self.reg[dst] as u32).wrapping_mul(self.reg[src] as u32) as u64,
             ebpf::LMUL64_IMM if self.executable.get_sbpf_version().enable_pqr() => self.reg[dst] = self.reg[dst].wrapping_mul(insn.imm as u64),
             ebpf::LMUL64_REG if self.executable.get_sbpf_version().enable_pqr() => self.reg[dst] = self.reg[dst].wrapping_mul(self.reg[src]),
-            ebpf::UHMUL64_IMM if self.executable.get_sbpf_version().enable_pqr() => self.reg[dst] = (self.reg[dst] as u128).wrapping_mul(insn.imm as u64 as u128).wrapping_shr(64) as u64,
+            ebpf::UHMUL64_IMM if self.executable.get_sbpf_version().enable_pqr() => self.reg[dst] = (self.reg[dst] as u128).wrapping_mul(insn.imm as u32 as u128).wrapping_shr(64) as u64,
             ebpf::UHMUL64_REG if self.executable.get_sbpf_version().enable_pqr() => self.reg[dst] = (self.reg[dst] as u128).wrapping_mul(self.reg[src] as u128).wrapping_shr(64) as u64,
             ebpf::SHMUL64_IMM if self.executable.get_sbpf_version().enable_pqr() => self.reg[dst] = (self.reg[dst] as i64 as i128).wrapping_mul(insn.imm as i128).wrapping_shr(64) as u64,
             ebpf::SHMUL64_REG if self.executable.get_sbpf_version().enable_pqr() => self.reg[dst] = (self.reg[dst] as i64 as i128).wrapping_mul(self.reg[src] as i64 as i128).wrapping_shr(64) as u64,
@@ -415,7 +415,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                                 self.reg[dst] = (self.reg[dst] as u32 / self.reg[src] as u32) as u64;
             },
             ebpf::UDIV64_IMM if self.executable.get_sbpf_version().enable_pqr() => {
-                                self.reg[dst] /= insn.imm as u64;
+                                self.reg[dst] /= insn.imm as u32 as u64;
             }
             ebpf::UDIV64_REG if self.executable.get_sbpf_version().enable_pqr() => {
                 throw_error!(DivideByZero; self, self.reg[src], u64);
@@ -429,7 +429,7 @@ impl<'a, 'b, C: ContextObject> Interpreter<'a, 'b, C> {
                                 self.reg[dst] = (self.reg[dst] as u32 % self.reg[src] as u32) as u64;
             },
             ebpf::UREM64_IMM if self.executable.get_sbpf_version().enable_pqr() => {
-                                self.reg[dst] %= insn.imm as u64;
+                                self.reg[dst] %= insn.imm as u32 as u64;
             }
             ebpf::UREM64_REG if self.executable.get_sbpf_version().enable_pqr() => {
                 throw_error!(DivideByZero; self, self.reg[src], u64);

@@ -674,14 +674,20 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::LMUL32_IMM | ebpf::LMUL64_IMM | ebpf::UHMUL64_IMM | ebpf::SHMUL64_IMM |
                 ebpf::UDIV32_IMM | ebpf::UDIV64_IMM | ebpf::UREM32_IMM | ebpf::UREM64_IMM |
                 ebpf::SDIV32_IMM | ebpf::SDIV64_IMM | ebpf::SREM32_IMM | ebpf::SREM64_IMM
-                if self.executable.get_sbpf_version().enable_pqr() =>
+                if self.executable.get_sbpf_version().enable_pqr() => {
+                    let signed = insn.opc & (1 << 7) != 0;
+                    let mut imm = insn.imm;
+                    if !signed {
+                        imm &= u32::MAX as i64;
+                    }
                     self.emit_product_quotient_remainder(
                         if insn.opc & (1 << 4) != 0 { OperandSize::S64 } else { OperandSize::S32 },
                         insn.opc & (1 << 5) != 0,
                         insn.opc & (1 << 6) != 0,
-                        insn.opc & (1 << 7) != 0,
-                        dst, dst, Some(insn.imm),
-                    ),
+                        signed,
+                        dst, dst, Some(imm),
+                    )
+                }
                 ebpf::LMUL32_REG | ebpf::LMUL64_REG | ebpf::UHMUL64_REG | ebpf::SHMUL64_REG |
                 ebpf::UDIV32_REG | ebpf::UDIV64_REG | ebpf::UREM32_REG | ebpf::UREM64_REG |
                 ebpf::SDIV32_REG | ebpf::SDIV64_REG | ebpf::SREM32_REG | ebpf::SREM64_REG

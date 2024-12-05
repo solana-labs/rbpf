@@ -701,9 +701,9 @@ fn test_be64() {
 #[test]
 fn test_pqr() {
     let mut prog = [0; 48];
-    prog[0] = ebpf::MOV64_IMM;
+    prog[0] = ebpf::MOV32_IMM;
     prog[8] = ebpf::HOR64_IMM;
-    prog[16] = ebpf::MOV64_IMM;
+    prog[16] = ebpf::MOV32_IMM;
     prog[17] = 1; // dst = R1
     prog[24] = ebpf::HOR64_IMM;
     prog[25] = 1; // dst = R1
@@ -716,21 +716,31 @@ fn test_pqr() {
         (ebpf::UDIV64_IMM, 13u64, 4u64, 3u64),
         (ebpf::UREM32_IMM, 13u64, 4u64, 1u64),
         (ebpf::UREM64_IMM, 13u64, 4u64, 1u64),
-        (ebpf::UHMUL64_IMM, 13u64, u64::MAX, 12u64),
-        (ebpf::UDIV32_IMM, 13u64, u64::MAX, 0u64),
-        (ebpf::UDIV64_IMM, 13u64, u64::MAX, 0u64),
-        (ebpf::UREM32_IMM, 13u64, u64::MAX, 13u64),
-        (ebpf::UREM64_IMM, 13u64, u64::MAX, 13u64),
+        (ebpf::UHMUL64_IMM, 13u64, u32::MAX as u64, 0u64),
+        (ebpf::UDIV32_IMM, 13u64, u32::MAX as u64, 0u64),
+        (ebpf::UDIV64_IMM, 13u64, u32::MAX as u64, 0u64),
+        (ebpf::UREM32_IMM, 13u64, u32::MAX as u64, 13u64),
+        (ebpf::UREM64_IMM, 13u64, u32::MAX as u64, 13u64),
         (ebpf::UHMUL64_IMM, u64::MAX, 4u64, 3u64),
         (ebpf::UDIV32_IMM, u64::MAX, 4u64, (u32::MAX / 4) as u64),
         (ebpf::UDIV64_IMM, u64::MAX, 4u64, u64::MAX / 4),
         (ebpf::UREM32_IMM, u64::MAX, 4u64, 3u64),
         (ebpf::UREM64_IMM, u64::MAX, 4u64, 3u64),
-        (ebpf::UHMUL64_IMM, u64::MAX, u64::MAX, u64::MAX - 1),
-        (ebpf::UDIV32_IMM, u64::MAX, u64::MAX, 1u64),
-        (ebpf::UDIV64_IMM, u64::MAX, u64::MAX, 1u64),
-        (ebpf::UREM32_IMM, u64::MAX, u64::MAX, 0u64),
-        (ebpf::UREM64_IMM, u64::MAX, u64::MAX, 0u64),
+        (
+            ebpf::UHMUL64_IMM,
+            u64::MAX,
+            u32::MAX as u64,
+            u32::MAX as u64 - 1,
+        ),
+        (ebpf::UDIV32_IMM, u64::MAX, u32::MAX as u64, 1u64),
+        (
+            ebpf::UDIV64_IMM,
+            u64::MAX,
+            u32::MAX as u64,
+            u32::MAX as u64 + 2,
+        ),
+        (ebpf::UREM32_IMM, u64::MAX, u32::MAX as u64, 0u64),
+        (ebpf::UREM64_IMM, u64::MAX, u32::MAX as u64, 0u64),
         (
             ebpf::LMUL32_IMM,
             13i64 as u64,
