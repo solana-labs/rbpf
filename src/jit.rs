@@ -509,12 +509,24 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     }
                 },
                 ebpf::MUL32_IMM | ebpf::DIV32_IMM | ebpf::MOD32_IMM if !self.executable.get_sbpf_version().enable_pqr() =>
-                    self.emit_product_quotient_remainder(OperandSize::S32, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD, (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MUL, dst, dst, Some(insn.imm)),
+                    self.emit_product_quotient_remainder(
+                        OperandSize::S32,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MUL,
+                        dst, dst, Some(insn.imm),
+                    ),
                 ebpf::LD_1B_REG  if self.executable.get_sbpf_version().move_memory_instruction_classes() => {
                     self.emit_address_translation(Some(dst), Value::RegisterPlusConstant64(src, insn.off as i64, true), 1, None);
                 },
                 ebpf::MUL32_REG | ebpf::DIV32_REG | ebpf::MOD32_REG if !self.executable.get_sbpf_version().enable_pqr() =>
-                    self.emit_product_quotient_remainder(OperandSize::S32, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD, (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MUL, src, dst, None),
+                    self.emit_product_quotient_remainder(
+                        OperandSize::S32,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MUL,
+                        src, dst, None,
+                    ),
                 ebpf::LD_2B_REG  if self.executable.get_sbpf_version().move_memory_instruction_classes() => {
                     self.emit_address_translation(Some(dst), Value::RegisterPlusConstant64(src, insn.off as i64, true), 2, None);
                 },
@@ -594,7 +606,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 }
                 ebpf::SUB64_REG  => self.emit_ins(X86Instruction::alu(OperandSize::S64, 0x29, src, dst, 0, None)),
                 ebpf::MUL64_IMM | ebpf::DIV64_IMM | ebpf::MOD64_IMM if !self.executable.get_sbpf_version().enable_pqr() =>
-                    self.emit_product_quotient_remainder(OperandSize::S64, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD, (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MUL, dst, dst, Some(insn.imm)),
+                    self.emit_product_quotient_remainder(
+                        OperandSize::S64,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MUL,
+                        dst, dst, Some(insn.imm),
+                    ),
                 ebpf::ST_1B_IMM  if self.executable.get_sbpf_version().move_memory_instruction_classes() => {
                     self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 1, Some(Value::Constant64(insn.imm, true)));
                 },
@@ -602,7 +620,13 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                     self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 2, Some(Value::Constant64(insn.imm, true)));
                 },
                 ebpf::MUL64_REG | ebpf::DIV64_REG | ebpf::MOD64_REG if !self.executable.get_sbpf_version().enable_pqr() =>
-                    self.emit_product_quotient_remainder(OperandSize::S64, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD, (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL, (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MUL, src, dst, None),
+                    self.emit_product_quotient_remainder(
+                        OperandSize::S64,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MOD,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) != ebpf::BPF_MUL,
+                        (insn.opc & ebpf::BPF_ALU_OP_MASK) == ebpf::BPF_MUL,
+                        src, dst, None,
+                    ),
                 ebpf::ST_1B_REG  if self.executable.get_sbpf_version().move_memory_instruction_classes() => {
                     self.emit_address_translation(None, Value::RegisterPlusConstant64(dst, insn.off as i64, true), 1, Some(Value::Register(src)));
                 },
@@ -650,27 +674,25 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
                 ebpf::LMUL32_IMM | ebpf::LMUL64_IMM | ebpf::UHMUL64_IMM | ebpf::SHMUL64_IMM |
                 ebpf::UDIV32_IMM | ebpf::UDIV64_IMM | ebpf::UREM32_IMM | ebpf::UREM64_IMM |
                 ebpf::SDIV32_IMM | ebpf::SDIV64_IMM | ebpf::SREM32_IMM | ebpf::SREM64_IMM
-                if self.executable.get_sbpf_version().enable_pqr() => {
+                if self.executable.get_sbpf_version().enable_pqr() =>
                     self.emit_product_quotient_remainder(
                         if insn.opc & (1 << 4) != 0 { OperandSize::S64 } else { OperandSize::S32 },
                         insn.opc & (1 << 5) != 0,
                         insn.opc & (1 << 6) != 0,
                         insn.opc & (1 << 7) != 0,
                         dst, dst, Some(insn.imm),
-                    )
-                }
+                    ),
                 ebpf::LMUL32_REG | ebpf::LMUL64_REG | ebpf::UHMUL64_REG | ebpf::SHMUL64_REG |
                 ebpf::UDIV32_REG | ebpf::UDIV64_REG | ebpf::UREM32_REG | ebpf::UREM64_REG |
                 ebpf::SDIV32_REG | ebpf::SDIV64_REG | ebpf::SREM32_REG | ebpf::SREM64_REG
-                if self.executable.get_sbpf_version().enable_pqr() => {
+                if self.executable.get_sbpf_version().enable_pqr() =>
                     self.emit_product_quotient_remainder(
                         if insn.opc & (1 << 4) != 0 { OperandSize::S64 } else { OperandSize::S32 },
                         insn.opc & (1 << 5) != 0,
                         insn.opc & (1 << 6) != 0,
                         insn.opc & (1 << 7) != 0,
                         src, dst, None,
-                    )
-                }
+                    ),
 
                 // BPF_JMP class
                 ebpf::JA         => {
@@ -1272,7 +1294,16 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn emit_product_quotient_remainder(&mut self, size: OperandSize, alt_dst: bool, division: bool, signed: bool, src: u8, dst: u8, imm: Option<i64>) {
+    fn emit_product_quotient_remainder(
+        &mut self,
+        size: OperandSize,
+        alt_dst: bool,
+        division: bool,
+        signed: bool,
+        src: u8,
+        dst: u8,
+        imm: Option<i64>,
+    ) {
         //         LMUL UHMUL SHMUL UDIV SDIV UREM SREM
         // ALU     F7/4 F7/4  F7/5  F7/6 F7/7 F7/6 F7/7
         // src-in  REGISTER_SCRATCH  REGISTER_SCRATCH   REGISTER_SCRATCH   REGISTER_SCRATCH  REGISTER_SCRATCH  REGISTER_SCRATCH  REGISTER_SCRATCH
