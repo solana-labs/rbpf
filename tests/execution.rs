@@ -2491,6 +2491,20 @@ fn test_err_callx_oob_high() {
 }
 
 #[test]
+fn test_err_callx_oob_max() {
+    test_interpreter_and_jit_asm!(
+        "
+        mov64 r0, -0x8
+        hor64 r0, -0x1
+        callx r0
+        exit",
+        [],
+        TestContextObject::new(3),
+        ProgramResult::Err(EbpfError::CallOutsideTextSegment),
+    );
+}
+
+#[test]
 fn test_callx_unaligned_text_section() {
     test_interpreter_and_jit_elf!(
         "tests/elfs/callx_unaligned.so",
