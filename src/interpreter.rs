@@ -67,7 +67,11 @@ macro_rules! check_pc {
     ($self:expr, $next_pc:ident, $target_pc:expr) => {
         if ($target_pc as usize)
             .checked_mul(ebpf::INSN_SIZE)
-            .and_then(|offset| $self.program.get(offset..offset + ebpf::INSN_SIZE))
+            .and_then(|offset| {
+                $self
+                    .program
+                    .get(offset..offset.saturating_add(ebpf::INSN_SIZE))
+            })
             .is_some()
         {
             $next_pc = $target_pc;
