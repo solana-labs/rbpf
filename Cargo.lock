@@ -321,12 +321,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
-name = "scroll"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04c565b551bafbef4157586fa379538366e4385d42082f255bfd96e4fe8519da"
-
-[[package]]
 name = "shuttle"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -366,7 +360,6 @@ dependencies = [
  "log",
  "rand",
  "rustc-demangle",
- "scroll",
  "shuttle",
  "test_utils",
  "thiserror",
