@@ -65,6 +65,29 @@ jobs:
       if: matrix.rust == 'nightly' && matrix.os != 'windows-latest'
       shell: bash
 
+    - name: (Continuous Fuzzing) Get commit hash
+      id: get-commit-hash
+      shell: bash
+      run: echo "commit_hash=$(git rev-parse HEAD 2>/dev/null)" >> $GITHUB_OUTPUT
+      if: matrix.rust == 'nightly' && matrix.os == 'ubuntu-latest'
+    - name: (Continuous Fuzzing) Upload fuzzers as GitHub Artifact
+      uses: actions/upload-artifact@v4
+      id: artifact-zip-m1
+      with:
+        path: ./fuzz/target/x86_64-unknown-linux-gnu/release/
+        name: "artifact-rbpf-${{ matrix.os }}-${{github.run_id}}"
+        retention-days: 2
+      if: matrix.rust == 'nightly' && matrix.os == 'ubuntu-latest'
+    - name: (Continuous Fuzzing) Ping Fuzz Infrastructure
+      run: |
+          curl -L \
+          -X POST \
+          https://api.github.com/repos/asymmetric-research/FuzzCorp-bundler/dispatches \
+          -H 'Accept: application/vnd.github.everest-preview+json' \
+          -H "Authorization: Bearer ${{ secrets.PAT }}" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          --data '{"event_type": "rbpf_main", "client_payload":{"artifact_id": "${{steps.artifact-zip-m1.outputs.artifact-id }}", "bundle_type": "${{ matrix.os }}", "hash":"${{ steps.get-commit-hash.outputs.commit_hash }}", "run_id":"${{ github.run_id}}", "name":"artifact-rbpf-${{ matrix.os }}-${{github.run_id}}"}}'
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
