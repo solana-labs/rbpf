@@ -38,7 +38,7 @@ use crate::{
 
 const MAX_EMPTY_PROGRAM_MACHINE_CODE_LENGTH: usize = 4096;
 const MAX_MACHINE_CODE_LENGTH_PER_INSTRUCTION: usize = 110;
-const MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT: usize = 13;
+const MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT: usize = 23;
 const MAX_START_PADDING_LENGTH: usize = 256;
 
 pub struct JitProgram {
@@ -941,12 +941,10 @@ impl<'a, C: ContextObject> JitCompiler<'a, C> {
         // Update `MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT` if you change the code generation here
         if let Some(pc) = pc {
             self.last_instruction_meter_validation_pc = pc;
-            // instruction_meter >= self.pc
-            self.emit_ins(X86Instruction::cmp_immediate(OperandSize::S64, REGISTER_INSTRUCTION_METER, pc as i64, None));
-        } else {
-            // instruction_meter >= scratch_register
-            self.emit_ins(X86Instruction::cmp(OperandSize::S64, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, None));
+            self.emit_sanitized_load_immediate(REGISTER_SCRATCH, pc as i64);
         }
+        // If instruction_meter >= pc, throw ExceededMaxInstructions
+        self.emit_ins(X86Instruction::cmp(OperandSize::S64, REGISTER_SCRATCH, REGISTER_INSTRUCTION_METER, None));
         self.emit_ins(X86Instruction::conditional_jump_immediate(0x86, self.relative_to_anchor(ANCHOR_THROW_EXCEEDED_MAX_INSTRUCTIONS, 6)));
     }
 
@@ -1835,9 +1833,9 @@ mod tests {
         let instruction_meter_checkpoint_machine_code_length =
             instruction_meter_checkpoint_machine_code_length[0]
                 - instruction_meter_checkpoint_machine_code_length[1];
-        assert_eq!(
-            instruction_meter_checkpoint_machine_code_length,
-            MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT
+        assert!(
+            instruction_meter_checkpoint_machine_code_length
+                <= MACHINE_CODE_PER_INSTRUCTION_METER_CHECKPOINT
         );
 
         for sbpf_version in [SBPFVersion::V0, SBPFVersion::V3] {
